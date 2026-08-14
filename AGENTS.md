@@ -36,6 +36,7 @@ examples/
   mock-host/           外部 Server 互操作工具
 docs/
   design/              产品与功能设计
+  plugin-integration.md Host 账号登录、授权注册与凭证接入契约
   protocol.md          Host/Server/Client 权威线协议
   server.md            独立 Server 仓库设计输入
 ```
@@ -50,7 +51,7 @@ docs/
 
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
-| Plugin Host | Server connector、Pairing、Relay/Noise IK 与核心 runtime 已实现 | 真实 Harness E2E |
+| Plugin Host | 旧版匿名注册契约下的 Server connector、Pairing、Relay/Noise IK 与核心 runtime 已实现 | 适配账号登录与 Host 授权注册、真实 Harness E2E |
 | Plugin Client Mode | Local/Remote API switch、配对/设备控制、原生 API 白名单代理与 Web 入口已实现 | 真实 dsh-desktop 安装/E2E、断线重连 |
 | Android | Server API、membership reconcile 与 Relay/Noise IK 已实现 | 完整 resync、真机/外部 Server E2E |
 | Protocol | 基础与 Control frame 已实现 | 完整 Zod schema、limits、golden vectors |
@@ -131,6 +132,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 - `AGENTS.md`：面向编码 Agent，写仓库结构、进度、命令和实现约束。
 - `TODO.md`：未完成任务与优先级。
 - `docs/server.md`：独立 Server 项目的产品/功能设计。
+- `docs/plugin-integration.md`：Host Plugin 对接独立 Server 的账号认证、设备认证与凭证状态机。
 - `docs/protocol.md`：跨仓库协议规范。
 - `vibe-coding.md`：原始需求背景，当前边界以 `README.md`、`AGENTS.md` 和 `docs/README.md` 为准。
 

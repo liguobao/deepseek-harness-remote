@@ -169,9 +169,17 @@ REST/Control JSON 中的 key、nonce、handshake 和 ciphertext 使用无 paddin
 
 ## 8. 设备注册与 Token
 
+面向 Plugin 实现的端到端接入步骤、错误处理和本地存储要求另见
+[Host Plugin 接入指南](plugin-integration.md)。
+
 ### 8.1 注册
 
 `POST /api/v1/devices/register`
+
+Host 注册必须携带由同一 Server 签发的站点账号 Bearer token。官方服务默认使用
+`https://dsh.r2049.cn`，自部署时使用对应的 `REMOTE_PUBLIC_URL`；账号登录、Host
+注册、device token refresh 与 WebSocket 连接不得跨 Server origin 混用。Client
+设备可以匿名注册，随后通过 pairing 获得访问具体 Host 的 membership。
 
 请求：
 
@@ -200,7 +208,17 @@ REST/Control JSON 中的 key、nonce、handshake 和 ciphertext 使用无 paddin
 }
 ```
 
-注册是匿名 bootstrap，仅授权该 device 进入控制面。它不建立 membership，不授予访问任何 Host 的权限。
+Client 注册是匿名 bootstrap；Host 注册是账号授权的 bootstrap。注册只授权该
+device 进入控制面，不建立 membership，也不授予访问任何其他 Host 的权限。
+
+Host 重复注册时，Server 必须同时校验 `deviceId`、`identityKey`、`role` 和账号归属：
+
+- 缺少有效站点账号 token：`401 ACCOUNT_AUTH_REQUIRED`；
+- Host 已属于其他账号：`403 DEVICE_OWNERSHIP_REQUIRED`；
+- 历史 Host 没有 owner：`409 DEVICE_OWNERSHIP_REQUIRED`，不得仅凭公开的
+  `deviceId` / `identityKey` 自动认领；
+- 同一账号、`deviceId` 和 `identityKey` 可以幂等重新注册；role 或 identity key
+  变化必须拒绝。
 
 ### 8.2 Refresh
 
@@ -214,6 +232,16 @@ REST/Control JSON 中的 key、nonce、handshake 和 ciphertext 使用无 paddin
 ```
 
 Server 必须轮换 refresh token。旧 token 重用触发 token family revoke。Client 必须原子替换本地 token；不能在日志或 URL 中传 token。
+
+站点账号 token 只用于 Host 注册和账号接口，不得用于 WebSocket；Host 注册后使用
+独立 device access/refresh token。账号 token 当前没有 refresh 接口，过期后需要
+重新登录；有效的 device refresh token 不依赖账号 token。
+
+### 8.3 账号拥有的 Host
+
+`GET /api/v1/account/devices`，使用站点账号 Bearer token，返回该账号拥有的 Host。
+该接口只用于登录后的设备恢复或展示，不能替代本机 X25519 私钥；本机没有对应
+private key 时不得冒充、恢复或自动认领 Server 返回的 Host。
 
 ## 9. 配对协议
 
@@ -1122,9 +1150,11 @@ pong 回显 nonce。Heartbeat 不能携带业务数据。
 
 - `AUTH_REQUIRED`
 - `AUTH_INVALID`
+- `ACCOUNT_AUTH_REQUIRED`
 - `TOKEN_EXPIRED`
 - `DEVICE_NOT_FOUND`
 - `DEVICE_REVOKED`
+- `DEVICE_OWNERSHIP_REQUIRED`
 - `MEMBERSHIP_REQUIRED`
 - `PEER_IDENTITY_MISMATCH`
 

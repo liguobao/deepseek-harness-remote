@@ -22,6 +22,7 @@ Server、Remote Web 和 Admin 将由独立 Server 项目作为同一站点实现
 ## 权威文档
 
 - [Server 设计说明](server.md)：定义外部 Server 的职责、API、安全边界、数据模型和部署要求；只做设计，不授权在本仓库实现。
+- [Host Plugin 接入指南](plugin-integration.md)：定义账号登录、Host 授权注册、设备凭证轮换、WebSocket 和本地状态隔离要求。
 - [Remote Protocol v1](protocol.md)：定义 Host、Server、Client 的线协议，是本仓库 Plugin、Client 和共享协议包的实现依据。
 - [产品与功能设计](design/README.md)：定义 Plugin、Client 和共享基础能力。
 
