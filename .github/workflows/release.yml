@@ -68,13 +68,15 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Check types
-        run: pnpm check
+        run: |
+          pnpm --filter './packages/**' -r build
+          pnpm -r check
 
       - name: Run tests
-        run: pnpm test
+        run: pnpm -r test
 
       - name: Build workspace
-        run: NODE_ENV=production pnpm build
+        run: NODE_ENV=production pnpm -r build
 
       - name: Pack npm plugin
         run: |
