@@ -27,17 +27,18 @@
 - [ ] 将 `packages/protocol` 与 `docs/protocol.md` 逐项对齐，补齐 Control、Pairing、Connect、Relay、Signaling、RPC、Event、Error、Capability 和 Limits schema
 - [x] 移除代码中的 `allow_session`，v1 权限结果只保留 `allow_once | deny`
 - [ ] 实现并固定 `hello` / `hello.ack`、版本拒绝、能力协商和最大消息限制
-- [ ] 选定成熟 Noise 实现并完成 `Noise_IK_25519_ChaChaPoly_SHA256` Host/Client 握手
-- [ ] 定义握手后 transport key、方向 nonce/counter、rekey、断线销毁和身份绑定规则
+- [x] 选定 Noise framework 并完成 `Noise_IK_25519_ChaChaPoly_SHA256` Host/Client 握手
+- [ ] 完成第三方 Noise framework 的独立安全审查，并补齐长期连接 rekey/断线密钥清理策略
+- [x] 固定 prologue 身份绑定和双向 nonce/counter 规则
 - [ ] 增加协议 golden vectors 与跨端 conformance fixture
 - [ ] 为加密篡改、防重放、错误身份、counter 越界等核心安全不变量补测试
 - [ ] 确保业务 payload 只在认证后的端到端加密 channel 中传输
 
 ## P0：Host Plugin 纵向链路
 
-- [ ] 实现真实 Server control connection provider：注册、认证、心跳、指数退避和连接状态上报
-- [ ] 把 Pairing Controller 接到外部 Server API，完成 create、claim、Host confirm、过期与取消流程
-- [ ] 接入 Noise IK 握手 relay，并只向 RPC Router 暴露认证后的 secure channel
+- [x] 实现真实 Server control connection provider：注册、认证、心跳响应、指数退避和连接状态上报
+- [x] 把 Pairing Controller 接到外部 Server API，完成 create、claim、Host confirm 与过期流程
+- [x] 接入 Noise IK 握手 relay，并只向 RPC Router 暴露认证后的 secure channel
 - [ ] 将 Harness session/message/tool/agent 事件稳定映射到 Remote Protocol
 - [ ] 完成 `sync.from` 与内存 replay buffer，回放窗口不足时返回全量同步信号
 - [ ] 验证 `session.send`、流式 delta、tool events、`session.stop` 的真实 Harness 行为
@@ -48,7 +49,7 @@
 
 ## P0：Android 收敛
 
-- [ ] 将现有 Relay secure transport 替换为协议规定的 Noise IK channel
+- [x] 将现有 Relay secure transport 替换为协议规定的 Noise IK channel
 - [x] 跟进 Protocol schema，删除 `Allow session` 的类型与任何兼容分支
 - [ ] 接入完整 capability negotiation、`sync.from` 和 replay-window-missed 全量刷新
 - [ ] 验证前后台切换、网络变化、Server 重启和 Host 重启后的会话恢复

@@ -14,7 +14,11 @@ import { EventSequencer } from './event-sequencer.js'
 import type { HostIdentity, IdentityStore } from './identity-store.js'
 import type { SafeLogger } from './logging.js'
 import { PendingApprovals } from './pending-approvals.js'
+import { PairingController, PairingError, type PairingClaim } from './pairing-controller.js'
 import { HOST_CAPABILITIES, RpcRouter } from './rpc-router.js'
+import { HostServerApi } from './server-api.js'
+import { HostServerConnection } from './server-connection.js'
+import { ServerCredentialStore } from './server-credentials.js'
 import type { AuthenticatedPeerChannel } from './types.js'
 
 interface SessionTitleService {
@@ -37,7 +41,10 @@ export class HostPluginRuntime {
   readonly permissions: PermissionAdapter
   readonly router: RpcRouter
   readonly connections: ConnectionController
+  readonly pairings?: PairingController
   private identity?: HostIdentity
+  private readonly serverApi?: HostServerApi
+  private serverConnection?: HostServerConnection
   private closed = false
 
   constructor(
@@ -74,6 +81,10 @@ export class HostPluginRuntime {
       event => { void this.connections.send(event) },
       config.approvalTimeoutMs,
     )
+    if (config.serverUrl !== undefined) {
+      this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory))
+      this.pairings = new PairingController(identities, this.serverApi)
+    }
   }
 
   async start(): Promise<void> {
@@ -84,6 +95,19 @@ export class HostPluginRuntime {
       fingerprint: this.identity.fingerprint,
       server: this.config.serverUrl ?? 'not configured',
     })
+    if (this.serverApi !== undefined && this.pairings !== undefined) {
+      this.serverApi.bindIdentity(this.identity)
+      this.serverConnection = new HostServerConnection(
+        this.config,
+        this.identity,
+        this.identities,
+        this.serverApi,
+        this.pairings,
+        this.connections,
+        this.logger,
+      )
+      this.serverConnection.start()
+    }
   }
 
   currentIdentity(): HostIdentity {
@@ -94,6 +118,23 @@ export class HostPluginRuntime {
   acceptAuthenticatedPeer(channel: AuthenticatedPeerChannel): Promise<void> {
     this.currentIdentity()
     return this.connections.accept(channel)
+  }
+
+  async createPairing() {
+    if (this.pairings === undefined || this.serverConnection === undefined) {
+      throw new PairingError('SERVER_NOT_CONFIGURED', 'Configure serverUrl before creating a pairing.')
+    }
+    if (!this.serverConnection.isOnline()) {
+      throw new PairingError('HOST_OFFLINE', 'The Host control connection is not online yet.')
+    }
+    return this.pairings.create()
+  }
+
+  pendingPairings(): PairingClaim[] { return this.pairings?.pending() ?? [] }
+
+  confirmPairing(pairingId: string, decision: 'approve' | 'deny') {
+    if (this.pairings === undefined) throw new PairingError('SERVER_NOT_CONFIGURED', 'Configure serverUrl before confirming a pairing.')
+    return this.pairings.confirm(pairingId, decision)
   }
 
   onSessionCreated(session: Session): void {
@@ -123,6 +164,7 @@ export class HostPluginRuntime {
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
+    await this.serverConnection?.stop()
     this.pending.failAll('unavailable')
     await this.connections.close()
     this.logger.info('host runtime stopped')
@@ -134,10 +176,13 @@ export class HostPluginRuntime {
       deviceId: this.identity === undefined ? undefined : shortId(this.identity.deviceId),
       identityValid: this.identity !== undefined,
       serverConfigured: this.config.serverUrl !== undefined,
+      serverOnline: this.serverConnection?.isOnline() ?? false,
+      serverError: this.serverConnection?.lastError(),
       online: this.connections.isOnline(),
       peerDeviceId: this.connections.peerDeviceId() === undefined ? undefined : shortId(this.connections.peerDeviceId()!),
       trustedPeers: this.identities.listTrustedPeers().length,
       pendingApprovals: this.pending.snapshot().length,
+      pendingPairings: this.pairings?.pending().length ?? 0,
       lastSeq: this.events.currentSeq(),
     }
   }

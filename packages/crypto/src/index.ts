@@ -65,3 +65,11 @@ export function identityFingerprint(publicKey: string): string {
     .join('')
     .toUpperCase()
 }
+
+export {
+  NOISE_IK_PROTOCOL,
+  NoiseIkSession,
+  NoiseSessionError,
+  createNoisePrologue,
+} from './noise.js'
+export type { NoiseIkSessionOptions } from './noise.js'

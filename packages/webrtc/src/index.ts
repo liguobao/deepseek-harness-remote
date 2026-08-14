@@ -5,6 +5,7 @@ import {
   type ConnectAcceptedPayload,
   type HelloAckPayload,
   type RelayPayload,
+  type SecureHandshakePayload,
   type TransportStats,
 } from '@dsh-remote/protocol'
 
@@ -14,6 +15,12 @@ export interface RemoteTransport {
   onMessage(cb: (data: Uint8Array) => void): () => void
   close(): Promise<void>
   getStats(): TransportStats
+}
+
+export interface SecureHandshakeTransport extends RemoteTransport {
+  connectionInfo(): { connectionId: string; localDeviceId: string; remoteDeviceId: string }
+  sendHandshake(step: number, data: Uint8Array): Promise<void>
+  onHandshake(cb: (step: number, data: Uint8Array) => void): () => void
 }
 
 type MessageHandler = (data: Uint8Array) => void
@@ -47,6 +54,7 @@ export interface RelayTransportOptions {
 }
 
 export class RelayTransport extends BaseTransport {
+  private readonly handshakeHandlers = new Set<(step: number, data: Uint8Array) => void>()
   private socket?: WebSocket
   private bytesSent = 0
   private bytesReceived = 0
@@ -110,6 +118,32 @@ export class RelayTransport extends BaseTransport {
     this.relayCounter += 1
   }
 
+  connectionInfo(): { connectionId: string; localDeviceId: string; remoteDeviceId: string } {
+    if (this.connectionId === undefined) throw new Error('relay connection has not been authorized')
+    return {
+      connectionId: this.connectionId,
+      localDeviceId: this.options.deviceId,
+      remoteDeviceId: this.options.targetDeviceId,
+    }
+  }
+
+  async sendHandshake(step: number, data: Uint8Array): Promise<void> {
+    if (this.socket?.readyState !== WebSocket.OPEN || this.connectionId === undefined) {
+      throw new Error('relay connection has not been authorized')
+    }
+    this.sendControl('secure.handshake', {
+      connectionId: this.connectionId,
+      targetDeviceId: this.options.targetDeviceId,
+      step,
+      data: toBase64Url(data),
+    } satisfies SecureHandshakePayload)
+  }
+
+  onHandshake(cb: (step: number, data: Uint8Array) => void): () => void {
+    this.handshakeHandlers.add(cb)
+    return () => this.handshakeHandlers.delete(cb)
+  }
+
   async close(): Promise<void> {
     this.clearHandshake()
     this.socket?.close()
@@ -144,9 +178,6 @@ export class RelayTransport extends BaseTransport {
         if (typeof payload.connectionId !== 'string' || payload.connectionId.length === 0) {
           throw new Error('connect.accepted did not include a connectionId')
         }
-        if (payload.targetDeviceId !== this.options.deviceId || payload.transport !== 'relay') {
-          throw new Error('connect.accepted does not authorize this client relay')
-        }
         this.connectionId = payload.connectionId
         this.finishConnection()
         return
@@ -167,6 +198,18 @@ export class RelayTransport extends BaseTransport {
         const data = fromBase64Url(payload.ciphertext)
         this.bytesReceived += data.byteLength
         this.emit(data)
+        return
+      }
+      if (frame.type === 'secure.handshake') {
+        const payload = frame.payload as Partial<SecureHandshakePayload>
+        if (payload.connectionId !== this.connectionId
+          || payload.targetDeviceId !== this.options.deviceId
+          || !Number.isSafeInteger(payload.step)
+          || typeof payload.data !== 'string') {
+          throw new Error('Received a secure handshake frame for an unknown connection')
+        }
+        const data = fromBase64Url(payload.data)
+        for (const handler of this.handshakeHandlers) handler(payload.step!, data)
         return
       }
       if (frame.type === 'ping') this.sendControl('pong', frame.payload)

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { createControlFrame, createEvent, createRpcError, createRpcRequest, decodeMessage, encodeMessage, parseControlFrame, parseRemoteMessage } from '../src/index.js'
+import { controlFrameTypes, createControlFrame, createEvent, createRpcError, createRpcRequest, decodeMessage, encodeMessage, parseControlFrame, parseRemoteMessage } from '../src/index.js'
 
 describe('protocol envelope', () => {
+  it('contains every Server control frame used by protocol v1', () => {
+    expect(controlFrameTypes).toContain('pairing.resolved')
+  })
+
   it('round-trips RPC messages', () => {
     const message = createRpcRequest('sessions.list', {})
     expect(decodeMessage(encodeMessage(message))).toEqual(message)

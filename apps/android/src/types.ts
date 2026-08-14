@@ -39,7 +39,26 @@ export interface RemoteDevice {
   harnessVersion?: string
   fingerprint?: string
   lastSeenAt?: number
+  lastConnectedAt?: number
+  membershipId?: string
   trusted?: boolean
+}
+
+export interface ServerHostDevice {
+  deviceId: string
+  name: string
+  platform: string
+  role: 'host'
+  clientVersion?: string
+  harnessVersion?: string
+  lastConnectedAt?: number
+  membershipId: string
+}
+
+export interface DevicePresence {
+  deviceId: string
+  online: boolean
+  lastSeenAt?: number
 }
 
 export interface PairingResult {
@@ -53,6 +72,7 @@ export interface PairingStatus {
   status: 'waiting_host' | 'paired' | 'rejected' | 'expired'
   membershipId?: string
   hostDeviceId?: string
+  expiresAt?: number
 }
 
 export interface SystemInfo {
@@ -113,4 +133,5 @@ export interface ConnectionSnapshot {
 export interface PairLink {
   server?: string
   code?: string
+  hostFingerprint?: string
 }

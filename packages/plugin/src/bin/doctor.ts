@@ -6,9 +6,11 @@ export function doctor(runtime: HostPluginRuntime): string {
     'DSH Remote doctor',
     `Plugin: ${state.loaded ? 'loaded' : 'starting'}`,
     `Identity: ${state.identityValid ? `valid (${state.deviceId})` : 'unavailable'}`,
-    `Server: ${state.serverConfigured ? 'configured' : 'not configured'}`,
-    `Connection: ${state.online ? 'online' : 'offline'}`,
+    `Server: ${state.serverConfigured ? state.serverOnline ? 'online' : 'configured, offline' : 'not configured'}`,
+    ...(state.serverError === undefined ? [] : [`Server error: ${state.serverError}`]),
+    `Peer channel: ${state.online ? 'online' : 'offline'}`,
     `Trusted devices: ${state.trustedPeers}`,
+    `Pending pairings: ${state.pendingPairings}`,
     `Pending approvals: ${state.pendingApprovals}`,
     `Last event seq: ${state.lastSeq}`,
   ].join('\n')

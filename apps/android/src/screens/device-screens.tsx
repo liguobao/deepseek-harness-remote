@@ -84,10 +84,14 @@ export function DeviceDetailScreen({ device, onBack, onSessions, onForgotten }: 
 
   const forgetDevice = () => Alert.alert(
     `Forget ${device.name}?`,
-    'This removes trust from this phone. To reconnect later, pair the device again.',
+    'This revokes the server pairing and removes trust from this phone. To reconnect later, pair the device again.',
     [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Forget', style: 'destructive', onPress: () => void forget(device.deviceId).then(onForgotten) },
+      {
+        text: 'Forget',
+        style: 'destructive',
+        onPress: () => void forget(device.deviceId).then(forgotten => { if (forgotten) onForgotten() }),
+      },
     ],
   )
 

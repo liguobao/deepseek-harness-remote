@@ -31,7 +31,7 @@ export function websocketUrl(baseUrl: string): string {
 }
 
 export function normalizePairingCode(input: string): string {
-  const raw = input.toUpperCase().replace(/[^23456789A-HJ-NP-Z]/g, '').slice(0, 8)
+  const raw = input.toUpperCase().replace(/[^0-9A-HJKMNP-TV-Z]/g, '').slice(0, 8)
   return raw.length > 4 ? `${raw.slice(0, 4)}-${raw.slice(4)}` : raw
 }
 
@@ -39,9 +39,16 @@ export function parsePairLink(url: string): PairLink {
   try {
     const parsed = new URL(url)
     if (parsed.protocol !== 'dshremote:' || parsed.hostname !== 'pair') return {}
+    if (parsed.searchParams.get('v') !== '1') return {}
+    const server = parsed.searchParams.get('server') ?? undefined
+    const code = parsed.searchParams.get('code') ?? undefined
+    const rawFingerprint = parsed.searchParams.get('hostFp')
+    const hostFingerprint = rawFingerprint?.replace(/[^A-Fa-f0-9]/g, '').toUpperCase()
+    if (rawFingerprint !== null && hostFingerprint?.length !== 12) return {}
     return {
-      server: parsed.searchParams.get('server') ?? undefined,
-      code: parsed.searchParams.get('code') ?? undefined,
+      ...(server === undefined ? {} : { server }),
+      ...(code === undefined ? {} : { code }),
+      ...(hostFingerprint === undefined ? {} : { hostFingerprint }),
     }
   } catch {
     return {}

@@ -476,7 +476,8 @@ Noise_IK_25519_ChaChaPoly_SHA256
 - Initiator：Client。
 - Responder：Host。
 - 双方 static X25519 key 在配对后已知并受信。
-- Prologue 绑定：`DSH-REMOTE`, protocol v1, connectionId, Host deviceId, Client deviceId。
+- Prologue 绑定：`DSH-REMOTE`, protocol v1, connectionId, Host deviceId, Client deviceId。v1 的规范 UTF-8 编码为
+  `DSH-REMOTE\0v=1\0connection=<connectionId>\0host=<hostDeviceId>\0client=<clientDeviceId>`。
 - 禁止自行实现 Noise state machine 或修改算法组合。
 
 首次 pairing 可增加 Noise XX/SAS 流程；在该流程标准化前，MVP 必须要求 Host 本机确认和 Client 校验 Host fingerprint。

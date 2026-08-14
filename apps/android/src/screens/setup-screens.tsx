@@ -55,8 +55,9 @@ export function ServerSetupScreen({ onComplete, onBack }: { onComplete: () => vo
   )
 }
 
-export function PairDeviceScreen({ initialCode = '', onBack, onPaired }: {
+export function PairDeviceScreen({ initialCode = '', expectedHostFingerprint, onBack, onPaired }: {
   initialCode?: string
+  expectedHostFingerprint?: string
   onBack: () => void
   onPaired: (device: RemoteDevice) => void
 }) {
@@ -69,7 +70,7 @@ export function PairDeviceScreen({ initialCode = '', onBack, onPaired }: {
   useEffect(() => setCode(normalizePairingCode(initialCode)), [initialCode])
 
   const submit = async () => {
-    const host = await pairDevice(code)
+    const host = await pairDevice(code, expectedHostFingerprint)
     if (host !== undefined) onPaired(host)
   }
 

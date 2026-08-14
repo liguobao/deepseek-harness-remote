@@ -39,7 +39,7 @@ const claim = await request<PairingResult>('/api/v1/pairings/claim', {
   method: 'POST',
   body: JSON.stringify({
     v: PROTOCOL_VERSION,
-    code: code.replace(/[^23456789A-HJ-NP-Z]/gi, '').toUpperCase(),
+    code: code.replace(/[^0-9A-HJKMNP-TV-Z]/gi, '').toUpperCase(),
     clientDeviceId: identity.deviceId,
   }),
 }, accessToken)

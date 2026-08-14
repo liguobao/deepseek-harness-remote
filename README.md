@@ -62,7 +62,7 @@ pnpm --filter @dsh-remote/plugin build
 
 构建产物位于 `packages/plugin/dist`。将该 package 交给 DeepSeek Harness 的 Cordis profile/patch loader 加载；Plugin 导出标准的 `name`、`Config` 和 `apply(ctx, config)`。
 
-当前 package 实现 Host runtime 核心，但不会自行创建公开端口。真实 Server connector/Noise provider 应在完成认证后，通过 `ctx.dshRemote.acceptAuthenticatedPeer(channel)` 接入业务通道。
+Plugin 不创建公开端口；它会主动连接配置的 Server，完成设备注册、Token 轮换、WSS 控制面、Relay 与 Noise IK。只有通过 Server membership、本机 trusted peer 和 Noise static identity 三重校验的通道才会进入 Harness RPC。
 
 ### 配置
 
@@ -71,7 +71,7 @@ Plugin 可通过 Cordis 配置对象加载：
 ```ts
 {
   enabled: true,
-  serverUrl: 'https://remote.example.com',
+  serverUrl: 'https://dsh.r2049.cn',
   deviceName: 'Workstation',
   forceRelay: false,
   logLevel: 'info',
@@ -87,7 +87,7 @@ Plugin 可通过 Cordis 配置对象加载：
 也可以使用环境变量设置 Server：
 
 ```bash
-export DSH_REMOTE_SERVER=https://remote.example.com
+export DSH_REMOTE_SERVER=https://dsh.r2049.cn
 ```
 
 生产 Server 必须使用 HTTPS/WSS；只有 `localhost`、`127.0.0.1` 和 `::1` 允许开发期 HTTP。
@@ -111,6 +111,7 @@ Plugin 将身份保存在 `$DSH_HOME/remote`，未设置 `DSH_HOME` 时使用 `~
 - `device.json`：设备 ID、名称、公钥和 schema 版本
 - `device.key`：Host 私钥，权限必须为 `0600`
 - `trusted-peers.json`：Host 已确认的 Remote Client
+- `server-credentials.json`：当前 Server 的短期 access token 与轮换 refresh token，权限必须为 `0600`
 
 私钥损坏、公私钥不匹配或权限过宽时，Plugin 会拒绝继续使用该身份，而不是静默重建并继承旧信任。
 

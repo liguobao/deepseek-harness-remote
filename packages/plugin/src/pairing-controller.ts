@@ -20,17 +20,25 @@ export interface PairingServer {
 
 export class PairingController {
   private readonly claims = new Map<string, PairingClaim>()
+  private readonly offers = new Map<string, number>()
 
   constructor(private readonly identities: IdentityStore, private readonly server: PairingServer) {}
 
-  create() { return this.server.create(this.identities.current()) }
+  async create() {
+    const created = await this.server.create(this.identities.current())
+    this.offers.set(created.pairingId, created.expiresAt)
+    return created
+  }
 
-  receiveClaim(claim: PairingClaim): void {
-    if (claim.expiresAt <= Date.now()) throw new PairingError('PAIRING_EXPIRED', 'The pairing request has expired.')
-    if (normalizeFingerprint(fingerprint(claim.client.identityKey)) !== normalizeFingerprint(claim.client.fingerprint)) {
+  receiveClaim(claim: Omit<PairingClaim, 'expiresAt'> & { expiresAt?: number }): void {
+    const expiresAt = claim.expiresAt ?? this.offers.get(claim.pairingId)
+    if (expiresAt === undefined) throw new PairingError('PAIRING_NOT_FOUND', 'The pairing request was not created by this Host process.')
+    const normalized = { ...claim, expiresAt }
+    if (normalized.expiresAt <= Date.now()) throw new PairingError('PAIRING_EXPIRED', 'The pairing request has expired.')
+    if (normalizeFingerprint(fingerprint(normalized.client.identityKey)) !== normalizeFingerprint(normalized.client.fingerprint)) {
       throw new PairingError('PAIRING_FINGERPRINT_MISMATCH', 'The client fingerprint does not match its identity key.')
     }
-    this.claims.set(claim.pairingId, structuredClone(claim))
+    this.claims.set(normalized.pairingId, structuredClone(normalized))
   }
 
   pending(): PairingClaim[] {
@@ -46,19 +54,24 @@ export class PairingController {
       this.claims.delete(pairingId)
       throw new PairingError('PAIRING_EXPIRED', 'The pairing request has expired.')
     }
-    await this.server.confirm({
+    const result = await this.server.confirm({
       pairingId,
       decision,
       clientDeviceId: claim.client.deviceId,
       clientFingerprint: normalizeFingerprint(claim.client.fingerprint),
     })
     this.claims.delete(pairingId)
+    this.offers.delete(pairingId)
     if (decision === 'deny') return undefined
+    if (result.membershipId === undefined || result.membershipId.length === 0) {
+      throw new PairingError('INVALID_MESSAGE', 'The Server did not return a membership for an approved pairing.')
+    }
     return this.identities.trustPeer({
       deviceId: claim.client.deviceId,
       name: claim.client.name,
       platform: claim.client.platform,
       publicKey: claim.client.identityKey,
+      membershipId: result.membershipId,
     })
   }
 }

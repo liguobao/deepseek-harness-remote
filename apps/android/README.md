@@ -7,10 +7,10 @@ React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness hos
 - Configure and health-check a self-hosted Remote server, register the Android device, and rotate its access/refresh tokens in SecureStore.
 - Generate a random Android client identity and keep its private key in Keystore-backed `expo-secure-store`.
 - Claim an 8-character pairing code through the protocol v1 API, verify the Host fingerprint, wait for Host confirmation, and persist trusted Host public identities.
-- Show trusted device presence, Host/Workspace metadata, sessions, and connection state.
+- Reconcile Server memberships with locally pinned Host keys, show trusted device presence, Host/Workspace metadata, sessions, and connection state.
 - Send messages, consume streaming message/tool events, stop generation, and answer permission requests.
 - Reconnect after Android network/app lifecycle changes.
-- Encrypt Relay business frames with the shared crypto package and reject replayed counters.
+- Establish a Noise IK channel over the Server relay and reject tampered, replayed, or wrong-identity frames.
 - Register `react-native-webrtc` globals for native DataChannel support in a development build.
 
 The app does not run in Expo Go because WebRTC includes native code. Use a development build.

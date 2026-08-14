@@ -15,7 +15,7 @@ import { colors, radius, spacing, type } from './src/ui/theme'
 type Route =
   | { name: 'server' }
   | { name: 'devices' }
-  | { name: 'pair'; code?: string }
+  | { name: 'pair'; code?: string; hostFingerprint?: string }
   | { name: 'device'; deviceId: string }
   | { name: 'sessions' }
   | { name: 'chat' }
@@ -90,7 +90,7 @@ function AppNavigator() {
         const configured = await configureServer(pair.server)
         if (!configured) return
       }
-      reset({ name: 'pair', code: pair.code })
+      reset({ name: 'pair', code: pair.code, hostFingerprint: pair.hostFingerprint })
     }
     void Linking.getInitialURL().then(openLink)
     const subscription = Linking.addEventListener('url', event => { void openLink(event.url) })
@@ -109,7 +109,7 @@ function AppNavigator() {
       {error !== undefined && <ErrorBanner message={error} onDismiss={clearError} />}
       {route.name === 'server' && <ServerSetupScreen onBack={routes.length > 1 ? pop : undefined} onComplete={() => reset({ name: 'devices' })} />}
       {route.name === 'devices' && <DevicesScreen onPair={() => push({ name: 'pair' })} onDevice={device => push({ name: 'device', deviceId: device.deviceId })} onSettings={() => push({ name: 'settings' })} />}
-      {route.name === 'pair' && <PairDeviceScreen initialCode={route.code} onBack={pop} onPaired={device => replace({ name: 'device', deviceId: device.deviceId })} />}
+      {route.name === 'pair' && <PairDeviceScreen initialCode={route.code} expectedHostFingerprint={route.hostFingerprint} onBack={pop} onPaired={device => replace({ name: 'device', deviceId: device.deviceId })} />}
       {route.name === 'device' && deviceForRoute !== undefined && <DeviceDetailScreen device={deviceForRoute} onBack={pop} onSessions={() => push({ name: 'sessions' })} onForgotten={() => reset({ name: 'devices' })} />}
       {route.name === 'device' && deviceForRoute === undefined && <MissingRoute onBack={() => reset({ name: 'devices' })} />}
       {route.name === 'sessions' && <SessionsScreen onBack={pop} onSession={() => push({ name: 'chat' })} />}

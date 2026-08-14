@@ -79,13 +79,21 @@ describe('RelayTransport control handshake', () => {
 
     socket.receive(createControlFrame('connect.accepted', {
       connectionId: 'connection-1',
-      targetDeviceId: 'client-1',
-      transport: 'relay',
     }))
     await connecting
+    expect(transport.connectionInfo()).toEqual({
+      connectionId: 'connection-1',
+      localDeviceId: 'client-1',
+      remoteDeviceId: 'host-1',
+    })
+    await transport.sendHandshake(1, new Uint8Array([1, 2, 3]))
     await transport.send(new TextEncoder().encode('encrypted-frame'))
 
-    const relay = JSON.parse(socket.sent[2]!)
+    expect(JSON.parse(socket.sent[2]!)).toMatchObject({
+      type: 'secure.handshake',
+      payload: { connectionId: 'connection-1', targetDeviceId: 'host-1', step: 1, data: 'AQID' },
+    })
+    const relay = JSON.parse(socket.sent[3]!)
     expect(relay).toMatchObject({
       v: 1,
       type: 'relay',

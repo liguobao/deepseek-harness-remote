@@ -1,14 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
 import {
-  decryptFrame,
-  deriveSharedKey,
-  encryptFrame,
+  NoiseIkSession,
+  createNoisePrologue,
   fromBase64Url,
   generateKeyPair,
   identityFingerprint,
   toBase64Url,
-  type EncryptedFrame,
 } from '@dsh-remote/crypto'
 import {
   PROTOCOL_VERSION,
@@ -24,15 +22,17 @@ import {
   type RelayPayload,
   type RemoteMessage,
   type RpcRequestPayload,
+  type SecureHandshakePayload,
 } from '@dsh-remote/protocol'
 
 const server = process.env.DSH_REMOTE_SERVER ?? 'ws://127.0.0.1:8080/ws/v1/connect'
 const deviceId = process.env.DSH_REMOTE_DEVICE_ID ?? randomUUID()
 const keyPair = generateKeyPair()
 const trustedPeers = new Map<string, string>()
-const connections = new Map<string, string>()
-const sendCounters = new Map<string, number>()
-const receiveCounters = new Map<string, number>()
+const connections = new Map<string, {
+  clientDeviceId: string
+  noise: NoiseIkSession
+}>()
 const sessions = [
   { id: 's1', title: 'Fix OAuth issue', cwd: '~/Projects/foo', running: false, updatedAt: Date.now() },
 ]
@@ -76,6 +76,10 @@ async function handleControl(raw: string): Promise<void> {
   }
   if (frame.type === 'connect.incoming') {
     acceptConnection(frame.payload)
+    return
+  }
+  if (frame.type === 'secure.handshake') {
+    handleHandshake(frame.payload)
     return
   }
   if (frame.type === 'relay') {
@@ -143,18 +147,45 @@ function acceptConnection(value: unknown): void {
   if (trustedKey !== payload.clientIdentityKey) {
     sendControl('connect.rejected', {
       connectionId: payload.connectionId,
-      targetDeviceId: payload.clientDeviceId,
       code: 'PEER_IDENTITY_MISMATCH',
       message: 'Client identity does not match the locally trusted peer.',
     })
     return
   }
-  connections.set(payload.connectionId, payload.clientDeviceId)
-  sendControl('connect.accepted', {
-    connectionId: payload.connectionId,
-    targetDeviceId: payload.clientDeviceId,
-    transport: 'relay',
+  connections.set(payload.connectionId, {
+    clientDeviceId: payload.clientDeviceId,
+    noise: new NoiseIkSession({
+      role: 'responder',
+      localPrivateKey: keyPair.privateKey,
+      localPublicKey: keyPair.publicKey,
+      remotePublicKey: trustedKey,
+      prologue: createNoisePrologue(payload.connectionId, deviceId, payload.clientDeviceId),
+    }),
   })
+  sendControl('connect.accepted', { connectionId: payload.connectionId })
+}
+
+function handleHandshake(value: unknown): void {
+  const payload = value as Partial<SecureHandshakePayload>
+  const connectionId = payload.connectionId
+  const connection = typeof connectionId === 'string' ? connections.get(connectionId) : undefined
+  if (typeof connectionId !== 'string'
+    || connection === undefined
+    || payload.targetDeviceId !== deviceId
+    || payload.step !== 1
+    || typeof payload.data !== 'string'
+    || connection.noise.complete) {
+    throw new Error('Invalid Noise IK handshake frame')
+  }
+  connection.noise.readHandshake(fromBase64Url(payload.data))
+  const reply = connection.noise.writeHandshake()
+  if (!connection.noise.complete) throw new Error('Noise IK handshake did not complete')
+  sendControl('secure.handshake', {
+    connectionId,
+    targetDeviceId: connection.clientDeviceId,
+    step: 2,
+    data: toBase64Url(reply),
+  } satisfies SecureHandshakePayload)
 }
 
 async function handleRelay(value: unknown): Promise<void> {
@@ -162,9 +193,12 @@ async function handleRelay(value: unknown): Promise<void> {
   if (typeof relay.connectionId !== 'string' || relay.targetDeviceId !== deviceId || typeof relay.ciphertext !== 'string') {
     throw new Error('Invalid relay payload')
   }
-  const clientDeviceId = connections.get(relay.connectionId)
-  if (clientDeviceId === undefined) throw new Error('Relay frame belongs to an unauthorized connection')
-  const payload = decryptIncoming(fromBase64Url(relay.ciphertext), relay.connectionId, clientDeviceId)
+  const connection = connections.get(relay.connectionId)
+  if (connection === undefined || !connection.noise.complete) throw new Error('Relay frame belongs to an unauthorized connection')
+  if (!Number.isSafeInteger(relay.counter) || relay.counter !== Number(connection.noise.receivingCounter())) {
+    throw new Error('Rejected replayed or out-of-order Relay frame')
+  }
+  const payload = connection.noise.decrypt(fromBase64Url(relay.ciphertext))
   const message = decodeMessage(payload)
   if (message.type !== 'rpc.request') return
   const request = message as RemoteMessage<RpcRequestPayload>
@@ -225,39 +259,17 @@ function send(requestId: string, result: unknown, connectionId: string): void {
 }
 
 function sendMessage(message: RemoteMessage, connectionId: string): void {
-  const clientDeviceId = connections.get(connectionId)
-  if (clientDeviceId === undefined) throw new Error('Cannot send on an unauthorized connection')
-  const publicKey = trustedPeers.get(clientDeviceId)
-  if (publicKey === undefined) throw new Error('Cannot find the trusted client identity')
-  const counter = sendCounters.get(connectionId) ?? 0
-  sendCounters.set(connectionId, counter + 1)
-  const key = deriveSharedKey(keyPair.privateKey, publicKey)
-  const secure = {
-    secure: 1,
-    counter,
-    frame: encryptFrame(key, encodeMessage(message), frameAad(channelAad(deviceId, clientDeviceId), counter)),
-  }
+  const connection = connections.get(connectionId)
+  if (connection === undefined || !connection.noise.complete) throw new Error('Cannot send on an unauthorized connection')
+  const ciphertext = connection.noise.encrypt(encodeMessage(message))
+  const counter = Number(connection.noise.sendingCounter() - 1n)
+  if (!Number.isSafeInteger(counter) || counter < 0) throw new Error('Noise transport counter overflowed')
   sendControl('relay', {
     connectionId,
-    targetDeviceId: clientDeviceId,
+    targetDeviceId: connection.clientDeviceId,
     counter,
-    ciphertext: toBase64Url(new TextEncoder().encode(JSON.stringify(secure))),
+    ciphertext: toBase64Url(ciphertext),
   } satisfies RelayPayload)
-}
-
-function decryptIncoming(data: Uint8Array, connectionId: string, clientDeviceId: string): Uint8Array {
-  const envelope = JSON.parse(new TextDecoder().decode(data)) as { secure?: unknown; counter?: unknown; frame?: EncryptedFrame }
-  if (envelope.secure !== 1 || envelope.frame === undefined || !Number.isSafeInteger(envelope.counter)) {
-    throw new Error('Expected an encrypted relay frame')
-  }
-  const counter = envelope.counter as number
-  if (counter <= (receiveCounters.get(connectionId) ?? -1)) throw new Error('Rejected replayed relay frame')
-  const publicKey = trustedPeers.get(clientDeviceId)
-  if (publicKey === undefined) throw new Error('Cannot find the trusted client identity')
-  const key = deriveSharedKey(keyPair.privateKey, publicKey)
-  const plaintext = decryptFrame(key, envelope.frame, frameAad(channelAad(deviceId, clientDeviceId), counter))
-  receiveCounters.set(connectionId, counter)
-  return plaintext
 }
 
 async function registerDevice(): Promise<{ accessToken: string }> {
@@ -312,14 +324,6 @@ function httpBaseUrl(): string {
 
 function normalizeFingerprint(value: string): string {
   return value.replace(/[^A-Fa-f0-9]/g, '').toUpperCase()
-}
-
-function channelAad(firstDeviceId: string, secondDeviceId: string): string {
-  return `dsh-remote-v1:${[firstDeviceId, secondDeviceId].sort().join(':')}`
-}
-
-function frameAad(channel: string, counter: number): string {
-  return `${channel}:${counter}`
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

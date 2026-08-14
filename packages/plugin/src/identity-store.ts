@@ -20,6 +20,7 @@ const trustedPeerSchema = z.object({
   publicKey: z.string().min(1),
   fingerprint: z.string().min(1),
   trustedAt: z.number().int().nonnegative(),
+  membershipId: z.string().min(1).optional(),
 }).strict()
 
 const trustedPeersSchema = z.object({
@@ -43,6 +44,7 @@ export interface TrustedPeer {
   publicKey: string
   fingerprint: string
   trustedAt: number
+  membershipId?: string
 }
 
 export interface IdentityStoreOptions {

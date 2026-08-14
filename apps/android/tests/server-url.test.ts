@@ -14,9 +14,12 @@ describe('server URL handling', () => {
 
   it('formats pairing codes and parses deep links', () => {
     expect(normalizePairingCode('82kf 7qmp')).toBe('82KF-7QMP')
-    expect(parsePairLink('dshremote://pair?v=1&server=https%3A%2F%2Fremote.example.com&code=82KF-7QMP')).toEqual({
+    expect(normalizePairingCode('01io ulzz')).toBe('01ZZ')
+    expect(parsePairLink('dshremote://pair?v=1&server=https%3A%2F%2Fremote.example.com&code=82KF-7QMP&hostFp=F4A2992C13AB')).toEqual({
       server: 'https://remote.example.com',
       code: '82KF-7QMP',
+      hostFingerprint: 'F4A2992C13AB',
     })
+    expect(parsePairLink('dshremote://pair?v=2&code=82KF7QMP')).toEqual({})
   })
 })

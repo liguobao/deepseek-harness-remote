@@ -29,7 +29,7 @@ apps/
 packages/
   plugin/              DeepSeek Harness Host Plugin
   protocol/            Remote/Control frame 类型和运行时校验
-  crypto/              X25519、HKDF、ChaCha20-Poly1305 基础能力
+  crypto/              X25519、HKDF、ChaCha20-Poly1305 与 Noise IK
   webrtc/              Relay、WebRTC、LAN transport 抽象
   client-core/         RPC correlation 与 Remote event 分发
 examples/
@@ -46,10 +46,10 @@ docs/
 
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
-| Host Plugin | 核心 runtime 已实现 | 真实 Server connector、Noise provider、Harness E2E |
-| Android | MVP 已实现 | Noise IK、完整 resync、真机/外部 Server E2E |
+| Host Plugin | Server connector、Pairing、Relay/Noise IK 与核心 runtime 已实现 | 本地确认入口、真实 Harness E2E |
+| Android | Server API、membership reconcile 与 Relay/Noise IK 已实现 | 完整 resync、真机/外部 Server E2E |
 | Protocol | 基础与 Control frame 已实现 | 完整 Zod schema、limits、golden vectors |
-| Crypto | 基础原语已实现 | 标准 Noise IK、rekey、跨端 conformance |
+| Crypto | 基础原语与标准 Noise IK 已实现 | 第三方实现审查、rekey、跨端 conformance |
 | Relay Transport | Protocol v1 control/relay 已实现 | 心跳、限制协商、断线状态传播 |
 | WebRTC | 基础骨架 | signaling、ICE、TURN、自动 fallback |
 | Client Core | RPC/Event 基础实现 | reconnect、`sync.from`、full resync、idempotency |
@@ -88,7 +88,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 截至 2026-08-15：
 
 - `pnpm check` 通过
-- `pnpm test` 通过：19 个测试文件、37 个测试
+- `pnpm test` 通过：24 个测试文件、48 个测试
 - `pnpm build` 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 

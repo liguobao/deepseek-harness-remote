@@ -1,44 +1,66 @@
 import { describe, expect, it } from 'vitest'
-import { generateKeyPair } from '@dsh-remote/crypto'
-import type { RemoteTransport } from '@dsh-remote/webrtc'
+import { NoiseIkSession, createNoisePrologue, generateKeyPair } from '@dsh-remote/crypto'
+import type { SecureHandshakeTransport } from '@dsh-remote/webrtc'
 import { SecureTransport } from '../src/services/secure-transport'
 import type { DeviceIdentity, RemoteDevice } from '../src/types'
 
-class MemoryTransport implements RemoteTransport {
+class HostLoopbackTransport implements SecureHandshakeTransport {
   handler?: (data: Uint8Array) => void
-  sent?: Uint8Array
+  handshakeHandler?: (step: number, data: Uint8Array) => void
+  plaintext?: Uint8Array
+  closed = false
+
+  constructor(private readonly hostNoise: NoiseIkSession) {}
+
   async connect() {}
-  async send(data: Uint8Array) { this.sent = data }
+
+  async send(data: Uint8Array) { this.plaintext = this.hostNoise.decrypt(data) }
+
+  async sendHandshake(step: number, data: Uint8Array) {
+    expect(step).toBe(1)
+    this.hostNoise.readHandshake(data)
+    this.handshakeHandler?.(2, this.hostNoise.writeHandshake())
+  }
+
+  connectionInfo() { return { connectionId: 'connection-1', localDeviceId: 'client', remoteDeviceId: 'host' } }
+
+  onHandshake(handler: (step: number, data: Uint8Array) => void) {
+    this.handshakeHandler = handler
+    return () => { this.handshakeHandler = undefined }
+  }
+
   onMessage(handler: (data: Uint8Array) => void) { this.handler = handler; return () => { this.handler = undefined } }
-  async close() {}
-  getStats() { return { mode: 'Relay' as const, connected: true } }
+
+  async close() { this.closed = true }
+
+  getStats() { return { mode: 'Relay' as const, connected: !this.closed } }
+
+  sendFromHost(data: Uint8Array) { this.handler?.(this.hostNoise.encrypt(data)) }
 }
 
 describe('secure transport', () => {
-  it('encrypts relay content and decrypts it for the trusted peer', async () => {
+  it('performs Noise IK and protects both relay directions', async () => {
     const clientKeys = generateKeyPair(new Uint8Array(32).fill(1))
     const hostKeys = generateKeyPair(new Uint8Array(32).fill(2))
     const clientIdentity: DeviceIdentity = { deviceId: 'client', name: 'Phone', platform: 'android', ...clientKeys }
     const hostDevice: RemoteDevice = { deviceId: 'host', name: 'Host', platform: 'linux', online: true, identityKey: hostKeys.publicKey }
-    const clientWire = new MemoryTransport()
-    const hostWire = new MemoryTransport()
-    const client = new SecureTransport(clientWire, clientIdentity, hostDevice)
-    const host = new SecureTransport(hostWire, {
-      deviceId: 'host', name: 'Host', platform: 'android', ...hostKeys,
-    }, {
-      deviceId: 'client', name: 'Phone', platform: 'android', online: true, identityKey: clientKeys.publicKey,
+    const hostNoise = new NoiseIkSession({
+      role: 'responder',
+      localPrivateKey: hostKeys.privateKey,
+      localPublicKey: hostKeys.publicKey,
+      remotePublicKey: clientKeys.publicKey,
+      prologue: createNoisePrologue('connection-1', 'host', 'client'),
     })
+    const wire = new HostLoopbackTransport(hostNoise)
+    const client = new SecureTransport(wire, clientIdentity, hostDevice)
 
     let received = ''
-    host.onMessage(data => { received = new TextDecoder().decode(data) })
+    client.onMessage(data => { received = new TextDecoder().decode(data) })
+    await client.connect()
     await client.send(new TextEncoder().encode('private session text'))
-    const wireText = new TextDecoder().decode(clientWire.sent)
-    expect(wireText).not.toContain('private session text')
-    hostWire.handler?.(clientWire.sent!)
-    expect(received).toBe('private session text')
+    expect(new TextDecoder().decode(wire.plaintext)).toBe('private session text')
 
-    received = ''
-    hostWire.handler?.(clientWire.sent!)
-    expect(received).toBe('')
+    wire.sendFromHost(new TextEncoder().encode('private response'))
+    expect(received).toBe('private response')
   })
 })

@@ -2,19 +2,19 @@ import type { EventPayload, PermissionDecision } from '@dsh-remote/protocol'
 import { identityFingerprint } from '@dsh-remote/crypto'
 import * as Haptics from 'expo-haptics'
 import { create } from 'zustand'
-import { friendlyError } from '../lib/errors'
+import { RemoteApiError, friendlyError } from '../lib/errors'
 import { normalizePairingCode, normalizeServerUrl } from '../lib/server-url'
 import { RemoteServerApi } from '../services/api'
 import { AndroidRemoteConnection } from '../services/connection'
+import { reconcileTrustedDevices } from '../services/device-directory'
+import { serverSession } from '../services/server-session'
 import {
   clearLocalData,
   forgetHost,
-  loadDeviceCredentials,
   loadOrCreateIdentity,
   loadServerConfig,
   loadTrustedHosts,
   saveServerConfig,
-  saveDeviceCredentials,
   trustHost,
 } from '../services/storage'
 import type {
@@ -52,7 +52,7 @@ interface AppState {
 
   bootstrap(): Promise<void>
   configureServer(input: string): Promise<boolean>
-  pairDevice(code: string): Promise<RemoteDevice | undefined>
+  pairDevice(code: string, expectedHostFingerprint?: string): Promise<RemoteDevice | undefined>
   refreshDevices(): Promise<void>
   connectDevice(device: RemoteDevice): Promise<boolean>
   reconnect(): Promise<void>
@@ -62,7 +62,7 @@ interface AppState {
   sendMessage(text: string): Promise<boolean>
   stopSession(): Promise<void>
   respondPermission(requestId: string, decision: PermissionDecision): Promise<void>
-  forgetDevice(deviceId: string): Promise<void>
+  forgetDevice(deviceId: string): Promise<boolean>
   resetLocalData(): Promise<void>
   setOffline(): void
   clearError(): void
@@ -104,7 +104,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (identity === undefined) throw new Error('The Android device identity is not ready.')
       const publicApi = new RemoteServerApi(baseUrl)
       await publicApi.health()
-      await authenticatedApi(baseUrl, identity)
+      await serverSession.authenticate(baseUrl, identity)
       const config = { baseUrl }
       await saveServerConfig(config)
       set({ config, busyAction: undefined, devices: [] })
@@ -116,7 +116,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async pairDevice(input) {
+  async pairDevice(input, expectedHostFingerprint) {
     const { config, identity } = get()
     if (config === undefined || identity === undefined) return undefined
     const code = normalizePairingCode(input)
@@ -127,23 +127,32 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({ pairingPhase: 'claiming', pairingMessage: undefined, error: undefined })
     try {
-      const { api } = await authenticatedApi(config.baseUrl, identity)
+      const { api } = await serverSession.authenticate(config.baseUrl, identity)
       const claim = await api.claimPairing(code, identity.deviceId)
       const computedFingerprint = identityFingerprint(claim.host.identityKey)
       const advertisedFingerprint = claim.host.fingerprint?.trim()
       if (advertisedFingerprint !== undefined && normalizeFingerprint(advertisedFingerprint) !== computedFingerprint) {
         throw new Error('The host fingerprint does not match its identity key. Do not approve this pairing.')
       }
+      if (expectedHostFingerprint !== undefined
+        && normalizeFingerprint(expectedHostFingerprint) !== computedFingerprint) {
+        throw new Error('The host fingerprint does not match the pairing link. Do not approve this pairing.')
+      }
       const fingerprint = formatFingerprint(computedFingerprint)
       set({
         pairingPhase: 'waiting',
         pairingMessage: `Confirm this phone on the host and verify ${fingerprint}.`,
       })
-      const status = await waitForConfirmation(api, claim.pairingId)
+      const status = await waitForConfirmation(api, claim.pairingId, claim.expiresAt)
       if (status.hostDeviceId !== undefined && status.hostDeviceId !== claim.host.deviceId) {
         throw new Error('The paired host identity changed. Create a new pairing code.')
       }
-      const host: RemoteDevice = { ...claim.host, online: true, trusted: true }
+      const host: RemoteDevice = {
+        ...claim.host,
+        membershipId: status.membershipId,
+        online: true,
+        trusted: true,
+      }
       if (host.identityKey.length === 0) throw new Error('The host did not provide an encryption key. Create a new pairing code.')
       await trustHost(host)
       set(state => ({
@@ -164,16 +173,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { config, identity } = get()
     if (config === undefined || identity === undefined) return
     set({ refreshing: true })
-    const trusted = await loadTrustedHosts()
-    const { api } = await authenticatedApi(config.baseUrl, identity)
-    const current = await Promise.all(trusted.map(async host => {
-      try {
-        return { ...await api.getDevice(host.deviceId), trusted: true }
-      } catch {
-        return { ...host, online: false, trusted: true }
-      }
-    }))
-    set({ devices: current.filter(device => device.role !== 'client'), refreshing: false })
+    try {
+      const trusted = await loadTrustedHosts()
+      const { api } = await serverSession.authenticate(config.baseUrl, identity)
+      const result = await reconcileTrustedDevices(api, trusted)
+      await Promise.all(result.missingTrustedDeviceIds.map(forgetHost))
+      set({ devices: result.devices, refreshing: false })
+    } catch (error) {
+      set({ refreshing: false, error: friendlyError(error) })
+    }
   },
 
   async connectDevice(device) {
@@ -188,7 +196,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       error: undefined,
     })
     try {
-      const { credentials } = await authenticatedApi(config.baseUrl, identity)
+      const { credentials } = await serverSession.authenticate(config.baseUrl, identity)
       await connection.connect(config.baseUrl, identity, device, credentials.accessToken, event => get().handleRemoteEvent(event))
       const [systemInfo, workspace, sessions] = await Promise.all([
         connection.systemInfo(), connection.workspace(), connection.sessions(),
@@ -316,9 +324,29 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async forgetDevice(deviceId) {
-    if (get().selectedDevice?.deviceId === deviceId) await get().disconnect()
-    await forgetHost(deviceId)
-    set(state => ({ devices: state.devices.filter(device => device.deviceId !== deviceId) }))
+    const { config, identity } = get()
+    if (config === undefined || identity === undefined) return false
+    set({ busyAction: `forget:${deviceId}`, error: undefined })
+    try {
+      const { api } = await serverSession.authenticate(config.baseUrl, identity)
+      try {
+        await api.removeDevice(deviceId)
+      } catch (error) {
+        const alreadyRemoved = error instanceof RemoteApiError
+          && ['MEMBERSHIP_REQUIRED', 'DEVICE_NOT_FOUND', 'PAIRING_INVALID'].includes(error.code)
+        if (!alreadyRemoved) throw error
+      }
+      if (get().selectedDevice?.deviceId === deviceId) await get().disconnect()
+      await forgetHost(deviceId)
+      set(state => ({
+        devices: state.devices.filter(device => device.deviceId !== deviceId),
+        busyAction: undefined,
+      }))
+      return true
+    } catch (error) {
+      set({ busyAction: undefined, error: friendlyError(error) })
+      return false
+    }
   },
 
   async resetLocalData() {
@@ -343,39 +371,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 }))
 
-async function waitForConfirmation(api: RemoteServerApi, pairingId: string): Promise<import('../types').PairingStatus> {
-  const deadline = Date.now() + 90_000
+async function waitForConfirmation(
+  api: RemoteServerApi,
+  pairingId: string,
+  expiresAt: number,
+): Promise<import('../types').PairingStatus> {
+  const deadline = Math.min(expiresAt, Date.now() + 10 * 60_000)
   while (Date.now() < deadline) {
     const status = await api.pairingStatus(pairingId)
-    if (status.status === 'paired') return status
+    if (status.status === 'paired') {
+      if (status.membershipId === undefined || status.hostDeviceId === undefined) {
+        throw new Error('The server returned an incomplete pairing result.')
+      }
+      return status
+    }
     if (status.status === 'rejected') throw new Error('The host rejected this pairing request.')
     if (status.status === 'expired') throw new Error('The pairing code has expired.')
-    await delay(1_500)
+    // The Server default is 30 status requests/minute. Keep a margin below it.
+    await delay(2_500)
   }
   throw new Error('The host has not confirmed this phone yet. Check the host and try again.')
-}
-
-async function authenticatedApi(baseUrl: string, identity: DeviceIdentity): Promise<{
-  api: RemoteServerApi
-  credentials: import('../types').DeviceCredentials
-}> {
-  const now = Date.now()
-  let credentials = await loadDeviceCredentials(baseUrl, identity.deviceId)
-  if (credentials === undefined || credentials.accessTokenExpiresAt <= now + 30_000) {
-    const publicApi = new RemoteServerApi(baseUrl)
-    let tokens: Omit<import('../types').DeviceCredentials, 'deviceId' | 'serverUrl'>
-    if (credentials !== undefined && credentials.refreshTokenExpiresAt > now) {
-      tokens = await publicApi.refreshToken(identity.deviceId, credentials.refreshToken)
-    } else {
-      if (credentials !== undefined) {
-        throw new Error('This device registration has expired. Reset local data before registering it again.')
-      }
-      tokens = await publicApi.registerDevice(identity)
-    }
-    credentials = { ...tokens, deviceId: identity.deviceId, serverUrl: baseUrl }
-    await saveDeviceCredentials(credentials)
-  }
-  return { api: new RemoteServerApi(baseUrl, credentials.accessToken), credentials }
 }
 
 function reduceEvent(state: AppState, event: EventPayload): Partial<AppState> {
