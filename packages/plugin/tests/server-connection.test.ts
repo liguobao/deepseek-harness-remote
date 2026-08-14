@@ -6,7 +6,7 @@ import type { ResolvedConfig } from '../src/config.js'
 import type { HostIdentity, IdentityStore, TrustedPeer } from '../src/identity-store.js'
 import type { SafeLogger } from '../src/logging.js'
 import type { PairingController } from '../src/pairing-controller.js'
-import type { HostServerApi } from '../src/server-api.js'
+import { ServerApiError, type HostServerApi } from '../src/server-api.js'
 import { HostServerConnection } from '../src/server-connection.js'
 import type { AuthenticatedPeerChannel } from '../src/types.js'
 
@@ -129,6 +129,32 @@ describe('HostServerConnection', () => {
     const relay = JSON.parse(socket.sent[3]!)
     expect(relay).toMatchObject({ type: 'relay', payload: { counter: 0, targetDeviceId: 'client-1' } })
     expect(decodeMessage(clientNoise.decrypt(fromBase64UrlForTest(relay.payload.ciphertext)))).toEqual(request)
+    await server.stop()
+  })
+
+  it('stops reconnecting until account authorization is supplied', async () => {
+    const keys = generateKeyPair(new Uint8Array(32).fill(13))
+    const api = {
+      baseUrl: 'https://dsh.r2049.cn',
+      authenticate: vi.fn(async () => {
+        throw new ServerApiError('ACCOUNT_AUTH_REQUIRED', 'account login required', false, 401)
+      }),
+    } as unknown as HostServerApi
+    const server = new HostServerConnection(
+      { ...config(), reconnect: { ...config().reconnect, enabled: true } },
+      { schemaVersion: 1, deviceId: 'host-2', name: 'Host', fingerprint: 'HOST', ...keys },
+      { trustedPeer: vi.fn() } as unknown as IdentityStore,
+      api,
+      { receiveClaim: vi.fn() } as unknown as PairingController,
+      { close: vi.fn(async () => undefined) } as unknown as ConnectionController,
+      logger(),
+      () => new FakeWebSocket(),
+    )
+
+    server.start()
+    await flush()
+    expect(api.authenticate).toHaveBeenCalledTimes(1)
+    expect(server.lastError()).toBe('ACCOUNT_AUTH_REQUIRED')
     await server.stop()
   })
 })

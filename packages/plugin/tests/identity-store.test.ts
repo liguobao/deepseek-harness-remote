@@ -2,7 +2,7 @@ import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { IdentityInvalidError, IdentityStore } from '../src/identity-store.js'
+import { IdentityInvalidError, IdentityStore, serverStorageDirectory } from '../src/identity-store.js'
 
 const directories: string[] = []
 
@@ -46,6 +46,16 @@ describe('IdentityStore', () => {
       await chmod(join(permissive, 'device.key'), 0o644)
       await expect(new IdentityStore({ directory: permissive }).loadOrCreate('Host')).rejects.toThrow(/0600/)
     }
+  })
+
+  it('isolates Host and Client identities by normalized Server origin', async () => {
+    const root = await temporaryDirectory()
+    const firstHost = serverStorageDirectory(root, 'https://one.example.com', 'host')
+    const firstClient = serverStorageDirectory(root, 'https://one.example.com', 'client')
+    const secondHost = serverStorageDirectory(root, 'https://two.example.com', 'host')
+    expect(firstHost).not.toBe(firstClient)
+    expect(firstHost).not.toBe(secondHost)
+    expect(serverStorageDirectory(root, 'https://one.example.com/', 'host')).toBe(firstHost)
   })
 })
 

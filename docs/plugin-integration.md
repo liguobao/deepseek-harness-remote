@@ -1,6 +1,6 @@
 # Host Plugin 接入指南
 
-状态：最新 Server 契约；当前 Plugin 的账号登录与授权注册适配尚未完成，见 [TODO](../TODO.md)。
+状态：最新 Server 契约；Plugin 已实现邮箱登录、Host 授权注册、device token 隔离和按 Server origin 分区的本地状态。
 
 本文面向 DeepSeek Harness Host 插件开发者，描述插件如何登录账号、注册本机、保存凭证并连接 Remote Server。
 
@@ -285,4 +285,3 @@ server changed       → NO_SERVER（切换到该 Server 独立的本地状态�
 - Noise handshake secret 或解密后的业务 payload。
 
 可以记录经过截断或哈希处理的 deviceId、connectionId、错误码和连接阶段。生产环境必须校验证书，不允许“忽略 TLS 错误”。
-

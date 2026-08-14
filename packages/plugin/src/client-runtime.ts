@@ -41,6 +41,14 @@ export interface HostPairingControl {
   createPairing(): Promise<unknown>
   pendingPairings(): unknown[]
   confirmPairing(pairingId: string, decision: 'approve' | 'deny'): Promise<unknown>
+  hostStatus(): {
+    configured: boolean
+    online: boolean
+    error?: string
+    account?: string
+    accountRequired: boolean
+  }
+  authorizeHost(email: string, password: string): Promise<unknown>
 }
 
 export class ClientModeRuntime {
@@ -88,6 +96,7 @@ export class ClientModeRuntime {
       connected: this.connected !== undefined,
       transport: this.connected?.client.getStats().mode ?? 'Disconnected',
       hostPairingAvailable: this.host !== undefined,
+      ...(this.host === undefined ? {} : { host: this.host.hostStatus() }),
     }
   }
 
@@ -231,6 +240,14 @@ export class ClientModeRuntime {
         if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
         return ok(await this.host.createPairing())
       }
+      if (endpoint === 'host.account.login') {
+        if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
+        const value = record(payload)
+        if (typeof value.email !== 'string' || typeof value.password !== 'string') {
+          throw new ClientModeError('INVALID_MESSAGE', 'Email and password are required.')
+        }
+        return ok(await this.host.authorizeHost(value.email, value.password))
+      }
       if (endpoint === 'host.pairings') return ok(this.host?.pendingPairings() ?? [])
       if (endpoint === 'host.pairing.confirm') {
         if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
@@ -284,13 +301,19 @@ function record(value: unknown): Record<string, unknown> {
 function ok(value: unknown): RpcResult<unknown> { return { ok: true, value } }
 
 function fail(error: unknown): RpcResult<unknown> {
-  const source = error instanceof ClientModeError ? error : undefined
+  const source = error instanceof Error ? error : undefined
+  const remoteCode = source !== undefined && 'code' in source && typeof source.code === 'string'
+    ? source.code
+    : source instanceof ClientModeError ? source.code : undefined
+  const retryable = source !== undefined && 'retryable' in source && typeof source.retryable === 'boolean'
+    ? source.retryable
+    : source instanceof ClientModeError ? source.retryable : false
   return {
     ok: false,
     error: {
       code: 'internal',
       message: source?.message ?? 'The remote-mode operation failed.',
-      details: source === undefined ? {} : { remoteCode: source.code, retryable: source.retryable },
+      details: remoteCode === undefined ? {} : { remoteCode, retryable },
     },
   }
 }

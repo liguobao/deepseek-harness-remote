@@ -3,18 +3,17 @@
 Dual-role DeepSeek Harness plugin for DSH Remote.
 
 The package implements the Harness adapter boundary, persistent host identity
-and trusted peers, legacy anonymous Server registration/token rotation, the outbound WebSocket
+and trusted peers, account-authorized Host registration/token rotation, the outbound WebSocket
 control connection, pairing, Relay transport, Noise IK, permission fail-closed
 behavior, RPC routing, and event replay. Unencrypted business channels are not
 accepted.
 
 The latest Server contract requires a site account token to authorize Host
-registration. Account login, authenticated Host registration, and per-Server
-identity/credential isolation are not implemented yet, so first-time Host
-registration against that Server will fail with `ACCOUNT_AUTH_REQUIRED`. See
-the [Host Plugin integration guide](../../docs/plugin-integration.md) and
-[TODO](../../TODO.md). Anonymous Client bootstrap remains supported by the
-Server contract.
+registration. The sidebar signs in over the local loopback control channel,
+uses the temporary web token only for Host registration, then persists only the
+device credential. Identities, credentials, and trusted peers are isolated by
+normalized Server origin and Host/Client role. Anonymous Client bootstrap
+remains supported by the Server contract.
 
 With the default `role: both`, the same package also installs a browser client
 face. The sidebar target control can pair another machine, approve a local
@@ -27,9 +26,11 @@ actions, attachments, and downloads remain local/disabled.
 export const inject = ['sessions', 'agents', 'approval']
 ```
 
-The identity is stored under `$DSH_HOME/remote` (or `~/.dsh/remote`). The
-private key is created with mode `0600`; a damaged or overly permissive key is
-rejected instead of silently replaced.
+Identity state is stored under
+`$DSH_HOME/remote/servers/<origin-hash>/{host,client}`. The private key is
+created with mode `0600`; a damaged or overly permissive key is rejected
+instead of silently replaced. Legacy single-Server state is not migrated
+implicitly across origins.
 
 Configure the deployed Server with either the Cordis plugin option or the
 environment:

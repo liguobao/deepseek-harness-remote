@@ -4,10 +4,9 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { WorkspaceRegistry } from '@deepseek-ai/dsh-workspace'
-import { join } from 'node:path'
 import { ClientModeRuntime, type HostConnectionHandle } from './client-runtime.js'
 import { Config, resolveConfig, type Config as ConfigInput } from './config.js'
-import { IdentityStore } from './identity-store.js'
+import { IdentityStore, serverStorageDirectory } from './identity-store.js'
 import { SafeLogger } from './logging.js'
 import { HostPluginRuntime, type RuntimeDependencies } from './service.js'
 import { ClientServerApi } from './server-api.js'
@@ -28,7 +27,12 @@ export async function apply(ctx: Context, input: ConfigInput = {}): Promise<void
   const config = resolveConfig(input)
   if (!config.enabled) return
   const logger = new SafeLogger(ctx.logger, config.logLevel)
-  const hostIdentities = new IdentityStore()
+  const defaultIdentityDirectory = new IdentityStore().directory
+  const hostIdentities = new IdentityStore({
+    directory: config.serverUrl === undefined
+      ? defaultIdentityDirectory
+      : serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, 'host'),
+  })
   const apiProxy = ctx.get('apiProxy') as ApiProxy | undefined
   const connection = ctx.get('connection') as HostConnectionHandle | undefined
   const hostConfig = config.role === 'client' ? { ...config, serverUrl: undefined } : config
@@ -42,7 +46,9 @@ export async function apply(ctx: Context, input: ConfigInput = {}): Promise<void
 
   let clientRuntime: ClientModeRuntime | undefined
   if (config.role !== 'host' && config.serverUrl !== undefined && apiProxy !== undefined && connection !== undefined) {
-    const clientIdentities = new IdentityStore({ directory: join(hostIdentities.directory, 'client') })
+    const clientIdentities = new IdentityStore({
+      directory: serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, 'client'),
+    })
     clientRuntime = new ClientModeRuntime(
       config,
       clientIdentities,
@@ -85,7 +91,8 @@ export { resolveConfig } from './config.js'
 export { ConnectionController, ConnectionRejectedError } from './connection-controller.js'
 export { EventSequencer, FullResyncRequiredError } from './event-sequencer.js'
 export { fingerprint, IdentityInvalidError, IdentityStore } from './identity-store.js'
-export type { HostIdentity, TrustedPeer } from './identity-store.js'
+export { serverStorageDirectory } from './identity-store.js'
+export type { HostIdentity, RemoteDeviceRole, TrustedPeer } from './identity-store.js'
 export { PairingController, PairingError } from './pairing-controller.js'
 export type { PairingClaim, PairingServer } from './pairing-controller.js'
 export { ClientServerApi, HostServerApi, ServerApiError } from './server-api.js'

@@ -38,10 +38,10 @@
 
 ## P0：Plugin 纵向链路
 
-- [x] 按旧版匿名 Host 注册契约实现 Server control connection provider：注册、认证、心跳响应、指数退避和连接状态上报
-- [ ] 适配最新 Server 账号契约：登录站点账号、用 web account token 授权 Host 注册，并保持账号 token 与 device token 隔离
-- [ ] 按规范化 `serverUrl` 隔离 Host identity、账号状态和设备凭证；切换 Server 时不得复用旧域名的 deviceId/token/配对关系
-- [ ] 处理 `ACCOUNT_AUTH_REQUIRED`、`DEVICE_OWNERSHIP_REQUIRED`、账号过期和 legacy owner 缺失，提供安全的重新登录/轮换 identity 路径
+- [x] 实现 Server control connection provider：注册、认证、心跳响应、指数退避和连接状态上报
+- [x] 适配最新 Server 账号契约：登录站点账号、用 web account token 授权 Host 注册，并保持账号 token 与 device token 隔离
+- [x] 按规范化 `serverUrl` 隔离 Host identity、账号状态和设备凭证；切换 Server 时不复用旧域名的 deviceId/token/配对关系
+- [ ] 完善 `DEVICE_OWNERSHIP_REQUIRED`、账号过期和 legacy owner 缺失时的显式 identity 轮换/管理员迁移体验
 - [x] 把 Pairing Controller 接到外部 Server API，完成 create、claim、Host confirm 与过期流程
 - [x] 接入 Noise IK 握手 relay，并只向 RPC Router 暴露认证后的 secure channel
 - [ ] 将 Harness session/message/tool/agent 事件稳定映射到 Remote Protocol
@@ -113,7 +113,7 @@
 ## 第一版完成标准
 
 - [ ] 双角色 Plugin 可安装到真实 DeepSeek Harness，并主动连接外部 Server
-- [ ] Host 可登录目标 Server 的站点账号并完成账号授权注册，后台连接只使用独立 device token
+- [x] Host 可登录目标 Server 的站点账号并完成账号授权注册，后台连接只使用独立 device token
 - [ ] Android 可通过 8 位配对码完成 Host 二次确认和身份持久化
 - [ ] 客户端可查看 Host/Workspace、列出并打开会话、发送消息并接收流式事件
 - [ ] 客户端可停止生成，并对权限请求执行 `Allow once` 或 `Deny`

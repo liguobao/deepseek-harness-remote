@@ -21,6 +21,13 @@ interface RemoteStatus {
   target?: { deviceId: string; name: string }
   available: boolean
   hostPairingAvailable: boolean
+  host?: {
+    configured: boolean
+    online: boolean
+    error?: string
+    account?: string
+    accountRequired: boolean
+  }
 }
 
 interface RemoteDevice {
@@ -59,6 +66,8 @@ window.__ModuleLoader__.load({
       const [pendingHost, setPendingHost] = React.useState<{ name: string; fingerprint: string } | undefined>(undefined)
       const [hostCode, setHostCode] = React.useState<string | undefined>(undefined)
       const [hostClaims, setHostClaims] = React.useState<HostPairingClaim[]>([])
+      const [email, setEmail] = React.useState('')
+      const [password, setPassword] = React.useState('')
       const [busy, setBusy] = React.useState(false)
       const [error, setError] = React.useState<string | undefined>(undefined)
       const [supported, setSupported] = React.useState(true)
@@ -74,6 +83,10 @@ window.__ModuleLoader__.load({
 
       const refreshHostClaims = async (): Promise<void> => {
         setHostClaims(await props.control<HostPairingClaim[]>('host.pairings').catch(() => []))
+      }
+
+      const refreshStatus = async (): Promise<void> => {
+        setStatus(await props.control<RemoteStatus>('status'))
       }
 
       React.useEffect(() => {
@@ -104,8 +117,11 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         if (!open) return
-        void refreshHostClaims()
-        const timer = window.setInterval(() => { void refreshHostClaims() }, 1500)
+        void Promise.all([refreshHostClaims(), refreshStatus()])
+        const timer = window.setInterval(() => {
+          void refreshHostClaims()
+          void refreshStatus()
+        }, 1500)
         return () => window.clearInterval(timer)
       }, [open])
 
@@ -146,6 +162,21 @@ window.__ModuleLoader__.load({
         } catch (reason) {
           setError(messageOf(reason))
         } finally {
+          setBusy(false)
+        }
+      }
+
+      const loginHost = async (): Promise<void> => {
+        if (email.trim() === '' || password === '') return
+        setBusy(true)
+        setError(undefined)
+        try {
+          await props.control('host.account.login', { email: email.trim(), password })
+          await refreshStatus()
+        } catch (reason) {
+          setError(messageOf(reason))
+        } finally {
+          setPassword('')
           setBusy(false)
         }
       }
@@ -213,10 +244,45 @@ window.__ModuleLoader__.load({
             }, pendingPairing === undefined ? 'Pair' : 'Waiting for Host…')),
           pendingHost === undefined ? null : React.createElement('p', { className: 'dshRemoteFingerprint' },
             `Verify on the Host: ${pendingHost.name} · ${pendingHost.fingerprint}`),
+          status?.hostPairingAvailable && status.host !== undefined
+            ? React.createElement('div', { className: 'dshRemoteHostAccount' },
+              React.createElement('strong', null, 'This machine as Remote Host'),
+              React.createElement('p', null, status.host.online
+                ? `Connected${status.host.account === undefined ? '' : ` as ${status.host.account}`}`
+                : status.host.accountRequired
+                  ? 'Sign in to authorize this Host on the selected Server.'
+                  : status.host.error === undefined
+                    ? 'Checking Host registration…'
+                    : `Host unavailable: ${status.host.error}`),
+              status.host.accountRequired ? React.createElement('div', { className: 'dshRemoteLogin' },
+                React.createElement('input', {
+                  type: 'email',
+                  value: email,
+                  disabled: busy,
+                  autoComplete: 'username',
+                  placeholder: 'Server account email',
+                  'aria-label': 'Server account email',
+                  onChange: (event: Event) => setEmail((event.target as HTMLInputElement).value),
+                }),
+                React.createElement('input', {
+                  type: 'password',
+                  value: password,
+                  disabled: busy,
+                  autoComplete: 'current-password',
+                  placeholder: 'Password',
+                  'aria-label': 'Server account password',
+                  onChange: (event: Event) => setPassword((event.target as HTMLInputElement).value),
+                }),
+                React.createElement('button', {
+                  type: 'button',
+                  disabled: busy || email.trim() === '' || password === '',
+                  onClick: () => void loginHost(),
+                }, busy ? 'Signing in…' : 'Sign in and register Host')) : null)
+            : null,
           status?.hostPairingAvailable ? React.createElement('div', { className: 'dshRemoteHostPairing' },
             React.createElement('button', {
               type: 'button',
-              disabled: busy,
+              disabled: busy || status.host?.online !== true,
               onClick: () => void createHostPairing(),
             }, hostCode === undefined ? 'Pair another client to this Host' : `Code: ${hostCode}`),
             ...hostClaims.map(claim => React.createElement('div', { className: 'dshRemoteClaim', key: claim.pairingId },
@@ -240,6 +306,8 @@ window.__ModuleLoader__.load({
         '.dshRemoteHeader{display:flex;align-items:center;justify-content:space-between}.dshRemoteHeader button{border:0;font-size:22px;padding:0 6px}',
         '.dshRemoteDevices{display:grid;gap:8px}.dshRemoteDevices p{margin:4px 0;color:var(--dsw-alias-label-secondary)}',
         '.dshRemotePair{display:grid;grid-template-columns:1fr auto;gap:8px}.dshRemoteError{margin:0;color:var(--dsw-alias-state-danger,#c33)}',
+        '.dshRemoteHostAccount{display:grid;gap:8px;border-top:1px solid var(--dsw-alias-border-l3);padding-top:12px}.dshRemoteHostAccount p{margin:0;color:var(--dsw-alias-label-secondary);font-size:13px}',
+        '.dshRemoteLogin{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dshRemoteLogin button{grid-column:1/-1}',
         '.dshRemoteHostPairing{display:grid;gap:8px;border-top:1px solid var(--dsw-alias-border-l3);padding-top:12px}.dshRemoteClaim{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;font-size:13px}',
         '.dshRemoteFingerprint{margin:0;font-size:13px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
       ].join('')

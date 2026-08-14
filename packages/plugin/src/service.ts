@@ -17,7 +17,7 @@ import type { SafeLogger } from './logging.js'
 import { PendingApprovals } from './pending-approvals.js'
 import { PairingController, PairingError, type PairingClaim } from './pairing-controller.js'
 import { HOST_CAPABILITIES, RpcRouter } from './rpc-router.js'
-import { HostServerApi } from './server-api.js'
+import { HostServerApi, ServerApiError, type HostAccountAuthorization } from './server-api.js'
 import { HostServerConnection } from './server-connection.js'
 import { ServerCredentialStore } from './server-credentials.js'
 import { HarnessApiBridge } from './harness-api-bridge.js'
@@ -34,6 +34,14 @@ export interface RuntimeDependencies {
   workspaceRegistry?: WorkspaceRegistry
   sessionTitle?: SessionTitleService
   apiProxy?: ApiProxy
+}
+
+export interface HostRemoteStatus {
+  configured: boolean
+  online: boolean
+  error?: string
+  account?: string
+  accountRequired: boolean
 }
 
 export class HostPluginRuntime {
@@ -140,6 +148,28 @@ export class HostPluginRuntime {
   }
 
   pendingPairings(): PairingClaim[] { return this.pairings?.pending() ?? [] }
+
+  hostStatus(): HostRemoteStatus {
+    const error = this.serverConnection?.lastError()
+    const account = this.serverApi?.currentAccount()
+    return {
+      configured: this.serverApi !== undefined,
+      online: this.serverConnection?.isOnline() ?? false,
+      ...(error === undefined ? {} : { error }),
+      ...(account === undefined ? {} : { account }),
+      accountRequired: error === 'ACCOUNT_AUTH_REQUIRED' || error === 'AUTH_INVALID' || error === 'TOKEN_EXPIRED',
+    }
+  }
+
+  async authorizeHost(email: string, password: string): Promise<HostAccountAuthorization> {
+    if (this.serverApi === undefined) {
+      throw new ServerApiError('SERVER_NOT_CONFIGURED', 'Configure serverUrl before signing in.', false)
+    }
+    const result = await this.serverApi.authorizeHost(this.currentIdentity(), email, password)
+    this.serverConnection?.resume()
+    this.logger.info('Host account authorized')
+    return result
+  }
 
   confirmPairing(pairingId: string, decision: 'approve' | 'deny') {
     if (this.pairings === undefined) throw new PairingError('SERVER_NOT_CONFIGURED', 'Configure serverUrl before confirming a pairing.')

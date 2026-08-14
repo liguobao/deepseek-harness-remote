@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { generateKeyPair } from '@dsh-remote/crypto'
@@ -14,13 +14,20 @@ afterEach(async () => {
 })
 
 describe('HostServerApi', () => {
-  it('registers the Host, persists credentials, and authenticates pairing calls', async () => {
+  it('logs in, authorizes Host registration, persists device credentials, and authenticates pairing calls', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-server-api-'))
     directories.push(directory)
     const calls: Array<{ url: string; init?: RequestInit }> = []
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
       calls.push({ url, init })
+      if (url.endsWith('/auth/login')) return json({
+        token: 'web-account-token-value',
+        expiresAt: Date.now() + 600_000,
+        account: 'host@example.com',
+        profile: {},
+        isAdmin: false,
+      })
       if (url.endsWith('/devices/register')) return json(tokens())
       if (url.endsWith('/pairings')) return json({ pairingId: 'pair-1', code: 'ABCD-EFGH', expiresAt: Date.now() + 60_000, pairUri: 'dshremote://pair' })
       throw new Error(`unexpected request: ${url}`)
@@ -29,22 +36,43 @@ describe('HostServerApi', () => {
     const api = new HostServerApi('https://dsh.r2049.cn/', store, fetchMock)
     const identity = hostIdentity()
 
-    await api.authenticate(identity)
+    await api.authorizeHost(identity, 'host@example.com', 'correct horse battery staple')
     await api.create(identity)
 
-    expect(calls[0]?.url).toBe('https://dsh.r2049.cn/api/v1/devices/register')
-    expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({
+    expect(calls[0]?.url).toBe('https://dsh.r2049.cn/api/v1/auth/login')
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      email: 'host@example.com', password: 'correct horse battery staple',
+    })
+    expect(calls[1]?.url).toBe('https://dsh.r2049.cn/api/v1/devices/register')
+    expect(calls[1]?.init?.headers).toMatchObject({ Authorization: 'Bearer web-account-token-value' })
+    expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({
       v: 1,
       device: { deviceId: identity.deviceId, role: 'host', identityKey: identity.publicKey },
     })
-    expect(calls[1]?.init?.headers).toMatchObject({ Authorization: 'Bearer access-token-value' })
+    expect(calls[2]?.init?.headers).toMatchObject({ Authorization: 'Bearer access-token-value' })
+    const stored = await readFile(join(directory, 'server-credentials.json'), 'utf8')
+    expect(stored).toContain('host@example.com')
+    expect(stored).not.toContain('correct horse battery staple')
+    expect(stored).not.toContain('web-account-token-value')
     if (process.platform !== 'win32') {
       expect((await stat(join(directory, 'server-credentials.json'))).mode & 0o777).toBe(0o600)
     }
 
     const reloaded = new HostServerApi('https://dsh.r2049.cn', store, fetchMock)
     await reloaded.authenticate(identity)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(reloaded.currentAccount()).toBe('host@example.com')
+  })
+
+  it('reports account authorization when a fresh Host cannot register anonymously', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-server-account-required-'))
+    directories.push(directory)
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      error: { code: 'ACCOUNT_AUTH_REQUIRED', message: 'host registration requires account login', retryable: false },
+    }), { status: 401, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch
+    const api = new HostServerApi('https://dsh.r2049.cn', new ServerCredentialStore(directory), fetchMock)
+
+    await expect(api.authenticate(hostIdentity())).rejects.toMatchObject({ code: 'ACCOUNT_AUTH_REQUIRED', retryable: false })
   })
 
   it('rotates an expiring access token through the refresh endpoint', async () => {
@@ -55,12 +83,14 @@ describe('HostServerApi', () => {
     await store.save({
       serverUrl: 'https://dsh.r2049.cn',
       deviceId: identity.deviceId,
+      account: 'host@example.com',
       ...tokens({ accessTokenExpiresAt: Date.now() + 1_000 }),
     })
     const fetchMock = vi.fn(async () => json(tokens({ accessToken: 'rotated-access-value', refreshToken: 'rotated-refresh-value' }))) as unknown as typeof fetch
     const api = new HostServerApi('https://dsh.r2049.cn', store, fetchMock)
 
     await expect(api.authenticate(identity)).resolves.toMatchObject({ accessToken: 'rotated-access-value' })
+    await expect(store.load('https://dsh.r2049.cn', identity.deviceId)).resolves.toMatchObject({ account: 'host@example.com' })
     expect(JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]?.[1]?.body))).toMatchObject({
       deviceId: identity.deviceId,
       refreshToken: 'refresh-token-value',

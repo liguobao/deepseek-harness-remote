@@ -56,6 +56,7 @@ export class HostServerConnection {
   private retryWake?: () => void
   private readonly tunnels = new Map<string, PendingTunnel>()
   private terminalError?: string
+  private resumeQueued = false
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -72,6 +73,21 @@ export class HostServerConnection {
     if (this.running !== undefined) return
     this.stopped = false
     this.running = this.run().finally(() => { this.running = undefined })
+  }
+
+  resume(): void {
+    this.terminalError = undefined
+    this.stopped = false
+    if (this.running === undefined) {
+      this.start()
+      return
+    }
+    if (this.resumeQueued) return
+    this.resumeQueued = true
+    void this.running.finally(() => {
+      this.resumeQueued = false
+      if (!this.stopped) this.start()
+    })
   }
 
   async stop(): Promise<void> {
@@ -97,7 +113,7 @@ export class HostServerConnection {
         const code = errorCode(error)
         this.terminalError = code
         this.logger.warn('server control connection failed', { code, retryable: isRetryable(error) })
-        if (code === 'DEVICE_REVOKED' || !this.config.reconnect.enabled) return
+        if (TERMINAL_AUTH_ERRORS.has(code) || !this.config.reconnect.enabled) return
       }
       if (this.stopped) return
       await this.waitBeforeRetry(delayMs)
@@ -318,6 +334,14 @@ export class HostServerConnection {
     })
   }
 }
+
+const TERMINAL_AUTH_ERRORS = new Set([
+  'ACCOUNT_AUTH_REQUIRED',
+  'AUTH_INVALID',
+  'DEVICE_OWNERSHIP_REQUIRED',
+  'DEVICE_REVOKED',
+  'TOKEN_EXPIRED',
+])
 
 class ServerNoiseChannel implements AuthenticatedPeerChannel {
   readonly security

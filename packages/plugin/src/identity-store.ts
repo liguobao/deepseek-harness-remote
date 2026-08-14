@@ -53,6 +53,8 @@ export interface IdentityStoreOptions {
   homeDirectory?: string
 }
 
+export type RemoteDeviceRole = 'host' | 'client'
+
 export class IdentityInvalidError extends Error {
   readonly code = 'IDENTITY_INVALID'
 }
@@ -165,6 +167,12 @@ export class IdentityStore {
       peers: [...this.peers.values()],
     }, 0o600)
   }
+}
+
+export function serverStorageDirectory(root: string, serverUrl: string, role: RemoteDeviceRole): string {
+  const origin = new URL(serverUrl).origin
+  const scope = createHash('sha256').update(origin).digest('hex').slice(0, 24)
+  return join(root, 'servers', scope, role)
 }
 
 export function fingerprint(publicKey: string): string {

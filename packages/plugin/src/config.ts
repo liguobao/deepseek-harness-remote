@@ -75,8 +75,8 @@ const configSchema = z.object({
 export function resolveConfig(input: Config = {}, env: NodeJS.ProcessEnv = process.env): ResolvedConfig {
   const parsed = configSchema.parse(input)
   const reconnect = typeof parsed.reconnect === 'object' ? parsed.reconnect : {}
-  const serverUrl = parsed.serverUrl ?? env.DSH_REMOTE_SERVER
-  if (serverUrl !== undefined) assertSafeServerUrl(serverUrl)
+  const configuredServerUrl = parsed.serverUrl ?? env.DSH_REMOTE_SERVER
+  const serverUrl = configuredServerUrl === undefined ? undefined : normalizeServerUrl(configuredServerUrl)
   const initialDelayMs = reconnect.initialDelayMs ?? 1_000
   const maxDelayMs = reconnect.maxDelayMs ?? 30_000
   if (maxDelayMs < initialDelayMs) {
@@ -99,7 +99,7 @@ export function resolveConfig(input: Config = {}, env: NodeJS.ProcessEnv = proce
   }
 }
 
-function assertSafeServerUrl(value: string): void {
+export function normalizeServerUrl(value: string): string {
   const url = new URL(value)
   const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1'
   if (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) {
@@ -111,4 +111,8 @@ function assertSafeServerUrl(value: string): void {
   if (url.search !== '' || url.hash !== '') {
     throw new TypeError('serverUrl must not contain query parameters or fragments')
   }
+  if (url.pathname !== '' && url.pathname !== '/') {
+    throw new TypeError('serverUrl must be an origin without a path')
+  }
+  return url.origin
 }

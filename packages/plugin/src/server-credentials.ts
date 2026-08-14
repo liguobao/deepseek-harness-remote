@@ -7,6 +7,7 @@ const credentialSchema = z.object({
   schemaVersion: z.literal(1),
   serverUrl: z.string().url(),
   deviceId: z.string().min(1),
+  account: z.string().min(1).max(254).optional(),
   accessToken: z.string().min(16),
   accessTokenExpiresAt: z.number().int().positive(),
   refreshToken: z.string().min(16),

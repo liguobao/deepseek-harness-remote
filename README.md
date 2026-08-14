@@ -4,7 +4,7 @@ DSH Remote 是 DeepSeek Harness 的安全远程控制方案。安装同一个 Pl
 
 它不是远程桌面、Web Shell、SSH 替代品或通用文件管理器。客户端不能绕过 Harness 调用任意 Shell、文件系统或工具接口。
 
-> DSH Remote 当前是开发预览版本，需要符合 [Server 设计](docs/server.md) 和 [Remote Protocol v1](docs/protocol.md) 的外部 Server。最新 Server 已要求站点账号授权 Host 注册，当前 Plugin 的账号登录/授权注册适配尚未完成；Noise IK 跨端 conformance、独立安全审查和生产级互操作也未完成，请勿用于生产环境。
+> DSH Remote 当前是开发预览版本，需要符合 [Server 设计](docs/server.md) 和 [Remote Protocol v1](docs/protocol.md) 的外部 Server。Host 账号授权注册已经接入；Noise IK 跨端 conformance、独立安全审查和完整生产级互操作仍未完成，请勿用于生产环境。
 
 ## 特性
 
@@ -77,7 +77,7 @@ github:liguobao/deepseek-harness-remote#<tag-or-commit>
 
 Plugin 不创建公开端口。最新 Server 的目标接入流程是：先登录同一 Server 的站点账号，使用 web account token 授权注册 Host，再用独立 device token 完成 WSS 控制面、Token 轮换、Relay 与 Noise IK。只有通过 Server membership、本机 trusted peer 和 Noise static identity 三重校验的通道才会进入 Harness RPC。
 
-当前代码仍按旧版 Host 匿名注册契约实现，尚不能完成最新 Server 的首轮 Host 注册；适配范围和错误处理见 [Host Plugin 接入指南](docs/plugin-integration.md) 与 [TODO](TODO.md)。Android/浏览器 `client` 角色的匿名 pairing bootstrap 不受此变更影响。
+首次接入时，侧边栏的 **This machine as Remote Host** 区域会提示登录 Server 站点账号。密码只通过本机 loopback control 发送给 Plugin，并用于一次 HTTPS 登录；Plugin 不保存密码或 web account token。Host 注册成功后只持久化并使用独立 device credential。Android/浏览器 `client` 角色仍使用匿名 pairing bootstrap。
 
 ### 配置
 
@@ -126,7 +126,7 @@ deviceId 或配对关系发送到新 Server。
 
 ### 身份与数据
 
-Plugin 将 Host 身份保存在 `$DSH_HOME/remote`，本地 Client 身份保存在 `$DSH_HOME/remote/client`；未设置 `DSH_HOME` 时使用 `~/.dsh/remote`：
+Plugin 按规范化 Server origin 和角色隔离本地状态，保存在 `$DSH_HOME/remote/servers/<origin-hash>/{host,client}`；未设置 `DSH_HOME` 时使用 `~/.dsh/remote`：
 
 - `device.json`：设备 ID、名称、公钥和 schema 版本
 - `device.key`：Host 私钥，权限必须为 `0600`
@@ -134,19 +134,16 @@ Plugin 将 Host 身份保存在 `$DSH_HOME/remote`，本地 Client 身份保存�
 - `server-credentials.json`：当前 Server 的短期 access token 与轮换 refresh token，权限必须为 `0600`
 
 私钥损坏、公私钥不匹配或权限过宽时，Plugin 会拒绝继续使用该身份，而不是静默重建并继承旧信任。
-最新 Server 契约还要求按规范化 `serverUrl` 隔离 Host identity、账号状态和 device
-credential；当前单 Server 存储布局需要在账号授权注册适配中一并迁移。
+旧版 `$DSH_HOME/remote` 单 Server 身份不会被静默迁移或发送到新 Server；升级后需要按新目录重新登录并配对，避免跨 origin 复用 device identity、token 或 trusted peer。
 
 ### Local / Remote 操作流程
 
 1. 在远端机器和本地机器安装 Plugin，保持 `role: both`，并选择同一个 Server。
-2. 在远端 Host 登录该 Server 的站点账号，授权注册本机；后台连接随后只使用 device token。
+2. 在远端 Host 的侧边栏面板登录该 Server 的站点账号，授权注册本机；后台连接随后只使用 device token。
 3. 在远端机器侧边栏的 Harness target 面板生成配对码。
 4. 在本地面板输入配对码；回到远端机器核对 Client fingerprint 并批准。
 5. 本地面板会列出已配对 Host。选择在线 Host 后页面刷新，原生 Harness 会话界面改为读取该远端机器。
 6. 选择 `This machine (Local)` 返回本机会话。远端断线时代理会 fail closed 并回落到 Local，既不迁移会话也不自动重放未知结果的写操作。
-
-第 2 步是最新 Server 要求，当前 Plugin UI/状态机仍待实现。
 
 Remote 模式只代理会话、Workspace、Skills、Agent preset 读取/选择、Goal 和模型目录等明确允许的 Harness API。凭据、设置写入、原生路径打开、目录浏览/创建、附件上传和下载不会穿过远端通道。
 

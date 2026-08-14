@@ -7,7 +7,7 @@
     factory: (require2) => {
       let module = { exports: {} }, React = require2("react"), inject = ["connection", "slots"];
       function RemoteModeAction(props) {
-        let [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [code, setCode] = React.useState(""), [pendingPairing, setPendingPairing] = React.useState(void 0), [pendingHost, setPendingHost] = React.useState(void 0), [hostCode, setHostCode] = React.useState(void 0), [hostClaims, setHostClaims] = React.useState([]), [busy, setBusy] = React.useState(!1), [error, setError] = React.useState(void 0), [supported, setSupported] = React.useState(!0), refresh = async () => {
+        let [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [code, setCode] = React.useState(""), [pendingPairing, setPendingPairing] = React.useState(void 0), [pendingHost, setPendingHost] = React.useState(void 0), [hostCode, setHostCode] = React.useState(void 0), [hostClaims, setHostClaims] = React.useState([]), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [busy, setBusy] = React.useState(!1), [error, setError] = React.useState(void 0), [supported, setSupported] = React.useState(!0), refresh = async () => {
           let [nextStatus, nextDevices] = await Promise.all([
             props.control("status"),
             props.control("devices").catch(() => [])
@@ -15,6 +15,8 @@
           setStatus(nextStatus), setDevices(nextDevices);
         }, refreshHostClaims = async () => {
           setHostClaims(await props.control("host.pairings").catch(() => []));
+        }, refreshStatus = async () => {
+          setStatus(await props.control("status"));
         };
         React.useEffect(() => {
           refresh().catch((reason) => {
@@ -30,9 +32,9 @@
           return () => window.clearInterval(timer);
         }, [pendingPairing]), React.useEffect(() => {
           if (!open) return;
-          refreshHostClaims();
+          Promise.all([refreshHostClaims(), refreshStatus()]);
           let timer = window.setInterval(() => {
-            refreshHostClaims();
+            refreshHostClaims(), refreshStatus();
           }, 1500);
           return () => window.clearInterval(timer);
         }, [open]);
@@ -64,6 +66,17 @@
             setError(messageOf(reason));
           } finally {
             setBusy(!1);
+          }
+        }, loginHost = async () => {
+          if (!(email.trim() === "" || password === "")) {
+            setBusy(!0), setError(void 0);
+            try {
+              await props.control("host.account.login", { email: email.trim(), password }), await refreshStatus();
+            } catch (reason) {
+              setError(messageOf(reason));
+            } finally {
+              setPassword(""), setBusy(!1);
+            }
           }
         }, confirmHostPairing = async (pairingId, decision) => {
           setBusy(!0), setError(void 0);
@@ -134,12 +147,45 @@
                 { className: "dshRemoteFingerprint" },
                 `Verify on the Host: ${pendingHost.name} \xB7 ${pendingHost.fingerprint}`
               ),
+              status?.hostPairingAvailable && status.host !== void 0 ? React.createElement(
+                "div",
+                { className: "dshRemoteHostAccount" },
+                React.createElement("strong", null, "This machine as Remote Host"),
+                React.createElement("p", null, status.host.online ? `Connected${status.host.account === void 0 ? "" : ` as ${status.host.account}`}` : status.host.accountRequired ? "Sign in to authorize this Host on the selected Server." : status.host.error === void 0 ? "Checking Host registration\u2026" : `Host unavailable: ${status.host.error}`),
+                status.host.accountRequired ? React.createElement(
+                  "div",
+                  { className: "dshRemoteLogin" },
+                  React.createElement("input", {
+                    type: "email",
+                    value: email,
+                    disabled: busy,
+                    autoComplete: "username",
+                    placeholder: "Server account email",
+                    "aria-label": "Server account email",
+                    onChange: (event) => setEmail(event.target.value)
+                  }),
+                  React.createElement("input", {
+                    type: "password",
+                    value: password,
+                    disabled: busy,
+                    autoComplete: "current-password",
+                    placeholder: "Password",
+                    "aria-label": "Server account password",
+                    onChange: (event) => setPassword(event.target.value)
+                  }),
+                  React.createElement("button", {
+                    type: "button",
+                    disabled: busy || email.trim() === "" || password === "",
+                    onClick: () => void loginHost()
+                  }, busy ? "Signing in\u2026" : "Sign in and register Host")
+                ) : null
+              ) : null,
               status?.hostPairingAvailable ? React.createElement(
                 "div",
                 { className: "dshRemoteHostPairing" },
                 React.createElement("button", {
                   type: "button",
-                  disabled: busy,
+                  disabled: busy || status.host?.online !== !0,
                   onClick: () => void createHostPairing()
                 }, hostCode === void 0 ? "Pair another client to this Host" : `Code: ${hostCode}`),
                 ...hostClaims.map((claim) => React.createElement(
@@ -167,6 +213,8 @@
           ".dshRemoteHeader{display:flex;align-items:center;justify-content:space-between}.dshRemoteHeader button{border:0;font-size:22px;padding:0 6px}",
           ".dshRemoteDevices{display:grid;gap:8px}.dshRemoteDevices p{margin:4px 0;color:var(--dsw-alias-label-secondary)}",
           ".dshRemotePair{display:grid;grid-template-columns:1fr auto;gap:8px}.dshRemoteError{margin:0;color:var(--dsw-alias-state-danger,#c33)}",
+          ".dshRemoteHostAccount{display:grid;gap:8px;border-top:1px solid var(--dsw-alias-border-l3);padding-top:12px}.dshRemoteHostAccount p{margin:0;color:var(--dsw-alias-label-secondary);font-size:13px}",
+          ".dshRemoteLogin{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dshRemoteLogin button{grid-column:1/-1}",
           ".dshRemoteHostPairing{display:grid;gap:8px;border-top:1px solid var(--dsw-alias-border-l3);padding-top:12px}.dshRemoteClaim{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;font-size:13px}",
           ".dshRemoteFingerprint{margin:0;font-size:13px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}"
         ].join(""), document.head.append(style), () => style.remove();

@@ -4,9 +4,6 @@ var __export = (target, all) => {
     __defProp(target, name2, { get: all[name2], enumerable: true });
 };
 
-// src/index.ts
-import { join as join3 } from "node:path";
-
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
 var external_exports = {};
 __export(external_exports, {
@@ -11883,6 +11880,11 @@ var IdentityStore = class {
     }, 384);
   }
 };
+function serverStorageDirectory(root, serverUrl, role) {
+  const origin = new URL(serverUrl).origin;
+  const scope = createHash("sha256").update(origin).digest("hex").slice(0, 24);
+  return join(root, "servers", scope, role);
+}
 function fingerprint(publicKey) {
   const compact = createHash("sha256").update(fromBase64Url2(publicKey)).digest("hex").slice(0, 12).toUpperCase();
   return compact.match(/.{1,4}/g).join(" ");
@@ -12125,7 +12127,8 @@ var ClientModeRuntime = class {
       ...this.proxySwitch.status(),
       connected: this.connected !== void 0,
       transport: this.connected?.client.getStats().mode ?? "Disconnected",
-      hostPairingAvailable: this.host !== void 0
+      hostPairingAvailable: this.host !== void 0,
+      ...this.host === void 0 ? {} : { host: this.host.hostStatus() }
     };
   }
   async devices() {
@@ -12262,6 +12265,14 @@ var ClientModeRuntime = class {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
         return ok(await this.host.createPairing());
       }
+      if (endpoint === "host.account.login") {
+        if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
+        const value = record(payload);
+        if (typeof value.email !== "string" || typeof value.password !== "string") {
+          throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
+        }
+        return ok(await this.host.authorizeHost(value.email, value.password));
+      }
       if (endpoint === "host.pairings") return ok(this.host?.pendingPairings() ?? []);
       if (endpoint === "host.pairing.confirm") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
@@ -12314,13 +12325,15 @@ function ok(value) {
   return { ok: true, value };
 }
 function fail(error) {
-  const source = error instanceof ClientModeError ? error : void 0;
+  const source = error instanceof Error ? error : void 0;
+  const remoteCode = source !== void 0 && "code" in source && typeof source.code === "string" ? source.code : source instanceof ClientModeError ? source.code : void 0;
+  const retryable = source !== void 0 && "retryable" in source && typeof source.retryable === "boolean" ? source.retryable : source instanceof ClientModeError ? source.retryable : false;
   return {
     ok: false,
     error: {
       code: "internal",
       message: source?.message ?? "The remote-mode operation failed.",
-      details: source === void 0 ? {} : { remoteCode: source.code, retryable: source.retryable }
+      details: remoteCode === void 0 ? {} : { remoteCode, retryable }
     }
   };
 }
@@ -12369,8 +12382,8 @@ var configSchema = external_exports.object({
 function resolveConfig(input = {}, env = process.env) {
   const parsed = configSchema.parse(input);
   const reconnect = typeof parsed.reconnect === "object" ? parsed.reconnect : {};
-  const serverUrl = parsed.serverUrl ?? env.DSH_REMOTE_SERVER;
-  if (serverUrl !== void 0) assertSafeServerUrl(serverUrl);
+  const configuredServerUrl = parsed.serverUrl ?? env.DSH_REMOTE_SERVER;
+  const serverUrl = configuredServerUrl === void 0 ? void 0 : normalizeServerUrl(configuredServerUrl);
   const initialDelayMs = reconnect.initialDelayMs ?? 1e3;
   const maxDelayMs = reconnect.maxDelayMs ?? 3e4;
   if (maxDelayMs < initialDelayMs) {
@@ -12392,7 +12405,7 @@ function resolveConfig(input = {}, env = process.env) {
     }
   };
 }
-function assertSafeServerUrl(value) {
+function normalizeServerUrl(value) {
   const url = new URL(value);
   const local = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
   if (url.protocol !== "https:" && !(local && url.protocol === "http:")) {
@@ -12404,6 +12417,10 @@ function assertSafeServerUrl(value) {
   if (url.search !== "" || url.hash !== "") {
     throw new TypeError("serverUrl must not contain query parameters or fragments");
   }
+  if (url.pathname !== "" && url.pathname !== "/") {
+    throw new TypeError("serverUrl must be an origin without a path");
+  }
+  return url.origin;
 }
 
 // src/logging.ts
@@ -13239,6 +13256,23 @@ var HostServerApi = class {
   bindIdentity(identity) {
     this.identity = identity;
   }
+  currentAccount() {
+    return this.credentials?.account;
+  }
+  async authorizeHost(identity, email, password) {
+    if (this.role !== "host") throw new ServerApiError("METHOD_NOT_ALLOWED", "Only a Host device can use account authorization.", false);
+    this.bindIdentity(identity);
+    const account = email.trim();
+    if (account.length === 0 || password.length === 0) {
+      throw new ServerApiError("INVALID_MESSAGE", "Email and password are required.", false);
+    }
+    const login = validateWebLogin(await this.publicRequest("/api/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: account, password })
+    }));
+    await this.register(identity, login.token, login.account);
+    return { account: login.account, expiresAt: login.expiresAt, isAdmin: login.isAdmin };
+  }
   async authenticate(identity = this.requireIdentity()) {
     this.bindIdentity(identity);
     if (this.credentials !== void 0 && this.credentials.accessTokenExpiresAt > Date.now() + 3e4) {
@@ -13258,7 +13292,12 @@ var HostServerApi = class {
       method: "POST",
       body: JSON.stringify({ deviceId: identity.deviceId, refreshToken: stored.refreshToken })
     });
-    this.credentials = await this.store.save({ serverUrl: this.baseUrl, deviceId: identity.deviceId, ...validateTokens(tokens) });
+    this.credentials = await this.store.save({
+      serverUrl: this.baseUrl,
+      deviceId: identity.deviceId,
+      ...stored.account === void 0 ? {} : { account: stored.account },
+      ...validateTokens(tokens)
+    });
     return this.credentials;
   }
   async create(identity) {
@@ -13311,9 +13350,14 @@ var HostServerApi = class {
       method: "POST",
       body: JSON.stringify({ deviceId: identity.deviceId, refreshToken: stored.refreshToken })
     });
-    return this.store.save({ serverUrl: this.baseUrl, deviceId: identity.deviceId, ...validateTokens(tokens) });
+    return this.store.save({
+      serverUrl: this.baseUrl,
+      deviceId: identity.deviceId,
+      ...stored.account === void 0 ? {} : { account: stored.account },
+      ...validateTokens(tokens)
+    });
   }
-  async register(identity) {
+  async register(identity, accountToken, account) {
     const tokens = await this.publicRequest("/api/v1/devices/register", {
       method: "POST",
       body: JSON.stringify({
@@ -13328,8 +13372,14 @@ var HostServerApi = class {
           harnessVersion: "0.1.0-rc.6"
         }
       })
+    }, accountToken);
+    this.credentials = await this.store.save({
+      serverUrl: this.baseUrl,
+      deviceId: identity.deviceId,
+      ...account === void 0 ? {} : { account },
+      ...validateTokens(tokens)
     });
-    return this.store.save({ serverUrl: this.baseUrl, deviceId: identity.deviceId, ...validateTokens(tokens) });
+    return this.credentials;
   }
   async request(path, init = {}) {
     const credentials = await this.authenticate();
@@ -13385,16 +13435,24 @@ var ServerApiError = class extends Error {
     this.status = status;
   }
 };
-function normalizeServerUrl(value) {
-  const url = new URL(value);
-  url.pathname = url.pathname.replace(/\/+$/, "");
-  return url.toString().replace(/\/$/, "");
-}
 function validateTokens(value) {
   if (typeof value.accessToken !== "string" || value.accessToken.length < 16 || typeof value.refreshToken !== "string" || value.refreshToken.length < 16 || !Number.isSafeInteger(value.accessTokenExpiresAt) || !Number.isSafeInteger(value.refreshTokenExpiresAt)) {
     throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid device credentials.", false);
   }
   return value;
+}
+function validateWebLogin(value) {
+  const item = requireRecord(value, "account login");
+  if (typeof item.token !== "string" || item.token.length < 16 || !Number.isSafeInteger(item.expiresAt) || typeof item.account !== "string" || item.account.length === 0 || item.account.length > 254 || typeof item.isAdmin !== "boolean") {
+    throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid account session.", false);
+  }
+  return {
+    token: item.token,
+    expiresAt: item.expiresAt,
+    account: item.account,
+    profile: item.profile,
+    isAdmin: item.isAdmin
+  };
 }
 async function parseBody(response) {
   const text = await response.text();
@@ -13482,11 +13540,26 @@ var HostServerConnection = class {
   retryWake;
   tunnels = /* @__PURE__ */ new Map();
   terminalError;
+  resumeQueued = false;
   start() {
     if (this.running !== void 0) return;
     this.stopped = false;
     this.running = this.run().finally(() => {
       this.running = void 0;
+    });
+  }
+  resume() {
+    this.terminalError = void 0;
+    this.stopped = false;
+    if (this.running === void 0) {
+      this.start();
+      return;
+    }
+    if (this.resumeQueued) return;
+    this.resumeQueued = true;
+    void this.running.finally(() => {
+      this.resumeQueued = false;
+      if (!this.stopped) this.start();
     });
   }
   async stop() {
@@ -13513,7 +13586,7 @@ var HostServerConnection = class {
         const code = errorCode(error);
         this.terminalError = code;
         this.logger.warn("server control connection failed", { code, retryable: isRetryable(error) });
-        if (code === "DEVICE_REVOKED" || !this.config.reconnect.enabled) return;
+        if (TERMINAL_AUTH_ERRORS.has(code) || !this.config.reconnect.enabled) return;
       }
       if (this.stopped) return;
       await this.waitBeforeRetry(delayMs);
@@ -13739,6 +13812,13 @@ var HostServerConnection = class {
     });
   }
 };
+var TERMINAL_AUTH_ERRORS = /* @__PURE__ */ new Set([
+  "ACCOUNT_AUTH_REQUIRED",
+  "AUTH_INVALID",
+  "DEVICE_OWNERSHIP_REQUIRED",
+  "DEVICE_REVOKED",
+  "TOKEN_EXPIRED"
+]);
 var ServerNoiseChannel = class {
   constructor(tunnel, transmit, onClose) {
     this.tunnel = tunnel;
@@ -13882,6 +13962,7 @@ var credentialSchema = external_exports.object({
   schemaVersion: external_exports.literal(1),
   serverUrl: external_exports.string().url(),
   deviceId: external_exports.string().min(1),
+  account: external_exports.string().min(1).max(254).optional(),
   accessToken: external_exports.string().min(16),
   accessTokenExpiresAt: external_exports.number().int().positive(),
   refreshToken: external_exports.string().min(16),
@@ -14185,6 +14266,26 @@ var HostPluginRuntime = class {
   pendingPairings() {
     return this.pairings?.pending() ?? [];
   }
+  hostStatus() {
+    const error = this.serverConnection?.lastError();
+    const account = this.serverApi?.currentAccount();
+    return {
+      configured: this.serverApi !== void 0,
+      online: this.serverConnection?.isOnline() ?? false,
+      ...error === void 0 ? {} : { error },
+      ...account === void 0 ? {} : { account },
+      accountRequired: error === "ACCOUNT_AUTH_REQUIRED" || error === "AUTH_INVALID" || error === "TOKEN_EXPIRED"
+    };
+  }
+  async authorizeHost(email, password) {
+    if (this.serverApi === void 0) {
+      throw new ServerApiError("SERVER_NOT_CONFIGURED", "Configure serverUrl before signing in.", false);
+    }
+    const result = await this.serverApi.authorizeHost(this.currentIdentity(), email, password);
+    this.serverConnection?.resume();
+    this.logger.info("Host account authorized");
+    return result;
+  }
   confirmPairing(pairingId, decision) {
     if (this.pairings === void 0) throw new PairingError("SERVER_NOT_CONFIGURED", "Configure serverUrl before confirming a pairing.");
     return this.pairings.confirm(pairingId, decision);
@@ -14266,7 +14367,10 @@ async function apply(ctx, input = {}) {
   const config = resolveConfig(input);
   if (!config.enabled) return;
   const logger = new SafeLogger(ctx.logger, config.logLevel);
-  const hostIdentities = new IdentityStore();
+  const defaultIdentityDirectory = new IdentityStore().directory;
+  const hostIdentities = new IdentityStore({
+    directory: config.serverUrl === void 0 ? defaultIdentityDirectory : serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, "host")
+  });
   const apiProxy = ctx.get("apiProxy");
   const connection = ctx.get("connection");
   const hostConfig = config.role === "client" ? { ...config, serverUrl: void 0 } : config;
@@ -14279,7 +14383,9 @@ async function apply(ctx, input = {}) {
   }, logger);
   let clientRuntime;
   if (config.role !== "host" && config.serverUrl !== void 0 && apiProxy !== void 0 && connection !== void 0) {
-    const clientIdentities = new IdentityStore({ directory: join3(hostIdentities.directory, "client") });
+    const clientIdentities = new IdentityStore({
+      directory: serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, "client")
+    });
     clientRuntime = new ClientModeRuntime(
       config,
       clientIdentities,
@@ -14347,7 +14453,8 @@ export {
   fingerprint,
   inject,
   name,
-  resolveConfig
+  resolveConfig,
+  serverStorageDirectory
 };
 /*! Bundled license information:
 

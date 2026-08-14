@@ -2,6 +2,7 @@ import { platform } from 'node:os'
 import type { HostIdentity } from './identity-store.js'
 import type { PairingServer } from './pairing-controller.js'
 import type { ServerCredentialStore, ServerCredentials } from './server-credentials.js'
+import { normalizeServerUrl } from './config.js'
 
 interface TokenPair {
   accessToken: string
@@ -13,6 +14,20 @@ interface TokenPair {
 interface ErrorEnvelope {
   error?: { code?: unknown; message?: unknown; retryable?: unknown }
   detail?: unknown
+}
+
+interface WebLoginResponse {
+  token: string
+  expiresAt: number
+  account: string
+  profile: unknown
+  isAdmin: boolean
+}
+
+export interface HostAccountAuthorization {
+  account: string
+  expiresAt: number
+  isAdmin: boolean
 }
 
 export type FetchImplementation = typeof fetch
@@ -62,6 +77,23 @@ export class HostServerApi implements PairingServer {
 
   bindIdentity(identity: HostIdentity): void { this.identity = identity }
 
+  currentAccount(): string | undefined { return this.credentials?.account }
+
+  async authorizeHost(identity: HostIdentity, email: string, password: string): Promise<HostAccountAuthorization> {
+    if (this.role !== 'host') throw new ServerApiError('METHOD_NOT_ALLOWED', 'Only a Host device can use account authorization.', false)
+    this.bindIdentity(identity)
+    const account = email.trim()
+    if (account.length === 0 || password.length === 0) {
+      throw new ServerApiError('INVALID_MESSAGE', 'Email and password are required.', false)
+    }
+    const login = validateWebLogin(await this.publicRequest<unknown>('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: account, password }),
+    }))
+    await this.register(identity, login.token, login.account)
+    return { account: login.account, expiresAt: login.expiresAt, isAdmin: login.isAdmin }
+  }
+
   async authenticate(identity = this.requireIdentity()): Promise<ServerCredentials> {
     this.bindIdentity(identity)
     if (this.credentials !== undefined && this.credentials.accessTokenExpiresAt > Date.now() + 30_000) {
@@ -80,7 +112,12 @@ export class HostServerApi implements PairingServer {
       method: 'POST',
       body: JSON.stringify({ deviceId: identity.deviceId, refreshToken: stored.refreshToken }),
     })
-    this.credentials = await this.store.save({ serverUrl: this.baseUrl, deviceId: identity.deviceId, ...validateTokens(tokens) })
+    this.credentials = await this.store.save({
+      serverUrl: this.baseUrl,
+      deviceId: identity.deviceId,
+      ...(stored.account === undefined ? {} : { account: stored.account }),
+      ...validateTokens(tokens),
+    })
     return this.credentials
   }
 
@@ -142,10 +179,15 @@ export class HostServerApi implements PairingServer {
       method: 'POST',
       body: JSON.stringify({ deviceId: identity.deviceId, refreshToken: stored.refreshToken }),
     })
-    return this.store.save({ serverUrl: this.baseUrl, deviceId: identity.deviceId, ...validateTokens(tokens) })
+    return this.store.save({
+      serverUrl: this.baseUrl,
+      deviceId: identity.deviceId,
+      ...(stored.account === undefined ? {} : { account: stored.account }),
+      ...validateTokens(tokens),
+    })
   }
 
-  private async register(identity: HostIdentity): Promise<ServerCredentials> {
+  private async register(identity: HostIdentity, accountToken?: string, account?: string): Promise<ServerCredentials> {
     const tokens = await this.publicRequest<TokenPair>('/api/v1/devices/register', {
       method: 'POST',
       body: JSON.stringify({
@@ -160,8 +202,14 @@ export class HostServerApi implements PairingServer {
           harnessVersion: '0.1.0-rc.6',
         },
       }),
+    }, accountToken)
+    this.credentials = await this.store.save({
+      serverUrl: this.baseUrl,
+      deviceId: identity.deviceId,
+      ...(account === undefined ? {} : { account }),
+      ...validateTokens(tokens),
     })
-    return this.store.save({ serverUrl: this.baseUrl, deviceId: identity.deviceId, ...validateTokens(tokens) })
+    return this.credentials
   }
 
   private async request<TResult>(path: string, init: RequestInit = {}): Promise<TResult> {
@@ -223,12 +271,6 @@ export class ServerApiError extends Error {
   ) { super(message) }
 }
 
-function normalizeServerUrl(value: string): string {
-  const url = new URL(value)
-  url.pathname = url.pathname.replace(/\/+$/, '')
-  return url.toString().replace(/\/$/, '')
-}
-
 function validateTokens(value: TokenPair): TokenPair {
   if (typeof value.accessToken !== 'string' || value.accessToken.length < 16
     || typeof value.refreshToken !== 'string' || value.refreshToken.length < 16
@@ -237,6 +279,23 @@ function validateTokens(value: TokenPair): TokenPair {
     throw new ServerApiError('INVALID_MESSAGE', 'The Server returned invalid device credentials.', false)
   }
   return value
+}
+
+function validateWebLogin(value: unknown): WebLoginResponse {
+  const item = requireRecord(value, 'account login')
+  if (typeof item.token !== 'string' || item.token.length < 16
+    || !Number.isSafeInteger(item.expiresAt)
+    || typeof item.account !== 'string' || item.account.length === 0 || item.account.length > 254
+    || typeof item.isAdmin !== 'boolean') {
+    throw new ServerApiError('INVALID_MESSAGE', 'The Server returned an invalid account session.', false)
+  }
+  return {
+    token: item.token,
+    expiresAt: item.expiresAt as number,
+    account: item.account,
+    profile: item.profile,
+    isAdmin: item.isAdmin,
+  }
 }
 
 async function parseBody(response: Response): Promise<unknown> {
