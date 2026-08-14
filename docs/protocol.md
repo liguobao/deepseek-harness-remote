@@ -1222,14 +1222,14 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 5. Client 不能请求通用 shell/filesystem RPC 绕过 Harness。
 6. Permission 只能映射 Harness 当前 request，默认 fail closed。
 7. `harness.api.call.method` 必须命中编译期固定 allowlist；禁止通过对象反射、Cordis service 名或任意 endpoint 扩权。
-7. 当前 Harness v1 只允许 Remote `allow_once`/`deny`，不得伪造 session grant。
-8. Device revoke 使 token、membership 和现有 connection 失效。
-9. 重放/乱序/身份不匹配的 secure frame 必须拒绝。
-10. Host 注册必须由同一 Server 的 web account token 授权；account token 与 device
+8. 当前 Harness v1 只允许 Remote `allow_once`/`deny`，不得伪造 session grant。
+9. Device revoke 使 token、membership 和现有 connection 失效。
+10. 重放/乱序/身份不匹配的 secure frame 必须拒绝。
+11. Host 注册必须由同一 Server 的 web account token 授权；account token 与 device
     token 不可互换，切换 Server 不得复用旧 origin 的身份、凭证或配对状态。
-10. 日志禁止记录 token、code 明文、key、prompt、source、workspace 和 tool output。
-11. Admin 无法从数据库或 API 获取 E2EE conversation。
-12. 未协商 capability 的功能不得调用或展示为可用。
+12. 日志禁止记录 token、code 明文、key、prompt、source、workspace 和 tool output。
+13. Admin 无法从数据库或 API 获取 E2EE conversation。
+14. 未协商 capability 的功能不得调用或展示为可用。
 
 ## 26. Conformance 测试
 
@@ -1238,6 +1238,7 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 - JSON/envelope/schema/version vectors
 - RPC correlation、timeout、late response 和 idempotency
 - event seq、duplicate、gap、replay 和 full resync
+- Host account authorization、owner mismatch、legacy owner 缺失与 Client 匿名注册
 - pairing expire/single-use/fingerprint mismatch
 - Noise IK handshake、peer mismatch、tamper、replay 和 rekey
 - signaling/relay membership authorization
