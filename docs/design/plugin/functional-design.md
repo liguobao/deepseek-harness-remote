@@ -19,7 +19,7 @@
 - 当前 Harness wire-safe approval outcome 只允许 Client 返回 `allowed-once` 或 `rejected`；`cancelled` 和 `unavailable` 是 Host 结果。
 - workspace 服务键为 `ctx.workspaceRegistry`，可通过 `list()`、`get()` 和 session header 的 `cwd` 建立显示关系。
 - dsh-desktop 已验证：独立插件可复制到 `$DSH_HOME/profiles/node_modules`，通过一次性 `--patch` 加载，不修改上游 CLI 和用户 patch。
-- DSH Desktop 的 GitHub installer 读取仓库根 `package.json`；根包必须声明 `dsh.bundle.patch`，根 patch 的插件名和浏览器 `__ModuleLoader__` ID 都必须等于 `deepseek-harness-remote`。
+- DSH Desktop 的 GitHub installer 读取仓库根 `package.json`；根包必须声明 `dsh.bundle.patch`，根 patch 的插件名和浏览器 `__ModuleLoader__` ID 都必须等于 `dsh-remote`。
 - Web profile 的 `ctx.apiProxy` 是官方 UI 的 transport-independent Host API；`ctx.connection.rpc` 可提供 loopback-only 插件控制面。
 - WebSocket downlink 持有 `apiProxy` service identity，因此可安装稳定 forwarder，并在新连接上按 Local/Remote 目标选择事件源。
 
@@ -46,6 +46,7 @@ packages/plugin/src/
   pairing-controller.ts
   connection-controller.ts
   client-runtime.ts
+  control-runtime.ts
   client-secure-transport.ts
   api-proxy-switch.ts
   harness-api-bridge.ts
@@ -66,7 +67,7 @@ packages/plugin/src/
 
 构建同时生成两个浏览器入口：npm 子包的 `dist/client.js` 注册
 `@dsh-remote/plugin`，GitHub 根包提交的 `dist/client.github.js` 注册
-`deepseek-harness-remote`。根包还提交 `index.js` 和底层 `dist/index.js`，所以 Desktop 默认
+`dsh-remote`。根包还提交 `index.js` 和底层 `dist/index.js`，所以 Desktop 默认
 禁用 GitHub build scripts 时仍可直接识别并加载；CI 必须验证这些提交产物与源码构建一致。
 
 Host adapter 方向固定为：`Harness -> adapters -> protocol handlers`。原生 UI 方向固定为：`official apiProxy -> stable switch -> encrypted allowlist bridge -> remote apiProxy`。任何一条路径都不得退化成通用 Cordis/Harness 反射。
@@ -97,7 +98,7 @@ export const inject = ['sessions', 'agents', 'approval']
 | `enabled` | `true` | 总开关 |
 | `role` | `both` | `host`、`client` 或 `both` |
 | `serverUrl` | `https://dsh.r2049.cn` | 必须允许用户覆盖；规范化为无末尾 `/` 的 HTTPS origin，开发期 loopback 可用 HTTP |
-| `deviceName` | OS 主机名的可编辑副本 | 仅显示，不作为 ID |
+| `deviceName` | OS 主机名 | 配置 UI 只读展示，不要求用户填写，也不作为 ID |
 | `forceRelay` | `false` | 联调/故障诊断 |
 | `logLevel` | `info` | 禁止记录敏感正文 |
 | `approvalTimeoutMs` | `120000` | 超时返回 fail-closed |
@@ -160,6 +161,11 @@ Plugin 不替换 Cordis `apiProxy` service identity，而是一次性安装稳�
 切换 Remote 前必须完成 Server membership、本地 pinned Host public key、presence 和 Noise IK 校验，并通过 `system.info` 确认 `harness.api.v1`。切换后浏览器刷新以重建官方 mux/host streams。远端 transport 意外关闭时 switch 立即回落 Local，现有 stream 结束，由官方 Connection 重连取得本机 baseline。
 
 控制面独立注册在 loopback-only `/remote` channel，包含 status、device list、pairing claim/status、Host pairing create/confirm 和 mode.set；这些 endpoint 不经过远端 Host，也不能从 Server 调用。
+
+同一个 loopback-only control 还提供 `settings.get`、`settings.configure` 与
+`settings.pairing.status`。配置 UI 只展示 Host/Client 单开关、Server，以及按角色切换
+的账号密码或一次性授权码。授权成功或 Client claim 成功后才写入 `dsh-remote`
+settings namespace；密码、web account token 和授权码均不得进入 settings 文档。
 
 写入采用临时文件 + 原子 rename；启动时校验 schema、权限和公私钥匹配。损坏密钥不得静默重建并继续信任旧 membership，应进入 `IDENTITY_INVALID` 并要求用户显式修复。
 

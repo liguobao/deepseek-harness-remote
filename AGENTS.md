@@ -52,7 +52,7 @@ docs/
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
 | Plugin Host | 账号授权注册、按 Server 隔离的身份/凭证、Server connector、Pairing、Relay/Noise IK 与核心 runtime 已实现 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
-| Plugin Client Mode | Local/Remote API switch、配对/设备控制、原生 API 白名单代理与 Web 入口已实现 | 真实 dsh-desktop 安装/E2E、断线重连 |
+| Plugin Client Mode | Local/Remote API switch、配对/设备控制、Settings 配置入口、原生 API 白名单代理与 Web 入口已实现 | 真实 dsh-desktop 安装/E2E、断线重连 |
 | Android | Server API、membership reconcile 与 Relay/Noise IK 已实现 | 完整 resync、真机/外部 Server E2E |
 | Protocol | 基础与 Control frame 已实现 | 完整 Zod schema、limits、golden vectors |
 | Crypto | 基础原语与标准 Noise IK 已实现 | 第三方实现审查、rekey、跨端 conformance |
@@ -96,7 +96,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 截至 2026-08-15：
 
 - workspace check 与 DSH bundle 校验通过
-- workspace test 通过：28 个测试文件、60 个测试
+- workspace test 通过：29 个测试文件、62 个测试
 - workspace build 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 

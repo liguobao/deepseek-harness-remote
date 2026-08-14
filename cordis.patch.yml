@@ -3,9 +3,9 @@
 # and load the repository directly as a bundle.
 - insert:
     - id: dsh-remote
-      name: deepseek-harness-remote
-      inject: [sessions, agents, approval, apiProxy, connection]
+      name: dsh-remote
+      inject: [sessions, agents, approval, settings, apiProxy, connection]
       config:
         enabled: true
-        role: both
+        role: host
         serverUrl: https://dsh.r2049.cn

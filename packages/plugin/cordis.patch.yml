@@ -1,8 +1,8 @@
 - insert:
     - id: dsh-remote
       name: '@dsh-remote/plugin'
-      inject: [sessions, agents, approval, apiProxy, connection]
+      inject: [sessions, agents, approval, settings, apiProxy, connection]
       config:
         enabled: true
-        role: both
+        role: host
         serverUrl: https://dsh.r2049.cn

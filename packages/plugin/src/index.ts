@@ -4,8 +4,10 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { WorkspaceRegistry } from '@deepseek-ai/dsh-workspace'
+import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
 import { ClientModeRuntime, type HostConnectionHandle } from './client-runtime.js'
 import { Config, resolveConfig, type Config as ConfigInput } from './config.js'
+import { PluginControlRuntime } from './control-runtime.js'
 import { IdentityStore, serverStorageDirectory } from './identity-store.js'
 import { SafeLogger } from './logging.js'
 import { HostPluginRuntime, type RuntimeDependencies } from './service.js'
@@ -24,7 +26,13 @@ export const inject = ['sessions', 'agents', 'approval']
 export { Config }
 
 export async function apply(ctx: Context, input: ConfigInput = {}): Promise<void> {
-  const config = resolveConfig(input)
+  const settings = ctx.get('settings')
+  const settingsScope: SettingsScope<ConfigInput> | undefined = settings?.register(settingsNamespace('dsh-remote'), Config, {
+    base: input,
+    applies: 'restart',
+    validate: value => { resolveConfig(value) },
+  })
+  const config = resolveConfig(settingsScope?.get() ?? input)
   if (!config.enabled) return
   const logger = new SafeLogger(ctx.logger, config.logLevel)
   const defaultIdentityDirectory = new IdentityStore().directory
@@ -45,6 +53,7 @@ export async function apply(ctx: Context, input: ConfigInput = {}): Promise<void
   }, logger)
 
   let clientRuntime: ClientModeRuntime | undefined
+  const hostControl = config.role === 'client' ? undefined : runtime
   if (config.role !== 'host' && config.serverUrl !== undefined && apiProxy !== undefined && connection !== undefined) {
     const clientIdentities = new IdentityStore({
       directory: serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, 'client'),
@@ -55,9 +64,13 @@ export async function apply(ctx: Context, input: ConfigInput = {}): Promise<void
       new ClientServerApi(config.serverUrl, new ServerCredentialStore(clientIdentities.directory)),
       apiProxy,
       logger,
-      config.role === 'client' ? undefined : runtime,
+      hostControl,
     )
   }
+
+  const controlRuntime = connection === undefined
+    ? undefined
+    : new PluginControlRuntime(config, defaultIdentityDirectory, settingsScope, clientRuntime, hostControl)
 
   ctx.provide('dshRemote', runtime)
   if (clientRuntime !== undefined) ctx.provide('dshRemoteClient', clientRuntime)
@@ -67,10 +80,9 @@ export async function apply(ctx: Context, input: ConfigInput = {}): Promise<void
   ctx.on('approval/request', (request, next) => runtime.answerApproval(request, next), { prepend: true })
   await ctx.effect(async () => {
     await runtime.start()
-    let disposeControl: (() => Promise<void>) | undefined
+    const disposeControl = controlRuntime?.register(connection!)
     if (clientRuntime !== undefined) {
       await clientRuntime.start()
-      disposeControl = clientRuntime.registerControl(connection!)
     } else if (config.role !== 'host') {
       logger.warn('client remote mode is unavailable', {
         serverConfigured: config.serverUrl !== undefined,
@@ -105,6 +117,7 @@ export { HOST_CAPABILITIES, RpcError, RpcRouter } from './rpc-router.js'
 export { HostPluginRuntime } from './service.js'
 export { ApiProxySwitch } from './api-proxy-switch.js'
 export { ClientModeError, ClientModeRuntime } from './client-runtime.js'
+export { PluginControlRuntime } from './control-runtime.js'
 export { ClientSecureTransport } from './client-secure-transport.js'
 export { HARNESS_API_ALLOWLIST, HarnessApiBridge } from './harness-api-bridge.js'
 export { RemoteHarnessApiProxy } from './remote-api-proxy.js'

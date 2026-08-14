@@ -21,7 +21,7 @@ await build({
   format: 'iife',
   minifySyntax: true,
   define: {
-    DSH_REMOTE_CLIENT_MODULE_ID: JSON.stringify('deepseek-harness-remote'),
+    DSH_REMOTE_CLIENT_MODULE_ID: JSON.stringify('dsh-remote'),
   },
   outfile: join(root, 'dist/client.github.js'),
 })

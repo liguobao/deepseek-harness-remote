@@ -71,7 +71,7 @@ export class ClientModeRuntime {
 
   async start(): Promise<void> {
     if (this.closed) throw new Error('client remote-mode runtime is closed')
-    this.identity = await this.identities.loadOrCreate(`${this.config.deviceName.slice(0, 73)} Client`)
+    this.identity = await this.identities.loadOrCreate(this.config.deviceName)
     this.server.bindIdentity(this.identity)
     this.proxySwitch.install()
     this.logger.info('client remote-mode identity ready', {
@@ -222,7 +222,7 @@ export class ClientModeRuntime {
     }
   }
 
-  private async handleControl(endpoint: string, payload: unknown, signal: AbortSignal): Promise<RpcResult<unknown>> {
+  async handleControl(endpoint: string, payload: unknown, signal: AbortSignal): Promise<RpcResult<unknown>> {
     try {
       if (endpoint === 'status') return ok(this.status())
       if (endpoint === 'devices') return ok(await this.devices())

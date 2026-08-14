@@ -1,6 +1,6 @@
 {
-  "name": "deepseek-harness-remote",
-  "version": "0.2.1",
+  "name": "dsh-remote",
+  "version": "0.2.2",
   "description": "Local/remote mode DSH plugin for DeepSeek Harness",
   "license": "MIT",
   "private": true,
@@ -34,7 +34,9 @@
       "inject": [
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-client-ui-slots"
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
       ],
       "platform": "web"
     }
@@ -50,9 +52,12 @@
     "@deepseek-ai/dsh-client-connection": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-client-ui-sidebar": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-settings-plugins": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-host-apiproxy": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-llm": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-session": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-settings": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-user-approval": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-workspace": ">=0.1.0-rc.6 <0.2.0",
     "react": ">=18.2.0 <19"
@@ -65,6 +70,12 @@
       "optional": true
     },
     "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings-plugins": {
       "optional": true
     },
     "@deepseek-ai/dsh-host-apiproxy": {

@@ -4,6 +4,9 @@ var __export = (target, all) => {
     __defProp(target, name2, { get: all[name2], enumerable: true });
 };
 
+// src/index.ts
+import { settingsNamespace } from "@deepseek-ai/dsh-settings";
+
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
 var external_exports = {};
 __export(external_exports, {
@@ -8628,8 +8631,8 @@ function validateMSMScalars2(scalars, field, maxScalar) {
   if (!Array.isArray(scalars))
     throw new Error("array of scalars expected");
   scalars.forEach((s2, i) => {
-    const ok2 = maxScalar === void 0 ? field.isValid(s2) : isPosBig2(s2) && s2 < maxScalar;
-    if (!ok2)
+    const ok3 = maxScalar === void 0 ? field.isValid(s2) : isPosBig2(s2) && s2 < maxScalar;
+    if (!ok3)
       throw new Error("invalid scalar at index " + i);
   });
 }
@@ -11802,24 +11805,24 @@ var IdentityStore = class {
     }
     if (!hasDevice) {
       const keys = generateKeyPair();
-      const record2 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
-      await atomicJsonWrite(devicePath, record2, 384);
+      const record3 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
+      await atomicJsonWrite(devicePath, record3, 384);
       await atomicTextWrite(keyPath, `${keys.privateKey}
 `, 384);
     }
     await assertPrivateMode(keyPath);
     try {
-      let record2 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
+      let record3 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
       const privateKey = (await readFile(keyPath, "utf8")).trim();
       const regenerated = generateKeyPair(fromBase64Url2(privateKey));
-      if (regenerated.publicKey !== record2.publicKey) {
+      if (regenerated.publicKey !== record3.publicKey) {
         throw new IdentityInvalidError("device public and private keys do not match");
       }
-      if (record2.name !== deviceName) {
-        record2 = { ...record2, name: deviceName };
-        await atomicJsonWrite(devicePath, record2, 384);
+      if (record3.name !== deviceName) {
+        record3 = { ...record3, name: deviceName };
+        await atomicJsonWrite(devicePath, record3, 384);
       }
-      this.identity = { ...record2, privateKey, fingerprint: fingerprint(record2.publicKey) };
+      this.identity = { ...record3, privateKey, fingerprint: fingerprint(record3.publicKey) };
       await this.loadPeers();
       return this.identity;
     } catch (error) {
@@ -12105,7 +12108,7 @@ var ClientModeRuntime = class {
   closed = false;
   async start() {
     if (this.closed) throw new Error("client remote-mode runtime is closed");
-    this.identity = await this.identities.loadOrCreate(`${this.config.deviceName.slice(0, 73)} Client`);
+    this.identity = await this.identities.loadOrCreate(this.config.deviceName);
     this.server.bindIdentity(this.identity);
     this.proxySwitch.install();
     this.logger.info("client remote-mode identity ready", {
@@ -12423,6 +12426,537 @@ function normalizeServerUrl(value) {
   return url.origin;
 }
 
+// src/control-runtime.ts
+import { hostname as hostname2 } from "node:os";
+
+// src/server-api.ts
+import { platform } from "node:os";
+var HostServerApi = class {
+  constructor(serverUrl, store, fetchImplementation = fetch, role = "host") {
+    this.store = store;
+    this.fetchImplementation = fetchImplementation;
+    this.role = role;
+    this.baseUrl = normalizeServerUrl(serverUrl);
+  }
+  baseUrl;
+  identity;
+  credentials;
+  credentialsPromise;
+  bindIdentity(identity) {
+    this.identity = identity;
+  }
+  currentAccount() {
+    return this.credentials?.account;
+  }
+  async authorizeHost(identity, email, password) {
+    if (this.role !== "host") throw new ServerApiError("METHOD_NOT_ALLOWED", "Only a Host device can use account authorization.", false);
+    this.bindIdentity(identity);
+    const account = email.trim();
+    if (account.length === 0 || password.length === 0) {
+      throw new ServerApiError("INVALID_MESSAGE", "Email and password are required.", false);
+    }
+    const login = validateWebLogin(await this.publicRequest("/api/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: account, password })
+    }));
+    await this.register(identity, login.token, login.account);
+    return { account: login.account, expiresAt: login.expiresAt, isAdmin: login.isAdmin };
+  }
+  async authenticate(identity = this.requireIdentity()) {
+    this.bindIdentity(identity);
+    if (this.credentials !== void 0 && this.credentials.accessTokenExpiresAt > Date.now() + 3e4) {
+      return this.credentials;
+    }
+    this.credentialsPromise ??= this.loadOrIssue(identity).finally(() => {
+      this.credentialsPromise = void 0;
+    });
+    this.credentials = await this.credentialsPromise;
+    return this.credentials;
+  }
+  async refreshCredentials() {
+    const identity = this.requireIdentity();
+    const stored = await this.store.load(this.baseUrl, identity.deviceId);
+    if (stored === void 0 || stored.refreshTokenExpiresAt <= Date.now()) return this.register(identity);
+    const tokens = await this.publicRequest("/api/v1/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ deviceId: identity.deviceId, refreshToken: stored.refreshToken })
+    });
+    this.credentials = await this.store.save({
+      serverUrl: this.baseUrl,
+      deviceId: identity.deviceId,
+      ...stored.account === void 0 ? {} : { account: stored.account },
+      ...validateTokens(tokens)
+    });
+    return this.credentials;
+  }
+  async create(identity) {
+    this.bindIdentity(identity);
+    return this.request(
+      "/api/v1/pairings",
+      { method: "POST", body: JSON.stringify({ v: 1, hostDeviceId: identity.deviceId }) }
+    );
+  }
+  confirm(input) {
+    return this.request("/api/v1/pairings/confirm", {
+      method: "POST",
+      body: JSON.stringify({ v: 1, ...input })
+    });
+  }
+  async membershipFor(peerDeviceId) {
+    const result = await this.request(`/api/v1/devices/${encodeURIComponent(peerDeviceId)}`);
+    return typeof result.membershipId === "string" && result.membershipId.length > 0 ? result.membershipId : void 0;
+  }
+  async listDevices() {
+    const result = await this.request("/api/v1/devices");
+    if (!Array.isArray(result.items)) throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid device list.", false);
+    return result.items.map(parseHostDevice);
+  }
+  async presenceFor(deviceId) {
+    const result = await this.request(`/api/v1/devices/${encodeURIComponent(deviceId)}/presence`);
+    if (typeof result.online !== "boolean" || result.lastSeenAt !== null && result.lastSeenAt !== void 0 && !Number.isSafeInteger(result.lastSeenAt)) {
+      throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid device presence.", false);
+    }
+    return { online: result.online, ...typeof result.lastSeenAt === "number" ? { lastSeenAt: result.lastSeenAt } : {} };
+  }
+  async claimPairing(code, clientDeviceId) {
+    const result = await this.request("/api/v1/pairings/claim", {
+      method: "POST",
+      body: JSON.stringify({ v: 1, code: code.replace("-", ""), clientDeviceId })
+    });
+    return parseClientPairingClaim(result);
+  }
+  async pairingStatus(pairingId) {
+    const result = await this.request(`/api/v1/pairings/${encodeURIComponent(pairingId)}/status`);
+    return parseClientPairingStatus(result);
+  }
+  async loadOrIssue(identity) {
+    const stored = await this.store.load(this.baseUrl, identity.deviceId);
+    if (stored === void 0 || stored.refreshTokenExpiresAt <= Date.now() + 3e4) {
+      return this.register(identity);
+    }
+    if (stored.accessTokenExpiresAt > Date.now() + 3e4) return stored;
+    const tokens = await this.publicRequest("/api/v1/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ deviceId: identity.deviceId, refreshToken: stored.refreshToken })
+    });
+    return this.store.save({
+      serverUrl: this.baseUrl,
+      deviceId: identity.deviceId,
+      ...stored.account === void 0 ? {} : { account: stored.account },
+      ...validateTokens(tokens)
+    });
+  }
+  async register(identity, accountToken, account) {
+    const tokens = await this.publicRequest("/api/v1/devices/register", {
+      method: "POST",
+      body: JSON.stringify({
+        v: 1,
+        device: {
+          deviceId: identity.deviceId,
+          name: identity.name,
+          role: this.role,
+          platform: platform(),
+          identityKey: identity.publicKey,
+          clientVersion: "0.2.2",
+          harnessVersion: "0.1.0-rc.6"
+        }
+      })
+    }, accountToken);
+    this.credentials = await this.store.save({
+      serverUrl: this.baseUrl,
+      deviceId: identity.deviceId,
+      ...account === void 0 ? {} : { account },
+      ...validateTokens(tokens)
+    });
+    return this.credentials;
+  }
+  async request(path, init = {}) {
+    const credentials = await this.authenticate();
+    return this.publicRequest(path, init, credentials.accessToken);
+  }
+  async publicRequest(path, init, accessToken) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1e4);
+    let response;
+    try {
+      response = await this.fetchImplementation(`${this.baseUrl}${path}`, {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...accessToken === void 0 ? {} : { Authorization: `Bearer ${accessToken}` },
+          ...init.headers
+        }
+      });
+    } catch (error) {
+      throw new ServerApiError("CONNECTION_FAILED", error instanceof Error ? error.message : "Server request failed.", true);
+    } finally {
+      clearTimeout(timer);
+    }
+    const body = await parseBody(response);
+    if (!response.ok) {
+      const envelope = body ?? {};
+      throw new ServerApiError(
+        typeof envelope.error?.code === "string" ? envelope.error.code : mapStatus(response.status),
+        typeof envelope.error?.message === "string" ? envelope.error.message : "The Server rejected the request.",
+        envelope.error?.retryable === true || response.status >= 500,
+        response.status
+      );
+    }
+    return body;
+  }
+  requireIdentity() {
+    if (this.identity === void 0) throw new ServerApiError("IDENTITY_INVALID", "The device identity is not loaded.", false);
+    return this.identity;
+  }
+};
+var ClientServerApi = class extends HostServerApi {
+  constructor(serverUrl, store, fetchImplementation = fetch) {
+    super(serverUrl, store, fetchImplementation, "client");
+  }
+};
+var ServerApiError = class extends Error {
+  constructor(code, message, retryable, status) {
+    super(message);
+    this.code = code;
+    this.retryable = retryable;
+    this.status = status;
+  }
+};
+function validateTokens(value) {
+  if (typeof value.accessToken !== "string" || value.accessToken.length < 16 || typeof value.refreshToken !== "string" || value.refreshToken.length < 16 || !Number.isSafeInteger(value.accessTokenExpiresAt) || !Number.isSafeInteger(value.refreshTokenExpiresAt)) {
+    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid device credentials.", false);
+  }
+  return value;
+}
+function validateWebLogin(value) {
+  const item = requireRecord(value, "account login");
+  if (typeof item.token !== "string" || item.token.length < 16 || !Number.isSafeInteger(item.expiresAt) || typeof item.account !== "string" || item.account.length === 0 || item.account.length > 254 || typeof item.isAdmin !== "boolean") {
+    throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid account session.", false);
+  }
+  return {
+    token: item.token,
+    expiresAt: item.expiresAt,
+    account: item.account,
+    profile: item.profile,
+    isAdmin: item.isAdmin
+  };
+}
+async function parseBody(response) {
+  const text = await response.text();
+  if (text.length === 0) return void 0;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid JSON.", false, response.status);
+  }
+}
+function mapStatus(status) {
+  if (status === 401) return "AUTH_INVALID";
+  if (status === 403) return "AUTH_REQUIRED";
+  if (status === 404) return "DEVICE_NOT_FOUND";
+  if (status === 429) return "RATE_LIMITED";
+  return status >= 500 ? "CONNECTION_FAILED" : "INVALID_MESSAGE";
+}
+function parseHostDevice(value) {
+  const item = requireRecord(value, "host device");
+  if (item.role !== "host" || typeof item.deviceId !== "string" || typeof item.name !== "string" || typeof item.platform !== "string" || typeof item.membershipId !== "string" || item.membershipId.length === 0) {
+    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid host device data.", false);
+  }
+  return {
+    deviceId: item.deviceId,
+    name: item.name,
+    platform: item.platform,
+    membershipId: item.membershipId,
+    ...typeof item.online === "boolean" ? { online: item.online } : {},
+    ...typeof item.lastSeenAt === "number" && Number.isSafeInteger(item.lastSeenAt) ? { lastSeenAt: item.lastSeenAt } : {}
+  };
+}
+function parseClientPairingClaim(value) {
+  const item = requireRecord(value, "pairing claim");
+  const host = requireRecord(item.host, "pairing Host");
+  if (typeof item.pairingId !== "string" || !Number.isSafeInteger(item.expiresAt) || typeof host.deviceId !== "string" || typeof host.name !== "string" || typeof host.platform !== "string" || typeof host.identityKey !== "string" || typeof host.fingerprint !== "string") {
+    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid pairing data.", false);
+  }
+  return {
+    pairingId: item.pairingId,
+    expiresAt: item.expiresAt,
+    host: {
+      deviceId: host.deviceId,
+      name: host.name,
+      platform: host.platform,
+      identityKey: host.identityKey,
+      fingerprint: host.fingerprint
+    }
+  };
+}
+function parseClientPairingStatus(value) {
+  const item = requireRecord(value, "pairing status");
+  if (!["waiting_host", "paired", "rejected", "expired"].includes(String(item.status)) || item.membershipId !== void 0 && item.membershipId !== null && typeof item.membershipId !== "string" || item.hostDeviceId !== void 0 && item.hostDeviceId !== null && typeof item.hostDeviceId !== "string" || item.expiresAt !== void 0 && item.expiresAt !== null && !Number.isSafeInteger(item.expiresAt)) {
+    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid pairing status.", false);
+  }
+  return {
+    status: item.status,
+    ...typeof item.membershipId === "string" ? { membershipId: item.membershipId } : {},
+    ...typeof item.hostDeviceId === "string" ? { hostDeviceId: item.hostDeviceId } : {},
+    ...typeof item.expiresAt === "number" ? { expiresAt: item.expiresAt } : {}
+  };
+}
+function requireRecord(value, name2) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ServerApiError("INVALID_MESSAGE", `The Server returned invalid ${name2} data.`, false);
+  }
+  return value;
+}
+
+// src/server-credentials.ts
+import { chmod as chmod2, mkdir as mkdir2, readFile as readFile2, rename as rename2, stat as stat2, writeFile as writeFile2 } from "node:fs/promises";
+import { dirname as dirname2, join as join2 } from "node:path";
+var credentialSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  serverUrl: external_exports.string().url(),
+  deviceId: external_exports.string().min(1),
+  account: external_exports.string().min(1).max(254).optional(),
+  accessToken: external_exports.string().min(16),
+  accessTokenExpiresAt: external_exports.number().int().positive(),
+  refreshToken: external_exports.string().min(16),
+  refreshTokenExpiresAt: external_exports.number().int().positive()
+}).strict();
+var ServerCredentialStore = class {
+  path;
+  constructor(directory) {
+    this.path = join2(directory, "server-credentials.json");
+  }
+  async load(serverUrl, deviceId) {
+    if (!await exists2(this.path)) return void 0;
+    await assertPrivateMode2(this.path);
+    let parsed;
+    try {
+      parsed = credentialSchema.parse(JSON.parse(await readFile2(this.path, "utf8")));
+    } catch (error) {
+      throw new ServerCredentialsInvalidError(`server credentials are invalid: ${safeMessage(error)}`);
+    }
+    return parsed.serverUrl === serverUrl && parsed.deviceId === deviceId ? parsed : void 0;
+  }
+  async save(credentials) {
+    const record3 = credentialSchema.parse({ schemaVersion: 1, ...credentials });
+    await atomicWrite(this.path, `${JSON.stringify(record3, null, 2)}
+`);
+    return record3;
+  }
+};
+var ServerCredentialsInvalidError = class extends Error {
+  code = "SERVER_CREDENTIALS_INVALID";
+};
+async function atomicWrite(path, contents) {
+  await mkdir2(dirname2(path), { recursive: true, mode: 448 });
+  const temporary = `${path}.${process.pid}.${uuidV7()}.tmp`;
+  await writeFile2(temporary, contents, { encoding: "utf8", mode: 384, flag: "wx" });
+  await chmod2(temporary, 384);
+  await rename2(temporary, path);
+  await chmod2(path, 384);
+}
+async function assertPrivateMode2(path) {
+  if (process.platform === "win32") return;
+  const mode = (await stat2(path)).mode & 511;
+  if ((mode & 63) !== 0) throw new ServerCredentialsInvalidError("server credentials permissions must be 0600");
+}
+async function exists2(path) {
+  try {
+    await stat2(path);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+function safeMessage(error) {
+  return error instanceof Error ? error.message : "invalid credential data";
+}
+
+// src/control-runtime.ts
+var PluginControlRuntime = class {
+  constructor(config, identityDirectory, settings, client, host) {
+    this.config = config;
+    this.identityDirectory = identityDirectory;
+    this.settings = settings;
+    this.client = client;
+    this.host = host;
+  }
+  pendingPairing;
+  register(connection) {
+    return connection.rpc.handle("/remote", (endpoint, payload, signal) => this.handle(endpoint, payload, signal), {
+      authority: "loopback"
+    });
+  }
+  async handle(endpoint, payload, signal) {
+    try {
+      if (endpoint === "settings.get") return ok2(this.settingsView());
+      if (endpoint === "settings.configure") return ok2(await this.configure(payload));
+      if (endpoint === "settings.pairing.status") return ok2(await this.pairingStatus(payload));
+      if (this.client !== void 0) return this.client.handleControl(endpoint, payload, signal);
+      if (endpoint === "status") return ok2(this.hostOnlyStatus());
+      if (endpoint === "devices") return ok2([]);
+      if (endpoint === "host.pairing.create") {
+        if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
+        return ok2(await this.host.createPairing());
+      }
+      if (endpoint === "host.account.login") {
+        if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
+        const value = record2(payload);
+        if (typeof value.email !== "string" || typeof value.password !== "string") {
+          throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
+        }
+        return ok2(await this.host.authorizeHost(value.email, value.password));
+      }
+      if (endpoint === "host.pairings") return ok2(this.host?.pendingPairings() ?? []);
+      if (endpoint === "host.pairing.confirm") {
+        if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
+        const value = record2(payload);
+        if (typeof value.pairingId !== "string" || value.decision !== "approve" && value.decision !== "deny") {
+          throw new ClientModeError("INVALID_MESSAGE", "A pairingId and approve/deny decision are required.");
+        }
+        return ok2(await this.host.confirmPairing(value.pairingId, value.decision));
+      }
+      if (endpoint === "mode.set" && record2(payload).mode === "local") return ok2(this.hostOnlyStatus());
+      throw new ClientModeError("METHOD_NOT_ALLOWED", "Remote Client mode is disabled by the plugin role.");
+    } catch (error) {
+      return fail2(error);
+    }
+  }
+  async configure(payload) {
+    if (this.settings === void 0) {
+      throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
+    }
+    const value = record2(payload);
+    if (value.role !== "host" && value.role !== "client") {
+      throw new ClientModeError("INVALID_MESSAGE", "Role must be Host or Client.");
+    }
+    if (typeof value.serverUrl !== "string") {
+      throw new ClientModeError("INVALID_MESSAGE", "Server URL is required.");
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()));
+    const next = resolveConfig({ ...current, role: value.role, serverUrl: value.serverUrl });
+    if (value.role === "host") {
+      if (typeof value.email !== "string" || typeof value.password !== "string") {
+        throw new ClientModeError("INVALID_MESSAGE", "Email and password are required for a Host.");
+      }
+      const identities2 = new IdentityStore({
+        directory: serverStorageDirectory(this.identityDirectory, next.serverUrl, "host")
+      });
+      const identity2 = await identities2.loadOrCreate(hostname2());
+      const api2 = new HostServerApi(next.serverUrl, new ServerCredentialStore(identities2.directory));
+      const authorization = await api2.authorizeHost(identity2, value.email, value.password);
+      await this.settings.replace(editableConfig(next));
+      this.pendingPairing = void 0;
+      return { status: "authorized", role: "host", account: authorization.account, settings: this.settingsView() };
+    }
+    if (typeof value.authorizationCode !== "string" || value.authorizationCode.trim() === "") {
+      throw new ClientModeError("INVALID_MESSAGE", "Authorization code is required for a Client.");
+    }
+    const identities = new IdentityStore({
+      directory: serverStorageDirectory(this.identityDirectory, next.serverUrl, "client")
+    });
+    const identity = await identities.loadOrCreate(hostname2());
+    const api = new ClientServerApi(next.serverUrl, new ServerCredentialStore(identities.directory));
+    api.bindIdentity(identity);
+    const claim = await api.claimPairing(value.authorizationCode, identity.deviceId);
+    if (claim.host.fingerprint !== fingerprint(claim.host.identityKey)) {
+      throw new ClientModeError("PEER_IDENTITY_MISMATCH", "The pairing Host fingerprint is invalid.");
+    }
+    this.pendingPairing = { api, identities, identity, claim };
+    await this.settings.replace(editableConfig(next));
+    return { status: "waiting_host", role: "client", settings: this.settingsView() };
+  }
+  async pairingStatus(payload) {
+    const value = record2(payload);
+    const pending = this.pendingPairing;
+    if (pending === void 0 || value.pairingId !== pending.claim.pairingId) {
+      throw new ClientModeError("PAIRING_INVALID", "The pairing request is not pending on this device.");
+    }
+    const status = await pending.api.pairingStatus(pending.claim.pairingId);
+    if (status.status === "paired") {
+      if (status.membershipId === void 0 || status.hostDeviceId !== pending.claim.host.deviceId) {
+        throw new ClientModeError("INVALID_MESSAGE", "The paired membership does not match the authorized Host.");
+      }
+      await pending.identities.trustPeer({
+        deviceId: pending.claim.host.deviceId,
+        name: pending.claim.host.name,
+        platform: pending.claim.host.platform,
+        publicKey: pending.claim.host.identityKey,
+        membershipId: status.membershipId
+      });
+      this.pendingPairing = void 0;
+    } else if (status.status === "rejected" || status.status === "expired") {
+      this.pendingPairing = void 0;
+    }
+    return { ...status, settings: this.settingsView() };
+  }
+  settingsView() {
+    const config = this.settings === void 0 ? editableConfig(this.config) : editableConfig(resolveConfig(this.settings.get()));
+    const pending = this.pendingPairing?.claim;
+    return {
+      config,
+      deviceName: hostname2(),
+      writable: this.settings !== void 0,
+      applies: "restart",
+      ...pending === void 0 ? {} : {
+        pendingPairing: {
+          pairingId: pending.pairingId,
+          expiresAt: pending.expiresAt,
+          host: { name: pending.host.name, fingerprint: pending.host.fingerprint }
+        }
+      }
+    };
+  }
+  hostOnlyStatus() {
+    return {
+      mode: "local",
+      available: false,
+      hostPairingAvailable: this.host !== void 0,
+      ...this.host === void 0 ? {} : { host: this.host.hostStatus() }
+    };
+  }
+};
+function editableConfig(config) {
+  return {
+    enabled: config.enabled,
+    role: config.role,
+    ...config.serverUrl === void 0 ? {} : { serverUrl: config.serverUrl },
+    forceRelay: config.forceRelay,
+    logLevel: config.logLevel,
+    approvalTimeoutMs: config.approvalTimeoutMs,
+    reconnect: config.reconnect.enabled ? {
+      initialDelayMs: config.reconnect.initialDelayMs,
+      maxDelayMs: config.reconnect.maxDelayMs,
+      jitter: config.reconnect.jitter
+    } : false
+  };
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function record2(value) {
+  if (!isRecord(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
+  return value;
+}
+function ok2(value) {
+  return { ok: true, value };
+}
+function fail2(error) {
+  const source = error instanceof Error ? error : void 0;
+  const remoteCode = source !== void 0 && "code" in source && typeof source.code === "string" ? source.code : source instanceof ClientModeError ? source.code : void 0;
+  return {
+    ok: false,
+    error: {
+      code: "internal",
+      message: source?.message ?? "The plugin control operation failed.",
+      details: remoteCode === void 0 ? {} : { remoteCode }
+    }
+  };
+}
+
 // src/logging.ts
 var levels = ["debug", "info", "warn", "error"];
 var secretKey = /authorization|cookie|token|secret|private|shared|ciphertext|payload|prompt|source|workspace|output|pairingCode|deviceCode/i;
@@ -12457,7 +12991,7 @@ function redact(value, key = "") {
 }
 
 // src/service.ts
-import { hostname as hostname2, platform as platform2 } from "node:os";
+import { hostname as hostname3, platform as platform2 } from "node:os";
 
 // src/adapters/agent-adapter.ts
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
@@ -12778,8 +13312,8 @@ function assistantStreamId(sessionId, turn, step) {
 function textOf(content) {
   return content.flatMap((block) => {
     if (typeof block !== "object" || block === null) return [];
-    const record2 = block;
-    if ((record2.type === "text" || record2.type === "reasoning") && typeof record2.text === "string") return [record2.text];
+    const record3 = block;
+    if ((record3.type === "text" || record3.type === "reasoning") && typeof record3.text === "string") return [record3.text];
     return [];
   }).join("");
 }
@@ -13240,287 +13774,6 @@ function isSideEffecting(method) {
   return method === "sessions.create" || method === "session.send" || method === "session.stop" || method === "permissions.respond" || method === "harness.api.call" || method === "harness.api.respond" || method === "harness.api.stream.open" || method === "harness.api.stream.close";
 }
 
-// src/server-api.ts
-import { platform } from "node:os";
-var HostServerApi = class {
-  constructor(serverUrl, store, fetchImplementation = fetch, role = "host") {
-    this.store = store;
-    this.fetchImplementation = fetchImplementation;
-    this.role = role;
-    this.baseUrl = normalizeServerUrl(serverUrl);
-  }
-  baseUrl;
-  identity;
-  credentials;
-  credentialsPromise;
-  bindIdentity(identity) {
-    this.identity = identity;
-  }
-  currentAccount() {
-    return this.credentials?.account;
-  }
-  async authorizeHost(identity, email, password) {
-    if (this.role !== "host") throw new ServerApiError("METHOD_NOT_ALLOWED", "Only a Host device can use account authorization.", false);
-    this.bindIdentity(identity);
-    const account = email.trim();
-    if (account.length === 0 || password.length === 0) {
-      throw new ServerApiError("INVALID_MESSAGE", "Email and password are required.", false);
-    }
-    const login = validateWebLogin(await this.publicRequest("/api/v1/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email: account, password })
-    }));
-    await this.register(identity, login.token, login.account);
-    return { account: login.account, expiresAt: login.expiresAt, isAdmin: login.isAdmin };
-  }
-  async authenticate(identity = this.requireIdentity()) {
-    this.bindIdentity(identity);
-    if (this.credentials !== void 0 && this.credentials.accessTokenExpiresAt > Date.now() + 3e4) {
-      return this.credentials;
-    }
-    this.credentialsPromise ??= this.loadOrIssue(identity).finally(() => {
-      this.credentialsPromise = void 0;
-    });
-    this.credentials = await this.credentialsPromise;
-    return this.credentials;
-  }
-  async refreshCredentials() {
-    const identity = this.requireIdentity();
-    const stored = await this.store.load(this.baseUrl, identity.deviceId);
-    if (stored === void 0 || stored.refreshTokenExpiresAt <= Date.now()) return this.register(identity);
-    const tokens = await this.publicRequest("/api/v1/auth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ deviceId: identity.deviceId, refreshToken: stored.refreshToken })
-    });
-    this.credentials = await this.store.save({
-      serverUrl: this.baseUrl,
-      deviceId: identity.deviceId,
-      ...stored.account === void 0 ? {} : { account: stored.account },
-      ...validateTokens(tokens)
-    });
-    return this.credentials;
-  }
-  async create(identity) {
-    this.bindIdentity(identity);
-    return this.request(
-      "/api/v1/pairings",
-      { method: "POST", body: JSON.stringify({ v: 1, hostDeviceId: identity.deviceId }) }
-    );
-  }
-  confirm(input) {
-    return this.request("/api/v1/pairings/confirm", {
-      method: "POST",
-      body: JSON.stringify({ v: 1, ...input })
-    });
-  }
-  async membershipFor(peerDeviceId) {
-    const result = await this.request(`/api/v1/devices/${encodeURIComponent(peerDeviceId)}`);
-    return typeof result.membershipId === "string" && result.membershipId.length > 0 ? result.membershipId : void 0;
-  }
-  async listDevices() {
-    const result = await this.request("/api/v1/devices");
-    if (!Array.isArray(result.items)) throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid device list.", false);
-    return result.items.map(parseHostDevice);
-  }
-  async presenceFor(deviceId) {
-    const result = await this.request(`/api/v1/devices/${encodeURIComponent(deviceId)}/presence`);
-    if (typeof result.online !== "boolean" || result.lastSeenAt !== null && result.lastSeenAt !== void 0 && !Number.isSafeInteger(result.lastSeenAt)) {
-      throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid device presence.", false);
-    }
-    return { online: result.online, ...typeof result.lastSeenAt === "number" ? { lastSeenAt: result.lastSeenAt } : {} };
-  }
-  async claimPairing(code, clientDeviceId) {
-    const result = await this.request("/api/v1/pairings/claim", {
-      method: "POST",
-      body: JSON.stringify({ v: 1, code: code.replace("-", ""), clientDeviceId })
-    });
-    return parseClientPairingClaim(result);
-  }
-  async pairingStatus(pairingId) {
-    const result = await this.request(`/api/v1/pairings/${encodeURIComponent(pairingId)}/status`);
-    return parseClientPairingStatus(result);
-  }
-  async loadOrIssue(identity) {
-    const stored = await this.store.load(this.baseUrl, identity.deviceId);
-    if (stored === void 0 || stored.refreshTokenExpiresAt <= Date.now() + 3e4) {
-      return this.register(identity);
-    }
-    if (stored.accessTokenExpiresAt > Date.now() + 3e4) return stored;
-    const tokens = await this.publicRequest("/api/v1/auth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ deviceId: identity.deviceId, refreshToken: stored.refreshToken })
-    });
-    return this.store.save({
-      serverUrl: this.baseUrl,
-      deviceId: identity.deviceId,
-      ...stored.account === void 0 ? {} : { account: stored.account },
-      ...validateTokens(tokens)
-    });
-  }
-  async register(identity, accountToken, account) {
-    const tokens = await this.publicRequest("/api/v1/devices/register", {
-      method: "POST",
-      body: JSON.stringify({
-        v: 1,
-        device: {
-          deviceId: identity.deviceId,
-          name: identity.name,
-          role: this.role,
-          platform: platform(),
-          identityKey: identity.publicKey,
-          clientVersion: "0.2.1",
-          harnessVersion: "0.1.0-rc.6"
-        }
-      })
-    }, accountToken);
-    this.credentials = await this.store.save({
-      serverUrl: this.baseUrl,
-      deviceId: identity.deviceId,
-      ...account === void 0 ? {} : { account },
-      ...validateTokens(tokens)
-    });
-    return this.credentials;
-  }
-  async request(path, init = {}) {
-    const credentials = await this.authenticate();
-    return this.publicRequest(path, init, credentials.accessToken);
-  }
-  async publicRequest(path, init, accessToken) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 1e4);
-    let response;
-    try {
-      response = await this.fetchImplementation(`${this.baseUrl}${path}`, {
-        ...init,
-        signal: controller.signal,
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          ...accessToken === void 0 ? {} : { Authorization: `Bearer ${accessToken}` },
-          ...init.headers
-        }
-      });
-    } catch (error) {
-      throw new ServerApiError("CONNECTION_FAILED", error instanceof Error ? error.message : "Server request failed.", true);
-    } finally {
-      clearTimeout(timer);
-    }
-    const body = await parseBody(response);
-    if (!response.ok) {
-      const envelope = body ?? {};
-      throw new ServerApiError(
-        typeof envelope.error?.code === "string" ? envelope.error.code : mapStatus(response.status),
-        typeof envelope.error?.message === "string" ? envelope.error.message : "The Server rejected the request.",
-        envelope.error?.retryable === true || response.status >= 500,
-        response.status
-      );
-    }
-    return body;
-  }
-  requireIdentity() {
-    if (this.identity === void 0) throw new ServerApiError("IDENTITY_INVALID", "The device identity is not loaded.", false);
-    return this.identity;
-  }
-};
-var ClientServerApi = class extends HostServerApi {
-  constructor(serverUrl, store, fetchImplementation = fetch) {
-    super(serverUrl, store, fetchImplementation, "client");
-  }
-};
-var ServerApiError = class extends Error {
-  constructor(code, message, retryable, status) {
-    super(message);
-    this.code = code;
-    this.retryable = retryable;
-    this.status = status;
-  }
-};
-function validateTokens(value) {
-  if (typeof value.accessToken !== "string" || value.accessToken.length < 16 || typeof value.refreshToken !== "string" || value.refreshToken.length < 16 || !Number.isSafeInteger(value.accessTokenExpiresAt) || !Number.isSafeInteger(value.refreshTokenExpiresAt)) {
-    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid device credentials.", false);
-  }
-  return value;
-}
-function validateWebLogin(value) {
-  const item = requireRecord(value, "account login");
-  if (typeof item.token !== "string" || item.token.length < 16 || !Number.isSafeInteger(item.expiresAt) || typeof item.account !== "string" || item.account.length === 0 || item.account.length > 254 || typeof item.isAdmin !== "boolean") {
-    throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid account session.", false);
-  }
-  return {
-    token: item.token,
-    expiresAt: item.expiresAt,
-    account: item.account,
-    profile: item.profile,
-    isAdmin: item.isAdmin
-  };
-}
-async function parseBody(response) {
-  const text = await response.text();
-  if (text.length === 0) return void 0;
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid JSON.", false, response.status);
-  }
-}
-function mapStatus(status) {
-  if (status === 401) return "AUTH_INVALID";
-  if (status === 403) return "AUTH_REQUIRED";
-  if (status === 404) return "DEVICE_NOT_FOUND";
-  if (status === 429) return "RATE_LIMITED";
-  return status >= 500 ? "CONNECTION_FAILED" : "INVALID_MESSAGE";
-}
-function parseHostDevice(value) {
-  const item = requireRecord(value, "host device");
-  if (item.role !== "host" || typeof item.deviceId !== "string" || typeof item.name !== "string" || typeof item.platform !== "string" || typeof item.membershipId !== "string" || item.membershipId.length === 0) {
-    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid host device data.", false);
-  }
-  return {
-    deviceId: item.deviceId,
-    name: item.name,
-    platform: item.platform,
-    membershipId: item.membershipId,
-    ...typeof item.online === "boolean" ? { online: item.online } : {},
-    ...typeof item.lastSeenAt === "number" && Number.isSafeInteger(item.lastSeenAt) ? { lastSeenAt: item.lastSeenAt } : {}
-  };
-}
-function parseClientPairingClaim(value) {
-  const item = requireRecord(value, "pairing claim");
-  const host = requireRecord(item.host, "pairing Host");
-  if (typeof item.pairingId !== "string" || !Number.isSafeInteger(item.expiresAt) || typeof host.deviceId !== "string" || typeof host.name !== "string" || typeof host.platform !== "string" || typeof host.identityKey !== "string" || typeof host.fingerprint !== "string") {
-    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid pairing data.", false);
-  }
-  return {
-    pairingId: item.pairingId,
-    expiresAt: item.expiresAt,
-    host: {
-      deviceId: host.deviceId,
-      name: host.name,
-      platform: host.platform,
-      identityKey: host.identityKey,
-      fingerprint: host.fingerprint
-    }
-  };
-}
-function parseClientPairingStatus(value) {
-  const item = requireRecord(value, "pairing status");
-  if (!["waiting_host", "paired", "rejected", "expired"].includes(String(item.status)) || item.membershipId !== void 0 && item.membershipId !== null && typeof item.membershipId !== "string" || item.hostDeviceId !== void 0 && item.hostDeviceId !== null && typeof item.hostDeviceId !== "string" || item.expiresAt !== void 0 && item.expiresAt !== null && !Number.isSafeInteger(item.expiresAt)) {
-    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid pairing status.", false);
-  }
-  return {
-    status: item.status,
-    ...typeof item.membershipId === "string" ? { membershipId: item.membershipId } : {},
-    ...typeof item.hostDeviceId === "string" ? { hostDeviceId: item.hostDeviceId } : {},
-    ...typeof item.expiresAt === "number" ? { expiresAt: item.expiresAt } : {}
-  };
-}
-function requireRecord(value, name2) {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new ServerApiError("INVALID_MESSAGE", `The Server returned invalid ${name2} data.`, false);
-  }
-  return value;
-}
-
 // src/server-connection.ts
 var HostServerConnection = class {
   constructor(config, identity, identities, api, pairings, connections, logger, createWebSocket = (url) => new WebSocket(url)) {
@@ -13955,71 +14208,6 @@ function closeCode(code) {
   return "CONNECTION_FAILED";
 }
 
-// src/server-credentials.ts
-import { chmod as chmod2, mkdir as mkdir2, readFile as readFile2, rename as rename2, stat as stat2, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname2, join as join2 } from "node:path";
-var credentialSchema = external_exports.object({
-  schemaVersion: external_exports.literal(1),
-  serverUrl: external_exports.string().url(),
-  deviceId: external_exports.string().min(1),
-  account: external_exports.string().min(1).max(254).optional(),
-  accessToken: external_exports.string().min(16),
-  accessTokenExpiresAt: external_exports.number().int().positive(),
-  refreshToken: external_exports.string().min(16),
-  refreshTokenExpiresAt: external_exports.number().int().positive()
-}).strict();
-var ServerCredentialStore = class {
-  path;
-  constructor(directory) {
-    this.path = join2(directory, "server-credentials.json");
-  }
-  async load(serverUrl, deviceId) {
-    if (!await exists2(this.path)) return void 0;
-    await assertPrivateMode2(this.path);
-    let parsed;
-    try {
-      parsed = credentialSchema.parse(JSON.parse(await readFile2(this.path, "utf8")));
-    } catch (error) {
-      throw new ServerCredentialsInvalidError(`server credentials are invalid: ${safeMessage(error)}`);
-    }
-    return parsed.serverUrl === serverUrl && parsed.deviceId === deviceId ? parsed : void 0;
-  }
-  async save(credentials) {
-    const record2 = credentialSchema.parse({ schemaVersion: 1, ...credentials });
-    await atomicWrite(this.path, `${JSON.stringify(record2, null, 2)}
-`);
-    return record2;
-  }
-};
-var ServerCredentialsInvalidError = class extends Error {
-  code = "SERVER_CREDENTIALS_INVALID";
-};
-async function atomicWrite(path, contents) {
-  await mkdir2(dirname2(path), { recursive: true, mode: 448 });
-  const temporary = `${path}.${process.pid}.${uuidV7()}.tmp`;
-  await writeFile2(temporary, contents, { encoding: "utf8", mode: 384, flag: "wx" });
-  await chmod2(temporary, 384);
-  await rename2(temporary, path);
-  await chmod2(path, 384);
-}
-async function assertPrivateMode2(path) {
-  if (process.platform === "win32") return;
-  const mode = (await stat2(path)).mode & 511;
-  if ((mode & 63) !== 0) throw new ServerCredentialsInvalidError("server credentials permissions must be 0600");
-}
-async function exists2(path) {
-  try {
-    await stat2(path);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-    throw error;
-  }
-}
-function safeMessage(error) {
-  return error instanceof Error ? error.message : "invalid credential data";
-}
-
 // src/harness-api-bridge.ts
 var callSchema = external_exports.object({
   method: external_exports.string().min(1).max(80),
@@ -14338,10 +14526,10 @@ var HostPluginRuntime = class {
     return {
       deviceId: identity.deviceId,
       deviceName: identity.name,
-      hostname: hostname2(),
+      hostname: hostname3(),
       os: platform2(),
       harnessVersion: "unknown",
-      pluginVersion: "0.2.1",
+      pluginVersion: "0.2.2",
       protocol: 1,
       capabilities: HOST_CAPABILITIES.filter((capability) => capability !== "harness.api.v1" || this.harnessApiAvailable),
       connectionMode: this.connections.connectionMode(),
@@ -14364,7 +14552,15 @@ function shortId3(value) {
 var name = "dsh-remote";
 var inject = ["sessions", "agents", "approval"];
 async function apply(ctx, input = {}) {
-  const config = resolveConfig(input);
+  const settings = ctx.get("settings");
+  const settingsScope = settings?.register(settingsNamespace("dsh-remote"), Config, {
+    base: input,
+    applies: "restart",
+    validate: (value) => {
+      resolveConfig(value);
+    }
+  });
+  const config = resolveConfig(settingsScope?.get() ?? input);
   if (!config.enabled) return;
   const logger = new SafeLogger(ctx.logger, config.logLevel);
   const defaultIdentityDirectory = new IdentityStore().directory;
@@ -14382,6 +14578,7 @@ async function apply(ctx, input = {}) {
     apiProxy
   }, logger);
   let clientRuntime;
+  const hostControl = config.role === "client" ? void 0 : runtime;
   if (config.role !== "host" && config.serverUrl !== void 0 && apiProxy !== void 0 && connection !== void 0) {
     const clientIdentities = new IdentityStore({
       directory: serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, "client")
@@ -14392,9 +14589,10 @@ async function apply(ctx, input = {}) {
       new ClientServerApi(config.serverUrl, new ServerCredentialStore(clientIdentities.directory)),
       apiProxy,
       logger,
-      config.role === "client" ? void 0 : runtime
+      hostControl
     );
   }
+  const controlRuntime = connection === void 0 ? void 0 : new PluginControlRuntime(config, defaultIdentityDirectory, settingsScope, clientRuntime, hostControl);
   ctx.provide("dshRemote", runtime);
   if (clientRuntime !== void 0) ctx.provide("dshRemoteClient", clientRuntime);
   ctx.on("session/created", (session) => runtime.onSessionCreated(session));
@@ -14403,10 +14601,9 @@ async function apply(ctx, input = {}) {
   ctx.on("approval/request", (request, next) => runtime.answerApproval(request, next), { prepend: true });
   await ctx.effect(async () => {
     await runtime.start();
-    let disposeControl;
+    const disposeControl = controlRuntime?.register(connection);
     if (clientRuntime !== void 0) {
       await clientRuntime.start();
-      disposeControl = clientRuntime.registerControl(connection);
     } else if (config.role !== "host") {
       logger.warn("client remote mode is unavailable", {
         serverConfigured: config.serverUrl !== void 0,
@@ -14443,6 +14640,7 @@ export {
   PairingController,
   PairingError,
   PendingApprovals,
+  PluginControlRuntime,
   RemoteHarnessApiProxy,
   RpcError,
   RpcRouter,
