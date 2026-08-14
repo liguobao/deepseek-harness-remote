@@ -590,7 +590,19 @@ window.__ModuleLoader__.load({
       }
     }): void {
       const control = async <T,>(endpoint: string, payload: unknown = {}): Promise<T> => {
-        const result = await ctx.connection.rpc.call('/remote', endpoint, payload)
+        let result: ControlResult
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            result = await ctx.connection.rpc.call('/remote', endpoint, payload)
+            break
+          } catch (reason) {
+            // The browser face can mount one turn before the injected Host
+            // runtime has registered /remote. A 405 comes from the static Web
+            // fallback, so the RPC was not dispatched and is safe to retry.
+            if (attempt >= 19 || !isPendingControlRoute(reason)) throw reason
+            await delay(100)
+          }
+        }
         if (!result.ok) throw new Error(result.error?.message ?? 'Remote mode request failed.')
         return result.value as T
       }
@@ -607,6 +619,14 @@ window.__ModuleLoader__.load({
         order: 30,
         inject: () => ({ control }),
       }, RemotePluginOptions))
+    }
+
+    function isPendingControlRoute(reason: unknown): boolean {
+      return reason instanceof Error && /transport failure for \/remote\/[^:]+: HTTP 405$/.test(reason.message)
+    }
+
+    function delay(ms: number): Promise<void> {
+      return new Promise(resolve => window.setTimeout(resolve, ms))
     }
 
     function messageOf(reason: unknown): string { return reason instanceof Error ? reason.message : String(reason) }

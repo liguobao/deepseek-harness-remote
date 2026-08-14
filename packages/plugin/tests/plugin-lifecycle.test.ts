@@ -32,15 +32,24 @@ describe('Cordis plugin lifecycle', () => {
     vi.stubEnv('DSH_HOME', dshHome)
 
     const ctx = new Context()
+    let identityReadyWhenControlRegistered: boolean | undefined
     ctx.provide('settings', settings({ deviceName: 'Cordis test host' }))
     ctx.provide('apiProxy', apiProxy())
-    ctx.provide('connection', connection())
+    ctx.provide('connection', connection(() => {
+      try {
+        ctx.dshRemote.currentIdentity()
+        identityReadyWhenControlRegistered = true
+      } catch {
+        identityReadyWhenControlRegistered = false
+      }
+    }))
     const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis test host' })
 
     await vi.waitFor(() => {
       expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis test host' })
       expect(ctx.dshRemote.diagnostics()).toMatchObject({ loaded: true, pendingPairings: 0 })
     })
+    expect(identityReadyWhenControlRegistered).toBe(false)
 
     await fiber.dispose()
     expect(ctx.get('dshRemote')).toBeUndefined()
@@ -57,10 +66,13 @@ function settings(value: Record<string, unknown>) {
   } as never
 }
 
-function connection() {
+function connection(onHandle?: () => void) {
   return {
     rpc: {
-      handle: vi.fn(() => async () => undefined),
+      handle: vi.fn(() => {
+        onHandle?.()
+        return async () => undefined
+      }),
     },
   } as never
 }

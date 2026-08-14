@@ -13973,16 +13973,23 @@ async function activate(ctx, input) {
   ctx.provide("dshRemote", runtime);
   if (clientRuntime !== void 0) ctx.provide("dshRemoteClient", clientRuntime);
   await ctx.effect(async () => {
-    await runtime.start();
     const disposeControl = controlRuntime?.register(connection);
-    if (clientRuntime !== void 0) {
-      await clientRuntime.start();
-    } else if (config.role !== "host") {
-      logger.warn("client remote mode is unavailable", {
-        serverConfigured: config.serverUrl !== void 0,
-        apiProxyAvailable: apiProxy !== void 0,
-        connectionAvailable: connection !== void 0
-      });
+    try {
+      await runtime.start();
+      if (clientRuntime !== void 0) {
+        await clientRuntime.start();
+      } else if (config.role !== "host") {
+        logger.warn("client remote mode is unavailable", {
+          serverConfigured: config.serverUrl !== void 0,
+          apiProxyAvailable: apiProxy !== void 0,
+          connectionAvailable: connection !== void 0
+        });
+      }
+    } catch (error) {
+      await disposeControl?.();
+      await clientRuntime?.close();
+      await runtime.close();
+      throw error;
     }
     return async () => {
       await disposeControl?.();

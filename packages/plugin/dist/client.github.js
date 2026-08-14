@@ -447,7 +447,15 @@
       }
       function apply(ctx) {
         let control = async (endpoint, payload = {}) => {
-          let result = await ctx.connection.rpc.call("/remote", endpoint, payload);
+          let result;
+          for (let attempt = 0; ; attempt += 1)
+            try {
+              result = await ctx.connection.rpc.call("/remote", endpoint, payload);
+              break;
+            } catch (reason) {
+              if (attempt >= 19 || !isPendingControlRoute(reason)) throw reason;
+              await delay(100);
+            }
           if (!result.ok) throw new Error(result.error?.message ?? "Remote mode request failed.");
           return result.value;
         };
@@ -462,6 +470,12 @@
           order: 30,
           inject: () => ({ control })
         }, RemotePluginOptions));
+      }
+      function isPendingControlRoute(reason) {
+        return reason instanceof Error && /transport failure for \/remote\/[^:]+: HTTP 405$/.test(reason.message);
+      }
+      function delay(ms) {
+        return new Promise((resolve) => window.setTimeout(resolve, ms));
       }
       function messageOf(reason) {
         return reason instanceof Error ? reason.message : String(reason);

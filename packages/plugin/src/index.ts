@@ -68,16 +68,23 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
   ctx.provide('dshRemote', runtime)
   if (clientRuntime !== undefined) ctx.provide('dshRemoteClient', clientRuntime)
   await ctx.effect(async () => {
-    await runtime.start()
     const disposeControl = controlRuntime?.register(connection!)
-    if (clientRuntime !== undefined) {
-      await clientRuntime.start()
-    } else if (config.role !== 'host') {
-      logger.warn('client remote mode is unavailable', {
-        serverConfigured: config.serverUrl !== undefined,
-        apiProxyAvailable: apiProxy !== undefined,
-        connectionAvailable: connection !== undefined,
-      })
+    try {
+      await runtime.start()
+      if (clientRuntime !== undefined) {
+        await clientRuntime.start()
+      } else if (config.role !== 'host') {
+        logger.warn('client remote mode is unavailable', {
+          serverConfigured: config.serverUrl !== undefined,
+          apiProxyAvailable: apiProxy !== undefined,
+          connectionAvailable: connection !== undefined,
+        })
+      }
+    } catch (error) {
+      await disposeControl?.()
+      await clientRuntime?.close()
+      await runtime.close()
+      throw error
     }
     return async () => {
       await disposeControl?.()
