@@ -1,6 +1,6 @@
 # DSH Remote Protocol v1
 
-状态：Draft v0.1
+状态：Draft v0.2（首版发布前，不保留旧业务 RPC 兼容）
 日期：2026-08-15
 协议版本：`1`
 实现状态：**当前仓库必须实现 Client/Plugin 侧协议；Server 侧由独立项目实现**
@@ -12,12 +12,13 @@
 当前仓库负责：
 
 - `packages/protocol` 的类型、schema、编解码和版本校验
-- Plugin 与 Client 的 RPC/Event、加密、重连和 capability 行为
+- Plugin 的 ApiProxy tunnel、加密、重连和 capability 行为
 - Mock Host/Client 与协议 conformance fixtures
 
 当前仓库不负责实现 Server REST API、WebSocket Hub、数据库、Admin 或部署。本文出现的 Server endpoint 和行为用于约束独立 Server 项目，不表示应在当前仓库创建 Server 代码。
 
-任何与本文不一致的示例代码都视为未完成实现，不能反向修改协议语义。破坏兼容性的变更必须提升协议版本。
+任何与本文不一致的示例代码都视为未完成实现，不能反向修改协议语义。当前尚未发布，
+旧 Android 业务 RPC 明确不兼容；首版发布后破坏兼容性的变更必须提升协议版本。
 
 ## 1. 范围
 
@@ -28,9 +29,8 @@ DSH Remote Protocol 定义 Host Plugin、DSH Remote Server 和 Remote Client 之
 - WebSocket authentication
 - WebRTC signaling 与 Relay routing
 - Host/Client 端到端安全通道
-- RPC、Event 和 streaming
-- permission request/response
-- reconnect、event replay 和 full resync
+- ApiProxy tunnel 的 unary、respond 与 mux/host streaming
+- reconnect 与原生 stream 重建
 - capability 与版本协商
 - 错误码、限制和安全不变量
 
@@ -41,7 +41,7 @@ Admin API 不属于 E2EE Remote Protocol。它是同站点的独立 HTTPS API，
 本文的“必须”“禁止”“应该”“可以”是规范性要求。
 
 - **Host**：运行 DeepSeek Harness 与 `@dsh-remote/plugin` 的设备。
-- **Client**：Web、Android 或 Desktop Remote 客户端。
+- **Client**：当前指安装同一 Plugin 发布物的 Desktop Harness；Android 旧原型不符合当前业务协议。
 - **Server**：负责配对、presence、signaling 和 opaque Relay 的协调服务。
 - **Device**：具有随机 deviceId 和本地 identity key 的 Host 或 Client。
 - **Membership**：一个 Host 与一个 Client 的已确认信任关系。
@@ -65,8 +65,8 @@ Secure Channel
 Remote Protocol
   RPC request / response / error / event
 
-Harness Adapter
-  sessions / agents / tools / approvals / workspace
+Harness ApiProxy Tunnel
+  call / respond / mux stream / host stream
 ```
 
 业务层禁止直接调用 WebSocket、RTCPeerConnection 或 Server REST；必须通过 `RemoteTransport` 与 client/plugin core。
@@ -89,8 +89,7 @@ REST、Control frame 和解密后的 Remote message 使用 UTF-8 JSON。发送�
 - `deviceId`, `pairingId`, `membershipId`, `connectionId`, `message.id`：UUIDv7 或 ULID 字符串。
 - `sessionId`：Harness 原生 SessionId，不由 Server 改写。
 - `requestId`：引用发起 RPC 的 Remote message `id`。
-- `permission.requestId`：Remote permission correlation id；Host 内部另行映射 Harness approval id。
-- `seq`：Host 事件流中的非负安全整数，严格单调递增。
+- 内层 `rpcId`：Harness ApiProxy 原生 request/response correlation id，Plugin 不改写。
 
 ID 只能用于定位，不能单独作为授权凭据。
 
@@ -633,6 +632,12 @@ Control-only 类型（hello, signaling, relay）禁止出现在 secure channel �
 
 ## 16. RPC
 
+Plugin Host 的业务路由只接受 ApiProxy tunnel：`harness.api.call`、
+`harness.api.respond`、`harness.api.stream.open` 和 `harness.api.stream.close`。
+旧 `system.info`、`workspace.get`、`sessions.*`、`session.*`、
+`permissions.respond`、`connection.ping` 与 `sync.from` 已退出 Plugin 协议，Host 必须返回
+`METHOD_NOT_FOUND`。Android 旧原型不是兼容目标。
+
 ### 16.1 Request
 
 ```json
@@ -642,8 +647,12 @@ Control-only 类型（hello, signaling, relay）禁止出现在 secure channel �
   "type": "rpc.request",
   "timestamp": 1786000000000,
   "payload": {
-    "method": "sessions.list",
-    "params": {}
+    "method": "harness.api.call",
+    "params": {
+      "method": "session.list",
+      "rpcId": "native-rpc-id",
+      "payload": {}
+    }
   }
 }
 ```
@@ -683,7 +692,8 @@ Control-only 类型（hello, signaling, relay）禁止出现在 secure channel �
 
 每个 request 必须恰好产生一个 response 或 error。事件不是 RPC 完成信号。调用端必须按 requestId 关联并在超时后丢弃晚到 response。
 
-具有副作用的方法使用 request message id 做短期去重。调用端在结果未知时不得盲目重发 `sessions.create`、`session.send` 或 `permissions.respond`。
+调用端在结果未知时不得盲目重发原生 ApiProxy mutation。内层 `rpcId` 保持 Harness 的
+原生关联语义；外层 request id 只关联隧道 response/error。
 
 ## 17. Capability
 
@@ -691,24 +701,17 @@ Host handshake 的 capability 例子：
 
 ```json
 [
-  "system.info",
-  "workspace.get",
-  "sessions.list",
-  "sessions.get",
-  "sessions.create",
-  "session.send",
-  "session.stop",
-  "sync.from",
-  "session.streaming",
-  "permission.allow-once",
-  "permission.deny",
+  "transport.relay",
   "harness.api.v1"
 ]
 ```
 
-MVP 不声明 `permission.allow-session`，因为当前 Harness approval wire outcome 没有等价语义。Client 必须按 capability 隐藏未支持操作。
+ApiProxy contract 随同一 Desktop Plugin 发布物升级，不维护旧业务 RPC 兼容矩阵。
 
 ## 18. 数据结构
+
+本节 18.1–18.6 是冻结 Android 原型的旧投影，仅作历史记录，不是 Plugin Host 可接受或
+发出的结构。Desktop Plugin 的业务结构以对应版本官方 ApiProxy contract 为准。
 
 ### 18.1 SystemInfo
 
@@ -810,6 +813,9 @@ Tool input/output 是 E2EE 业务内容。Plugin 只转发 Harness 已产生、�
 ```
 
 ## 19. Core RPC Methods
+
+本节中 Native Harness API bridge 是当前规范；其前面的旧 Core RPC 小节均已退出
+Plugin 协议，Host 必须拒绝。
 
 ### `system.info`
 
@@ -983,6 +989,9 @@ Open Params：
 
 ## 20. Events
 
+Plugin 当前只发送 `harness.api.frame` 与 `harness.api.stream.closed`。本节其余 Remote
+Event 名称属于冻结 Android 原型，不得据此恢复 Host 事件投影层。
+
 Event envelope：
 
 ```json
@@ -1078,6 +1087,9 @@ data：`{ "streamId": "...", "reason": "cancelled|completed|failed|peer-disconne
 
 ## 21. Event Replay 与重连
 
+本节旧 `sync.from` 机制已退出 Plugin。Desktop Client 重连后重新打开官方 mux/host
+stream，并由 Harness UI 重新读取原生 history baseline；Plugin 不维护第二套 replay buffer。
+
 Client 为每台 Host 持久化 `lastSeq`，但不必持久化解密后的 conversation。
 
 Secure channel 恢复后调用扩展 RPC：
@@ -1116,6 +1128,8 @@ Client 随后调用 `sessions.get` 获取当前会话 snapshot。恢复期间 Se
 Event 去重 key 为 `(hostDeviceId, seq)`。收到 `seq <= lastSeq` 的重放事件忽略；收到 `seq > lastSeq + 1` 立即暂停 reducer 并同步。
 
 ## 22. Ping/Pong
+
+应用层 `connection.ping` 已退出 Plugin；只保留 Control Channel heartbeat。
 
 Control Channel heartbeat 默认 25 秒，75 秒未收到有效 pong 视为断开。应用层可通过 `connection.ping` 估计 Host RTT。
 

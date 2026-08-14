@@ -2,11 +2,11 @@
 
 Dual-role DeepSeek Harness plugin for DSH Remote.
 
-The package implements the Harness adapter boundary, persistent host identity
-and trusted peers, account-authorized Host registration/token rotation, the outbound WebSocket
-control connection, pairing, Relay transport, Noise IK, permission fail-closed
-behavior, RPC routing, and event replay. Unencrypted business channels are not
-accepted.
+The package implements a controlled native `ApiProxy` tunnel, persistent host
+identity and trusted peers, account-authorized Host registration/token rotation,
+the outbound WebSocket control connection, pairing, Relay transport, and Noise
+IK. It does not maintain a second Session/Event/Permission protocol. Unencrypted
+business channels are not accepted.
 
 The latest Server contract requires a site account token to authorize Host
 registration. The DSH Remote card inside Settings → Plugins → Plugin configuration signs in over the local loopback control channel,
@@ -20,12 +20,12 @@ Host/Client switch in the plugin options card selects the active role, while the
 device display name is read from the machine hostname. The sidebar target
 control can pair another machine, approve a local
 pairing request, and switch the official Harness UI between Local and a paired
-Remote Host. Native Harness calls are tunneled through an explicit allowlist;
+Remote Host. Native Harness calls and mux/host streams are tunneled through an explicit allowlist;
 credentials, settings writes, arbitrary directory operations, native open
 actions, attachments, and downloads remain local/disabled.
 
 ```ts
-export const inject = ['sessions', 'agents', 'approval']
+export const inject = ['apiProxy']
 ```
 
 Identity state is stored under
@@ -52,6 +52,9 @@ For DSH Desktop GitHub installation, install the repository root with
 installed as the root package `dsh-remote`, which carries an equivalent root bundle
 manifest and committed Host/browser entries. This nested package remains the
 npm publication and CI artifact boundary.
+
+Android's earlier custom Remote RPC prototype is not a compatibility target for
+this ApiProxy-only Plugin path.
 
 After the control connection is online, a local Harness integration can call
 `ctx.dshRemote.createPairing()`, inspect `pendingPairings()`, and finish the

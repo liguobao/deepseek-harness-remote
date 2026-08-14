@@ -4054,14 +4054,7 @@ var messageTypes = [
   "rpc.request",
   "rpc.response",
   "rpc.error",
-  "event",
-  "signal.offer",
-  "signal.answer",
-  "signal.ice",
-  "hello",
-  "relay",
-  "ping",
-  "pong"
+  "event"
 ];
 var controlFrameTypes = [
   "hello",
@@ -4082,16 +4075,6 @@ var controlFrameTypes = [
   "error"
 ];
 var rpcMethods = [
-  "system.info",
-  "workspace.get",
-  "sessions.list",
-  "sessions.get",
-  "sessions.create",
-  "session.send",
-  "session.stop",
-  "permissions.respond",
-  "connection.ping",
-  "sync.from",
   "harness.api.call",
   "harness.api.respond",
   "harness.api.stream.open",
@@ -12230,11 +12213,6 @@ var ClientModeRuntime = class {
     try {
       await client.connect();
       signal?.throwIfAborted();
-      const info = await client.rpc("system.info", {}, signal);
-      const capabilities = Array.isArray(info.capabilities) ? info.capabilities : [];
-      if (!capabilities.includes("harness.api.v1")) {
-        throw new ClientModeError("METHOD_NOT_ALLOWED", "The selected Host plugin does not support native Harness remote mode.");
-      }
       client.onClose(() => {
         if (this.connected?.client !== client) return;
         this.connected = void 0;
@@ -12354,7 +12332,6 @@ var Config = s.object({
   deviceName: s.string(),
   forceRelay: s.boolean(),
   logLevel: s.union(["debug", "info", "warn", "error"]),
-  approvalTimeoutMs: s.number(),
   reconnect: s.union([
     s.boolean(),
     s.object({
@@ -12379,7 +12356,6 @@ var configSchema = external_exports.object({
   deviceName: external_exports.string().trim().min(1).max(80).optional(),
   forceRelay: external_exports.boolean().optional(),
   logLevel: external_exports.enum(["debug", "info", "warn", "error"]).optional(),
-  approvalTimeoutMs: external_exports.number().int().min(1e3).max(10 * 6e4).optional(),
   reconnect: reconnectSchema.optional()
 }).strict();
 function resolveConfig(input = {}, env = process.env) {
@@ -12399,7 +12375,6 @@ function resolveConfig(input = {}, env = process.env) {
     deviceName: parsed.deviceName ?? hostname(),
     forceRelay: parsed.forceRelay ?? false,
     logLevel: parsed.logLevel ?? "info",
-    approvalTimeoutMs: parsed.approvalTimeoutMs ?? 12e4,
     reconnect: {
       enabled: parsed.reconnect !== false,
       initialDelayMs,
@@ -12427,6 +12402,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/control-runtime.ts
+import { rm } from "node:fs/promises";
 import { hostname as hostname2 } from "node:os";
 
 // src/server-api.ts
@@ -12792,9 +12768,11 @@ var PluginControlRuntime = class {
   }
   async handle(endpoint, payload, signal) {
     try {
-      if (endpoint === "settings.get") return ok2(this.settingsView());
+      if (endpoint === "settings.get") return ok2(await this.settingsView());
       if (endpoint === "settings.configure") return ok2(await this.configure(payload));
       if (endpoint === "settings.pairing.status") return ok2(await this.pairingStatus(payload));
+      if (endpoint === "settings.role.set") return ok2(await this.setRole(payload));
+      if (endpoint === "settings.logout") return ok2(await this.logout());
       if (this.client !== void 0) return this.client.handleControl(endpoint, payload, signal);
       if (endpoint === "status") return ok2(this.hostOnlyStatus());
       if (endpoint === "devices") return ok2([]);
@@ -12850,7 +12828,7 @@ var PluginControlRuntime = class {
       const authorization = await api2.authorizeHost(identity2, value.email, value.password);
       await this.settings.replace(editableConfig(next));
       this.pendingPairing = void 0;
-      return { status: "authorized", role: "host", account: authorization.account, settings: this.settingsView() };
+      return { status: "authorized", role: "host", account: authorization.account, settings: await this.settingsView() };
     }
     if (typeof value.authorizationCode !== "string" || value.authorizationCode.trim() === "") {
       throw new ClientModeError("INVALID_MESSAGE", "Authorization code is required for a Client.");
@@ -12867,7 +12845,7 @@ var PluginControlRuntime = class {
     }
     this.pendingPairing = { api, identities, identity, claim };
     await this.settings.replace(editableConfig(next));
-    return { status: "waiting_host", role: "client", settings: this.settingsView() };
+    return { status: "waiting_host", role: "client", settings: await this.settingsView() };
   }
   async pairingStatus(payload) {
     const value = record2(payload);
@@ -12891,16 +12869,44 @@ var PluginControlRuntime = class {
     } else if (status.status === "rejected" || status.status === "expired") {
       this.pendingPairing = void 0;
     }
-    return { ...status, settings: this.settingsView() };
+    return { ...status, settings: await this.settingsView() };
   }
-  settingsView() {
+  async setRole(payload) {
+    if (this.settings === void 0) {
+      throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
+    }
+    const role = record2(payload).role;
+    if (role !== "host" && role !== "client") {
+      throw new ClientModeError("INVALID_MESSAGE", "Role must be Host or Client.");
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()));
+    await this.settings.replace({ ...current, role });
+    this.pendingPairing = void 0;
+    return this.settingsView();
+  }
+  async logout() {
+    if (this.settings === void 0) {
+      throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
+    }
+    const config = resolveConfig(this.settings.get());
+    if (config.serverUrl !== void 0) {
+      const role = config.role === "client" ? "client" : "host";
+      const directory = serverStorageDirectory(this.identityDirectory, config.serverUrl, role);
+      await rm(directory, { recursive: true, force: true });
+    }
+    this.pendingPairing = void 0;
+    return this.settingsView();
+  }
+  async settingsView() {
     const config = this.settings === void 0 ? editableConfig(this.config) : editableConfig(resolveConfig(this.settings.get()));
     const pending = this.pendingPairing?.claim;
+    const association = await this.association(config);
     return {
       config,
       deviceName: hostname2(),
       writable: this.settings !== void 0,
       applies: "restart",
+      ...association === void 0 ? {} : { association },
       ...pending === void 0 ? {} : {
         pendingPairing: {
           pairingId: pending.pairingId,
@@ -12909,6 +12915,21 @@ var PluginControlRuntime = class {
         }
       }
     };
+  }
+  async association(config) {
+    if (config.serverUrl === void 0) return void 0;
+    const role = config.role === "client" ? "client" : "host";
+    const identities = new IdentityStore({
+      directory: serverStorageDirectory(this.identityDirectory, config.serverUrl, role)
+    });
+    const identity = await identities.loadOrCreate(hostname2());
+    const credentials = await new ServerCredentialStore(identities.directory).load(config.serverUrl, identity.deviceId);
+    if (credentials === void 0) return void 0;
+    if (role === "host") {
+      return credentials.account === void 0 ? void 0 : { method: "account", account: credentials.account };
+    }
+    const host = identities.listTrustedPeers().find((peer) => peer.membershipId !== void 0);
+    return host === void 0 ? void 0 : { method: "authorization_code", host: { deviceId: host.deviceId, name: host.name } };
   }
   hostOnlyStatus() {
     return {
@@ -12926,7 +12947,6 @@ function editableConfig(config) {
     ...config.serverUrl === void 0 ? {} : { serverUrl: config.serverUrl },
     forceRelay: config.forceRelay,
     logLevel: config.logLevel,
-    approvalTimeoutMs: config.approvalTimeoutMs,
     reconnect: config.reconnect.enabled ? {
       initialDelayMs: config.reconnect.initialDelayMs,
       maxDelayMs: config.reconnect.maxDelayMs,
@@ -12990,377 +13010,11 @@ function redact(value, key = "") {
   return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [childKey, redact(child, childKey)]));
 }
 
-// src/service.ts
-import { hostname as hostname3, platform as platform2 } from "node:os";
-
-// src/adapters/agent-adapter.ts
-import { createUserMessage } from "@deepseek-ai/dsh-llm";
-import { SessionId } from "@deepseek-ai/dsh-session";
-var AgentAdapter = class {
-  constructor(agents, titles) {
-    this.agents = agents;
-    this.titles = titles;
-  }
-  created = /* @__PURE__ */ new Map();
-  delivered = /* @__PURE__ */ new Set();
-  async create(params) {
-    const existingId = this.created.get(params.clientRequestId);
-    if (existingId !== void 0) {
-      const existing = this.agents.get(SessionId(existingId));
-      if (existing !== void 0) return existing.session;
-      this.created.delete(params.clientRequestId);
-    }
-    const sessionId = SessionId(`session-${uuidV7()}`);
-    const handle = await this.agents.create({
-      sessionId,
-      ...params.cwd === void 0 ? {} : { meta: { cwd: params.cwd } }
-    });
-    if (params.title !== void 0 && params.title !== null) this.titles?.rename(handle.agent.session, params.title);
-    this.created.set(params.clientRequestId, String(sessionId));
-    this.pruneCreated();
-    return handle.agent.session;
-  }
-  send(params) {
-    const key = `${params.sessionId}\0${params.clientMessageId}`;
-    if (this.delivered.has(key)) return { accepted: true, clientMessageId: params.clientMessageId };
-    const agent = this.agents.get(SessionId(params.sessionId));
-    if (agent === void 0) throw new AgentAdapterError("SESSION_NOT_FOUND", "The session is no longer available.");
-    const message = createUserMessage({
-      content: [{ type: "text", text: params.text }],
-      source: { kind: "user" }
-    });
-    try {
-      if (agent.status === "idle") agent.followup(message);
-      else if (agent.status === "running") agent.steer(message);
-      else throw new AgentAdapterError("SESSION_NOT_READY", "The session is not ready for input.");
-    } catch (error) {
-      if (error instanceof AgentAdapterError) throw error;
-      throw new AgentAdapterError("AGENT_BUSY", "The agent could not accept the message.");
-    }
-    this.delivered.add(key);
-    if (this.delivered.size > 1e4) this.delivered.delete(this.delivered.values().next().value);
-    return { accepted: true, clientMessageId: params.clientMessageId };
-  }
-  stop(sessionId) {
-    const agent = this.agents.get(SessionId(sessionId));
-    if (agent === void 0) throw new AgentAdapterError("SESSION_NOT_FOUND", "The session is no longer available.");
-    agent.cancel({ kind: "user" }, { keepInbox: true });
-    return { accepted: true };
-  }
-  pruneCreated() {
-    while (this.created.size > 1024) this.created.delete(this.created.keys().next().value);
-  }
-};
-var AgentAdapterError = class extends Error {
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-  }
-};
-
-// src/adapters/permission-adapter.ts
-var PermissionAdapter = class {
-  constructor(pending, events, isRemoteAvailable, emit, timeoutMs) {
-    this.pending = pending;
-    this.events = events;
-    this.isRemoteAvailable = isRemoteAvailable;
-    this.emit = emit;
-    this.timeoutMs = timeoutMs;
-  }
-  async answer(req, next) {
-    const sessionId = String(req.agent.session.id);
-    if (!this.isRemoteAvailable(sessionId)) return next();
-    if (req.signal?.aborted) return "cancelled";
-    const permission = permissionContext(req);
-    const request = {
-      requestId: uuidV7(),
-      sessionId,
-      toolName: req.toolName,
-      ...req.callId === void 0 ? {} : { callId: String(req.callId) },
-      ...req.reason === void 0 ? {} : { reason: req.reason },
-      permission,
-      status: "pending",
-      expiresAt: Date.now() + this.timeoutMs
-    };
-    const outcome = this.pending.open(request, req.signal);
-    this.emit(this.events.publish("permission.requested", { ...request, sessionId }, sessionId));
-    return outcome;
-  }
-};
-function permissionContext(req) {
-  const rawCall = req.callId === void 0 ? void 0 : [...req.agent.session.events].reverse().find(
-    (event) => event.type === "tool/call" && String(event.data.callId) === String(req.callId)
-  );
-  const input = rawCall?.type === "tool/call" ? parseObject(rawCall.data.arguments) : void 0;
-  const command = stringField(input, "command") ?? stringField(input, "cmd");
-  const commandTool = /bash|shell|terminal|pwsh|powershell/i.test(req.toolName);
-  return {
-    kind: commandTool || command !== void 0 ? "command" : "tool",
-    ...command === void 0 ? {} : { command },
-    ...req.agent.session.header.cwd === void 0 ? {} : { cwd: req.agent.session.header.cwd },
-    toolName: req.toolName,
-    ...req.reason === void 0 ? {} : { description: req.reason }
-  };
-}
-function parseObject(value) {
-  try {
-    const parsed = JSON.parse(value);
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function stringField(value, key) {
-  const field = value?.[key];
-  return typeof field === "string" ? field : void 0;
-}
-
-// src/adapters/session-adapter.ts
-import { SessionId as SessionId2 } from "@deepseek-ai/dsh-session";
-var SessionAdapter = class {
-  constructor(sessions, agents, workspaces, pending, sequencer, titles) {
-    this.sessions = sessions;
-    this.agents = agents;
-    this.workspaces = workspaces;
-    this.pending = pending;
-    this.sequencer = sequencer;
-    this.titles = titles;
-  }
-  streams = /* @__PURE__ */ new Map();
-  list(cursor = null, limit = 50) {
-    const all = this.sessions.list().map((session) => this.summary(session));
-    const start = cursor === null ? 0 : Math.max(0, all.findIndex((item) => item.id === cursor) + 1);
-    const items = all.slice(start, start + limit);
-    return { items, nextCursor: start + limit < all.length ? items.at(-1).id : null };
-  }
-  get(sessionId) {
-    const session = this.requireSession(sessionId);
-    const { messages, tools } = projectSession(session);
-    return {
-      session: this.summary(session),
-      workspace: this.workspaces.get(session),
-      messages,
-      tools,
-      pendingPermissions: this.pending.snapshot(sessionId),
-      snapshotSeq: this.sequencer.currentSeq()
-    };
-  }
-  workspace(sessionId) {
-    return this.workspaces.get(sessionId === void 0 ? void 0 : this.requireSession(sessionId));
-  }
-  summary(session) {
-    const agent = this.agents.get(session.id);
-    const title = this.titles?.get(session)?.title ?? fallbackTitle(session);
-    return {
-      id: String(session.id),
-      title,
-      ...session.header.cwd === void 0 ? {} : { cwd: session.header.cwd },
-      status: agent === void 0 ? "unavailable" : agent.status,
-      createdAt: session.header.createdAt,
-      updatedAt: session.events.at(-1)?.time ?? session.header.createdAt,
-      lastSeq: this.sequencer.currentSeq()
-    };
-  }
-  mapEvent(session, event) {
-    const sessionId = String(session.id);
-    const raw = event;
-    switch (raw.type) {
-      case "user/message":
-        return [mapped("message.created", sessionId, remoteMessage(raw.data, sessionId, raw.time))];
-      case "assistant/chunk":
-        return this.mapChunk(sessionId, raw);
-      case "assistant/message":
-        return this.mapAssistantMessage(sessionId, raw);
-      case "tool/call": {
-        const tool = runningTool(raw, sessionId);
-        return [mapped("tool.started", sessionId, tool)];
-      }
-      case "tool/result": {
-        const tool = finishedTool(raw, session);
-        return [mapped("tool.finished", sessionId, tool)];
-      }
-      default:
-        return [];
-    }
-  }
-  mapChunk(sessionId, event) {
-    const chunk = event.data.chunk;
-    if (chunk?.type !== "text-delta" && chunk?.type !== "reasoning-delta") return [];
-    const streamId = assistantStreamId(sessionId, event.data.turn, event.data.step);
-    const state = this.streams.get(streamId) ?? { deltaIndex: 0, started: false };
-    const events = [];
-    if (!state.started) {
-      events.push(mapped("message.created", sessionId, {
-        id: streamId,
-        messageId: streamId,
-        sessionId,
-        role: "assistant",
-        content: [],
-        text: "",
-        status: "streaming",
-        createdAt: event.time
-      }));
-      state.started = true;
-    }
-    events.push(mapped("message.delta", sessionId, {
-      sessionId,
-      messageId: streamId,
-      deltaIndex: state.deltaIndex++,
-      delta: typeof chunk.text === "string" ? chunk.text : "",
-      contentType: chunk.type === "reasoning-delta" ? "reasoning" : "text",
-      final: false,
-      finishReason: null
-    }));
-    this.streams.set(streamId, state);
-    return events;
-  }
-  mapAssistantMessage(sessionId, event) {
-    const streamId = assistantStreamId(sessionId, event.data.turn, event.data.step);
-    const state = this.streams.get(streamId);
-    this.streams.delete(streamId);
-    if (state === void 0) {
-      return [mapped("message.created", sessionId, remoteMessage(event.data.message, sessionId, event.time, streamId))];
-    }
-    return [mapped("message.delta", sessionId, {
-      sessionId,
-      messageId: streamId,
-      deltaIndex: state.deltaIndex,
-      delta: "",
-      final: true,
-      finishReason: null
-    })];
-  }
-  requireSession(sessionId) {
-    const session = this.sessions.get(SessionId2(sessionId));
-    if (session === void 0) throw new SessionAdapterError("SESSION_NOT_FOUND", "The session is no longer available.");
-    return session;
-  }
-};
-var SessionAdapterError = class extends Error {
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-  }
-};
-function projectSession(session) {
-  const messages = [];
-  const tools = /* @__PURE__ */ new Map();
-  for (const event of session.events) {
-    const raw = event;
-    if (raw.type === "user/message") messages.push(remoteMessage(raw.data, String(session.id), raw.time));
-    if (raw.type === "assistant/message") {
-      messages.push(remoteMessage(raw.data.message, String(session.id), raw.time, assistantStreamId(String(session.id), raw.data.turn, raw.data.step)));
-    }
-    if (raw.type === "tool/call") tools.set(String(raw.data.callId), runningTool(raw, String(session.id)));
-    if (raw.type === "tool/result") tools.set(toolResultCallId(raw), finishedTool(raw, session));
-  }
-  return { messages, tools: [...tools.values()] };
-}
-function remoteMessage(message, sessionId, createdAt, idOverride) {
-  const content = Array.isArray(message.content) ? structuredClone(message.content) : [];
-  const id = idOverride ?? String(message.id);
-  return {
-    id,
-    messageId: id,
-    sessionId,
-    role: message.role === "assistant" || message.role === "system" ? message.role : "user",
-    content,
-    text: textOf(content),
-    status: "complete",
-    createdAt
-  };
-}
-function runningTool(event, sessionId) {
-  const callId = String(event.data.callId);
-  return {
-    callId,
-    toolCallId: callId,
-    sessionId,
-    toolName: String(event.data.name),
-    title: String(event.data.name),
-    status: "running",
-    input: parseJson(event.data.arguments),
-    output: null,
-    isError: false
-  };
-}
-function finishedTool(event, session) {
-  const callId = toolResultCallId(event);
-  const started = [...session.events].reverse().find(
-    (candidate) => candidate.type === "tool/call" && String(candidate.data.callId) === callId
-  );
-  const block = event.data.message?.content?.[0];
-  const isError = Boolean(block?.isError || event.data.error);
-  return {
-    callId,
-    toolCallId: callId,
-    sessionId: String(session.id),
-    toolName: String(started?.data?.name ?? "tool"),
-    title: String(started?.data?.name ?? "Tool"),
-    status: isError ? "error" : "success",
-    input: parseJson(started?.data?.arguments),
-    output: structuredClone(block?.content ?? event.data.message?.content ?? null),
-    isError
-  };
-}
-function toolResultCallId(event) {
-  return String(event.data.message?.source?.callId ?? event.data.message?.content?.[0]?.toolCallId ?? "unknown");
-}
-function assistantStreamId(sessionId, turn, step) {
-  return `assistant:${sessionId}:${String(turn)}:${String(step)}`;
-}
-function textOf(content) {
-  return content.flatMap((block) => {
-    if (typeof block !== "object" || block === null) return [];
-    const record3 = block;
-    if ((record3.type === "text" || record3.type === "reasoning") && typeof record3.text === "string") return [record3.text];
-    return [];
-  }).join("");
-}
-function parseJson(value) {
-  if (typeof value !== "string") return value ?? null;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
-function fallbackTitle(session) {
-  for (const event of [...session.events].reverse()) {
-    const raw = event;
-    if (raw.type === "session/title" && typeof raw.data.title === "string") return raw.data.title;
-  }
-  const firstUser = session.events.find((event) => event.type === "user/message");
-  const text = textOf(Array.isArray(firstUser?.data?.content) ? firstUser.data.content : []).trim();
-  return text === "" ? String(session.id) : `${text.slice(0, 57)}${text.length > 57 ? "\u2026" : ""}`;
-}
-function mapped(event, sessionId, data) {
-  return { event, sessionId, data };
-}
-
-// src/adapters/workspace-adapter.ts
-import { basename } from "node:path";
-var WorkspaceAdapter = class {
-  constructor(registry) {
-    this.registry = registry;
-  }
-  get(session) {
-    const cwd = session?.header.cwd;
-    if (cwd !== void 0) {
-      const workspace2 = this.registry?.list().find((candidate) => candidate.path === cwd);
-      return workspace2 === void 0 ? { id: null, name: basename(cwd) || cwd, cwd } : { id: String(workspace2.id), name: workspace2.title, cwd: workspace2.path };
-    }
-    const workspace = this.registry?.list()[0];
-    return workspace === void 0 ? null : { id: String(workspace.id), name: workspace.title, cwd: workspace.path };
-  }
-};
-
 // src/connection-controller.ts
 var ConnectionController = class {
-  constructor(identities, router, pending) {
+  constructor(identities, router) {
     this.identities = identities;
     this.router = router;
-    this.pending = pending;
   }
   active;
   async accept(channel) {
@@ -13376,21 +13030,16 @@ var ConnectionController = class {
     if (previous !== void 0) {
       previous.unsubscribe();
       await previous.channel.close("CONNECTION_REPLACED");
-      this.pending.failAll("unavailable");
-      await this.router.closePeerStreams?.();
+      await this.router.closePeerStreams();
     }
     const connection = {
       channel,
-      subscribedSessions: /* @__PURE__ */ new Set(),
       unsubscribe: () => void 0
     };
     connection.unsubscribe = channel.onMessage((message) => {
       void this.handle(connection, message);
     });
     this.active = connection;
-  }
-  isSessionReachable(sessionId) {
-    return this.active?.subscribedSessions.has(sessionId) ?? false;
   }
   isOnline() {
     return this.active !== void 0;
@@ -13419,7 +13068,6 @@ var ConnectionController = class {
   async handle(connection, message) {
     if (this.active !== connection) return;
     try {
-      markSubscription(connection, message);
       const response = await this.router.handle(message);
       if (this.active !== connection) return;
       await connection.channel.send(response);
@@ -13431,8 +13079,7 @@ var ConnectionController = class {
     if (this.active !== connection) return;
     this.active = void 0;
     connection.unsubscribe();
-    this.pending.failAll("unavailable");
-    await this.router.closePeerStreams?.();
+    await this.router.closePeerStreams();
     await connection.channel.close(code);
   }
 };
@@ -13440,103 +13087,6 @@ var ConnectionRejectedError = class extends Error {
   constructor(code, message) {
     super(message);
     this.code = code;
-  }
-};
-function markSubscription(connection, message) {
-  if (message.type !== "rpc.request") return;
-  const request = message.payload;
-  if (!["sessions.get", "session.send", "session.stop", "permissions.respond"].includes(request.method)) return;
-  const sessionId = request.params?.sessionId;
-  if (typeof sessionId === "string") connection.subscribedSessions.add(sessionId);
-}
-
-// src/event-sequencer.ts
-var FullResyncRequiredError = class extends Error {
-  constructor(currentSeq) {
-    super("The requested event replay window is no longer available.");
-    this.currentSeq = currentSeq;
-  }
-  code = "FULL_RESYNC_REQUIRED";
-};
-var EventSequencer = class {
-  constructor(maxEvents = 1e4, maxAgeMs = 15 * 6e4) {
-    this.maxEvents = maxEvents;
-    this.maxAgeMs = maxAgeMs;
-    if (!Number.isSafeInteger(maxEvents) || maxEvents < 1) throw new TypeError("maxEvents must be a positive safe integer");
-    if (!Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1) throw new TypeError("maxAgeMs must be a positive safe integer");
-  }
-  seq = 0;
-  events = [];
-  currentSeq() {
-    return this.seq;
-  }
-  publish(event, data, sessionId) {
-    const message = createEvent(event, data, {
-      seq: ++this.seq,
-      ...sessionId === void 0 ? {} : { sessionId }
-    });
-    this.events.push(message);
-    this.trim(message.timestamp);
-    return message;
-  }
-  replay(afterSeq, limit = 1e3) {
-    if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) throw new TypeError("afterSeq must be a non-negative safe integer");
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1e3) throw new TypeError("limit must be between 1 and 1000");
-    this.trim(Date.now());
-    if (afterSeq >= this.seq) return { events: [], lastSeq: this.seq, hasMore: false };
-    const firstSeq = this.events[0]?.payload.seq;
-    if (firstSeq === void 0 || firstSeq > afterSeq + 1) throw new FullResyncRequiredError(this.seq);
-    const events = this.events.filter((event) => event.payload.seq > afterSeq).slice(0, limit);
-    const lastReturned = events.at(-1)?.payload.seq ?? afterSeq;
-    return { events, lastSeq: this.seq, hasMore: lastReturned < this.seq };
-  }
-  trim(now) {
-    const oldest = now - this.maxAgeMs;
-    while (this.events.length > this.maxEvents || (this.events[0]?.timestamp ?? now) < oldest) this.events.shift();
-  }
-};
-
-// src/pending-approvals.ts
-var PendingApprovals = class {
-  constructor(timeoutMs, onResolved) {
-    this.timeoutMs = timeoutMs;
-    this.onResolved = onResolved;
-  }
-  pending = /* @__PURE__ */ new Map();
-  open(request, signal) {
-    if (this.pending.has(request.requestId)) throw new Error(`approval ${request.requestId} is already pending`);
-    if (signal?.aborted) return Promise.resolve("cancelled");
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => this.settle(request.requestId, "unavailable"), this.timeoutMs);
-      const entry = { request, resolve, timer };
-      if (signal !== void 0) {
-        const onAbort = () => this.settle(request.requestId, "cancelled");
-        signal.addEventListener("abort", onAbort, { once: true });
-        entry.detachAbort = () => signal.removeEventListener("abort", onAbort);
-      }
-      this.pending.set(request.requestId, entry);
-    });
-  }
-  respond(sessionId, requestId, decision) {
-    const entry = this.pending.get(requestId);
-    if (entry === void 0 || entry.request.sessionId !== sessionId) return false;
-    return this.settle(requestId, decision === "allow_once" ? "allowed-once" : "rejected");
-  }
-  snapshot(sessionId) {
-    return [...this.pending.values()].filter((entry) => sessionId === void 0 || entry.request.sessionId === sessionId).map((entry) => structuredClone(entry.request));
-  }
-  failAll(outcome = "unavailable") {
-    for (const requestId of [...this.pending.keys()]) this.settle(requestId, outcome);
-  }
-  settle(requestId, outcome) {
-    const entry = this.pending.get(requestId);
-    if (entry === void 0) return false;
-    this.pending.delete(requestId);
-    clearTimeout(entry.timer);
-    entry.detachAbort?.();
-    entry.resolve(outcome);
-    this.onResolved(entry.request, outcome);
-    return true;
   }
 };
 
@@ -13607,64 +13157,22 @@ function normalizeFingerprint(value) {
 }
 
 // src/rpc-router.ts
-var emptySchema = external_exports.object({}).strict();
 var wireRequestSchema = external_exports.object({ method: external_exports.string().min(1), params: external_exports.unknown() }).strict();
-var paramsSchemas = {
-  "system.info": emptySchema,
-  "workspace.get": external_exports.object({ sessionId: external_exports.string().min(1).optional() }).strict(),
-  "sessions.list": external_exports.object({ cursor: external_exports.string().min(1).nullable().optional(), limit: external_exports.number().int().min(1).max(100).optional() }).strict(),
-  "sessions.get": external_exports.object({ sessionId: external_exports.string().min(1) }).strict(),
-  "sessions.create": external_exports.object({
-    clientRequestId: external_exports.string().min(1).max(128),
-    cwd: external_exports.string().min(1).optional(),
-    title: external_exports.string().max(200).nullable().optional()
-  }).strict(),
-  "session.send": external_exports.object({
-    sessionId: external_exports.string().min(1),
-    clientMessageId: external_exports.string().min(1).max(128),
-    text: external_exports.string().min(1).max(65536)
-  }).strict(),
-  "session.stop": external_exports.object({ sessionId: external_exports.string().min(1) }).strict(),
-  "permissions.respond": external_exports.object({
-    sessionId: external_exports.string().min(1),
-    requestId: external_exports.string().min(1),
-    decision: external_exports.enum(["allow_once", "deny"])
-  }).strict(),
-  "connection.ping": external_exports.object({ sentAt: external_exports.number().int().nonnegative() }).strict(),
-  "sync.from": external_exports.object({ afterSeq: external_exports.number().int().nonnegative(), limit: external_exports.number().int().min(1).max(1e3).optional() }).strict(),
-  "harness.api.call": external_exports.unknown(),
-  "harness.api.respond": external_exports.unknown(),
-  "harness.api.stream.open": external_exports.unknown(),
-  "harness.api.stream.close": external_exports.unknown()
-};
-var HOST_CAPABILITIES = [
-  "system.info",
-  "workspace.get",
-  "sessions.list",
-  "sessions.get",
-  "sessions.create",
-  "session.send",
-  "session.stop",
-  "sync.from",
-  "session.streaming",
-  "permission.allow-once",
-  "permission.deny",
-  "harness.api.v1"
-];
+var apiMethods = /* @__PURE__ */ new Set([
+  "harness.api.call",
+  "harness.api.respond",
+  "harness.api.stream.open",
+  "harness.api.stream.close"
+]);
+var HOST_CAPABILITIES = ["harness.api.v1"];
 var RpcRouter = class {
-  constructor(sessions, agents, pending, events, systemInfo, harnessApi, maxPending = 128) {
-    this.sessions = sessions;
-    this.agents = agents;
-    this.pending = pending;
-    this.events = events;
-    this.systemInfo = systemInfo;
+  constructor(harnessApi, maxPending = 128) {
     this.harnessApi = harnessApi;
     this.maxPending = maxPending;
   }
   active = 0;
-  responseCache = /* @__PURE__ */ new Map();
   closePeerStreams() {
-    return this.harnessApi?.closeAll() ?? Promise.resolve();
+    return this.harnessApi.closeAll();
   }
   async handle(message) {
     if (message.type !== "rpc.request") {
@@ -13672,84 +13180,36 @@ var RpcRouter = class {
     }
     const parsedPayload = wireRequestSchema.safeParse(message.payload);
     if (!parsedPayload.success) return createRpcError(message.id, "INVALID_MESSAGE", "The RPC request payload is invalid.");
-    if (!(parsedPayload.data.method in paramsSchemas)) {
+    if (!apiMethods.has(parsedPayload.data.method)) {
       return createRpcError(message.id, "METHOD_NOT_FOUND", "The requested method does not exist.");
     }
     const request = message;
-    const cached = this.responseCache.get(request.id);
-    if (cached !== void 0) return cached;
     if (this.active >= this.maxPending) {
       return createRpcError(request.id, "RATE_LIMITED", "Too many Host requests are already pending.", void 0, true);
     }
     this.active += 1;
     try {
       const result = await this.invoke(request.payload.method, request.payload.params);
-      const response = createRpcResponse(request.id, result);
-      if (isSideEffecting(request.payload.method)) this.cache(request.id, response);
-      return response;
+      return createRpcResponse(request.id, result);
     } catch (error) {
-      const response = errorResponse(request.id, error);
-      if (isSideEffecting(request.payload.method)) this.cache(request.id, response);
-      return response;
+      return errorResponse(request.id, error);
     } finally {
       this.active -= 1;
     }
   }
-  async invoke(method, input) {
-    const params = paramsSchemas[method].parse(input);
+  invoke(method, params) {
     switch (method) {
-      case "system.info":
-        return this.systemInfo();
-      case "workspace.get":
-        return this.sessions.workspace(params.sessionId);
-      case "sessions.list": {
-        const value = params;
-        return this.sessions.list(value.cursor ?? null, value.limit ?? 50);
-      }
-      case "sessions.get":
-        return this.sessions.get(params.sessionId);
-      case "sessions.create": {
-        const session = await this.agents.create(params);
-        return this.sessions.summary(session);
-      }
-      case "session.send":
-        return this.agents.send(params);
-      case "session.stop":
-        return this.agents.stop(params.sessionId);
-      case "permissions.respond": {
-        const value = params;
-        if (!this.pending.respond(value.sessionId, value.requestId, value.decision)) {
-          throw new RpcError("PERMISSION_NOT_PENDING", "The permission request is no longer pending.");
-        }
-        return { accepted: true, requestId: value.requestId };
-      }
-      case "connection.ping": {
-        const value = params;
-        return { sentAt: value.sentAt, hostAt: Date.now() };
-      }
-      case "sync.from": {
-        const value = params;
-        return this.events.replay(value.afterSeq, value.limit ?? 1e3);
-      }
       case "harness.api.call":
-        return this.requireHarnessApi().call(params);
+        return this.harnessApi.call(params);
       case "harness.api.respond":
-        return this.requireHarnessApi().respond(params);
+        return this.harnessApi.respond(params);
       case "harness.api.stream.open":
-        return this.requireHarnessApi().openStream(params);
+        return this.harnessApi.openStream(params);
       case "harness.api.stream.close":
-        return this.requireHarnessApi().closeStream(params);
+        return this.harnessApi.closeStream(params);
       default:
         throw new RpcError("METHOD_NOT_FOUND", "The requested method does not exist.");
     }
-  }
-  requireHarnessApi() {
-    if (this.harnessApi === void 0) throw new RpcError("METHOD_NOT_ALLOWED", "The native Harness API bridge is unavailable on this Host.");
-    return this.harnessApi;
-  }
-  cache(id, response) {
-    this.responseCache.set(id, response);
-    while (this.responseCache.size > 2048) this.responseCache.delete(this.responseCache.keys().next().value);
   }
 };
 var RpcError = class extends Error {
@@ -13761,17 +13221,9 @@ var RpcError = class extends Error {
   }
 };
 function errorResponse(requestId, error) {
-  if (error instanceof RpcError || error instanceof AgentAdapterError || error instanceof SessionAdapterError) {
-    return createRpcError(requestId, error.code, error.message, error instanceof RpcError ? error.details : void 0, error instanceof RpcError && error.retryable);
-  }
-  if (error instanceof FullResyncRequiredError) {
-    return createRpcError(requestId, error.code, error.message, { currentSeq: error.currentSeq });
-  }
+  if (error instanceof RpcError) return createRpcError(requestId, error.code, error.message, error.details, error.retryable);
   if (error instanceof external_exports.ZodError) return createRpcError(requestId, "INVALID_MESSAGE", "The RPC parameters are invalid.");
   return createRpcError(requestId, "INTERNAL_ERROR", "The Host could not complete the request.");
-}
-function isSideEffecting(method) {
-  return method === "sessions.create" || method === "session.send" || method === "session.stop" || method === "permissions.respond" || method === "harness.api.call" || method === "harness.api.respond" || method === "harness.api.stream.open" || method === "harness.api.stream.close";
 }
 
 // src/server-connection.ts
@@ -13870,7 +13322,7 @@ var HostServerConnection = class {
           deviceId: this.identity.deviceId,
           accessToken: credentials.accessToken,
           protocols: [PROTOCOL_VERSION],
-          capabilities: ["transport.relay"]
+          capabilities: ["transport.relay", "harness.api.v1"]
         });
       };
       socket.onmessage = (event) => {
@@ -14355,55 +13807,21 @@ function deniedMethod(method) {
 
 // src/service.ts
 var HostPluginRuntime = class {
-  constructor(config, identities, dependencies, logger) {
+  constructor(config, identities, apiProxy, logger) {
     this.config = config;
     this.identities = identities;
     this.logger = logger;
-    this.pending = new PendingApprovals(config.approvalTimeoutMs, (request, outcome) => {
-      this.publish("permission.resolved", {
-        requestId: request.requestId,
-        sessionId: request.sessionId,
-        outcome,
-        decision: outcome === "allowed-once" ? "allow_once" : outcome === "rejected" ? "deny" : void 0,
-        resolvedAt: Date.now()
-      }, request.sessionId);
-    });
-    const workspaces = new WorkspaceAdapter(dependencies.workspaceRegistry);
-    this.sessions = new SessionAdapter(
-      dependencies.sessions,
-      dependencies.agents,
-      workspaces,
-      this.pending,
-      this.events,
-      dependencies.sessionTitle
-    );
-    this.agents = new AgentAdapter(dependencies.agents, dependencies.sessionTitle);
-    const harnessApi = dependencies.apiProxy === void 0 ? void 0 : new HarnessApiBridge(
-      dependencies.apiProxy,
+    const harnessApi = new HarnessApiBridge(
+      apiProxy,
       (event, data) => this.publishHarnessEvent(event, data)
     );
-    this.harnessApiAvailable = harnessApi !== void 0;
-    this.router = new RpcRouter(this.sessions, this.agents, this.pending, this.events, () => this.systemInfo(), harnessApi);
-    this.connections = new ConnectionController(this.identities, this.router, this.pending);
-    this.permissions = new PermissionAdapter(
-      this.pending,
-      this.events,
-      (sessionId) => this.connections.isSessionReachable(sessionId),
-      (event) => {
-        void this.connections.send(event);
-      },
-      config.approvalTimeoutMs
-    );
+    this.router = new RpcRouter(harnessApi);
+    this.connections = new ConnectionController(this.identities, this.router);
     if (config.serverUrl !== void 0) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory));
       this.pairings = new PairingController(identities, this.serverApi);
     }
   }
-  events = new EventSequencer();
-  pending;
-  sessions;
-  agents;
-  permissions;
   router;
   connections;
   pairings;
@@ -14411,7 +13829,6 @@ var HostPluginRuntime = class {
   serverApi;
   serverConnection;
   closed = false;
-  harnessApiAvailable;
   async start() {
     if (this.closed) throw new Error("remote runtime is closed");
     this.identity = await this.identities.loadOrCreate(this.config.deviceName);
@@ -14478,20 +13895,6 @@ var HostPluginRuntime = class {
     if (this.pairings === void 0) throw new PairingError("SERVER_NOT_CONFIGURED", "Configure serverUrl before confirming a pairing.");
     return this.pairings.confirm(pairingId, decision);
   }
-  onSessionCreated(session) {
-    this.publish("session.created", this.sessions.summary(session), String(session.id));
-  }
-  onSessionEvent(session, event) {
-    for (const mapped2 of this.sessions.mapEvent(session, event)) this.publish(mapped2.event, mapped2.data, mapped2.sessionId);
-  }
-  onAgentStatus(agent, status) {
-    const sessionId = String(agent.id);
-    this.publish("agent.status", { sessionId, status }, sessionId);
-    this.publish("session.updated", this.sessions.summary(agent.session), sessionId);
-  }
-  answerApproval(request, next) {
-    return this.permissions.answer(request, next);
-  }
   async revokePeer(deviceId) {
     const revoked = await this.identities.revokePeer(deviceId);
     if (revoked) await this.connections.revoke(deviceId);
@@ -14501,7 +13904,6 @@ var HostPluginRuntime = class {
     if (this.closed) return;
     this.closed = true;
     await this.serverConnection?.stop();
-    this.pending.failAll("unavailable");
     await this.connections.close();
     this.logger.info("host runtime stopped");
   }
@@ -14516,29 +13918,8 @@ var HostPluginRuntime = class {
       online: this.connections.isOnline(),
       peerDeviceId: this.connections.peerDeviceId() === void 0 ? void 0 : shortId3(this.connections.peerDeviceId()),
       trustedPeers: this.identities.listTrustedPeers().length,
-      pendingApprovals: this.pending.snapshot().length,
-      pendingPairings: this.pairings?.pending().length ?? 0,
-      lastSeq: this.events.currentSeq()
+      pendingPairings: this.pairings?.pending().length ?? 0
     };
-  }
-  systemInfo() {
-    const identity = this.currentIdentity();
-    return {
-      deviceId: identity.deviceId,
-      deviceName: identity.name,
-      hostname: hostname3(),
-      os: platform2(),
-      harnessVersion: "unknown",
-      pluginVersion: "0.2.3",
-      protocol: 1,
-      capabilities: HOST_CAPABILITIES.filter((capability) => capability !== "harness.api.v1" || this.harnessApiAvailable),
-      connectionMode: this.connections.connectionMode(),
-      online: this.connections.isOnline()
-    };
-  }
-  publish(event, data, sessionId) {
-    const message = this.events.publish(event, data, sessionId);
-    void this.connections.send(message);
   }
   publishHarnessEvent(event, data) {
     return this.connections.send(createEvent(event, data));
@@ -14550,7 +13931,7 @@ function shortId3(value) {
 
 // src/index.ts
 var name = "dsh-remote";
-var inject = ["sessions", "agents", "approval"];
+var inject = ["apiProxy"];
 async function apply(ctx, input = {}) {
   const settings = ctx.get("settings");
   const settingsScope = settings?.register(settingsNamespace("dsh-remote"), Config, {
@@ -14570,13 +13951,7 @@ async function apply(ctx, input = {}) {
   const apiProxy = ctx.get("apiProxy");
   const connection = ctx.get("connection");
   const hostConfig = config.role === "client" ? { ...config, serverUrl: void 0 } : config;
-  const runtime = new HostPluginRuntime(hostConfig, hostIdentities, {
-    sessions: ctx.sessions,
-    agents: ctx.agents,
-    workspaceRegistry: ctx.get("workspaceRegistry"),
-    sessionTitle: ctx.get("sessionTitle"),
-    apiProxy
-  }, logger);
+  const runtime = new HostPluginRuntime(hostConfig, hostIdentities, apiProxy, logger);
   let clientRuntime;
   const hostControl = config.role === "client" ? void 0 : runtime;
   if (config.role !== "host" && config.serverUrl !== void 0 && apiProxy !== void 0 && connection !== void 0) {
@@ -14595,10 +13970,6 @@ async function apply(ctx, input = {}) {
   const controlRuntime = connection === void 0 ? void 0 : new PluginControlRuntime(config, defaultIdentityDirectory, settingsScope, clientRuntime, hostControl);
   ctx.provide("dshRemote", runtime);
   if (clientRuntime !== void 0) ctx.provide("dshRemoteClient", clientRuntime);
-  ctx.on("session/created", (session) => runtime.onSessionCreated(session));
-  ctx.on("session/event", (session, event) => runtime.onSessionEvent(session, event));
-  ctx.on("agent/status", ({ agent, status }) => runtime.onAgentStatus(agent, status));
-  ctx.on("approval/request", (request, next) => runtime.answerApproval(request, next), { prepend: true });
   await ctx.effect(async () => {
     await runtime.start();
     const disposeControl = controlRuntime?.register(connection);
@@ -14627,8 +13998,6 @@ export {
   Config,
   ConnectionController,
   ConnectionRejectedError,
-  EventSequencer,
-  FullResyncRequiredError,
   HARNESS_API_ALLOWLIST,
   HOST_CAPABILITIES,
   HarnessApiBridge,
@@ -14639,7 +14008,6 @@ export {
   IdentityStore,
   PairingController,
   PairingError,
-  PendingApprovals,
   PluginControlRuntime,
   RemoteHarnessApiProxy,
   RpcError,

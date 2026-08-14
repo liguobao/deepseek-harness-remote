@@ -21,7 +21,6 @@ import {
   type DeviceDescriptor,
   type RelayPayload,
   type RemoteMessage,
-  type RpcRequestPayload,
   type SecureHandshakePayload,
 } from '@dsh-remote/protocol'
 
@@ -201,7 +200,7 @@ async function handleRelay(value: unknown): Promise<void> {
   const payload = connection.noise.decrypt(fromBase64Url(relay.ciphertext))
   const message = decodeMessage(payload)
   if (message.type !== 'rpc.request') return
-  const request = message as RemoteMessage<RpcRequestPayload>
+  const request = message as LegacyRpcRequest
   try {
     await handleRpc(request, relay.connectionId)
   } catch (error) {
@@ -209,7 +208,9 @@ async function handleRelay(value: unknown): Promise<void> {
   }
 }
 
-async function handleRpc(request: RemoteMessage<RpcRequestPayload>, connectionId: string): Promise<void> {
+type LegacyRpcRequest = RemoteMessage<{ method: string; params: unknown }>
+
+async function handleRpc(request: LegacyRpcRequest, connectionId: string): Promise<void> {
   const { method, params } = request.payload
   if (method === 'system.info') return send(request.id, {
     deviceId,

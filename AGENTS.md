@@ -7,7 +7,7 @@
 当前仓库实现：
 
 - DeepSeek Harness 双角色 Plugin（Remote Host + 本地 Harness Client 模式）
-- Android Client
+- 冻结的 Android Client 原型（尚未迁移到 ApiProxy-only 数据面）
 - Protocol、Crypto、WebRTC、Client Core 等共享能力
 - 依赖外部 Server 的 Mock Host/Smoke Client
 - Server 设计与跨仓库协议契约
@@ -25,7 +25,7 @@ Server、Remote Web 和 Admin 必须由独立 Server 仓库作为同一站点实
 
 ```text
 apps/
-  android/             React Native / Expo Android Client
+  android/             冻结的 React Native / Expo Android 原型
 packages/
   plugin/              双角色 Plugin、原生 API 代理与 Web Client 切换入口
   protocol/            Remote/Control frame 类型和运行时校验
@@ -51,15 +51,15 @@ docs/
 
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
-| Plugin Host | 账号授权注册、按 Server 隔离的身份/凭证、Server connector、Pairing、Relay/Noise IK 与核心 runtime 已实现 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
-| Plugin Client Mode | Local/Remote API switch、配对/设备控制、Settings 配置入口、原生 API 白名单代理与 Web 入口已实现 | 真实 dsh-desktop 安装/E2E、断线重连 |
-| Android | Server API、membership reconcile 与 Relay/Noise IK 已实现 | 完整 resync、真机/外部 Server E2E |
-| Protocol | 基础与 Control frame 已实现 | 完整 Zod schema、limits、golden vectors |
+| Plugin Host | 账号授权、隔离身份/凭证、Pairing、Relay/Noise IK 与 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
+| Plugin Client Mode | Local/Remote ApiProxy switch、配对/设备控制、Settings 与 Web 入口已实现 | 真实 dsh-desktop 安装/E2E、断线重连 |
+| Android | 旧 Remote RPC 原型已冻结，与当前 ApiProxy-only Host 不兼容 | 若恢复该产品线，先迁移到 ApiProxy contract |
+| Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 清理冻结 Android 的旧类型、完整 Zod schema、limits、golden vectors |
 | Crypto | 基础原语与标准 Noise IK 已实现 | 第三方实现审查、rekey、跨端 conformance |
 | Relay Transport | Protocol v1 control/relay 已实现 | 心跳、限制协商、断线状态传播 |
 | WebRTC | 基础骨架 | signaling、ICE、TURN、自动 fallback |
-| Client Core | RPC/Event 基础实现 | reconnect、`sync.from`、full resync、idempotency |
-| Mock Host | Protocol v1 联调实现 | 依赖独立 Server 做真实 smoke |
+| Client Core | ApiProxy tunnel RPC/Event 关联基础已实现 | reconnect、pending call/stream 恢复 |
+| Mock Host | 旧 Android Remote RPC 联调工具，当前冻结 | 若恢复 Android 再迁移或替换 |
 | Desktop | 已复用 Harness Web UI 接入 Plugin Client face | 原生窗口安装与跨机 E2E |
 | Server/Remote Web/Admin | 本仓库仅保留文档；独立 Server 仓库已有实现 | runtime 变更只在独立 Server 仓库完成，并同步跨仓库契约 |
 
@@ -96,7 +96,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 截至 2026-08-15：
 
 - workspace check 与 DSH bundle 校验通过
-- workspace test 通过：29 个测试文件、62 个测试
+- workspace test 通过：24 个测试文件、52 个测试（Plugin 13 个文件、27 个测试）
 - workspace build 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 
@@ -111,7 +111,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 5. v1 permission decision 只允许 `allow_once | deny`，禁止恢复 `allow_session`。
 6. 不提供 Shell、PTY、任意文件读写、远程桌面或通用 Harness tool RPC。
 7. Token、私钥、配对码、prompt、源码和工具输出不得写日志。
-8. 优先复用现有 adapter、transport 和 protocol helper，不在 App 内复制另一套 wire format。
+8. Harness 业务层只使用官方 `ApiProxy`；禁止恢复 session/agent/workspace/permission adapter 或另一套 wire format。
 9. 不修改用户已有变更，不提交 `node_modules`、Expo cache、Android build 产物或个人 Agent 配置；唯一允许提交的 `dist` 是根 DSH GitHub Bundle 所需的 `packages/plugin/dist/index.js` 与 `client.github.js`，另需保留根 Host 入口 `index.js`。
 
 ## Test Policy

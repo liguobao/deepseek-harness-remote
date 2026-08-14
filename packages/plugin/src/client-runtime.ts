@@ -201,11 +201,6 @@ export class ClientModeRuntime {
     try {
       await client.connect()
       signal?.throwIfAborted()
-      const info = await client.rpc<Record<string, unknown>>('system.info', {}, signal)
-      const capabilities = Array.isArray(info.capabilities) ? info.capabilities : []
-      if (!capabilities.includes('harness.api.v1')) {
-        throw new ClientModeError('METHOD_NOT_ALLOWED', 'The selected Host plugin does not support native Harness remote mode.')
-      }
       client.onClose(() => {
         if (this.connected?.client !== client) return
         this.connected = undefined

@@ -42,9 +42,9 @@ export class RemoteClientCore {
     }
   }
 
-  async rpc<TResult = unknown, TParams = unknown>(method: RpcMethod, params: TParams, signal?: AbortSignal): Promise<TResult> {
+  async rpc<TResult = unknown, TParams = unknown>(method: string, params: TParams, signal?: AbortSignal): Promise<TResult> {
     signal?.throwIfAborted()
-    const request = createRpcRequest(method, params)
+    const request = createRpcRequest(method as RpcMethod, params)
     const result = new Promise<TResult>((resolve, reject) => {
       const timer = setTimeout(() => {
         const pending = this.pending.get(request.id)

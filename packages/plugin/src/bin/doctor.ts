@@ -11,7 +11,5 @@ export function doctor(runtime: HostPluginRuntime): string {
     `Peer channel: ${state.online ? 'online' : 'offline'}`,
     `Trusted devices: ${state.trustedPeers}`,
     `Pending pairings: ${state.pendingPairings}`,
-    `Pending approvals: ${state.pendingApprovals}`,
-    `Last event seq: ${state.lastSeq}`,
   ].join('\n')
 }

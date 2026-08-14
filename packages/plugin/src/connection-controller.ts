@@ -1,13 +1,11 @@
-import type { RemoteMessage, RpcRequestPayload } from '@dsh-remote/protocol'
+import type { RemoteMessage } from '@dsh-remote/protocol'
 import type { IdentityStore } from './identity-store.js'
-import type { PendingApprovals } from './pending-approvals.js'
 import type { RpcRouter } from './rpc-router.js'
 import type { AuthenticatedPeerChannel } from './types.js'
 
 interface ActiveConnection {
   channel: AuthenticatedPeerChannel
   unsubscribe: () => void
-  subscribedSessions: Set<string>
 }
 
 export class ConnectionController {
@@ -16,7 +14,6 @@ export class ConnectionController {
   constructor(
     private readonly identities: IdentityStore,
     private readonly router: RpcRouter,
-    private readonly pending: PendingApprovals,
   ) {}
 
   async accept(channel: AuthenticatedPeerChannel): Promise<void> {
@@ -34,20 +31,14 @@ export class ConnectionController {
     if (previous !== undefined) {
       previous.unsubscribe()
       await previous.channel.close('CONNECTION_REPLACED')
-      this.pending.failAll('unavailable')
-      await this.router.closePeerStreams?.()
+      await this.router.closePeerStreams()
     }
     const connection: ActiveConnection = {
       channel,
-      subscribedSessions: new Set(),
       unsubscribe: () => undefined,
     }
     connection.unsubscribe = channel.onMessage(message => { void this.handle(connection, message) })
     this.active = connection
-  }
-
-  isSessionReachable(sessionId: string): boolean {
-    return this.active?.subscribedSessions.has(sessionId) ?? false
   }
 
   isOnline(): boolean { return this.active !== undefined }
@@ -79,7 +70,6 @@ export class ConnectionController {
   private async handle(connection: ActiveConnection, message: RemoteMessage): Promise<void> {
     if (this.active !== connection) return
     try {
-      markSubscription(connection, message)
       const response = await this.router.handle(message)
       if (this.active !== connection) return
       await connection.channel.send(response)
@@ -92,20 +82,11 @@ export class ConnectionController {
     if (this.active !== connection) return
     this.active = undefined
     connection.unsubscribe()
-    this.pending.failAll('unavailable')
-    await this.router.closePeerStreams?.()
+    await this.router.closePeerStreams()
     await connection.channel.close(code)
   }
 }
 
 export class ConnectionRejectedError extends Error {
   constructor(readonly code: string, message: string) { super(message) }
-}
-
-function markSubscription(connection: ActiveConnection, message: RemoteMessage): void {
-  if (message.type !== 'rpc.request') return
-  const request = message.payload as RpcRequestPayload<Record<string, unknown>>
-  if (!['sessions.get', 'session.send', 'session.stop', 'permissions.respond'].includes(request.method)) return
-  const sessionId = request.params?.sessionId
-  if (typeof sessionId === 'string') connection.subscribedSessions.add(sessionId)
 }

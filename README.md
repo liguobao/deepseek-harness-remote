@@ -2,7 +2,7 @@
 
 中文 | [English](README.en.md)
 
-DSH Remote 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件机制的多端远程访问方案，让桌面端与 Android 端安全连接并操作远程 Harness。本地 Harness 还可以在原生界面中切换 `Local` 与已配对的 `Remote Host`。
+DSH Remote 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件机制的 Desktop 远程访问方案。本地 Harness 可以在原生界面中切换 `Local` 与已配对的 `Remote Host`；Plugin 只转发官方 `ApiProxy` 的安全子集，不重新实现 Harness 会话协议。
 
 它不是远程桌面、Web Shell、SSH 替代品或通用文件管理器，也不会向客户端开放任意 Shell、文件系统或 Harness tool RPC。
 
@@ -13,10 +13,10 @@ DSH Remote 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-
 
 - 在原生 Harness 会话界面中切换本机与远端 Host
 - 使用一次性设备码配对，并在 Host 本机核对 fingerprint 后确认
-- 查看、创建和操作 Harness 会话，接收消息、工具调用和权限请求等实时事件
-- Remote 权限仅允许 `Allow once` 或 `Deny`，异常和断线默认拒绝
+- 通过官方 Harness UI 查看、创建和操作远端会话，接收原生 mux/host stream
+- Approval 和 Question 沿用 Harness 原生 `ApiProxy` 请求/响应语义
 - 业务消息通过 Noise IK 认证加密；Server 只负责账号、配对、在线状态和 Relay
-- 支持双角色 Desktop Plugin 与 Android Client
+- 支持双角色 Desktop Plugin（Host 与本地 Client 模式）
 
 Host 只建立出站连接，不监听公网端口。Harness 会话、Workspace、提示词和工具输出保留在 Host；Server membership 与 Host 本地 trusted peer 必须同时成立。
 
@@ -52,15 +52,8 @@ export DSH_REMOTE_SERVER=https://your-server.example.com
 
 ## Android
 
-Android Client 使用 `react-native-webrtc`，不能运行在 Expo Go 中，需要 development build：
-
-```bash
-pnpm install
-pnpm --filter @dsh-remote/android android
-pnpm --filter @dsh-remote/android start
-```
-
-详见 [Android README](apps/android/README.md)。
+Android 原型源码暂时保留，但尚未迁移到 ApiProxy-only 数据面，不属于当前可用或兼容目标。
+当前优先保证 Desktop Plugin 的真实安装与跨机 E2E。
 
 ## 从源码构建
 

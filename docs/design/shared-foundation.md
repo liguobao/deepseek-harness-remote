@@ -1,238 +1,89 @@
 # 共享基础功能设计
 
-状态：Draft v0.1
+状态：Draft v0.2
 
 ## 1. 目的
 
-统一双角色 Plugin、Android 客户端，以及独立 Server 项目内 Remote Web 的协议、身份、加密、连接、重连与错误语义。Plugin Client 模式复用 Harness 原生 Web UI；任何业务项目不得自行定义另一套消息格式或直接依赖具体传输实现。
+统一 Desktop 双角色 Plugin 与外部 Server 的身份、加密、连接和传输边界。业务层以
+Harness 官方 `ApiProxy` 为唯一事实来源，不再维护平行的 Remote Session/Event 协议。
+Android 源码暂时保留，但在迁移到 ApiProxy 前不属于当前可用链路。
 
 ## 2. 包边界
 
 | 包 | 职责 | 不负责 |
 | --- | --- | --- |
-| `@dsh-remote/protocol` | 消息 envelope、RPC、事件、握手、能力、错误码、版本验证 | 网络连接、密钥存储、UI |
-| `@dsh-remote/crypto` | 设备密钥、共享密钥派生、AEAD、nonce/counter、重放防护 | 设备授权、传输选择 |
-| `@dsh-remote/webrtc` | LAN、WebRTC、TURN、Relay 的统一 `RemoteTransport` | 业务 RPC、会话状态 |
-| `@dsh-remote/client-core` | RPC 关联、事件订阅、重连、同步、传输降级 | React 页面、Harness API |
+| `@dsh-remote/protocol` | Control/Relay envelope 与 ApiProxy 隧道 envelope | Harness 业务模型、UI |
+| `@dsh-remote/crypto` | 设备密钥、Noise IK、AEAD counter | 设备授权、传输选择 |
+| `@dsh-remote/webrtc` | Relay、LAN、WebRTC/TURN transport 抽象 | ApiProxy、会话状态 |
+| `@dsh-remote/client-core` | 隧道 RPC 关联和事件分发 | Harness 业务 reducer、UI |
+| `@dsh-remote/plugin` | 配对、信任、secure channel、ApiProxy allowlist 和 Local/Remote switch | Server runtime、Harness 业务重建 |
 
 ## 3. 端到端边界
 
 ```text
-Harness API / official apiProxy
-  -> Plugin Adapter or native API allowlist bridge
-  -> Remote Protocol
-  -> Secure Channel
-  -> RemoteTransport
-  -> Server signaling/relay
-  -> RemoteTransport
-  -> Client Core
-  -> Product UI
+Harness Web UI
+  -> Client Plugin ApiProxySwitch
+  -> RemoteHarnessApiProxy
+  -> Noise secure channel
+  -> opaque Server relay
+  -> Host Plugin HarnessApiBridge
+  -> official Host ApiProxy
 ```
 
-Server 可以读取路由 envelope 和连接元数据，但不能解密 `payload` 中的会话业务内容。
+Server 可以读取路由和连接元数据，但不能解密 ApiProxy payload。
 
-## 4. 身份模型
+## 4. 身份与配对
 
-每个 Host 和 Client 首次运行生成：
+每个 Host/Client 具有独立 deviceId、显示名、平台和 X25519 identity key。私钥只保存
+在设备本地。身份、device credential 和 trusted peer 按规范化 Server origin 与角色隔离。
 
-- `deviceId`：UUIDv7 或 ULID，不使用 hostname、MAC 或硬盘序列号。
-- `deviceName`：用户可修改的显示名称。
-- `platform`：操作系统/浏览器类别，仅用于展示和兼容性判断。
-- `publicKey` / `privateKey`：设备身份密钥对。
-- `fingerprint`：由公钥稳定派生，配对确认时展示。
+设备码使用 8 位无歧义 Base32、10 分钟 TTL、单次消费。Client claim 不是授权；Host
+必须在本机核对 fingerprint 并明确允许。建立业务通道时，Server membership 与 Host
+本地 trusted peer 必须同时成立。
 
-私钥只能保存在设备本地。Host 第一版写入 `$DSH_HOME/remote/` 并限制文件权限；独立 Server 项目中的 Web Client 写入 IndexedDB，并明确提示浏览器存储、页面生命周期和备份能力有限。
+## 5. 唯一业务协议
 
-Host identity、账号状态、device credential 与配对关系必须按规范化后的 `serverUrl`
-隔离。切换 Server 时不得发送或自动迁移旧 Server 的 deviceId、token、private key
-或 trusted peer；如果未来提供迁移，必须是用户明确发起且重新经过目标 Server 授权。
+Secure channel 中只接受：
 
-### Host 账号授权与设备认证
-
-Host 接入包含两个互不替代的认证层：
-
-- 站点账号认证：用户登录目标 Server，web account token 只用于注册 Host 和账号接口；
-- 设备认证：Host 注册成功后取得独立 access/refresh token，用于 WebSocket、pairing
-  和后台常驻连接。
-
-Host 注册必须携带同一 Server 签发的 web account token；Client 仍可匿名注册作为
-pairing bootstrap。Server 返回账号拥有的 Host 只表示归属元数据，本机缺少对应
-private key 时不能自动恢复、冒充或认领该 Host。
-
-## 5. 配对协议
-
-设备码使用 8 位无歧义 Base32，展示为 `XXXX-XXXX`，至少约 40 bit 熵。
-
-状态机：
-
-```text
-CREATED -> CLAIMED -> HOST_CONFIRMED -> CONSUMED
-   |          |              |
-   +-------> EXPIRED <-------+
-              |
-           REJECTED
-```
-
-约束：
-
-- 10 分钟 TTL，单次使用。
-- 按 IP、设备和设备码限速，并限制连续错误次数。
-- Client claim 只表示“请求绑定”，不是授权完成。
-- Host 必须看到 Client 名称与 fingerprint，并明确允许或拒绝。
-- 确认后双方保存对端公钥；Server 只保存公开身份和 membership。
-- 设备码泄露不能代替 Host 确认，也不能产生可长期复用的 token。
-
-## 6. 握手与能力
-
-握手至少携带：
-
-```json
-{
-  "remoteProtocol": 1,
-  "role": "host",
-  "deviceId": "01K...",
-  "pluginVersion": "0.1.0",
-  "harnessVersion": "...",
-  "platform": "linux",
-  "capabilities": [
-    "sessions.list",
-    "sessions.send",
-    "session.streaming",
-    "permission.allow-once",
-    "permission.deny"
-  ]
-}
-```
-
-客户端只能展示双方能力交集。缺少能力时隐藏或禁用操作，并给出版本/能力说明；不得通过调用后猜测是否支持。
-
-## 7. 协议 envelope
-
-所有业务消息使用统一 envelope：
-
-```json
-{
-  "v": 1,
-  "id": "01K...",
-  "type": "rpc.request",
-  "timestamp": 1786,
-  "payload": {}
-}
-```
-
-MVP RPC：
-
-- `system.info`
-- `workspace.get`
-- `sessions.list`
-- `sessions.get`
-- `sessions.create`
-- `session.send`
-- `session.stop`
-- `permissions.respond`
-- `connection.ping`
-- `sync.from`
 - `harness.api.call`
 - `harness.api.respond`
 - `harness.api.stream.open`
 - `harness.api.stream.close`
+- 对应 response/error 与 `harness.api.frame`、`harness.api.stream.closed`
 
-MVP Event：
+Session、Message、Tool、Approval、Question、Workspace 和 Goal 的结构全部沿用对应版本
+的官方 ApiProxy contract。Plugin 不复制其 schema，也不提供旧 `sessions.*`、
+`session.send`、`permissions.respond` 或 `sync.from`。
 
-- `session.created`
-- `session.updated`
-- `message.created`
-- `message.delta`
-- `tool.started`
-- `tool.updated`
-- `tool.finished`
-- `permission.requested`
-- `permission.resolved`
-- `agent.status`
-- `connection.stats`
-- `harness.api.frame`
-- `harness.api.stream.closed`
+Client 与 Host Plugin 作为同一发布物安装，不做旧业务协议兼容。真正的跨版本协商只保留
+在 Control/Relay 层；ApiProxy contract 变化由 Plugin 版本一起升级。
 
-明确禁止增加绕过 Harness 的通用 `shell.exec`、`filesystem.read`、`filesystem.write` RPC。Native API bridge 的 method 字段只能选择固定 allowlist，不得映射成任意 `ApiProxy`、Cordis service 或 Harness tool 调用。
+## 6. 传输与恢复
 
-## 8. 事件顺序与恢复
+当前可用数据面是 Relay；未来优先级为 `LAN -> P2P -> TURN -> Relay`。上层只依赖
+`RemoteTransport`。
 
-每条 Host 事件必须包含单调递增的 `seq`，Client 持久化每台 Host 的 `lastSeq`。
+断线时：
 
-断线恢复顺序：
+1. pending tunnel RPC 失败；
+2. 原生 mux/host stream 结束；
+3. Desktop `ApiProxySwitch` 立即回落 Local；
+4. 再次选择 Remote 时重新建 Noise channel，并由官方 UI 重新打开 stream、读取 history baseline。
 
-1. 重连 signaling。
-2. 尝试恢复/重建首选传输。
-3. 发送 `sync.from(lastSeq)`。
-4. Host 重放仍保留的事件。
-5. 若窗口已过期，返回 `FULL_RESYNC_REQUIRED`。
-6. Client 调用 `sessions.get` 重建当前会话，再继续订阅。
+Plugin 不维护第二套 seq replay buffer 或 full-resync 机制。
 
-重复事件按 `(hostDeviceId, seq)` 去重。RPC 按 `requestId` 关联，重连时未确认的非幂等请求不得自动重发。
+## 7. 安全边界
 
-## 9. 传输策略
+- Plugin 只建立出站连接，不监听公网端口。
+- 业务 payload 只能进入完成 Noise IK 和 membership/trust 校验的 channel。
+- Host 以固定 allowlist 代理 ApiProxy，禁止 credentials/settings、任意目录、native open、附件和下载。
+- 未知 method、错误 target、重放、counter gap、identity mismatch 全部 fail closed。
+- token、私钥、配对码、prompt、源码、工具输出和 ciphertext 不写日志。
 
-目标优先级：`LAN -> P2P -> TURN -> Relay`。第一条 vertical slice 允许先实现 Relay，但上层只能依赖：
+## 8. 核心测试
 
-```ts
-interface RemoteTransport {
-  connect(): Promise<void>
-  send(data: Uint8Array): Promise<void>
-  onMessage(cb: (data: Uint8Array) => void): () => void
-  close(): Promise<void>
-  getStats(): TransportStats
-}
-```
-
-连接状态统一为：
-
-```text
-CONNECTING
-CONNECTED_LAN
-CONNECTED_P2P
-CONNECTED_TURN
-CONNECTED_RELAY
-RECONNECTING
-OFFLINE
-```
-
-任何情况下优先保证“能连接”，但 UI 必须准确展示降级后的实际模式。
-
-## 10. 加密通道
-
-设计选择：成熟库实现 `X25519 + HKDF-SHA256 + ChaCha20-Poly1305`，不自行设计密码算法。
-
-每个方向使用独立子密钥和单调 counter。AEAD 附加数据绑定：协议版本、发送方设备、接收方设备、连接 ID、消息类型和 counter。接收方维护 replay window；重复、过旧、认证失败或设备不匹配的帧全部拒绝。
-
-密钥轮换发生在新连接或达到消息/时长阈值时。日志禁止记录私钥、共享密钥、明文载荷、token、TURN 密码和完整 prompt。
-
-## 11. 错误语义
-
-稳定错误码至少包括：
-
-- `ACCOUNT_AUTH_REQUIRED`
-- `DEVICE_OWNERSHIP_REQUIRED`
-- `DEVICE_REVOKED`
-- `CONNECTION_FAILED`
-- `P2P_FAILED`
-- `RPC_TIMEOUT`
-- `UNSUPPORTED_VERSION`
-- `PERMISSION_DENIED`
-- `SESSION_NOT_FOUND`
-- `HARNESS_UNAVAILABLE`
-- `FULL_RESYNC_REQUIRED`
-- `RATE_LIMITED`
-- `PAIRING_EXPIRED`
-
-协议错误包含可诊断的 `code` 与安全的 `message`。客户端将错误转换为用户文案，不显示 `undefined`、原始异常栈或笼统的 `Network Error`。
-
-## 12. 核心测试范围
-
-只为核心行为编写自动化测试：
-
-- 协议编解码、版本拒绝、RPC 关联和事件顺序。
-- 密钥交换、加解密、篡改拒绝、重放拒绝。
-- 传输降级顺序和断线同步决策。
-- 配对状态机、单次消费和权限能力映射。
-
-视觉样式、静态说明页、普通辅助命令和非关键管理筛选不单独补测试。
+- Control/Relay 编解码、版本和 frame limits。
+- Noise transcript、identity binding、篡改和重放拒绝。
+- pairing 单次消费与 membership/local trust 双重授权。
+- ApiProxy allowlist、RPC 关联、stream open/close、断线清理。
+- transport fallback/reconnect 状态机。

@@ -7,7 +7,6 @@ export interface Config {
   deviceName?: string
   forceRelay?: boolean
   logLevel?: 'debug' | 'info' | 'warn' | 'error'
-  approvalTimeoutMs?: number
   reconnect?: boolean | {
     initialDelayMs?: number
     maxDelayMs?: number

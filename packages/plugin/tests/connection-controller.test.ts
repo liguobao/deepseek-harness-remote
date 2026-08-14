@@ -2,7 +2,6 @@ import { createRpcRequest, type RemoteMessage } from '@dsh-remote/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { ConnectionController, ConnectionRejectedError } from '../src/connection-controller.js'
 import type { IdentityStore } from '../src/identity-store.js'
-import { PendingApprovals } from '../src/pending-approvals.js'
 import type { RpcRouter } from '../src/rpc-router.js'
 import type { AuthenticatedPeerChannel } from '../src/types.js'
 
@@ -11,30 +10,28 @@ describe('ConnectionController', () => {
     const channel = fakeChannel()
     const controller = new ConnectionController(
       { isTrusted: () => false } as unknown as IdentityStore,
-      { handle: vi.fn() } as unknown as RpcRouter,
-      new PendingApprovals(1_000, () => undefined),
+      { handle: vi.fn(), closePeerStreams: vi.fn() } as unknown as RpcRouter,
     )
     await expect(controller.accept(channel)).rejects.toBeInstanceOf(ConnectionRejectedError)
     expect(channel.close).toHaveBeenCalledWith('PEER_IDENTITY_MISMATCH')
   })
 
-  it('replaces the old peer and records session subscriptions', async () => {
-    const response = createRpcRequest('connection.ping', { sentAt: 1 }) as RemoteMessage
-    const router = { handle: vi.fn(async () => response) } as unknown as RpcRouter
+  it('replaces the old peer and closes its ApiProxy streams', async () => {
+    const response = createRpcRequest('harness.api.call', {}) as RemoteMessage
+    const router = { handle: vi.fn(async () => response), closePeerStreams: vi.fn(async () => undefined) } as unknown as RpcRouter
     const controller = new ConnectionController(
       { isTrusted: () => true } as unknown as IdentityStore,
       router,
-      new PendingApprovals(1_000, () => undefined),
     )
     const first = fakeChannel()
     const second = fakeChannel()
     await controller.accept(first)
     await controller.accept(second)
     expect(first.close).toHaveBeenCalledWith('CONNECTION_REPLACED')
+    expect(router.closePeerStreams).toHaveBeenCalledOnce()
 
-    second.push(createRpcRequest('sessions.get', { sessionId: 's1' }))
+    second.push(createRpcRequest('harness.api.call', { method: 'session.list' }))
     await vi.waitFor(() => expect(second.send).toHaveBeenCalled())
-    expect(controller.isSessionReachable('s1')).toBe(true)
   })
 })
 

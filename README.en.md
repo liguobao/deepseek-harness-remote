@@ -2,7 +2,7 @@
 
 [中文](README.md) | English
 
-DSH Remote is a multi-device remote access solution built on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin system. Desktop and Android clients can securely connect to and operate a remote Harness, while the native desktop UI can switch between `Local` and a paired `Remote Host`.
+DSH Remote is a Desktop remote-access solution built on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin system. The native Harness UI can switch between `Local` and a paired `Remote Host`; the Plugin forwards an allowlisted subset of the official `ApiProxy` instead of reimplementing the Harness session protocol.
 
 It is not a remote desktop, Web Shell, SSH replacement, or general-purpose file manager. Clients cannot access arbitrary Shell, filesystem, or Harness tool RPCs.
 
@@ -13,10 +13,10 @@ It is not a remote desktop, Web Shell, SSH replacement, or general-purpose file 
 
 - Switch between local and remote Hosts in the native Harness session UI
 - Pair with a one-time device code and confirm the client fingerprint on the Host
-- View, create, and control Harness sessions with real-time message, tool, and approval events
-- Limit remote approval decisions to `Allow once` or `Deny`, failing closed on errors and disconnects
+- View, create, and control remote sessions through the official Harness UI and native mux/host streams
+- Preserve native Harness `ApiProxy` approval and question request/response semantics
 - Authenticate and encrypt business messages with Noise IK while the Server handles accounts, pairing, presence, and Relay
-- Use the dual-role Desktop Plugin or the Android client
+- Use the dual-role Desktop Plugin in Host or local Client mode
 
 The Host only makes outbound connections and does not listen on a public port. Harness sessions, workspaces, prompts, and tool output remain on the Host. Both Server membership and a local trusted peer are required.
 
@@ -54,15 +54,9 @@ Production deployments must use HTTPS/WSS. Server, Remote Web, and Admin are imp
 
 ## Android
 
-The Android client uses `react-native-webrtc`, so it requires a development build and does not run in Expo Go:
-
-```bash
-pnpm install
-pnpm --filter @dsh-remote/android android
-pnpm --filter @dsh-remote/android start
-```
-
-See the [Android README](apps/android/README.md).
+The Android prototype remains in the repository, but it has not migrated to the
+ApiProxy-only data plane and is not a current supported or compatibility target.
+The current priority is real Desktop Plugin installation and cross-machine E2E.
 
 ## Build from source
 

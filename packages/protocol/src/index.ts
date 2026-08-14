@@ -7,13 +7,6 @@ export const messageTypes = [
   'rpc.response',
   'rpc.error',
   'event',
-  'signal.offer',
-  'signal.answer',
-  'signal.ice',
-  'hello',
-  'relay',
-  'ping',
-  'pong',
 ] as const
 
 export const controlFrameTypes = [
@@ -36,16 +29,6 @@ export const controlFrameTypes = [
 ] as const
 
 export const rpcMethods = [
-  'system.info',
-  'workspace.get',
-  'sessions.list',
-  'sessions.get',
-  'sessions.create',
-  'session.send',
-  'session.stop',
-  'permissions.respond',
-  'connection.ping',
-  'sync.from',
   'harness.api.call',
   'harness.api.respond',
   'harness.api.stream.open',

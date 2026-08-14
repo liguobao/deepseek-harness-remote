@@ -1,10 +1,11 @@
 # DSH Remote 设计文档
 
-状态：Draft v0.1
+状态：Draft v0.2
 更新时间：2026-08-15
 上游需求：[vibe-coding.md](../../vibe-coding.md)
 
-本目录定义当前仓库内双角色 Plugin、Android Client 和共享基础包的产品与功能。
+本目录定义当前仓库内 ApiProxy-only 双角色 Desktop Plugin 和共享基础包的产品与功能。
+Android 旧原型当前冻结，不属于可用链路。
 
 Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Client 的线协议以 [../protocol.md](../protocol.md) 为准，Host 的账号登录与授权注册流程见 [../plugin-integration.md](../plugin-integration.md)。这些文档必须保留，但 Server 由独立项目实现，不得在当前仓库创建 Server 源码或部署目录。
 
@@ -29,12 +30,12 @@ Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Clie
 
 1. Plugin Host 启动并向 Server 建立出站连接；本地 Plugin Client 也注册独立 Client identity。
 2. Plugin 生成 10 分钟有效的设备码。
-3. 用户在 Android Client 输入设备码，Host 明确确认新设备。
-4. Android Client 连接 Host，读取工作区和会话列表。
-5. 用户打开会话并发送消息，Harness 真实执行。
-6. Harness 的流式输出、工具调用和权限请求实时到达 Android Client。
-7. 用户执行 `Allow once` 或 `Deny`，结果回到 Harness 原权限系统。
-8. 断线恢复后，客户端完成事件补偿或完整会话同步。
+3. 用户在本地 Harness Plugin Client 输入设备码，Host 明确确认新设备。
+4. 用户在本地 Harness 侧边栏选择 Remote Host。
+5. 官方 UI 的 ApiProxy unary 与 mux/host stream 通过 Noise/Relay 到达 Host。
+6. Host allowlist bridge 调用远端 Harness 的官方 ApiProxy。
+7. Approval/Question 通过原生 `ClientResponse` 回到 Harness 权限系统。
+8. 断线时旧流关闭，本地 UI 安全回落 Local。
 
 ## 设计约束
 
@@ -43,7 +44,7 @@ Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Clie
 - Remote 不提供 shell、PTY、文件浏览器或绕过 Harness 的权限入口。
 - Server 不存储源码、提示词、会话明文、工具输出或 shell 历史。
 - Relay 业务载荷必须端到端加密；TLS 不是唯一安全边界。
-- 能力通过 handshake 协商，不假设所有 Harness 版本功能一致。
+- Control/Relay 能力通过 handshake 协商；ApiProxy contract 随同一 Plugin 发布物升级。
 - 非核心功能不单独编写测试；测试预算优先保障协议、加密、配对、鉴权、RPC 关联、权限和断线恢复。
 
 ## 文档判定规则

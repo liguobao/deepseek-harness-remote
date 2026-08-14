@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
@@ -17,6 +18,11 @@ export interface PluginSettingsView {
   deviceName: string
   writable: boolean
   applies: 'restart'
+  association?: {
+    method: 'account' | 'authorization_code'
+    account?: string
+    host?: { deviceId: string; name: string }
+  }
   pendingPairing?: {
     pairingId: string
     expiresAt: number
@@ -51,9 +57,11 @@ export class PluginControlRuntime {
 
   private async handle(endpoint: string, payload: unknown, signal: AbortSignal): Promise<RpcResult<unknown>> {
     try {
-      if (endpoint === 'settings.get') return ok(this.settingsView())
+      if (endpoint === 'settings.get') return ok(await this.settingsView())
       if (endpoint === 'settings.configure') return ok(await this.configure(payload))
       if (endpoint === 'settings.pairing.status') return ok(await this.pairingStatus(payload))
+      if (endpoint === 'settings.role.set') return ok(await this.setRole(payload))
+      if (endpoint === 'settings.logout') return ok(await this.logout())
       if (this.client !== undefined) return this.client.handleControl(endpoint, payload, signal)
 
       if (endpoint === 'status') return ok(this.hostOnlyStatus())
@@ -112,7 +120,7 @@ export class PluginControlRuntime {
       const authorization = await api.authorizeHost(identity, value.email, value.password)
       await this.settings.replace(editableConfig(next))
       this.pendingPairing = undefined
-      return { status: 'authorized', role: 'host', account: authorization.account, settings: this.settingsView() }
+      return { status: 'authorized', role: 'host', account: authorization.account, settings: await this.settingsView() }
     }
 
     if (typeof value.authorizationCode !== 'string' || value.authorizationCode.trim() === '') {
@@ -130,7 +138,7 @@ export class PluginControlRuntime {
     }
     this.pendingPairing = { api, identities, identity, claim }
     await this.settings.replace(editableConfig(next))
-    return { status: 'waiting_host', role: 'client', settings: this.settingsView() }
+    return { status: 'waiting_host', role: 'client', settings: await this.settingsView() }
   }
 
   private async pairingStatus(payload: unknown): Promise<Record<string, unknown>> {
@@ -155,17 +163,47 @@ export class PluginControlRuntime {
     } else if (status.status === 'rejected' || status.status === 'expired') {
       this.pendingPairing = undefined
     }
-    return { ...status, settings: this.settingsView() }
+    return { ...status, settings: await this.settingsView() }
   }
 
-  private settingsView(): PluginSettingsView {
+  private async setRole(payload: unknown): Promise<PluginSettingsView> {
+    if (this.settings === undefined) {
+      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
+    }
+    const role = record(payload).role
+    if (role !== 'host' && role !== 'client') {
+      throw new ClientModeError('INVALID_MESSAGE', 'Role must be Host or Client.')
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()))
+    await this.settings.replace({ ...current, role })
+    this.pendingPairing = undefined
+    return this.settingsView()
+  }
+
+  private async logout(): Promise<PluginSettingsView> {
+    if (this.settings === undefined) {
+      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
+    }
+    const config = resolveConfig(this.settings.get())
+    if (config.serverUrl !== undefined) {
+      const role = config.role === 'client' ? 'client' : 'host'
+      const directory = serverStorageDirectory(this.identityDirectory, config.serverUrl, role)
+      await rm(directory, { recursive: true, force: true })
+    }
+    this.pendingPairing = undefined
+    return this.settingsView()
+  }
+
+  private async settingsView(): Promise<PluginSettingsView> {
     const config = this.settings === undefined ? editableConfig(this.config) : editableConfig(resolveConfig(this.settings.get()))
     const pending = this.pendingPairing?.claim
+    const association = await this.association(config)
     return {
       config,
       deviceName: hostname(),
       writable: this.settings !== undefined,
       applies: 'restart',
+      ...(association === undefined ? {} : { association }),
       ...(pending === undefined ? {} : {
         pendingPairing: {
           pairingId: pending.pairingId,
@@ -174,6 +212,26 @@ export class PluginControlRuntime {
         },
       }),
     }
+  }
+
+  private async association(config: Config): Promise<PluginSettingsView['association']> {
+    if (config.serverUrl === undefined) return undefined
+    const role = config.role === 'client' ? 'client' : 'host'
+    const identities = new IdentityStore({
+      directory: serverStorageDirectory(this.identityDirectory, config.serverUrl, role),
+    })
+    const identity = await identities.loadOrCreate(hostname())
+    const credentials = await new ServerCredentialStore(identities.directory).load(config.serverUrl, identity.deviceId)
+    if (credentials === undefined) return undefined
+    if (role === 'host') {
+      return credentials.account === undefined
+        ? undefined
+        : { method: 'account', account: credentials.account }
+    }
+    const host = identities.listTrustedPeers().find(peer => peer.membershipId !== undefined)
+    return host === undefined
+      ? undefined
+      : { method: 'authorization_code', host: { deviceId: host.deviceId, name: host.name } }
   }
 
   private hostOnlyStatus(): Record<string, unknown> {
@@ -193,7 +251,6 @@ function editableConfig(config: ResolvedConfig): Config {
     ...(config.serverUrl === undefined ? {} : { serverUrl: config.serverUrl }),
     forceRelay: config.forceRelay,
     logLevel: config.logLevel,
-    approvalTimeoutMs: config.approvalTimeoutMs,
     reconnect: config.reconnect.enabled
       ? {
           initialDelayMs: config.reconnect.initialDelayMs,

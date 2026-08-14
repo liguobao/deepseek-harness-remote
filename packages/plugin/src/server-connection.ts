@@ -145,7 +145,7 @@ export class HostServerConnection {
           deviceId: this.identity.deviceId,
           accessToken: credentials.accessToken,
           protocols: [PROTOCOL_VERSION],
-          capabilities: ['transport.relay'],
+          capabilities: ['transport.relay', 'harness.api.v1'],
         })
       }
       socket.onmessage = event => {

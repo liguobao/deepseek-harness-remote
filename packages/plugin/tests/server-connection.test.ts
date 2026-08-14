@@ -115,7 +115,7 @@ describe('HostServerConnection', () => {
 
     let received: RemoteMessage | undefined
     accepted!.onMessage(message => { received = message })
-    const request = createRpcRequest('connection.ping', {})
+    const request = createRpcRequest('harness.api.call', { method: 'host.describe', rpcId: 'native-1', payload: {} })
     socket.receive(createControlFrame('relay', {
       connectionId: 'connection-1',
       targetDeviceId: 'host-1',
@@ -167,7 +167,6 @@ function config(): ResolvedConfig {
     deviceName: 'Host',
     forceRelay: true,
     logLevel: 'error',
-    approvalTimeoutMs: 1_000,
     reconnect: { enabled: false, initialDelayMs: 100, maxDelayMs: 1_000, jitter: 0 },
   }
 }

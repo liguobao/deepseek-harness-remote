@@ -75,7 +75,6 @@ function config(): ResolvedConfig {
     deviceName: 'Local Harness',
     forceRelay: false,
     logLevel: 'error',
-    approvalTimeoutMs: 1_000,
     reconnect: { enabled: true, initialDelayMs: 100, maxDelayMs: 1_000, jitter: 0 },
   }
 }

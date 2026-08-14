@@ -18,7 +18,7 @@ describe('RemoteClientCore', () => {
     const transport = new LoopbackTransport()
     const client = new RemoteClientCore(transport)
     await client.connect()
-    const call = client.rpc('connection.ping', {})
+    const call = client.rpc('harness.api.call', {})
     const request = JSON.parse(new TextDecoder().decode(transport.sent[0]!))
     transport.push(encodeMessage(createRpcResponse(request.id, { ok: true })))
     await expect(call).resolves.toEqual({ ok: true })
@@ -30,7 +30,7 @@ describe('RemoteClientCore', () => {
     await client.connect()
     let closed = false
     client.onClose(() => { closed = true })
-    const call = client.rpc('connection.ping', {})
+    const call = client.rpc('harness.api.call', {})
 
     transport.drop()
 

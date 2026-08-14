@@ -9,7 +9,6 @@ export interface Config {
   deviceName?: string
   forceRelay?: boolean
   logLevel?: 'debug' | 'info' | 'warn' | 'error'
-  approvalTimeoutMs?: number
   reconnect?: boolean | {
     initialDelayMs?: number
     maxDelayMs?: number
@@ -24,7 +23,6 @@ export interface ResolvedConfig {
   deviceName: string
   forceRelay: boolean
   logLevel: 'debug' | 'info' | 'warn' | 'error'
-  approvalTimeoutMs: number
   reconnect: {
     enabled: boolean
     initialDelayMs: number
@@ -41,7 +39,6 @@ export const Config: s<Config> = s.object({
   deviceName: s.string(),
   forceRelay: s.boolean(),
   logLevel: s.union(['debug', 'info', 'warn', 'error'] as const),
-  approvalTimeoutMs: s.number(),
   reconnect: s.union([
     s.boolean(),
     s.object({
@@ -68,7 +65,6 @@ const configSchema = z.object({
   deviceName: z.string().trim().min(1).max(80).optional(),
   forceRelay: z.boolean().optional(),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
-  approvalTimeoutMs: z.number().int().min(1_000).max(10 * 60_000).optional(),
   reconnect: reconnectSchema.optional(),
 }).strict()
 
@@ -89,7 +85,6 @@ export function resolveConfig(input: Config = {}, env: NodeJS.ProcessEnv = proce
     deviceName: parsed.deviceName ?? hostname(),
     forceRelay: parsed.forceRelay ?? false,
     logLevel: parsed.logLevel ?? 'info',
-    approvalTimeoutMs: parsed.approvalTimeoutMs ?? 120_000,
     reconnect: {
       enabled: parsed.reconnect !== false,
       initialDelayMs,

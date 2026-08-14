@@ -4,7 +4,7 @@
 - insert:
     - id: dsh-remote
       name: dsh-remote
-      inject: [sessions, agents, approval, settings, apiProxy, connection]
+      inject: [settings, apiProxy, connection]
       config:
         enabled: true
         role: host

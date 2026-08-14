@@ -7,7 +7,6 @@ describe('plugin config', () => {
       enabled: true,
       role: 'both',
       forceRelay: false,
-      approvalTimeoutMs: 120_000,
       reconnect: { enabled: true, initialDelayMs: 1_000, maxDelayMs: 30_000, jitter: 0.2 },
     })
   })

@@ -46,11 +46,34 @@ describe('PluginControlRuntime settings setup', () => {
       password: 'correct horse battery staple',
     }, signal())
 
-    expect(result).toMatchObject({ ok: true, value: { status: 'authorized', role: 'host', account: 'host@example.com' } })
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        status: 'authorized',
+        role: 'host',
+        account: 'host@example.com',
+        settings: { association: { method: 'account', account: 'host@example.com' } },
+      },
+    })
     expect(settings.get()).toMatchObject({ role: 'host', serverUrl: 'https://dsh.r2049.cn' })
     expect(settings.get()).not.toHaveProperty('deviceName')
     expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ device: { name: hostname(), role: 'host' } })
     expect(JSON.stringify(settings.get())).not.toContain('correct horse battery staple')
+
+    await expect(handler('settings.role.set', { role: 'client' }, signal())).resolves.toMatchObject({
+      ok: true,
+      value: { config: { role: 'client' } },
+    })
+    await expect(handler('settings.role.set', { role: 'host' }, signal())).resolves.toMatchObject({
+      ok: true,
+      value: { association: { account: 'host@example.com' } },
+    })
+    await expect(handler('settings.logout', {}, signal())).resolves.toMatchObject({
+      ok: true,
+      value: { config: { role: 'host' } },
+    })
+    const hostDirectory = serverStorageDirectory(directory, 'https://dsh.r2049.cn', 'host')
+    await expect(readFile(join(hostDirectory, 'server-credentials.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('claims a Client authorization code and persists Host trust after approval', async () => {
@@ -97,7 +120,18 @@ describe('PluginControlRuntime settings setup', () => {
     expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ code: 'ABCDEFGH' })
 
     const paired = await handler('settings.pairing.status', { pairingId: 'pairing-1' }, signal())
-    expect(paired).toMatchObject({ ok: true, value: { status: 'paired' } })
+    expect(paired).toMatchObject({
+      ok: true,
+      value: {
+        status: 'paired',
+        settings: {
+          association: {
+            method: 'authorization_code',
+            host: { deviceId: 'host-device-1', name: 'Remote Host' },
+          },
+        },
+      },
+    })
     if (!paired.ok) throw new Error(paired.error.message)
     expect((paired.value as { settings: PluginSettingsView }).settings).not.toHaveProperty('pendingPairing')
     const clientDirectory = serverStorageDirectory(directory, 'https://dsh.r2049.cn', 'client')
