@@ -13368,7 +13368,7 @@ var HostServerApi = class {
           role: this.role,
           platform: platform(),
           identityKey: identity.publicKey,
-          clientVersion: "0.1.0",
+          clientVersion: "0.2.0",
           harnessVersion: "0.1.0-rc.6"
         }
       })
@@ -14341,7 +14341,7 @@ var HostPluginRuntime = class {
       hostname: hostname2(),
       os: platform2(),
       harnessVersion: "unknown",
-      pluginVersion: "0.1.0",
+      pluginVersion: "0.2.0",
       protocol: 1,
       capabilities: HOST_CAPABILITIES.filter((capability) => capability !== "harness.api.v1" || this.harnessApiAvailable),
       connectionMode: this.connections.connectionMode(),
