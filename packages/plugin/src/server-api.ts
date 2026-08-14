@@ -198,7 +198,7 @@ export class HostServerApi implements PairingServer {
           role: this.role,
           platform: platform(),
           identityKey: identity.publicKey,
-          clientVersion: '0.2.3',
+          clientVersion: '0.2.4',
           harnessVersion: '0.1.0-rc.6',
         },
       }),
