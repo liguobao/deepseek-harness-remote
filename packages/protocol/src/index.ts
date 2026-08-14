@@ -16,6 +16,24 @@ export const messageTypes = [
   'pong',
 ] as const
 
+export const controlFrameTypes = [
+  'hello',
+  'hello.ack',
+  'connect.request',
+  'connect.incoming',
+  'connect.accepted',
+  'connect.rejected',
+  'pairing.claimed',
+  'secure.handshake',
+  'relay',
+  'signal.offer',
+  'signal.answer',
+  'signal.ice',
+  'ping',
+  'pong',
+  'error',
+] as const
+
 export const rpcMethods = [
   'system.info',
   'workspace.get',
@@ -44,8 +62,59 @@ export const remoteEvents = [
 ] as const
 
 export type MessageType = typeof messageTypes[number]
+export type ControlFrameType = typeof controlFrameTypes[number]
 export type RpcMethod = typeof rpcMethods[number]
 export type RemoteEventName = typeof remoteEvents[number]
+
+export interface ControlFrame<TPayload = unknown> {
+  v: typeof PROTOCOL_VERSION
+  id: string
+  type: ControlFrameType
+  timestamp: number
+  payload: TPayload
+}
+
+export interface HelloPayload {
+  role: 'host' | 'client'
+  deviceId: string
+  accessToken: string
+  protocols: number[]
+  capabilities: string[]
+}
+
+export interface HelloAckPayload {
+  protocol: typeof PROTOCOL_VERSION
+  serverVersion: string
+  connectionSessionId: string
+  heartbeatIntervalMs: number
+  maxControlFrameBytes: number
+  maxRelayFrameBytes: number
+}
+
+export interface ConnectRequestPayload {
+  hostDeviceId: string
+  preferredTransports: Array<'lan' | 'p2p' | 'turn' | 'relay'>
+}
+
+export interface ConnectIncomingPayload {
+  connectionId: string
+  clientDeviceId: string
+  clientIdentityKey: string
+  preferredTransports: Array<'lan' | 'p2p' | 'turn' | 'relay'>
+}
+
+export interface ConnectAcceptedPayload {
+  connectionId: string
+  targetDeviceId: string
+  transport: 'relay' | 'p2p' | 'turn' | 'lan'
+}
+
+export interface RelayPayload {
+  connectionId: string
+  targetDeviceId: string
+  counter: number
+  ciphertext: string
+}
 
 export interface RemoteMessage<TPayload = unknown> {
   v: typeof PROTOCOL_VERSION
@@ -83,11 +152,11 @@ export interface EventPayload<TData = unknown> {
 export interface DeviceDescriptor {
   deviceId: string
   name: string
-  platform: NodeJS.Platform | string
-  publicKey: string
-  pluginVersion?: string
+  role: 'host' | 'client'
+  platform: string
+  identityKey: string
+  clientVersion: string
   harnessVersion?: string
-  hostname?: string
 }
 
 export interface SessionSummary {
@@ -111,7 +180,7 @@ export interface PermissionRequest {
   }
 }
 
-export type PermissionDecision = 'allow_once' | 'allow_session' | 'deny'
+export type PermissionDecision = 'allow_once' | 'deny'
 
 export interface TransportStats {
   mode: 'LAN' | 'P2P' | 'TURN' | 'Relay' | 'Disconnected'
@@ -123,6 +192,7 @@ export interface TransportStats {
 
 const rpcMethodSchema = z.enum(rpcMethods)
 const messageTypeSchema = z.enum(messageTypes)
+const controlFrameTypeSchema = z.enum(controlFrameTypes)
 
 export const remoteMessageSchema = z.object({
   v: z.literal(PROTOCOL_VERSION),
@@ -131,6 +201,14 @@ export const remoteMessageSchema = z.object({
   timestamp: z.number().int().positive(),
   payload: z.unknown(),
 }) as unknown as z.ZodType<RemoteMessage>
+
+export const controlFrameSchema = z.object({
+  v: z.literal(PROTOCOL_VERSION),
+  id: z.string().min(1),
+  type: controlFrameTypeSchema,
+  timestamp: z.number().int().positive(),
+  payload: z.unknown(),
+}).strict() as unknown as z.ZodType<ControlFrame>
 
 export const rpcRequestPayloadSchema = z.object({
   method: rpcMethodSchema,
@@ -155,6 +233,20 @@ export function createMessage<TPayload>(
   payload: TPayload,
   id = cryptoRandomId(),
 ): RemoteMessage<TPayload> {
+  return {
+    v: PROTOCOL_VERSION,
+    id,
+    type,
+    timestamp: Date.now(),
+    payload,
+  }
+}
+
+export function createControlFrame<TPayload>(
+  type: ControlFrameType,
+  payload: TPayload,
+  id = cryptoRandomId(),
+): ControlFrame<TPayload> {
   return {
     v: PROTOCOL_VERSION,
     id,
@@ -199,6 +291,10 @@ export function createEvent<TData>(
 
 export function parseRemoteMessage(input: unknown): RemoteMessage {
   return remoteMessageSchema.parse(input)
+}
+
+export function parseControlFrame(input: unknown): ControlFrame {
+  return controlFrameSchema.parse(input)
 }
 
 export function encodeMessage(message: RemoteMessage): Uint8Array {

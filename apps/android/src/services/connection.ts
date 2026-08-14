@@ -21,18 +21,20 @@ export class AndroidRemoteConnection {
     baseUrl: string,
     identity: DeviceIdentity,
     host: RemoteDevice,
+    accessToken: string,
     onEvent: RemoteEventHandler,
   ): Promise<void> {
     await this.close()
     const relay = new RelayTransport(
       websocketUrl(baseUrl),
       {
-        type: 'hello',
         role: 'client',
         deviceId: identity.deviceId,
-        token: identity.publicKey,
+        accessToken,
+        targetDeviceId: host.deviceId,
+        capabilities: ['transport.relay'],
+        preferredTransports: ['relay'],
       },
-      host.deviceId,
     )
     const secure = new SecureTransport(relay, identity, host)
     const core = new RemoteClientCore(secure, 20_000)
@@ -70,8 +72,8 @@ export class AndroidRemoteConnection {
     await this.requireCore().rpc('session.stop', { sessionId })
   }
 
-  async respondPermission(requestId: string, decision: PermissionDecision): Promise<void> {
-    await this.requireCore().rpc('permissions.respond', { requestId, decision })
+  async respondPermission(sessionId: string, requestId: string, decision: PermissionDecision): Promise<void> {
+    await this.requireCore().rpc('permissions.respond', { sessionId, requestId, decision })
   }
 
   getStats() {

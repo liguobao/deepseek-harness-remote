@@ -202,10 +202,9 @@ function updatedText(timestamp?: number): string {
   return `Updated ${new Date(timestamp).toLocaleDateString()}`
 }
 
-function lastSeenText(value?: string): string {
+function lastSeenText(value?: number): string {
   if (value === undefined) return 'Last seen unavailable'
-  const timestamp = Date.parse(value)
-  return Number.isNaN(timestamp) ? 'Last seen unavailable' : updatedText(timestamp).replace('Updated', 'Last seen')
+  return Number.isFinite(value) ? updatedText(value).replace('Updated', 'Last seen') : 'Last seen unavailable'
 }
 
 const styles = StyleSheet.create({

@@ -20,8 +20,8 @@ export class SecureTransport implements RemoteTransport {
     identity: DeviceIdentity,
     host: RemoteDevice,
   ) {
-    if (host.publicKey.length === 0) throw new Error('The host has no encryption key. Pair it again.')
-    this.key = deriveSharedKey(identity.privateKey, host.publicKey)
+    if (host.identityKey.length === 0) throw new Error('The host has no encryption key. Pair it again.')
+    this.key = deriveSharedKey(identity.privateKey, host.identityKey)
     this.aad = channelAad(identity.deviceId, host.deviceId)
   }
 

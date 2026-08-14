@@ -21,7 +21,6 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const messages = useAppStore(state => session === undefined ? [] : state.messages[session.id] ?? [])
   const busy = useAppStore(state => state.busyAction)
   const connection = useAppStore(state => state.connection)
-  const capabilities = useAppStore(state => state.systemInfo?.capabilities ?? [])
   const sendMessage = useAppStore(state => state.sendMessage)
   const stopSession = useAppStore(state => state.stopSession)
   const respond = useAppStore(state => state.respondPermission)
@@ -67,7 +66,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         contentContainerStyle={[styles.listContent, messages.length === 0 && styles.emptyList]}
         data={messages}
         keyExtractor={item => item.id}
-        renderItem={({ item }) => <ChatItemView item={item} busyAction={busy} allowSession={capabilities.includes('permission.allow-session')} onRespond={respond} />}
+        renderItem={({ item }) => <ChatItemView item={item} busyAction={busy} onRespond={respond} />}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         ListEmptyComponent={<WelcomeMessage />}
@@ -105,13 +104,12 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   )
 }
 
-function ChatItemView({ item, busyAction, allowSession, onRespond }: {
+function ChatItemView({ item, busyAction, onRespond }: {
   item: ChatItem
   busyAction?: string
-  allowSession: boolean
   onRespond: (requestId: string, decision: PermissionDecision) => Promise<void>
 }) {
-  if (item.kind === 'permission') return <PermissionCard item={item} busy={busyAction === `permission:${item.request.requestId}`} allowSession={allowSession} onRespond={onRespond} />
+  if (item.kind === 'permission') return <PermissionCard item={item} busy={busyAction === `permission:${item.request.requestId}`} onRespond={onRespond} />
   if (item.kind === 'tool') return <ToolRow item={item} />
   return <MessageBubble item={item} />
 }
@@ -153,10 +151,9 @@ function ToolRow({ item }: { item: ToolActivity }) {
   )
 }
 
-function PermissionCard({ item, busy, allowSession, onRespond }: {
+function PermissionCard({ item, busy, onRespond }: {
   item: PermissionActivity
   busy: boolean
-  allowSession: boolean
   onRespond: (requestId: string, decision: PermissionDecision) => Promise<void>
 }) {
   const permission = item.request.permission
@@ -182,10 +179,9 @@ function PermissionCard({ item, busy, allowSession, onRespond }: {
         <Text selectable style={permission.command !== undefined ? styles.permissionCode : styles.permissionText}>{detail}</Text>
         {permission.cwd !== undefined && <Text selectable style={styles.permissionCwd}>{permission.cwd}</Text>}
       </View>
-      <Text style={styles.permissionScope}>“Allow for session” applies only to this Harness session and never bypasses host policy.</Text>
+      <Text style={styles.permissionScope}>Allow once applies only to this request and never bypasses host policy.</Text>
       <View style={styles.permissionActions}>
         <Button label="Allow once" onPress={() => void onRespond(item.request.requestId, 'allow_once')} loading={busy} />
-        {allowSession && <Button label="Allow for session" variant="secondary" onPress={() => void onRespond(item.request.requestId, 'allow_session')} disabled={busy} />}
         <Button label="Deny" variant="quiet" onPress={() => void onRespond(item.request.requestId, 'deny')} disabled={busy} />
       </View>
     </View>
@@ -204,7 +200,6 @@ function WelcomeMessage() {
 
 function decisionLabel(decision: PermissionDecision): string {
   if (decision === 'deny') return 'Permission denied'
-  if (decision === 'allow_session') return 'Allowed for this session'
   return 'Allowed once'
 }
 

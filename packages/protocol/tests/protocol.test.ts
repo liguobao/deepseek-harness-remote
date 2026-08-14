@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createEvent, createRpcError, createRpcRequest, decodeMessage, encodeMessage, parseRemoteMessage } from '../src/index.js'
+import { createControlFrame, createEvent, createRpcError, createRpcRequest, decodeMessage, encodeMessage, parseControlFrame, parseRemoteMessage } from '../src/index.js'
 
 describe('protocol envelope', () => {
   it('round-trips RPC messages', () => {
@@ -19,5 +19,17 @@ describe('protocol envelope', () => {
       payload: { requestId: 'r1', retryable: true },
     })
     expect(createRpcRequest('sync.from', { afterSeq: 7 }).payload.method).toBe('sync.from')
+  })
+
+  it('creates and validates canonical control frames', () => {
+    const frame = createControlFrame('hello', {
+      role: 'client',
+      deviceId: 'client-1',
+      accessToken: 'secret',
+      protocols: [1],
+      capabilities: ['transport.relay'],
+    })
+    expect(parseControlFrame(frame)).toEqual(frame)
+    expect(() => parseControlFrame({ ...frame, v: 2 })).toThrow()
   })
 })

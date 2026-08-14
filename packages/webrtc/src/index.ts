@@ -1,4 +1,12 @@
-import type { TransportStats } from '@dsh-remote/protocol'
+import {
+  PROTOCOL_VERSION,
+  createControlFrame,
+  parseControlFrame,
+  type ConnectAcceptedPayload,
+  type HelloAckPayload,
+  type RelayPayload,
+  type TransportStats,
+} from '@dsh-remote/protocol'
 
 export interface RemoteTransport {
   connect(): Promise<void>
@@ -28,15 +36,29 @@ export abstract class BaseTransport implements RemoteTransport {
   abstract getStats(): TransportStats
 }
 
+export interface RelayTransportOptions {
+  role: 'client'
+  deviceId: string
+  accessToken: string
+  targetDeviceId: string
+  capabilities?: string[]
+  preferredTransports?: Array<'lan' | 'p2p' | 'turn' | 'relay'>
+  handshakeTimeoutMs?: number
+}
+
 export class RelayTransport extends BaseTransport {
   private socket?: WebSocket
   private bytesSent = 0
   private bytesReceived = 0
+  private connectionId?: string
+  private relayCounter = 0
+  private readyResolve?: () => void
+  private readyReject?: (error: Error) => void
+  private handshakeTimer?: ReturnType<typeof setTimeout>
 
   constructor(
     private readonly url: string,
-    private readonly hello: unknown,
-    private readonly targetDeviceId?: string,
+    private readonly options: RelayTransportOptions,
   ) {
     super()
   }
@@ -46,32 +68,53 @@ export class RelayTransport extends BaseTransport {
     this.socket = new WebSocket(this.url)
     this.socket.binaryType = 'arraybuffer'
     await new Promise<void>((resolve, reject) => {
+      this.readyResolve = resolve
+      this.readyReject = reject
+      this.handshakeTimer = setTimeout(
+        () => this.failConnection(new Error('Relay control handshake timed out')),
+        this.options.handshakeTimeoutMs ?? 10_000,
+      )
       const socket = this.socket!
       socket.onmessage = event => {
-        const data = decodeSocketMessage(event.data)
-        this.bytesReceived += data.byteLength
-        this.emit(data)
+        void this.handleSocketMessage(event.data)
       }
       socket.onopen = () => {
-        socket.send(JSON.stringify(this.hello))
-        resolve()
+        this.sendControl('hello', {
+          role: this.options.role,
+          deviceId: this.options.deviceId,
+          accessToken: this.options.accessToken,
+          protocols: [PROTOCOL_VERSION],
+          capabilities: this.options.capabilities ?? ['transport.relay'],
+        })
       }
-      socket.onerror = () => reject(new Error(`RelayTransport failed to connect to ${this.url}`))
+      socket.onerror = () => this.failConnection(new Error(`RelayTransport failed to connect to ${this.url}`))
+      socket.onclose = () => {
+        const pending = this.readyReject !== undefined
+        if (pending) this.failConnection(new Error('Relay control channel closed before it was ready'))
+        this.socket = undefined
+        this.connectionId = undefined
+      }
     })
   }
 
   async send(data: Uint8Array): Promise<void> {
     if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('relay transport is not connected')
+    if (this.connectionId === undefined) throw new Error('relay connection has not been authorized')
     this.bytesSent += data.byteLength
-    const payload = new TextDecoder().decode(data)
-    this.socket.send(this.targetDeviceId === undefined
-      ? payload
-      : JSON.stringify({ type: 'relay', targetDeviceId: this.targetDeviceId, payload }))
+    this.sendControl('relay', {
+      connectionId: this.connectionId,
+      targetDeviceId: this.options.targetDeviceId,
+      counter: this.relayCounter,
+      ciphertext: toBase64Url(data),
+    } satisfies RelayPayload)
+    this.relayCounter += 1
   }
 
   async close(): Promise<void> {
+    this.clearHandshake()
     this.socket?.close()
     this.socket = undefined
+    this.connectionId = undefined
   }
 
   getStats(): TransportStats {
@@ -81,6 +124,83 @@ export class RelayTransport extends BaseTransport {
       bytesSent: this.bytesSent,
       bytesReceived: this.bytesReceived,
     }
+  }
+
+  private async handleSocketMessage(raw: string | ArrayBuffer | Blob): Promise<void> {
+    try {
+      const text = await socketText(raw)
+      const frame = parseControlFrame(JSON.parse(text))
+      if (frame.type === 'hello.ack') {
+        const payload = frame.payload as Partial<HelloAckPayload>
+        if (payload.protocol !== PROTOCOL_VERSION) throw new Error('Server selected an unsupported protocol version')
+        this.sendControl('connect.request', {
+          hostDeviceId: this.options.targetDeviceId,
+          preferredTransports: this.options.preferredTransports ?? ['relay'],
+        })
+        return
+      }
+      if (frame.type === 'connect.accepted') {
+        const payload = frame.payload as Partial<ConnectAcceptedPayload>
+        if (typeof payload.connectionId !== 'string' || payload.connectionId.length === 0) {
+          throw new Error('connect.accepted did not include a connectionId')
+        }
+        if (payload.targetDeviceId !== this.options.deviceId || payload.transport !== 'relay') {
+          throw new Error('connect.accepted does not authorize this client relay')
+        }
+        this.connectionId = payload.connectionId
+        this.finishConnection()
+        return
+      }
+      if (frame.type === 'connect.rejected' || frame.type === 'error') {
+        const payload = frame.payload as { message?: unknown; code?: unknown }
+        const message = typeof payload.message === 'string' ? payload.message : 'Server rejected the relay connection'
+        throw Object.assign(new Error(message), { code: payload.code })
+      }
+      if (frame.type === 'relay') {
+        const payload = frame.payload as Partial<RelayPayload>
+        if (payload.connectionId !== this.connectionId
+          || payload.targetDeviceId !== this.options.deviceId
+          || !Number.isSafeInteger(payload.counter)
+          || typeof payload.ciphertext !== 'string') {
+          throw new Error('Received a relay frame for an unknown connection')
+        }
+        const data = fromBase64Url(payload.ciphertext)
+        this.bytesReceived += data.byteLength
+        this.emit(data)
+        return
+      }
+      if (frame.type === 'ping') this.sendControl('pong', frame.payload)
+    } catch (error) {
+      this.failConnection(error instanceof Error ? error : new Error('Invalid relay control frame'))
+    }
+  }
+
+  private sendControl(type: Parameters<typeof createControlFrame>[0], payload: unknown): void {
+    if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('relay control socket is not open')
+    this.socket.send(JSON.stringify(createControlFrame(type, payload)))
+  }
+
+  private finishConnection(): void {
+    this.clearHandshake()
+    this.readyResolve?.()
+    this.readyResolve = undefined
+    this.readyReject = undefined
+  }
+
+  private failConnection(error: Error): void {
+    this.clearHandshake()
+    const reject = this.readyReject
+    this.readyResolve = undefined
+    this.readyReject = undefined
+    reject?.(error)
+    this.socket?.close()
+    this.socket = undefined
+    this.connectionId = undefined
+  }
+
+  private clearHandshake(): void {
+    if (this.handshakeTimer !== undefined) clearTimeout(this.handshakeTimer)
+    this.handshakeTimer = undefined
   }
 }
 
@@ -127,18 +247,21 @@ export class WebRTCTransport extends BaseTransport {
 
 export class LanTransport extends RelayTransport {}
 
-function decodeSocketMessage(data: string | ArrayBuffer | Blob): Uint8Array {
-  if (typeof data !== 'string') {
-    if (data instanceof ArrayBuffer) return new Uint8Array(data)
-    throw new Error('Blob WebSocket frames are not supported by RelayTransport')
-  }
-  try {
-    const envelope = JSON.parse(data) as { type?: unknown; payload?: unknown }
-    if (envelope.type === 'relay' && typeof envelope.payload === 'string') {
-      return new TextEncoder().encode(envelope.payload)
-    }
-  } catch {
-    // A protocol message is JSON too, but not a relay envelope.
-  }
-  return new TextEncoder().encode(data)
+async function socketText(data: string | ArrayBuffer | Blob): Promise<string> {
+  if (typeof data === 'string') return data
+  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data)
+  return new TextDecoder().decode(await data.arrayBuffer())
+}
+
+function toBase64Url(bytes: Uint8Array): string {
+  const binary = Array.from(bytes, byte => String.fromCharCode(byte)).join('')
+  const base64 = typeof btoa === 'function' ? btoa(binary) : Buffer.from(bytes).toString('base64')
+  return base64.replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
+}
+
+function fromBase64Url(value: string): Uint8Array {
+  const normalized = value.replaceAll('-', '+').replaceAll('_', '/')
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+  if (typeof atob === 'function') return Uint8Array.from(atob(padded), char => char.charCodeAt(0))
+  return new Uint8Array(Buffer.from(padded, 'base64'))
 }

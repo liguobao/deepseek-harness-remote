@@ -1,4 +1,5 @@
 import type { EventPayload, PermissionDecision } from '@dsh-remote/protocol'
+import { identityFingerprint } from '@dsh-remote/crypto'
 import * as Haptics from 'expo-haptics'
 import { create } from 'zustand'
 import { friendlyError } from '../lib/errors'
@@ -8,10 +9,12 @@ import { AndroidRemoteConnection } from '../services/connection'
 import {
   clearLocalData,
   forgetHost,
+  loadDeviceCredentials,
   loadOrCreateIdentity,
   loadServerConfig,
   loadTrustedHosts,
   saveServerConfig,
+  saveDeviceCredentials,
   trustHost,
 } from '../services/storage'
 import type {
@@ -97,7 +100,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ busyAction: 'server', error: undefined })
     try {
       const baseUrl = normalizeServerUrl(input)
-      await new RemoteServerApi(baseUrl).health()
+      const identity = get().identity
+      if (identity === undefined) throw new Error('The Android device identity is not ready.')
+      const publicApi = new RemoteServerApi(baseUrl)
+      await publicApi.health()
+      await authenticatedApi(baseUrl, identity)
       const config = { baseUrl }
       await saveServerConfig(config)
       set({ config, busyAction: undefined, devices: [] })
@@ -120,12 +127,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({ pairingPhase: 'claiming', pairingMessage: undefined, error: undefined })
     try {
-      const api = new RemoteServerApi(config.baseUrl)
-      const claim = await api.claimPairing(code, identity)
-      set({ pairingPhase: 'waiting', pairingMessage: 'Confirm this phone on the host.' })
-      await waitForConfirmation(api, claim.pairingId, identity.deviceId)
-      const host = { ...await api.getDevice(claim.hostDeviceId), trusted: true }
-      if (host.publicKey.length === 0) throw new Error('The host did not provide an encryption key. Create a new pairing code.')
+      const { api } = await authenticatedApi(config.baseUrl, identity)
+      const claim = await api.claimPairing(code, identity.deviceId)
+      const computedFingerprint = identityFingerprint(claim.host.identityKey)
+      const advertisedFingerprint = claim.host.fingerprint?.trim()
+      if (advertisedFingerprint !== undefined && normalizeFingerprint(advertisedFingerprint) !== computedFingerprint) {
+        throw new Error('The host fingerprint does not match its identity key. Do not approve this pairing.')
+      }
+      const fingerprint = formatFingerprint(computedFingerprint)
+      set({
+        pairingPhase: 'waiting',
+        pairingMessage: `Confirm this phone on the host and verify ${fingerprint}.`,
+      })
+      const status = await waitForConfirmation(api, claim.pairingId)
+      if (status.hostDeviceId !== undefined && status.hostDeviceId !== claim.host.deviceId) {
+        throw new Error('The paired host identity changed. Create a new pairing code.')
+      }
+      const host: RemoteDevice = { ...claim.host, online: true, trusted: true }
+      if (host.identityKey.length === 0) throw new Error('The host did not provide an encryption key. Create a new pairing code.')
       await trustHost(host)
       set(state => ({
         pairingPhase: 'complete',
@@ -142,11 +161,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async refreshDevices() {
-    const { config } = get()
-    if (config === undefined) return
+    const { config, identity } = get()
+    if (config === undefined || identity === undefined) return
     set({ refreshing: true })
     const trusted = await loadTrustedHosts()
-    const api = new RemoteServerApi(config.baseUrl)
+    const { api } = await authenticatedApi(config.baseUrl, identity)
     const current = await Promise.all(trusted.map(async host => {
       try {
         return { ...await api.getDevice(host.deviceId), trusted: true }
@@ -169,7 +188,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       error: undefined,
     })
     try {
-      await connection.connect(config.baseUrl, identity, device, event => get().handleRemoteEvent(event))
+      const { credentials } = await authenticatedApi(config.baseUrl, identity)
+      await connection.connect(config.baseUrl, identity, device, credentials.accessToken, event => get().handleRemoteEvent(event))
       const [systemInfo, workspace, sessions] = await Promise.all([
         connection.systemInfo(), connection.workspace(), connection.sessions(),
       ])
@@ -280,7 +300,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   async respondPermission(requestId, decision) {
     set({ busyAction: `permission:${requestId}`, error: undefined })
     try {
-      await connection.respondPermission(requestId, decision)
+      const sessionId = get().selectedSession?.id
+      if (sessionId === undefined) throw new Error('Open the permission session before responding.')
+      await connection.respondPermission(sessionId, requestId, decision)
       set(state => ({
         messages: mapPermissionDecision(state.messages, requestId, decision),
         busyAction: undefined,
@@ -321,15 +343,39 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 }))
 
-async function waitForConfirmation(api: RemoteServerApi, pairingId: string, clientDeviceId: string): Promise<void> {
+async function waitForConfirmation(api: RemoteServerApi, pairingId: string): Promise<import('../types').PairingStatus> {
   const deadline = Date.now() + 90_000
   while (Date.now() < deadline) {
     const status = await api.pairingStatus(pairingId)
-    if (status.claimedBy !== clientDeviceId) throw new Error('This pairing code was claimed by another device.')
-    if (status.confirmed) return
+    if (status.status === 'paired') return status
+    if (status.status === 'rejected') throw new Error('The host rejected this pairing request.')
+    if (status.status === 'expired') throw new Error('The pairing code has expired.')
     await delay(1_500)
   }
   throw new Error('The host has not confirmed this phone yet. Check the host and try again.')
+}
+
+async function authenticatedApi(baseUrl: string, identity: DeviceIdentity): Promise<{
+  api: RemoteServerApi
+  credentials: import('../types').DeviceCredentials
+}> {
+  const now = Date.now()
+  let credentials = await loadDeviceCredentials(baseUrl, identity.deviceId)
+  if (credentials === undefined || credentials.accessTokenExpiresAt <= now + 30_000) {
+    const publicApi = new RemoteServerApi(baseUrl)
+    let tokens: Omit<import('../types').DeviceCredentials, 'deviceId' | 'serverUrl'>
+    if (credentials !== undefined && credentials.refreshTokenExpiresAt > now) {
+      tokens = await publicApi.refreshToken(identity.deviceId, credentials.refreshToken)
+    } else {
+      if (credentials !== undefined) {
+        throw new Error('This device registration has expired. Reset local data before registering it again.')
+      }
+      tokens = await publicApi.registerDevice(identity)
+    }
+    credentials = { ...tokens, deviceId: identity.deviceId, serverUrl: baseUrl }
+    await saveDeviceCredentials(credentials)
+  }
+  return { api: new RemoteServerApi(baseUrl, credentials.accessToken), credentials }
 }
 
 function reduceEvent(state: AppState, event: EventPayload): Partial<AppState> {
@@ -386,6 +432,14 @@ function isChatItem(value: unknown): value is ChatItem {
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function normalizeFingerprint(value: string): string {
+  return value.replace(/[^A-Fa-f0-9]/g, '').toUpperCase()
+}
+
+function formatFingerprint(value: string): string {
+  return value.match(/.{1,4}/g)?.join(' ') ?? value
 }
 
 function initialData(): Pick<AppState,

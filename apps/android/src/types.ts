@@ -19,28 +19,40 @@ export interface DeviceIdentity {
   privateKey: string
 }
 
+export interface DeviceCredentials {
+  deviceId: string
+  serverUrl: string
+  accessToken: string
+  accessTokenExpiresAt: number
+  refreshToken: string
+  refreshTokenExpiresAt: number
+}
+
 export interface RemoteDevice {
   deviceId: string
   name: string
   platform: string
-  publicKey: string
+  identityKey: string
   online: boolean
   role?: 'host' | 'client'
-  lastSeenAt?: string
+  clientVersion?: string
+  harnessVersion?: string
+  fingerprint?: string
+  lastSeenAt?: number
   trusted?: boolean
 }
 
 export interface PairingResult {
   pairingId: string
-  hostDeviceId: string
-  requiresHostConfirmation: boolean
+  status: 'waiting_host'
+  host: Omit<RemoteDevice, 'online'>
+  expiresAt: number
 }
 
 export interface PairingStatus {
-  pairingId: string
-  hostDeviceId: string
-  claimedBy?: string
-  confirmed: boolean
+  status: 'waiting_host' | 'paired' | 'rejected' | 'expired'
+  membershipId?: string
+  hostDeviceId?: string
 }
 
 export interface SystemInfo {

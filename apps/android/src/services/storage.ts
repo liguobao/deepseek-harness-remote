@@ -3,11 +3,12 @@ import * as Application from 'expo-application'
 import * as Crypto from 'expo-crypto'
 import * as Device from 'expo-device'
 import * as SecureStore from 'expo-secure-store'
-import type { DeviceIdentity, RemoteDevice, ServerConfig } from '../types'
+import type { DeviceCredentials, DeviceIdentity, RemoteDevice, ServerConfig } from '../types'
 
 const KEYS = {
   config: 'dshremote.server.v1',
   identity: 'dshremote.identity.v1',
+  credentials: 'dshremote.credentials.v1',
   trustedHosts: 'dshremote.trusted-hosts.v1',
 } as const
 
@@ -43,7 +44,22 @@ export async function loadOrCreateIdentity(): Promise<DeviceIdentity> {
 }
 
 export async function loadTrustedHosts(): Promise<RemoteDevice[]> {
-  return (await readJson<RemoteDevice[]>(KEYS.trustedHosts)) ?? []
+  const stored = (await readJson<Array<RemoteDevice & { publicKey?: string }>>(KEYS.trustedHosts)) ?? []
+  return stored.flatMap(host => {
+    const identityKey = host.identityKey ?? host.publicKey
+    if (identityKey === undefined || identityKey.length === 0) return []
+    const { publicKey: _legacyPublicKey, ...current } = host
+    return [{ ...current, identityKey }]
+  })
+}
+
+export async function loadDeviceCredentials(serverUrl: string, deviceId: string): Promise<DeviceCredentials | undefined> {
+  const credentials = await readJson<DeviceCredentials>(KEYS.credentials)
+  return credentials?.serverUrl === serverUrl && credentials.deviceId === deviceId ? credentials : undefined
+}
+
+export async function saveDeviceCredentials(credentials: DeviceCredentials): Promise<void> {
+  await writeJson(KEYS.credentials, credentials)
 }
 
 export async function trustHost(host: RemoteDevice): Promise<void> {

@@ -19,14 +19,14 @@ describe('secure transport', () => {
     const clientKeys = generateKeyPair(new Uint8Array(32).fill(1))
     const hostKeys = generateKeyPair(new Uint8Array(32).fill(2))
     const clientIdentity: DeviceIdentity = { deviceId: 'client', name: 'Phone', platform: 'android', ...clientKeys }
-    const hostDevice: RemoteDevice = { deviceId: 'host', name: 'Host', platform: 'linux', online: true, ...hostKeys }
+    const hostDevice: RemoteDevice = { deviceId: 'host', name: 'Host', platform: 'linux', online: true, identityKey: hostKeys.publicKey }
     const clientWire = new MemoryTransport()
     const hostWire = new MemoryTransport()
     const client = new SecureTransport(clientWire, clientIdentity, hostDevice)
     const host = new SecureTransport(hostWire, {
       deviceId: 'host', name: 'Host', platform: 'android', ...hostKeys,
     }, {
-      deviceId: 'client', name: 'Phone', platform: 'android', online: true, ...clientKeys,
+      deviceId: 'client', name: 'Phone', platform: 'android', online: true, identityKey: clientKeys.publicKey,
     })
 
     let received = ''

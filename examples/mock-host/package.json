@@ -1,0 +1,26 @@
+{
+  "name": "@dsh-remote/mock-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx index.ts",
+    "smoke:android": "tsx smoke-client.ts",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.check.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@dsh-remote/crypto": "workspace:*",
+    "@dsh-remote/client-core": "workspace:*",
+    "@dsh-remote/protocol": "workspace:*",
+    "@dsh-remote/webrtc": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

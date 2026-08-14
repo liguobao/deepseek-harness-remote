@@ -1,0 +1,53 @@
+# DSH Remote 设计文档
+
+状态：Draft v0.1
+更新时间：2026-08-15
+上游需求：[vibe-coding.md](../../vibe-coding.md)
+
+本目录定义当前仓库内 Plugin、Android/Desktop Client 和共享基础包的产品与功能。
+
+Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Client 的线协议以 [../protocol.md](../protocol.md) 为准。两份文档必须保留，但 Server 由独立项目实现，不得在当前仓库创建 Server 源码或部署目录。
+
+## 项目清单
+
+| 项目 | 交付物 | 产品设计 | 功能设计 |
+| --- | --- | --- | --- |
+| Harness Host Plugin | `packages/plugin` | [plugin/product-design.md](plugin/product-design.md) | [plugin/functional-design.md](plugin/functional-design.md) |
+
+跨项目协议、身份、加密、连接降级和错误语义统一定义在 [shared-foundation.md](shared-foundation.md)。`protocol`、`crypto`、`client-core`、`webrtc` 属于当前仓库的共享基础包。
+
+## 不在当前仓库实现
+
+- DSH Remote Server runtime
+- Remote Web、Server Admin 后端与托管站点
+- Server 数据库、迁移、测试与部署
+- TURN/Coturn 部署
+
+这些能力的预期行为仍由 `server.md` 和 `protocol.md` 约束，供独立 Server 项目实现与互操作验收。
+
+## MVP 主路径
+
+1. Host Plugin 启动并向 Server 建立出站连接。
+2. Plugin 生成 10 分钟有效的设备码。
+3. 用户在 Android Client 输入设备码，Host 明确确认新设备。
+4. Android Client 连接 Host，读取工作区和会话列表。
+5. 用户打开会话并发送消息，Harness 真实执行。
+6. Harness 的流式输出、工具调用和权限请求实时到达 Android Client。
+7. 用户执行 `Allow once` 或 `Deny`，结果回到 Harness 原权限系统。
+8. 断线恢复后，客户端完成事件补偿或完整会话同步。
+
+## 设计约束
+
+- 不修改 DeepSeek Harness 核心源码。
+- Plugin 不监听公网 HTTP/WebSocket 端口，只发起出站连接。
+- Remote 不提供 shell、PTY、文件浏览器或绕过 Harness 的权限入口。
+- Server 不存储源码、提示词、会话明文、工具输出或 shell 历史。
+- Relay 业务载荷必须端到端加密；TLS 不是唯一安全边界。
+- 能力通过 handshake 协商，不假设所有 Harness 版本功能一致。
+- 非核心功能不单独编写测试；测试预算优先保障协议、加密、配对、鉴权、RPC 关联、权限和断线恢复。
+
+## 文档判定规则
+
+- **已确认**：可由当前 DeepSeek Harness / dsh-desktop 源码或 `vibe-coding.md` 直接证明。
+- **设计决策**：本项目为完成 MVP 做出的约束性选择。
+- **待验证**：实现前必须用真实 Harness 运行环境完成 spike，不允许用猜测 API 代替。

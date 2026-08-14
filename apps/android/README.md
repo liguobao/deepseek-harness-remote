@@ -4,9 +4,9 @@ React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness hos
 
 ## Implemented MVP flow
 
-- Configure and health-check a self-hosted Remote server.
+- Configure and health-check a self-hosted Remote server, register the Android device, and rotate its access/refresh tokens in SecureStore.
 - Generate a random Android client identity and keep its private key in Keystore-backed `expo-secure-store`.
-- Claim an 8-character pairing code, wait for Host confirmation, and persist trusted Host public identities.
+- Claim an 8-character pairing code through the protocol v1 API, verify the Host fingerprint, wait for Host confirmation, and persist trusted Host public identities.
 - Show trusted device presence, Host/Workspace metadata, sessions, and connection state.
 - Send messages, consume streaming message/tool events, stop generation, and answer permission requests.
 - Reconnect after Android network/app lifecycle changes.

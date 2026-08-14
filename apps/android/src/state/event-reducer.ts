@@ -121,7 +121,7 @@ function permissionKind(value: unknown): PermissionRequest['permission']['kind']
 }
 
 function decisionValue(value: unknown): PermissionDecision | undefined {
-  return value === 'allow_once' || value === 'allow_session' || value === 'deny' ? value : undefined
+  return value === 'allow_once' || value === 'deny' ? value : undefined
 }
 
 function localId(prefix: string): string {
