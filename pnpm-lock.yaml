@@ -171,6 +171,9 @@ importers:
 
   packages/plugin:
     dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.1
+        version: 3.18.1
       '@dsh-remote/crypto':
         specifier: workspace:*
         version: link:../crypto
