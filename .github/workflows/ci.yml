@@ -40,17 +40,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build workspace packages
+        run: pnpm --filter './packages/**' -r build
+
       - name: Check types
-        run: pnpm check
+        run: pnpm -r check
 
       - name: Verify committed GitHub plugin bundle
-        run: git diff --exit-code -- index.js packages/plugin/dist/index.js packages/plugin/dist/client.github.js
+        run: |
+          node scripts/verify-dsh-plugin.mjs
+          git diff --exit-code -- index.js packages/plugin/dist/index.js packages/plugin/dist/client.github.js
 
       - name: Run tests
-        run: pnpm test
+        run: pnpm -r test
 
       - name: Build workspace
-        run: NODE_ENV=production pnpm build
+        run: NODE_ENV=production pnpm -r build
 
   plugin-package:
     name: Package npm plugin
@@ -76,7 +81,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build workspace packages
-        run: pnpm build:packages
+        run: pnpm --filter './packages/**' -r build
 
       - name: Pack npm plugin
         run: |
@@ -125,7 +130,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build workspace packages
-        run: pnpm build:packages
+        run: pnpm --filter './packages/**' -r build
 
       - name: Generate Android project
         run: pnpm --dir apps/android exec expo prebuild --platform android --no-install

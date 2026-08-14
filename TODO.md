@@ -22,7 +22,7 @@
 - [x] 建立 Relay、WebRTC、LAN transport 抽象与 Client Core RPC 基础能力
 - [x] 提供依赖外部 Server 的 Mock Host 与 Android smoke client
 - [x] 明确仓库边界并保留 Server 设计、Remote Protocol 文档
-- [x] `pnpm check`、`pnpm test`、`pnpm build` 全部通过
+- [x] workspace check、test、build 与 DSH bundle 校验全部通过
 
 ## P0：协议与安全链路
 

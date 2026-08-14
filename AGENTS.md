@@ -70,20 +70,22 @@ docs/
 
 ```bash
 pnpm install
-pnpm check
-pnpm test
-pnpm build
+pnpm --filter './packages/**' -r build
+pnpm -r check
+node scripts/verify-dsh-plugin.mjs
+pnpm -r test
+NODE_ENV=production pnpm -r build
 ```
 
-根 `check` 和 `test` 会先执行 `build:packages`，确保 workspace package 从 fresh clone 开始也能解析 `dist` 类型。
+先构建 `packages/**`，确保 workspace package 从 fresh clone 开始也能解析 `dist` 类型。根 `package.json` 刻意不声明 `scripts`，避免 pnpm 将 DSH Desktop 的 GitHub 安装误判为需要执行构建脚本。
 
 常用命令：
 
 ```bash
-pnpm dev:plugin
-pnpm android
-pnpm dev:android
-DSH_REMOTE_SERVER=ws://127.0.0.1:8080/ws/v1/connect pnpm dev:mock-host
+pnpm --filter @dsh-remote/plugin build --watch
+pnpm --filter @dsh-remote/android android
+pnpm --filter @dsh-remote/android start
+DSH_REMOTE_SERVER=ws://127.0.0.1:8080/ws/v1/connect pnpm --filter @dsh-remote/mock-host dev
 ```
 
 Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块。
@@ -92,9 +94,9 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 
 截至 2026-08-15：
 
-- `pnpm check` 通过
-- `pnpm test` 通过：27 个测试文件、56 个测试
-- `pnpm build` 通过，包括 Android Hermes bundle
+- workspace check 与 DSH bundle 校验通过
+- workspace test 通过：27 个测试文件、56 个测试
+- workspace build 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 
 已知构建警告：Metro 对 `@noble/hashes/crypto.js` 使用 package exports fallback。该问题记录在 `TODO.md`，不得静默删除说明。

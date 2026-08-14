@@ -19,13 +19,13 @@ The app does not run in Expo Go because WebRTC includes native code. Use a devel
 
 ```bash
 pnpm install
-pnpm dev:android
+pnpm --filter @dsh-remote/android start
 ```
 
 To generate and install the native Android development build:
 
 ```bash
-pnpm android
+pnpm --filter @dsh-remote/android android
 ```
 
 Android Emulator reaches a server on the development machine at `http://10.0.2.2:8080`. Cleartext HTTP is accepted only for `localhost`, `127.0.0.1`, and `10.0.2.2` by the client; production servers must use HTTPS/WSS.

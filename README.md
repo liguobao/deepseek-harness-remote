@@ -148,8 +148,8 @@ Android Client 支持 Server 注册、Token 轮换、设备配对、Host fingerp
 `react-native-webrtc` 包含原生代码，因此不能运行在 Expo Go 中，需要 development build：
 
 ```bash
-pnpm android
-pnpm dev:android
+pnpm --filter @dsh-remote/android android
+pnpm --filter @dsh-remote/android start
 ```
 
 Android Emulator 访问开发机 Server 时使用 `http://10.0.2.2:8080`；生产环境必须使用 HTTPS/WSS。操作流程：
