@@ -12533,7 +12533,7 @@ var HostServerApi = class {
           role: this.role,
           platform: platform(),
           identityKey: identity.publicKey,
-          clientVersion: "0.2.4",
+          clientVersion: "0.2.5",
           harnessVersion: "0.1.0-rc.6"
         }
       })
@@ -13931,8 +13931,10 @@ function shortId3(value) {
 
 // src/index.ts
 var name = "dsh-remote";
-var inject = ["apiProxy"];
-async function apply(ctx, input = {}) {
+function apply(ctx, input = {}) {
+  ctx.inject(["settings", "apiProxy", "connection"], (runtimeContext) => activate(runtimeContext, input));
+}
+async function activate(ctx, input) {
   const settings = ctx.get("settings");
   const settingsScope = settings?.register(settingsNamespace("dsh-remote"), Config, {
     base: input,
@@ -14017,7 +14019,6 @@ export {
   ServerCredentialsInvalidError,
   apply,
   fingerprint,
-  inject,
   name,
   resolveConfig,
   serverStorageDirectory

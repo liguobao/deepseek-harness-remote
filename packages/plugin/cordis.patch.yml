@@ -1,7 +1,6 @@
 - insert:
     - id: dsh-remote
       name: '@dsh-remote/plugin'
-      inject: [settings, apiProxy, connection]
       config:
         enabled: true
         role: host

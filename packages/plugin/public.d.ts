@@ -15,6 +15,5 @@ export interface Config {
 }
 
 export declare const name: 'dsh-remote'
-export declare const inject: string[]
 export declare const Config: unknown
-export declare function apply(ctx: Context, config?: Config): Promise<void>
+export declare function apply(ctx: Context, config?: Config): void

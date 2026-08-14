@@ -24,9 +24,10 @@ Remote Host. Native Harness calls and mux/host streams are tunneled through an e
 credentials, settings writes, arbitrary directory operations, native open
 actions, attachments, and downloads remain local/disabled.
 
-```ts
-export const inject = ['apiProxy']
-```
+The bundle entry activates without blocking Harness startup. Its remote runtime
+starts in an isolated Cordis dependency scope after `settings`, `apiProxy`, and
+`connection` are available; profiles without those Web services keep running
+with remote functionality inactive.
 
 Identity state is stored under
 `$DSH_HOME/remote/servers/<origin-hash>/{host,client}`. The private key is

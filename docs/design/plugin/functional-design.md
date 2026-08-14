@@ -53,16 +53,20 @@ replay buffer 或自定义 pending approval 状态机。
 
 ```ts
 export const name = 'dsh-remote'
-export const inject = ['apiProxy']
+
+export function apply(ctx, config) {
+  ctx.inject(['settings', 'apiProxy', 'connection'], runtimeCtx => activate(runtimeCtx, config))
+}
 ```
 
 `apply(ctx, config)`：
 
-1. 校验配置并按规范化 Server origin 选择隔离的身份目录。
-2. 读取必需的 Host `apiProxy`，创建 allowlist bridge。
-3. 创建 Host runtime；按角色选择是否创建 Desktop Client runtime。
-4. 在 `ctx.effect()` 中启动出站 Server 连接，退出时关闭原生流、secure channel 和控制连接。
-5. 通过可选的 `settings` 与 `connection` 服务提供插件设置和 loopback 控制面。
+1. 顶层 Bundle entry 立即完成激活，不把远端插件依赖变成 Harness 主服务的启动条件。
+2. 在隔离的依赖 scope 中等待 `settings`、`apiProxy` 和 `connection`；缺失时仅停用远端功能。
+3. 校验配置并按规范化 Server origin 选择隔离的身份目录。
+4. 读取 Host `apiProxy`，创建 allowlist bridge。
+5. 创建 Host runtime；按角色选择是否创建 Desktop Client runtime。
+6. 在 `ctx.effect()` 中启动出站 Server 连接，退出时关闭原生流、secure channel 和控制连接。
 
 Plugin 不订阅 `session/created`、`session/event`、`agent/status` 或
 `approval/request`。这些语义由 ApiProxy 的 mux/host stream 和 `respond()` 原样承担。

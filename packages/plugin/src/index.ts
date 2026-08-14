@@ -18,10 +18,13 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export const name = 'dsh-remote'
-export const inject = ['apiProxy']
 export { Config }
 
-export async function apply(ctx: Context, input: ConfigInput = {}): Promise<void> {
+export function apply(ctx: Context, input: ConfigInput = {}): void {
+  ctx.inject(['settings', 'apiProxy', 'connection'], runtimeContext => activate(runtimeContext, input))
+}
+
+async function activate(ctx: Context, input: ConfigInput): Promise<void> {
   const settings = ctx.get('settings')
   const settingsScope: SettingsScope<ConfigInput> | undefined = settings?.register(settingsNamespace('dsh-remote'), Config, {
     base: input,

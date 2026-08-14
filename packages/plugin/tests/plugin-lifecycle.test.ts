@@ -14,23 +14,56 @@ afterEach(async () => {
 })
 
 describe('Cordis plugin lifecycle', () => {
+  it('does not block Harness startup while runtime services are unavailable', async () => {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis pending host' })
+
+    expect(fiber.state).toBe(2)
+    expect(fiber.inject).toEqual({})
+    expect(ctx.get('dshRemote')).toBeUndefined()
+
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('loads against ApiProxy and disposes its runtime', async () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-remote-cordis-'))
     directories.push(dshHome)
     vi.stubEnv('DSH_HOME', dshHome)
 
     const ctx = new Context()
+    ctx.provide('settings', settings({ deviceName: 'Cordis test host' }))
     ctx.provide('apiProxy', apiProxy())
+    ctx.provide('connection', connection())
     const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis test host' })
 
-    expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis test host' })
-    expect(ctx.dshRemote.diagnostics()).toMatchObject({ loaded: true, pendingPairings: 0 })
+    await vi.waitFor(() => {
+      expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis test host' })
+      expect(ctx.dshRemote.diagnostics()).toMatchObject({ loaded: true, pendingPairings: 0 })
+    })
 
     await fiber.dispose()
     expect(ctx.get('dshRemote')).toBeUndefined()
     await ctx.fiber.dispose()
   })
 })
+
+function settings(value: Record<string, unknown>) {
+  return {
+    register: () => ({
+      get: () => value,
+      replace: vi.fn(async () => undefined),
+    }),
+  } as never
+}
+
+function connection() {
+  return {
+    rpc: {
+      handle: vi.fn(() => async () => undefined),
+    },
+  } as never
+}
 
 function apiProxy(): ApiProxy {
   const empty = {}
