@@ -1,131 +1,164 @@
 # DSH Remote
 
-DSH Remote 是 DeepSeek Harness 的安全远程控制端。Harness 与工作区始终运行在 Host 机器上，已配对的客户端只通过受限协议查看设备和会话、继续对话、接收流式事件，以及处理权限请求；它不是远程桌面、Web Shell 或通用文件管理器。
+DSH Remote 是 DeepSeek Harness 的安全远程控制方案。Harness、代码仓库和执行环境始终留在 Host 机器上，已配对的客户端通过受限协议查看会话、继续对话、接收 Agent 流式输出，并处理 Harness 权限请求。
 
-> 当前状态：早期开发阶段。Host Plugin 核心和 Android MVP 已有可构建实现；Desktop 和完整 WebRTC/Noise 链路尚未完成。运行端到端流程需要一个符合 [Server 设计](docs/server.md) 与 [Remote Protocol v1](docs/protocol.md) 的外部 Server。
+它不是远程桌面、Web Shell、SSH 替代品或通用文件管理器。客户端不能绕过 Harness 调用任意 Shell、文件系统或工具接口。
 
-## 仓库边界
+> DSH Remote 当前是开发预览版本，需要符合 [Server 设计](docs/server.md) 和 [Remote Protocol v1](docs/protocol.md) 的外部 Server。完整 Noise IK 和生产级跨端互操作仍在完善中，请勿用于生产环境。
 
-本仓库负责：
+## 特性
 
-- DeepSeek Harness Host Plugin
-- Android 客户端，以及后续 Desktop 客户端
-- `protocol`、`crypto`、`webrtc`、`client-core` 等共享包
-- 面向 Plugin/Client 联调的 Mock Host 工具
-- Server 产品设计、功能设计与线协议文档
+- **Host 保持本地**：Harness 会话、Workspace、提示词和工具输出不迁移到 Server。
+- **设备配对**：使用一次性 8 位设备码，Client claim 后必须由 Host 本机确认。
+- **设备身份**：Host 和 Client 使用持久 X25519 身份密钥，配对时校验公钥 fingerprint。
+- **会话控制**：查看、创建和打开 Harness 会话，发送后续指令并停止生成。
+- **实时事件**：接收消息增量、工具调用、Agent 状态和权限请求。
+- **权限不扩权**：远端只能为当前 Harness request 选择 `Allow once` 或 `Deny`，默认 fail closed。
+- **加密 Relay**：Server 负责协调和转发，不应读取 Remote RPC、Event 或会话业务明文。
+- **连接恢复**：客户端处理网络变化和应用前后台切换，并为事件回放与完整同步保留协议能力。
+- **自部署契约**：Server、Remote Web 和 Admin 由独立 Server 项目作为同一站点实现。
 
-本仓库**不实现 Server、Remote Web 或 Admin**，也不包含 Server 数据库、迁移、Docker 镜像或部署代码。三者由另一个 Server 仓库作为同一站点实现和交付。本仓库中的 Server 文档是跨仓库契约，不代表这里需要增加相关源码。
-
-## 当前进度
-
-| 模块 | 状态 | 当前能力与主要缺口 |
-| --- | --- | --- |
-| Host Plugin | 核心已实现 | Harness adapter、Host 身份、可信设备、权限 fail-closed、RPC 路由、事件序列与回放已实现；真实 Server 连接器和 Noise IK 纵向联调待完成 |
-| Android | MVP 已实现 | Server 配置、配对、设备/会话、聊天流、停止生成、权限处理、基础重连和 Relay 加密已实现；需要开发构建和外部 Server，尚未完成生产级 E2E |
-| Protocol | 基础实现 | 已有 envelope、RPC/Event 名称和部分 Zod schema；需要与规范文档逐项收敛并补齐 conformance vectors |
-| Crypto | 基础原语 | 已有 X25519、HKDF-SHA256、ChaCha20-Poly1305；完整 `Noise_IK_25519_ChaChaPoly_SHA256` 握手与密钥生命周期尚未完成 |
-| WebRTC | 骨架 | 已有 Relay/LAN/WebRTC transport 抽象；信令、ICE、TURN 和自动 fallback 尚未形成完整状态机 |
-| Client Core | 基础实现 | 已有 RPC 请求关联、事件分发、超时与关闭处理；重连、`sync.from`、能力协商与全量恢复待完成 |
-| Mock Host | 可用于联调 | 可通过外部 Server 完成配对、会话/流式事件和权限交互演示；不是 Server 替代品 |
-| Desktop Client | 未开始 | 尚无应用目录 |
-| Server / Remote Web / Admin | 仅文档 | 必须在独立 Server 仓库中作为一个站点实现 |
-
-完整工作清单见 [TODO.md](TODO.md)。
-
-## 目录
+## 工作方式
 
 ```text
-apps/
-  android/             Android Remote Client
-packages/
-  plugin/              DeepSeek Harness Host Plugin
-  protocol/            协议类型、名称与运行时校验
-  crypto/              端到端加密基础原语
-  webrtc/              Relay / WebRTC / LAN transport 抽象
-  client-core/         客户端 RPC 与事件核心
-examples/
-  mock-host/           依赖外部 Server 的联调 Host
-docs/
-  server.md            独立 Server 仓库的设计输入
-  protocol.md          Host / Server / Client 权威线协议
+DeepSeek Harness
+      |
+Host Plugin
+      |
+authenticated encrypted channel
+      |
+external DSH Remote Server
+      |
+Android / future Desktop Client
 ```
 
-## 环境要求
+Plugin 只建立出站连接，不在 Host 上公开监听 HTTP/WebSocket 端口。Server 负责设备注册、配对协调、在线状态、WebRTC signaling 和加密 Relay，但不能获得 Harness Remote authority；Server membership 与 Host 本地 trusted peer 必须同时成立。
 
-- Node.js 22
-- pnpm 9.15.4（以根 `package.json` 为准）
-- Android 开发需要 Android Studio、Android SDK 和可用的 JDK
-- Plugin 集成需要兼容 `0.1.0-rc.6` 系列的 DeepSeek Harness 包
-- 联调需要符合协议文档的外部 DSH Remote Server
+## Host Plugin
 
-## 开发
+`@dsh-remote/plugin` 是 DeepSeek Harness 的 Cordis Plugin，注入现有的 session、agent 和 approval 服务：
 
-安装依赖并验证整个 workspace：
+```ts
+export const inject = ['sessions', 'agents', 'approval']
+```
+
+它提供：
+
+- Harness session、agent、workspace 和 approval adapter
+- Host 身份与 trusted peer 持久化
+- Remote RPC 路由和 capability 限制
+- Host 级事件序列与断线回放窗口
+- 权限超时、断线和异常时的 fail-closed 处理
+- 已认证连接的接入与撤销接口
+
+### 构建
+
+当前 Plugin 通过源码 workspace 使用：
 
 ```bash
 pnpm install
-pnpm check
-pnpm test
-pnpm build
+pnpm --filter @dsh-remote/plugin build
 ```
 
-### Android
+构建产物位于 `packages/plugin/dist`。将该 package 交给 DeepSeek Harness 的 Cordis profile/patch loader 加载；Plugin 导出标准的 `name`、`Config` 和 `apply(ctx, config)`。
 
-Android 使用 `react-native-webrtc` 原生模块，因此不能运行在 Expo Go 中，必须使用 development build：
+当前 package 实现 Host runtime 核心，但不会自行创建公开端口。真实 Server connector/Noise provider 应在完成认证后，通过 `ctx.dshRemote.acceptAuthenticatedPeer(channel)` 接入业务通道。
+
+### 配置
+
+Plugin 可通过 Cordis 配置对象加载：
+
+```ts
+{
+  enabled: true,
+  serverUrl: 'https://remote.example.com',
+  deviceName: 'Workstation',
+  forceRelay: false,
+  logLevel: 'info',
+  approvalTimeoutMs: 120000,
+  reconnect: {
+    initialDelayMs: 1000,
+    maxDelayMs: 30000,
+    jitter: 0.2
+  }
+}
+```
+
+也可以使用环境变量设置 Server：
+
+```bash
+export DSH_REMOTE_SERVER=https://remote.example.com
+```
+
+生产 Server 必须使用 HTTPS/WSS；只有 `localhost`、`127.0.0.1` 和 `::1` 允许开发期 HTTP。
+
+### 配置项
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `enabled` | `true` | 是否启用 Plugin |
+| `serverUrl` | `DSH_REMOTE_SERVER` | 外部 Remote Server 地址 |
+| `deviceName` | Hostname | Host 显示名称 |
+| `forceRelay` | `false` | 强制 Relay，用于联调和诊断 |
+| `logLevel` | `info` | `debug`、`info`、`warn` 或 `error` |
+| `approvalTimeoutMs` | `120000` | Remote approval 等待时间 |
+| `reconnect` | 开启 | 指数退避、最大延迟和 jitter |
+
+### 身份与数据
+
+Plugin 将身份保存在 `$DSH_HOME/remote`，未设置 `DSH_HOME` 时使用 `~/.dsh/remote`：
+
+- `device.json`：设备 ID、名称、公钥和 schema 版本
+- `device.key`：Host 私钥，权限必须为 `0600`
+- `trusted-peers.json`：Host 已确认的 Remote Client
+
+私钥损坏、公私钥不匹配或权限过宽时，Plugin 会拒绝继续使用该身份，而不是静默重建并继承旧信任。
+
+更完整的集成说明见 [Plugin README](packages/plugin/README.md)、[产品设计](docs/design/plugin/product-design.md) 和 [功能设计](docs/design/plugin/functional-design.md)。
+
+## Android Client
+
+Android Client 支持 Server 注册、Token 轮换、设备配对、Host fingerprint 校验、设备和会话浏览、流式聊天、停止生成及权限处理。
+
+`react-native-webrtc` 包含原生代码，因此不能运行在 Expo Go 中，需要 development build：
 
 ```bash
 pnpm android
 pnpm dev:android
 ```
 
-Android Emulator 访问开发机服务时使用 `http://10.0.2.2:8080`。客户端只允许 `localhost`、`127.0.0.1` 和 `10.0.2.2` 使用明文 HTTP；生产环境必须使用 HTTPS/WSS。更多说明见 [Android README](apps/android/README.md)。
+Android Emulator 访问开发机 Server 时使用 `http://10.0.2.2:8080`；生产环境必须使用 HTTPS/WSS。操作流程：
 
-### Host Plugin
+1. 输入外部 DSH Remote Server 地址。
+2. 在 Host Plugin 侧创建一次性配对码。
+3. 在 Android Client 输入配对码并核对 Host fingerprint。
+4. 在 Host 本机确认 Client 名称和 fingerprint。
+5. 打开 Host、Workspace 和 Harness session。
 
-```bash
-pnpm --filter @dsh-remote/plugin build
-# 或监听源码变化
-pnpm dev:plugin
-```
+更多说明见 [Android README](apps/android/README.md)。
 
-Plugin 支持通过配置项 `serverUrl` 或环境变量 `DSH_REMOTE_SERVER` 指定 Server。当前包已经暴露 Harness adapter 与 Remote runtime service，但仍需接入符合协议的已认证连接 provider 才能形成真实远程链路。更多说明见 [Plugin README](packages/plugin/README.md)。
+## Server
 
-### Mock Host
+Server、Remote Web 和 Admin 不在本仓库实现。独立 Server 项目必须把三者作为一个站点交付，并严格遵守：
 
-Mock Host 用于在没有真实 Harness 的情况下验证客户端流程，但仍依赖外部 Server：
-
-```bash
-DSH_REMOTE_SERVER=ws://127.0.0.1:8080/ws/v1/connect pnpm dev:mock-host
-```
-
-它会创建配对流程并模拟设备、会话、消息流和权限请求。不要把它作为生产 Host 或 Server 使用。
-
-## 文档入口
-
-- [产品定义](PRODUCT.md)
-- [视觉与交互设计](DESIGN.md)
-- [设计文档索引](docs/design/README.md)
-- [Plugin 产品设计](docs/design/plugin/product-design.md)
-- [Plugin 功能设计](docs/design/plugin/functional-design.md)
-- [共享基础能力设计](docs/design/shared-foundation.md)
 - [Server 设计说明](docs/server.md)
 - [Remote Protocol v1](docs/protocol.md)
-- [原始需求背景（当前仓库边界以本文为准）](vibe-coding.md)
 
-要把 Server 工作交给独立项目，至少复制 `docs/server.md` 和 `docs/protocol.md`；建议同时带上 `PRODUCT.md`、`docs/design/shared-foundation.md` 和 `vibe-coding.md` 作为产品背景与验收参考。
+向 Server 项目交接时，至少复制以上两份文档；[产品定义](PRODUCT.md) 和 [共享基础设计](docs/design/shared-foundation.md) 可作为补充背景。
 
-## 安全状态
+## 安全边界
 
-- Plugin 的私钥默认保存在 `$DSH_HOME/remote` 或 `~/.dsh/remote`，权限异常时拒绝继续使用。
-- Remote 权限处理保持 Harness 为最终授权方；远端只提交 `Allow once` 或 `Deny` 决策。
-- 客户端不提供任意 Shell、文件系统或通用工具 RPC。
-- 当前加密包提供构建块，Android Relay 也有计数器防重放，但完整 Noise IK 握手和跨端 conformance 尚未完成，因此当前版本不应作为生产级安全远程访问方案部署。
+- Host 私钥和 Client 私钥只能保存在各自设备本地。
+- Server credential 不能代替 Host trusted peer，也不能直接调用 Harness RPC。
+- Relay payload 必须经过端到端认证加密；TLS/WSS 不是唯一安全边界。
+- 设备撤销后，Token、membership 和现有连接都必须失效。
+- 日志不得记录 Token、私钥、配对码、完整 prompt、源码或工具输出。
+- 当前实现仍在完成标准 Noise IK 握手与跨端 conformance，不应被视为生产级安全发布。
 
-## 验证基线
+## 文档
 
-截至 2026-08-15：
-
-- `pnpm check`：通过
-- `pnpm test`：通过，共 19 个测试文件、37 个测试
-- `pnpm build`：通过，包括 Android Hermes bundle 导出
-- Android 构建存在 `@noble/hashes/crypto.js` export fallback 警告，已记录在 TODO 中
+- [产品定义](PRODUCT.md)
+- [设计系统](DESIGN.md)
+- [设计文档索引](docs/design/README.md)
+- [项目协作与实现状态](AGENTS.md)
+- [工作清单](TODO.md)
