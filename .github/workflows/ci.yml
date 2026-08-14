@@ -44,7 +44,7 @@ jobs:
         run: pnpm check
 
       - name: Verify committed GitHub plugin bundle
-        run: git diff --exit-code -- packages/plugin/dist/index.js packages/plugin/dist/client.github.js
+        run: git diff --exit-code -- index.js packages/plugin/dist/index.js packages/plugin/dist/client.github.js
 
       - name: Run tests
         run: pnpm test

@@ -9,10 +9,11 @@ const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml', 'root package must declare a DSH bundle patch')
 assert.equal(manifest.dsh?.client?.platform, 'web', 'root package must declare its browser client face')
-assert.equal(manifest.main, './packages/plugin/dist/index.js', 'root package must expose the bundled Host entry')
+assert.equal(manifest.main, './index.js', 'root package must expose a prebuilt Host entry at package root')
 assert.equal(manifest.exports?.['./client'], './packages/plugin/dist/client.github.js', 'root package must export the GitHub-root browser client entry')
 
 for (const file of [
+  'index.js',
   'cordis.patch.yml',
   'packages/plugin/dist/index.js',
   'packages/plugin/dist/client.github.js',
@@ -23,6 +24,9 @@ for (const file of [
 
 const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
 assert.match(patch, new RegExp(`name:\\s*['\"]?${manifest.name.replaceAll('-', '\\-')}['\"]?`), 'root patch must load the installed root package')
+
+const rootHostEntry = readFileSync(join(root, 'index.js'), 'utf8')
+assert.match(rootHostEntry, /packages\/plugin\/dist\/index\.js/, 'root Host entry must forward to the committed bundle')
 
 const hostBundle = readFileSync(join(root, 'packages/plugin/dist/index.js'), 'utf8')
 assert.doesNotMatch(hostBundle, /(?:from\s+|require\()['\"]@dsh-remote\//, 'Host bundle must not import unpublished workspace packages')

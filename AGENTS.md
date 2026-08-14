@@ -42,7 +42,7 @@ docs/
 
 仓库根包同时是 DSH Desktop 的 GitHub 安装边界：根 `package.json` 必须保留
 `dsh.bundle.patch`、Host/Client exports 和 `cordis.patch.yml`；GitHub 默认禁用
-构建脚本，所以 `packages/plugin/dist/index.js` 与 `client.github.js` 是需要提交的发布入口。
+构建脚本，所以根 `index.js`、`packages/plugin/dist/index.js` 与 `client.github.js` 是需要提交的发布入口。
 
 空的 Web/UI 预留目录不应创建。Expo 生成的 `.expo/web` cache、`.webp` 图片格式和 `packages/webrtc` 不属于 Remote Web 项目。
 
@@ -109,7 +109,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 6. 不提供 Shell、PTY、任意文件读写、远程桌面或通用 Harness tool RPC。
 7. Token、私钥、配对码、prompt、源码和工具输出不得写日志。
 8. 优先复用现有 adapter、transport 和 protocol helper，不在 App 内复制另一套 wire format。
-9. 不修改用户已有变更，不提交 `node_modules`、Expo cache、Android build 产物或个人 Agent 配置；唯一允许提交的 `dist` 是根 DSH GitHub Bundle 所需的 `packages/plugin/dist/index.js` 与 `client.github.js`。
+9. 不修改用户已有变更，不提交 `node_modules`、Expo cache、Android build 产物或个人 Agent 配置；唯一允许提交的 `dist` 是根 DSH GitHub Bundle 所需的 `packages/plugin/dist/index.js` 与 `client.github.js`，另需保留根 Host 入口 `index.js`。
 
 ## Test Policy
 

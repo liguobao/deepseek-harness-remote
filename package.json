@@ -5,18 +5,19 @@
   "license": "MIT",
   "private": true,
   "type": "module",
-  "main": "./packages/plugin/dist/index.js",
+  "main": "./index.js",
   "types": "./packages/plugin/public.d.ts",
   "exports": {
     ".": {
       "types": "./packages/plugin/public.d.ts",
-      "import": "./packages/plugin/dist/index.js"
+      "import": "./index.js"
     },
     "./client": "./packages/plugin/dist/client.github.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
+    "index.js",
     "packages/plugin/dist/index.js",
     "packages/plugin/dist/client.github.js",
     "packages/plugin/public.d.ts",

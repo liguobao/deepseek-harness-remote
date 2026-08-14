@@ -72,7 +72,7 @@ DSH Desktop 从 GitHub 安装时读取仓库根包，因此仓库根 `package.js
 github:liguobao/deepseek-harness-remote#<tag-or-commit>
 ```
 
-安装成功后条目应显示为 DSH 插件并自动启用；重启 Harness 后生效。GitHub 安装不需要执行构建脚本，因为仓库会提交 `packages/plugin/dist/index.js` 与 `packages/plugin/dist/client.github.js` 两个发布入口。后者使用与根包一致的浏览器模块 ID；`packages/plugin` 仍是用于 npm 发布和 CI artifact 的 `@dsh-remote/plugin` 子包。
+安装成功后条目应显示为 DSH 插件并自动启用；重启 Harness 后生效。GitHub 安装不需要执行构建脚本，因为仓库会提交根 Host 入口 `index.js`、`packages/plugin/dist/index.js` 与 `packages/plugin/dist/client.github.js` 三个发布入口。浏览器入口使用与根包一致的模块 ID；`packages/plugin` 仍是用于 npm 发布和 CI artifact 的 `@dsh-remote/plugin` 子包。
 
 Plugin 不创建公开端口；它会主动连接配置的 Server，完成设备注册、Token 轮换、WSS 控制面、Relay 与 Noise IK。只有通过 Server membership、本机 trusted peer 和 Noise static identity 三重校验的通道才会进入 Harness RPC。
 

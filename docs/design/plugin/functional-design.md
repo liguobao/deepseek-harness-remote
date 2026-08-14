@@ -66,8 +66,8 @@ packages/plugin/src/
 
 构建同时生成两个浏览器入口：npm 子包的 `dist/client.js` 注册
 `@dsh-remote/plugin`，GitHub 根包提交的 `dist/client.github.js` 注册
-`deepseek-harness-remote`。根包还提交 `dist/index.js`，所以 Desktop 默认
-禁用 GitHub build scripts 时仍可直接识别并加载；CI 必须验证这两个提交产物与源码构建一致。
+`deepseek-harness-remote`。根包还提交 `index.js` 和底层 `dist/index.js`，所以 Desktop 默认
+禁用 GitHub build scripts 时仍可直接识别并加载；CI 必须验证这些提交产物与源码构建一致。
 
 Host adapter 方向固定为：`Harness -> adapters -> protocol handlers`。原生 UI 方向固定为：`official apiProxy -> stable switch -> encrypted allowlist bridge -> remote apiProxy`。任何一条路径都不得退化成通用 Cordis/Harness 反射。
 
