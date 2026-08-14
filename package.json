@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Local/remote mode DSH plugin for DeepSeek Harness",
   "license": "MIT",
   "private": true,

@@ -166,6 +166,8 @@ Plugin 不替换 Cordis `apiProxy` service identity，而是一次性安装稳�
 `settings.pairing.status`。配置 UI 只展示 Host/Client 单开关、Server，以及按角色切换
 的账号密码或一次性授权码。授权成功或 Client claim 成功后才写入 `dsh-remote`
 settings namespace；密码、web account token 和授权码均不得进入 settings 文档。
+浏览器入口把该表单注册到官方 `settings.plugin.item` slot，使其作为 DSH Remote
+插件卡片出现在“插件配置”列表内；不得再注册独立的 `settings.plugins.tab`。
 
 写入采用临时文件 + 原子 rename；启动时校验 schema、权限和公私钥匹配。损坏密钥不得静默重建并继续信任旧 membership，应进入 `IDENTITY_INVALID` 并要求用户显式修复。
 

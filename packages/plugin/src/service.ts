@@ -234,7 +234,7 @@ export class HostPluginRuntime {
       hostname: hostname(),
       os: platform(),
       harnessVersion: 'unknown',
-      pluginVersion: '0.2.2',
+      pluginVersion: '0.2.3',
       protocol: 1,
       capabilities: HOST_CAPABILITIES.filter(capability => capability !== 'harness.api.v1' || this.harnessApiAvailable),
       connectionMode: this.connections.connectionMode(),

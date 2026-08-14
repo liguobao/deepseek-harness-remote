@@ -29,8 +29,8 @@ github:liguobao/deepseek-harness-remote#<tag-or-commit>
 ```
 
 安装完成后的插件名称是 `dsh-remote`。重启 Harness 后，打开
-**设置 → 插件 → DSH Remote** 完成接入：角色由一个 Host/Client 开关选择，设备名
-自动读取本机名称，不需要手工填写。
+**设置 → 插件 → 插件配置**，直接展开 **DSH Remote** 插件选项完成接入：角色由一个
+Host/Client 开关选择，设备名自动读取本机名称，不需要手工填写。
 
 然后：
 

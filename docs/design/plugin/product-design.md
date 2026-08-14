@@ -17,7 +17,7 @@ Remote Plugin 同时承担两个角色：在远端机器上作为可信 Host，�
 用户期望：
 
 - 一次安装后即可随 Harness 启动。
-- 在 Harness 的设置 → 插件中完成角色、Server 和授权配置。
+- 在 Harness 的设置 → 插件 → 插件配置中，直接展开本插件选项完成角色、Server 和授权配置。
 - 能登录所选 Server 的站点账号，并清楚区分账号授权与后台设备连接状态。
 - 不配置端口转发，不暴露本机公网端口。
 - 能明确看到配对码、当前连接和远端设备。
@@ -30,7 +30,8 @@ Remote Plugin 同时承担两个角色：在远端机器上作为可信 Host，�
 
 ### 3.1 启用 Remote
 
-用户安装插件后进入设置 → 插件 → DSH Remote，以 Host/Client 开关选择角色。设备名
+用户安装插件后进入设置 → 插件 → 插件配置，展开 DSH Remote 插件选项，以
+Host/Client 开关选择角色。设备名
 直接读取本机 hostname。Host 填写 Server 与站点账号密码；Client 填写 Server 与
 一次性授权码。保存成功后配置写入 DSH settings，并在重启后加载。
 Plugin 使用临时 web account token 授权注册本机 Host，再保存独立 device credential
@@ -71,7 +72,7 @@ Host 提供清晰日志和 doctor 信息：插件是否加载、身份是否有�
 - Relay 安全通道；P2P/TURN 通过统一传输接口后续启用。
 - 不包含敏感正文的本地日志。
 - DSH bundle/client metadata、侧边栏目标入口和可逆 `apiProxy` switch。
-- DSH Settings 插件配置入口、Host/Client 开关与授权后保存流程。
+- `settings.plugin.item` 内的 DSH Remote 插件选项、Host/Client 开关与授权后保存流程。
 - 原生 Harness API allowlist、mux/host 流转发和断线回落 Local。
 
 ## 5. 非目标

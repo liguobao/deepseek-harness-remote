@@ -52,7 +52,7 @@ export class RemoteServerApi {
           role: 'client',
           platform: identity.platform,
           identityKey: identity.publicKey,
-          clientVersion: '0.2.2',
+          clientVersion: '0.2.3',
         },
       }),
     }, false)

@@ -93,9 +93,10 @@ window.__ModuleLoader__.load({
     }
     const inject = ['connection', 'slots']
 
-    function RemoteSettingsTab(props: {
+    function RemotePluginOptions(props: {
       control: <T>(endpoint: string, payload?: unknown) => Promise<T>
     }): unknown {
+      const [open, setOpen] = React.useState(false)
       const [serverUrl, setServerUrl] = React.useState('')
       const [role, setRole] = React.useState<'host' | 'client'>('host')
       const [deviceName, setDeviceName] = React.useState('')
@@ -107,6 +108,7 @@ window.__ModuleLoader__.load({
       const [writable, setWritable] = React.useState(false)
       const [busy, setBusy] = React.useState(false)
       const [saved, setSaved] = React.useState(false)
+      const [dirty, setDirty] = React.useState(false)
       const [error, setError] = React.useState<string | undefined>(undefined)
 
       const load = async (): Promise<void> => {
@@ -116,6 +118,7 @@ window.__ModuleLoader__.load({
         setDeviceName(view.deviceName)
         setPending(view.pendingPairing)
         setWritable(view.writable)
+        setDirty(false)
         setLoaded(true)
       }
 
@@ -137,6 +140,7 @@ window.__ModuleLoader__.load({
           })
           setPending(result.settings.pendingPairing)
           setSaved(result.status === 'authorized')
+          setDirty(false)
           setAuthorizationCode('')
           setPassword('')
         } catch (reason) {
@@ -162,15 +166,26 @@ window.__ModuleLoader__.load({
         return () => window.clearInterval(timer)
       }, [pending?.pairingId])
 
-      const exitSettings = (): void => {
-        if (window.history.length > 1) window.history.back()
-        else window.location.assign('/')
-      }
+      const exitOptions = (): void => { setOpen(false) }
 
-      if (!loaded) return React.createElement('p', { className: 'dshRemoteSettingsState' }, error ?? 'Loading DSH Remote settings…')
-      return React.createElement('form', { className: 'dshRemoteSettings', onSubmit: (event: Event) => void save(event) },
-        React.createElement('div', { className: 'dshRemoteSettingsIntro' },
+      return React.createElement('li', { className: `dshRemotePluginCard${open ? ' isOpen' : ''}` },
+        React.createElement('button', {
+          type: 'button',
+          className: 'dshRemotePluginCardHeader',
+          'aria-expanded': open,
+          onClick: () => setOpen(current => !current),
+        },
+        React.createElement('span', { className: 'dshRemotePluginCardHeading' },
           React.createElement('strong', null, 'DSH Remote'),
+          React.createElement('span', null, 'Remote Host and Client connection')),
+        dirty ? React.createElement('span', { className: 'dshRemotePluginCardStatus' }, 'Unsaved') : null,
+        pending === undefined ? null : React.createElement('span', { className: 'dshRemotePluginCardStatus' }, 'Pairing…'),
+        React.createElement('span', { className: 'dshRemotePluginCardChevron', 'aria-hidden': true }, '⌄')),
+        !open ? null : React.createElement('div', { className: 'dshRemotePluginCardBody' },
+          !loaded
+            ? React.createElement('p', { className: 'dshRemoteSettingsState' }, error ?? 'Loading DSH Remote settings…')
+            : React.createElement('form', { className: 'dshRemoteSettings', onSubmit: (event: Event) => void save(event) },
+        React.createElement('div', { className: 'dshRemoteSettingsIntro' },
           React.createElement('p', null, `Device: ${deviceName}. Choose a role and authorize it with the Server.`)),
         React.createElement('label', null,
           React.createElement('span', null, 'Server URL'),
@@ -180,7 +195,7 @@ window.__ModuleLoader__.load({
             disabled: busy || !writable,
             required: true,
             placeholder: 'https://dsh.r2049.cn',
-            onChange: (event: Event) => { setServerUrl((event.target as HTMLInputElement).value); setSaved(false) },
+            onChange: (event: Event) => { setServerUrl((event.target as HTMLInputElement).value); setSaved(false); setDirty(true) },
           })),
         React.createElement('div', { className: 'dshRemoteRoleField' },
           React.createElement('span', null, 'Role'),
@@ -190,7 +205,7 @@ window.__ModuleLoader__.load({
             role: 'switch',
             'aria-checked': role === 'client',
             disabled: busy || !writable,
-            onClick: () => { setRole(current => current === 'host' ? 'client' : 'host'); setSaved(false); setError(undefined) },
+            onClick: () => { setRole(current => current === 'host' ? 'client' : 'host'); setSaved(false); setDirty(true); setError(undefined) },
           },
           React.createElement('span', { className: role === 'host' ? 'isActive' : '' }, 'Host'),
           React.createElement('span', { className: role === 'client' ? 'isActive' : '' }, 'Client'))),
@@ -203,7 +218,7 @@ window.__ModuleLoader__.load({
               required: pending === undefined,
               autoComplete: 'one-time-code',
               placeholder: 'Enter the code shown on the Host',
-              onChange: (event: Event) => { setAuthorizationCode((event.target as HTMLInputElement).value); setSaved(false) },
+              onChange: (event: Event) => { setAuthorizationCode((event.target as HTMLInputElement).value); setSaved(false); setDirty(true) },
             }))
           : React.createElement(React.Fragment, null,
             React.createElement('label', null,
@@ -214,7 +229,7 @@ window.__ModuleLoader__.load({
                 disabled: busy || !writable,
                 required: true,
                 autoComplete: 'username',
-                onChange: (event: Event) => { setEmail((event.target as HTMLInputElement).value); setSaved(false) },
+                onChange: (event: Event) => { setEmail((event.target as HTMLInputElement).value); setSaved(false); setDirty(true) },
               })),
             React.createElement('label', null,
               React.createElement('span', null, 'Password'),
@@ -224,16 +239,16 @@ window.__ModuleLoader__.load({
                 disabled: busy || !writable,
                 required: true,
                 autoComplete: 'current-password',
-                onChange: (event: Event) => { setPassword((event.target as HTMLInputElement).value); setSaved(false) },
+                onChange: (event: Event) => { setPassword((event.target as HTMLInputElement).value); setSaved(false); setDirty(true) },
               }))),
         pending === undefined ? null : React.createElement('p', { className: 'dshRemotePending' },
           `Waiting for ${pending.host.name} to approve. Verify fingerprint: ${pending.host.fingerprint}`),
         React.createElement('div', { className: 'dshRemoteSettingsActions' },
           React.createElement('button', { type: 'submit', disabled: busy || !writable || pending !== undefined }, busy ? 'Authorizing…' : 'Save'),
-          React.createElement('button', { type: 'button', disabled: busy || pending !== undefined, onClick: exitSettings }, 'Exit'),
+          React.createElement('button', { type: 'button', disabled: busy || pending !== undefined, onClick: exitOptions }, 'Exit'),
           saved ? React.createElement('span', null, 'Saved. Restart Harness to apply.') : null),
         !writable ? React.createElement('p', { className: 'dshRemoteError' }, 'This DSH profile does not provide writable user settings.') : null,
-        error === undefined ? null : React.createElement('p', { className: 'dshRemoteError', role: 'alert' }, error))
+        error === undefined ? null : React.createElement('p', { className: 'dshRemoteError', role: 'alert' }, error))))
     }
 
     function RemoteModeAction(props: {
@@ -492,7 +507,10 @@ window.__ModuleLoader__.load({
         '.dshRemoteLogin{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dshRemoteLogin button{grid-column:1/-1}',
         '.dshRemoteHostPairing{display:grid;gap:8px;border-top:1px solid var(--dsw-alias-border-l3);padding-top:12px}.dshRemoteClaim{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;font-size:13px}',
         '.dshRemoteFingerprint{margin:0;font-size:13px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
-        '.dshRemoteSettings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-width:720px}',
+        '.dshRemotePluginCard{list-style:none;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;overflow:hidden;background:var(--dsw-alias-bg-primary)}',
+        '.dshRemotePluginCard.isOpen{border-color:var(--dsw-alias-border-l1)}.dshRemotePluginCardHeader{width:100%;border:0!important;border-radius:0!important;display:flex;align-items:center;gap:12px;padding:14px 16px!important;background:transparent!important;text-align:left;color:var(--dsw-alias-label-primary)!important}.dshRemotePluginCardHeader:not(:disabled){cursor:pointer}',
+        '.dshRemotePluginCardHeading{display:grid;gap:3px;min-width:0;flex:1}.dshRemotePluginCardHeading>span{color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemotePluginCardStatus{font-size:12px;color:var(--dsw-alias-label-secondary)}.dshRemotePluginCardChevron{font-size:18px;transition:transform .16s ease}.dshRemotePluginCard.isOpen .dshRemotePluginCardChevron{transform:rotate(180deg)}',
+        '.dshRemotePluginCardBody{border-top:1px solid var(--dsw-alias-border-l3);padding:16px}.dshRemoteSettings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-width:720px}',
         '.dshRemoteSettingsIntro,.dshRemoteSettingsActions,.dshRemoteSettingsWide,.dshRemotePending,.dshRemoteSettings>.dshRemoteError{grid-column:1/-1}.dshRemoteSettingsIntro p,.dshRemoteSettingsState{margin:5px 0 0;color:var(--dsw-alias-label-secondary);line-height:1.5}',
         '.dshRemoteSettings label,.dshRemoteRoleField{display:grid;gap:6px;color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemoteSettings label>span:first-child,.dshRemoteRoleField>span:first-child{font-weight:600;color:var(--dsw-alias-label-primary)}',
         '.dshRemoteSettings input,.dshRemoteSettings select,.dshRemoteSettings button{min-height:38px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 10px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit}',
@@ -524,13 +542,12 @@ window.__ModuleLoader__.load({
         order: -20,
         inject: () => ({ control }),
       }, RemoteModeAction))
-      ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
-        name: 'settings.plugins.tab',
+      ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
+        name: 'settings.plugin.item',
         id: 'dsh-remote',
-        order: 40,
-        label: 'DSH Remote',
+        order: 30,
         inject: () => ({ control }),
-      }, RemoteSettingsTab))
+      }, RemotePluginOptions))
     }
 
     function messageOf(reason: unknown): string { return reason instanceof Error ? reason.message : String(reason) }

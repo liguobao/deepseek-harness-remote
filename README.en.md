@@ -29,8 +29,9 @@ github:liguobao/deepseek-harness-remote#<tag-or-commit>
 ```
 
 The installed plugin name is `dsh-remote`. Restart Harness, then open
-**Settings → Plugins → DSH Remote**. A single Host/Client switch selects the
-role, and the device name is read directly from the machine hostname.
+**Settings → Plugins → Plugin configuration** and expand the **DSH Remote**
+plugin options. A single Host/Client switch selects the role, and the device
+name is read directly from the machine hostname.
 
 Then:
 

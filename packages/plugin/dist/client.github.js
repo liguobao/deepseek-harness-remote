@@ -6,10 +6,10 @@
     id: clientModuleId,
     factory: (require2) => {
       let module = { exports: {} }, React = require2("react"), inject = ["connection", "slots"];
-      function RemoteSettingsTab(props) {
-        let [serverUrl, setServerUrl] = React.useState(""), [role, setRole] = React.useState("host"), [deviceName, setDeviceName] = React.useState(""), [authorizationCode, setAuthorizationCode] = React.useState(""), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [pending, setPending] = React.useState(void 0), [loaded, setLoaded] = React.useState(!1), [writable, setWritable] = React.useState(!1), [busy, setBusy] = React.useState(!1), [saved, setSaved] = React.useState(!1), [error, setError] = React.useState(void 0), load = async () => {
+      function RemotePluginOptions(props) {
+        let [open, setOpen] = React.useState(!1), [serverUrl, setServerUrl] = React.useState(""), [role, setRole] = React.useState("host"), [deviceName, setDeviceName] = React.useState(""), [authorizationCode, setAuthorizationCode] = React.useState(""), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [pending, setPending] = React.useState(void 0), [loaded, setLoaded] = React.useState(!1), [writable, setWritable] = React.useState(!1), [busy, setBusy] = React.useState(!1), [saved, setSaved] = React.useState(!1), [dirty, setDirty] = React.useState(!1), [error, setError] = React.useState(void 0), load = async () => {
           let view = await props.control("settings.get");
-          setServerUrl(view.config.serverUrl ?? "https://dsh.r2049.cn"), setRole(view.config.role === "client" ? "client" : "host"), setDeviceName(view.deviceName), setPending(view.pendingPairing), setWritable(view.writable), setLoaded(!0);
+          setServerUrl(view.config.serverUrl ?? "https://dsh.r2049.cn"), setRole(view.config.role === "client" ? "client" : "host"), setDeviceName(view.deviceName), setPending(view.pendingPairing), setWritable(view.writable), setDirty(!1), setLoaded(!0);
         };
         React.useEffect(() => {
           load().catch((reason) => setError(messageOf(reason)));
@@ -23,7 +23,7 @@
                 role,
                 ...role === "client" ? { authorizationCode } : { email, password }
               });
-              setPending(result.settings.pendingPairing), setSaved(result.status === "authorized"), setAuthorizationCode(""), setPassword("");
+              setPending(result.settings.pendingPairing), setSaved(result.status === "authorized"), setDirty(!1), setAuthorizationCode(""), setPassword("");
             } catch (reason) {
               setError(messageOf(reason));
             } finally {
@@ -42,116 +42,141 @@
           let timer = window.setInterval(poll, 1200);
           return () => window.clearInterval(timer);
         }, [pending?.pairingId]);
-        let exitSettings = () => {
-          window.history.length > 1 ? window.history.back() : window.location.assign("/");
+        let exitOptions = () => {
+          setOpen(!1);
         };
-        return loaded ? React.createElement(
-          "form",
-          { className: "dshRemoteSettings", onSubmit: (event) => void save(event) },
+        return React.createElement(
+          "li",
+          { className: `dshRemotePluginCard${open ? " isOpen" : ""}` },
           React.createElement(
-            "div",
-            { className: "dshRemoteSettingsIntro" },
-            React.createElement("strong", null, "DSH Remote"),
-            React.createElement("p", null, `Device: ${deviceName}. Choose a role and authorize it with the Server.`)
-          ),
-          React.createElement(
-            "label",
-            null,
-            React.createElement("span", null, "Server URL"),
-            React.createElement("input", {
-              type: "url",
-              value: serverUrl,
-              disabled: busy || !writable,
-              required: !0,
-              placeholder: "https://dsh.r2049.cn",
-              onChange: (event) => {
-                setServerUrl(event.target.value), setSaved(!1);
-              }
-            })
-          ),
-          React.createElement(
-            "div",
-            { className: "dshRemoteRoleField" },
-            React.createElement("span", null, "Role"),
+            "button",
+            {
+              type: "button",
+              className: "dshRemotePluginCardHeader",
+              "aria-expanded": open,
+              onClick: () => setOpen((current) => !current)
+            },
             React.createElement(
-              "button",
-              {
-                type: "button",
-                className: "dshRemoteRoleSwitch",
-                role: "switch",
-                "aria-checked": role === "client",
-                disabled: busy || !writable,
-                onClick: () => {
-                  setRole((current) => current === "host" ? "client" : "host"), setSaved(!1), setError(void 0);
-                }
-              },
-              React.createElement("span", { className: role === "host" ? "isActive" : "" }, "Host"),
-              React.createElement("span", { className: role === "client" ? "isActive" : "" }, "Client")
-            )
-          ),
-          role === "client" ? React.createElement(
-            "label",
-            { className: "dshRemoteSettingsWide" },
-            React.createElement("span", null, "Authorization code"),
-            React.createElement("input", {
-              value: authorizationCode,
-              disabled: busy || !writable || pending !== void 0,
-              required: pending === void 0,
-              autoComplete: "one-time-code",
-              placeholder: "Enter the code shown on the Host",
-              onChange: (event) => {
-                setAuthorizationCode(event.target.value), setSaved(!1);
-              }
-            })
-          ) : React.createElement(
-            React.Fragment,
-            null,
-            React.createElement(
-              "label",
-              null,
-              React.createElement("span", null, "Account"),
-              React.createElement("input", {
-                type: "email",
-                value: email,
-                disabled: busy || !writable,
-                required: !0,
-                autoComplete: "username",
-                onChange: (event) => {
-                  setEmail(event.target.value), setSaved(!1);
-                }
-              })
+              "span",
+              { className: "dshRemotePluginCardHeading" },
+              React.createElement("strong", null, "DSH Remote"),
+              React.createElement("span", null, "Remote Host and Client connection")
             ),
-            React.createElement(
-              "label",
-              null,
-              React.createElement("span", null, "Password"),
-              React.createElement("input", {
-                type: "password",
-                value: password,
-                disabled: busy || !writable,
-                required: !0,
-                autoComplete: "current-password",
-                onChange: (event) => {
-                  setPassword(event.target.value), setSaved(!1);
-                }
-              })
-            )
+            dirty ? React.createElement("span", { className: "dshRemotePluginCardStatus" }, "Unsaved") : null,
+            pending === void 0 ? null : React.createElement("span", { className: "dshRemotePluginCardStatus" }, "Pairing\u2026"),
+            React.createElement("span", { className: "dshRemotePluginCardChevron", "aria-hidden": !0 }, "\u2304")
           ),
-          pending === void 0 ? null : React.createElement(
-            "p",
-            { className: "dshRemotePending" },
-            `Waiting for ${pending.host.name} to approve. Verify fingerprint: ${pending.host.fingerprint}`
-          ),
-          React.createElement(
+          open ? React.createElement(
             "div",
-            { className: "dshRemoteSettingsActions" },
-            React.createElement("button", { type: "submit", disabled: busy || !writable || pending !== void 0 }, busy ? "Authorizing\u2026" : "Save"),
-            React.createElement("button", { type: "button", disabled: busy || pending !== void 0, onClick: exitSettings }, "Exit"),
-            saved ? React.createElement("span", null, "Saved. Restart Harness to apply.") : null
-          ),
-          writable ? null : React.createElement("p", { className: "dshRemoteError" }, "This DSH profile does not provide writable user settings."),
-          error === void 0 ? null : React.createElement("p", { className: "dshRemoteError", role: "alert" }, error)
-        ) : React.createElement("p", { className: "dshRemoteSettingsState" }, error ?? "Loading DSH Remote settings\u2026");
+            { className: "dshRemotePluginCardBody" },
+            loaded ? React.createElement(
+              "form",
+              { className: "dshRemoteSettings", onSubmit: (event) => void save(event) },
+              React.createElement(
+                "div",
+                { className: "dshRemoteSettingsIntro" },
+                React.createElement("p", null, `Device: ${deviceName}. Choose a role and authorize it with the Server.`)
+              ),
+              React.createElement(
+                "label",
+                null,
+                React.createElement("span", null, "Server URL"),
+                React.createElement("input", {
+                  type: "url",
+                  value: serverUrl,
+                  disabled: busy || !writable,
+                  required: !0,
+                  placeholder: "https://dsh.r2049.cn",
+                  onChange: (event) => {
+                    setServerUrl(event.target.value), setSaved(!1), setDirty(!0);
+                  }
+                })
+              ),
+              React.createElement(
+                "div",
+                { className: "dshRemoteRoleField" },
+                React.createElement("span", null, "Role"),
+                React.createElement(
+                  "button",
+                  {
+                    type: "button",
+                    className: "dshRemoteRoleSwitch",
+                    role: "switch",
+                    "aria-checked": role === "client",
+                    disabled: busy || !writable,
+                    onClick: () => {
+                      setRole((current) => current === "host" ? "client" : "host"), setSaved(!1), setDirty(!0), setError(void 0);
+                    }
+                  },
+                  React.createElement("span", { className: role === "host" ? "isActive" : "" }, "Host"),
+                  React.createElement("span", { className: role === "client" ? "isActive" : "" }, "Client")
+                )
+              ),
+              role === "client" ? React.createElement(
+                "label",
+                { className: "dshRemoteSettingsWide" },
+                React.createElement("span", null, "Authorization code"),
+                React.createElement("input", {
+                  value: authorizationCode,
+                  disabled: busy || !writable || pending !== void 0,
+                  required: pending === void 0,
+                  autoComplete: "one-time-code",
+                  placeholder: "Enter the code shown on the Host",
+                  onChange: (event) => {
+                    setAuthorizationCode(event.target.value), setSaved(!1), setDirty(!0);
+                  }
+                })
+              ) : React.createElement(
+                React.Fragment,
+                null,
+                React.createElement(
+                  "label",
+                  null,
+                  React.createElement("span", null, "Account"),
+                  React.createElement("input", {
+                    type: "email",
+                    value: email,
+                    disabled: busy || !writable,
+                    required: !0,
+                    autoComplete: "username",
+                    onChange: (event) => {
+                      setEmail(event.target.value), setSaved(!1), setDirty(!0);
+                    }
+                  })
+                ),
+                React.createElement(
+                  "label",
+                  null,
+                  React.createElement("span", null, "Password"),
+                  React.createElement("input", {
+                    type: "password",
+                    value: password,
+                    disabled: busy || !writable,
+                    required: !0,
+                    autoComplete: "current-password",
+                    onChange: (event) => {
+                      setPassword(event.target.value), setSaved(!1), setDirty(!0);
+                    }
+                  })
+                )
+              ),
+              pending === void 0 ? null : React.createElement(
+                "p",
+                { className: "dshRemotePending" },
+                `Waiting for ${pending.host.name} to approve. Verify fingerprint: ${pending.host.fingerprint}`
+              ),
+              React.createElement(
+                "div",
+                { className: "dshRemoteSettingsActions" },
+                React.createElement("button", { type: "submit", disabled: busy || !writable || pending !== void 0 }, busy ? "Authorizing\u2026" : "Save"),
+                React.createElement("button", { type: "button", disabled: busy || pending !== void 0, onClick: exitOptions }, "Exit"),
+                saved ? React.createElement("span", null, "Saved. Restart Harness to apply.") : null
+              ),
+              writable ? null : React.createElement("p", { className: "dshRemoteError" }, "This DSH profile does not provide writable user settings."),
+              error === void 0 ? null : React.createElement("p", { className: "dshRemoteError", role: "alert" }, error)
+            ) : React.createElement("p", { className: "dshRemoteSettingsState" }, error ?? "Loading DSH Remote settings\u2026")
+          ) : null
+        );
       }
       function RemoteModeAction(props) {
         let [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [code, setCode] = React.useState(""), [pendingPairing, setPendingPairing] = React.useState(void 0), [pendingHost, setPendingHost] = React.useState(void 0), [hostCode, setHostCode] = React.useState(void 0), [hostClaims, setHostClaims] = React.useState([]), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [busy, setBusy] = React.useState(!1), [error, setError] = React.useState(void 0), [supported, setSupported] = React.useState(!0), refresh = async () => {
@@ -364,7 +389,10 @@
           ".dshRemoteLogin{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dshRemoteLogin button{grid-column:1/-1}",
           ".dshRemoteHostPairing{display:grid;gap:8px;border-top:1px solid var(--dsw-alias-border-l3);padding-top:12px}.dshRemoteClaim{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;font-size:13px}",
           ".dshRemoteFingerprint{margin:0;font-size:13px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}",
-          ".dshRemoteSettings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-width:720px}",
+          ".dshRemotePluginCard{list-style:none;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;overflow:hidden;background:var(--dsw-alias-bg-primary)}",
+          ".dshRemotePluginCard.isOpen{border-color:var(--dsw-alias-border-l1)}.dshRemotePluginCardHeader{width:100%;border:0!important;border-radius:0!important;display:flex;align-items:center;gap:12px;padding:14px 16px!important;background:transparent!important;text-align:left;color:var(--dsw-alias-label-primary)!important}.dshRemotePluginCardHeader:not(:disabled){cursor:pointer}",
+          ".dshRemotePluginCardHeading{display:grid;gap:3px;min-width:0;flex:1}.dshRemotePluginCardHeading>span{color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemotePluginCardStatus{font-size:12px;color:var(--dsw-alias-label-secondary)}.dshRemotePluginCardChevron{font-size:18px;transition:transform .16s ease}.dshRemotePluginCard.isOpen .dshRemotePluginCardChevron{transform:rotate(180deg)}",
+          ".dshRemotePluginCardBody{border-top:1px solid var(--dsw-alias-border-l3);padding:16px}.dshRemoteSettings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-width:720px}",
           ".dshRemoteSettingsIntro,.dshRemoteSettingsActions,.dshRemoteSettingsWide,.dshRemotePending,.dshRemoteSettings>.dshRemoteError{grid-column:1/-1}.dshRemoteSettingsIntro p,.dshRemoteSettingsState{margin:5px 0 0;color:var(--dsw-alias-label-secondary);line-height:1.5}",
           ".dshRemoteSettings label,.dshRemoteRoleField{display:grid;gap:6px;color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemoteSettings label>span:first-child,.dshRemoteRoleField>span:first-child{font-weight:600;color:var(--dsw-alias-label-primary)}",
           ".dshRemoteSettings input,.dshRemoteSettings select,.dshRemoteSettings button{min-height:38px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:8px 10px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit}",
@@ -384,13 +412,12 @@
           id: "dsh-remote-mode",
           order: -20,
           inject: () => ({ control })
-        }, RemoteModeAction)), ctx.slots.inject("settings.plugins.tab", () => ctx.slots.register({
-          name: "settings.plugins.tab",
+        }, RemoteModeAction)), ctx.slots.inject("settings.plugin.item", () => ctx.slots.register({
+          name: "settings.plugin.item",
           id: "dsh-remote",
-          order: 40,
-          label: "DSH Remote",
+          order: 30,
           inject: () => ({ control })
-        }, RemoteSettingsTab));
+        }, RemotePluginOptions));
       }
       function messageOf(reason) {
         return reason instanceof Error ? reason.message : String(reason);

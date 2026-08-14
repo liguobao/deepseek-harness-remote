@@ -9,6 +9,10 @@ const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml', 'root package must declare a DSH bundle patch')
 assert.equal(manifest.dsh?.client?.platform, 'web', 'root package must declare its browser client face')
+assert.ok(
+  manifest.dsh?.client?.inject?.includes('@deepseek-ai/dsh-client-ui-settings-plugins'),
+  'root browser client must load after the official plugin settings surface',
+)
 assert.equal(manifest.main, './index.js', 'root package must expose a prebuilt Host entry at package root')
 assert.equal(manifest.exports?.['./client'], './packages/plugin/dist/client.github.js', 'root package must export the GitHub-root browser client entry')
 
@@ -33,6 +37,8 @@ assert.doesNotMatch(hostBundle, /(?:from\s+|require\()['\"]@dsh-remote\//, 'Host
 
 const clientBundle = readFileSync(join(root, 'packages/plugin/dist/client.github.js'), 'utf8')
 assert.match(clientBundle, /window\.__ModuleLoader__\.load/, 'browser client entry must register with the DSH module loader')
+assert.match(clientBundle, /settings\.plugin\.item/, 'browser client must contribute its options inside Plugin configuration')
+assert.doesNotMatch(clientBundle, /settings\.plugins\.tab/, 'browser client must not create a separate plugin settings tab')
 
 let githubClient
 runInNewContext(clientBundle, {
