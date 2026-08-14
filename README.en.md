@@ -2,81 +2,43 @@
 
 [中文](README.md) | English
 
-DSH Remote is a Desktop remote-access solution built on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin system. The native Harness UI can switch between `Local` and a paired `Remote Host`; the Plugin forwards an allowlisted subset of the official `ApiProxy` instead of reimplementing the Harness session protocol.
-
-It is not a remote desktop, Web Shell, SSH replacement, or general-purpose file manager. Clients cannot access arbitrary Shell, filesystem, or Harness tool RPCs.
+DSH Remote is a dual-role Desktop Plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It lets a local Harness securely connect to Harness on another machine through the official `ApiProxy`.
 
 > [!WARNING]
-> This project is in developer preview and requires an external Server compatible with [Remote Protocol v1](docs/protocol.md). Cross-platform Noise IK conformance, an independent security review, and complete production interoperability are not finished. Do not use it in production.
-
-## Features
-
-- Switch between local and remote Hosts in the native Harness session UI
-- Pair with a one-time device code and confirm the client fingerprint on the Host
-- View, create, and control remote sessions through the official Harness UI and native mux/host streams
-- Preserve native Harness `ApiProxy` approval and question request/response semantics
-- Authenticate and encrypt business messages with Noise IK while the Server handles accounts, pairing, presence, and Relay
-- Use the dual-role Desktop Plugin in Host or local Client mode
-
-The Host only makes outbound connections and does not listen on a public port. Harness sessions, workspaces, prompts, and tool output remain on the Host. Both Server membership and a local trusted peer are required.
+> This project is in developer preview. It requires an external Server compatible with [Remote Protocol v1](docs/protocol.md), and production interoperability and an independent security review are not complete. Do not use it in production.
 
 ## Install and use
 
-In DSH Desktop, open **Extensions → Manage plugins…** and install a pinned tag or commit:
+In DSH Desktop, open **Extensions → Manage plugins…** and install a pinned version:
 
 ```text
 github:liguobao/deepseek-harness-remote#<tag-or-commit>
 ```
 
-The installed plugin name is `dsh-remote`. Restart Harness, then open
-**Settings → Plugins → Plugin configuration** and expand the **DSH Remote**
-plugin options. A single Host/Client switch selects the role, and the device
-name is read directly from the machine hostname.
+Restart Harness, then open **Settings → Plugins → Plugin configuration → DSH Remote**:
 
-Then:
-
-1. On the remote machine, choose **Host**, enter the Server and site account credentials, then select **Save**. The password is used only for this HTTPS authorization and is never stored.
+1. On the remote machine, select **Host**, enter the Server and site account credentials, and save. The password is used only for this HTTPS authorization and is not stored.
 2. Restart the remote Harness and create a one-time authorization code in the sidebar.
-3. On the local machine, choose **Client**, enter the same Server and authorization code, then select **Save**.
-4. Verify and approve the Client fingerprint on the Host. After the local setup reports success, select **Exit** and restart Harness.
-5. Select the paired Remote Host in the local sidebar. Select `This machine (Local)` to switch back.
+3. On the local machine, select **Client**, enter the same Server and authorization code, and save.
+4. Verify and approve the Client fingerprint on the Host. Restart the local Harness after pairing succeeds.
+5. Select the Remote Host in the local sidebar. Select `This machine (Local)` to switch back.
 
-Configuration is stored in the `dsh-remote` namespace in `$DSH_HOME/settings.yaml`
-and takes effect after Harness restarts.
+Configuration is stored in the `dsh-remote` namespace of `$DSH_HOME/settings.yaml` and takes effect after restart. If the settings service is unavailable, use `DSH_REMOTE_SERVER` to override the default Server. Production deployments must use HTTPS/WSS.
 
-If the settings service is unavailable, override the default Server with an environment variable:
+## Security boundaries
 
-```bash
-export DSH_REMOTE_SERVER=https://your-server.example.com
-```
+- The Host makes outbound connections only and does not listen on a public port.
+- Noise IK authenticates and encrypts business messages; the Server handles only accounts, pairing, presence, and Relay.
+- The Client can access only explicitly allowed `ApiProxy` capabilities. It does not expose Shell, arbitrary files, remote desktop, or general Harness tool RPCs.
+- Both Server membership and a local trusted peer on the Host are required.
 
-Production deployments must use HTTPS/WSS. Server, Remote Web, and Admin are implemented in a separate Server project; see the [Server design](docs/server.md) and [Host Plugin integration guide](docs/plugin-integration.md).
-
-## Android
-
-The Android prototype remains in the repository, but it has not migrated to the
-ApiProxy-only data plane and is not a current supported or compatibility target.
-The current priority is real Desktop Plugin installation and cross-machine E2E.
-
-## Build from source
-
-Node.js 22 and pnpm 9.15.4 are required:
-
-```bash
-pnpm install
-pnpm --filter './packages/**' -r build
-pnpm -r check
-pnpm -r test
-NODE_ENV=production pnpm -r build
-```
+The frozen Android prototype is not compatible with the current ApiProxy-only data plane.
 
 ## Documentation
 
 - [Plugin guide](packages/plugin/README.md)
-- [Remote Protocol v1](docs/protocol.md)
-- [Design documents](docs/design/README.md)
-- [Development tasks](TODO.md)
-- [Contribution and repository guide](AGENTS.md)
+- [Protocol](docs/protocol.md) · [Server design](docs/server.md) · [Host integration](docs/plugin-integration.md)
+- [Design documents](docs/design/README.md) · [Development tasks](TODO.md) · [Contribution guide](AGENTS.md)
 
 ## License
 
