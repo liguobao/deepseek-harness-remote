@@ -138,6 +138,15 @@ Android Emulator 访问开发机 Server 时使用 `http://10.0.2.2:8080`；生�
 
 更多说明见 [Android README](apps/android/README.md)。
 
+## CI 构建产物
+
+GitHub Actions 的 `CI` 工作流会在 `main` 分支提交、Pull Request 和手动触发时执行完整的类型检查、核心测试与构建，并在检查通过后提供两个保留 14 天的 artifact：
+
+- `dsh-remote-plugin-<commit>`：包含符合 npm 包格式的 Plugin `.tgz`。
+- `dsh-remote-android-<commit>`：包含已打包 JS bundle 的 Android release APK，支持 `armeabi-v7a` 和 `arm64-v8a`。
+
+CI APK 使用构建时临时生成的 debug key 签名，只适合开发预览和联调。正式分发必须在独立发布流程中使用受保护的生产签名凭据重新构建。
+
 ## Server
 
 Server、Remote Web 和 Admin 不在本仓库实现。独立 Server 项目必须把三者作为一个站点交付，并严格遵守：

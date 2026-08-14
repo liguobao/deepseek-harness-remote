@@ -87,7 +87,7 @@
 
 ## P2：工程与发布
 
-- [ ] 增加 CI：install、check、核心测试和 build
+- [x] 增加 CI：install、check、核心测试、build、Plugin npm 包和 Android APK artifact
 - [ ] 修复 Android Metro 对 `@noble/hashes/crypto.js` 的 package exports fallback 警告
 - [ ] 建立 Protocol 版本发布、兼容矩阵和变更记录
 - [ ] 明确根仓库 License、包发布策略和版本号策略
