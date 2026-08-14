@@ -76,7 +76,7 @@
 
 以下任务用于约束独立 Server 项目，不在本仓库添加 Server 源码：
 
-- [ ] 将 `docs/server.md` 与 `docs/protocol.md` 作为独立 Server 仓库的实现基线
+- [ ] 持续双向同步本仓库与独立 Server 仓库的 `server.md`、`protocol.md` 和 Host Plugin 接入契约
 - [ ] 冻结 v1 REST、Control WebSocket、Relay 和 Signaling 合约
 - [ ] 共享 conformance fixtures，并在两边 CI 中验证同一组协议向量
 - [ ] 验证 Server 无法解密 Remote RPC、Event、消息内容和权限详情

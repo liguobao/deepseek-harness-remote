@@ -17,7 +17,7 @@ DSH Remote 是 DeepSeek Harness 的安全远程控制方案。安装同一个 Pl
 - **权限不扩权**：远端只能为当前 Harness request 选择 `Allow once` 或 `Deny`，默认 fail closed。
 - **加密 Relay**：Server 负责协调和转发，不应读取 Remote RPC、Event 或会话业务明文。
 - **连接恢复**：客户端处理网络变化和应用前后台切换，并为事件回放与完整同步保留协议能力。
-- **Host 账号归属**：Host 注册必须由目标 Server 的站点账号授权，账号认证与后台 device credential 相互隔离。
+- **Host 账号归属（最新契约）**：Host 注册必须由目标 Server 的站点账号授权，账号认证与后台 device credential 相互隔离。
 - **自部署契约**：Server、Remote Web 和 Admin 由独立 Server 项目作为同一站点实现。
 
 ## 工作方式

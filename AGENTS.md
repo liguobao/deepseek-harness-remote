@@ -61,7 +61,7 @@ docs/
 | Client Core | RPC/Event 基础实现 | reconnect、`sync.from`、full resync、idempotency |
 | Mock Host | Protocol v1 联调实现 | 依赖独立 Server 做真实 smoke |
 | Desktop | 已复用 Harness Web UI 接入 Plugin Client face | 原生窗口安装与跨机 E2E |
-| Server/Remote Web/Admin | 仅文档 | 只能在独立 Server 仓库实现 |
+| Server/Remote Web/Admin | 本仓库仅保留文档；独立 Server 仓库已有实现 | runtime 变更只在独立 Server 仓库完成，并同步跨仓库契约 |
 
 完整任务和优先级以 `TODO.md` 为准。不得把 TODO 中的目标能力描述成已经完成。
 

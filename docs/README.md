@@ -17,7 +17,7 @@
 - Server migration、Server test、Server Docker image 或 Server deployment 目录
 - Admin 后端或 Server 托管的 React 站点
 
-Server、Remote Web 和 Admin 将由独立 Server 项目作为同一站点实现。本仓库保留 Server 设计和协议，是因为 Plugin Host、Plugin Client 模式与 Android 必须基于同一份外部服务契约开发。
+Server、Remote Web 和 Admin 由独立 Server 项目作为同一站点实现。本仓库保留 Server 设计和协议，是因为 Plugin Host、Plugin Client 模式与 Android 必须基于同一份外部服务契约开发。
 
 ## 权威文档
 

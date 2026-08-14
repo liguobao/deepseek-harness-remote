@@ -2,11 +2,11 @@
 
 状态：Draft v0.1
 日期：2026-08-15
-实现状态：**仅设计，不在当前仓库实现**
+实现状态：**当前仓库只保留设计与互操作契约；runtime 位于独立 Server 仓库**
 
 ## 0. 仓库边界（规范性）
 
-本文必须保留，用于约束 Plugin、Client 与未来独立 Server 项目的互操作行为；但它不授权在当前仓库实现 Server。
+本文必须保留，用于约束 Plugin、Client 与独立 Server 项目的互操作行为；但它不授权在当前仓库实现 Server。
 
 当前仓库禁止新增 Server 源码、FastAPI runtime、数据库模型/迁移、Server tests、Admin 后端、Server Docker image 和部署目录。Server 应在独立仓库或独立交付物中实现，并以本文和 [protocol.md](protocol.md) 为契约。
 
