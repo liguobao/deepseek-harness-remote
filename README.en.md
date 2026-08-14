@@ -2,7 +2,7 @@
 
 [中文](README.md) | English
 
-DSH Remote is a secure remote-control solution for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Install the same plugin on two machines to expose one as a Host and switch the native Harness UI between `Local` and a paired `Remote Host`. An Android client is also included.
+DSH Remote is a multi-device remote access solution built on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin system. Desktop and Android clients can securely connect to and operate a remote Harness, while the native desktop UI can switch between `Local` and a paired `Remote Host`.
 
 It is not a remote desktop, Web Shell, SSH replacement, or general-purpose file manager. Clients cannot access arbitrary Shell, filesystem, or Harness tool RPCs.
 

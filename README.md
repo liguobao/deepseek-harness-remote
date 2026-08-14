@@ -2,7 +2,7 @@
 
 中文 | [English](README.en.md)
 
-DSH Remote 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的安全远程控制方案。安装同一个 Plugin 后，你可以让远端机器作为 Host 上线，在本地 Harness 的原生界面中切换 `Local` 与已配对的 `Remote Host`；也可以通过 Android Client 访问 Host。
+DSH Remote 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件机制的多端远程访问方案，让桌面端与 Android 端安全连接并操作远程 Harness。本地 Harness 还可以在原生界面中切换 `Local` 与已配对的 `Remote Host`。
 
 它不是远程桌面、Web Shell、SSH 替代品或通用文件管理器，也不会向客户端开放任意 Shell、文件系统或 Harness tool RPC。
 
