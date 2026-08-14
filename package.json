@@ -1,0 +1,23 @@
+{
+  "name": "deepseek-harness-remote",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "build": "pnpm -r build",
+    "check": "pnpm -r check",
+    "test": "pnpm -r test",
+    "dev:android": "pnpm --filter @dsh-remote/android start",
+    "android": "pnpm --filter @dsh-remote/android android",
+    "dev:web": "pnpm --filter @dsh-remote/web dev",
+    "dev:mock-host": "tsx examples/mock-host/index.ts",
+    "dev:plugin": "pnpm --filter @dsh-remote/plugin build --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

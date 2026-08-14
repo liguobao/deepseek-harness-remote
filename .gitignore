@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.turbo/
+.vite/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.db
+*.sqlite
+*.sqlite3
+.env
+.DS_Store
