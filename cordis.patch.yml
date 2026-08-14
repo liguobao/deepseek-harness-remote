@@ -1,0 +1,11 @@
+# GitHub installs resolve this repository's root package. Keep this patch at
+# the root and point it at the root package name so DSH Desktop can recognize
+# and load the repository directly as a bundle.
+- insert:
+    - id: dsh-remote
+      name: deepseek-harness-remote
+      inject: [sessions, agents, approval, apiProxy, connection]
+      config:
+        enabled: true
+        role: both
+        serverUrl: https://dsh.r2049.cn

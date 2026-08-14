@@ -10,6 +10,7 @@ import { AgentAdapterError, type AgentAdapter } from './adapters/agent-adapter.j
 import { SessionAdapterError, type SessionAdapter } from './adapters/session-adapter.js'
 import { FullResyncRequiredError, type EventSequencer } from './event-sequencer.js'
 import type { PendingApprovals } from './pending-approvals.js'
+import type { HarnessApiBridge } from './harness-api-bridge.js'
 
 const emptySchema = z.object({}).strict()
 const wireRequestSchema = z.object({ method: z.string().min(1), params: z.unknown() }).strict()
@@ -36,6 +37,10 @@ const paramsSchemas = {
   }).strict(),
   'connection.ping': z.object({ sentAt: z.number().int().nonnegative() }).strict(),
   'sync.from': z.object({ afterSeq: z.number().int().nonnegative(), limit: z.number().int().min(1).max(1_000).optional() }).strict(),
+  'harness.api.call': z.unknown(),
+  'harness.api.respond': z.unknown(),
+  'harness.api.stream.open': z.unknown(),
+  'harness.api.stream.close': z.unknown(),
 } satisfies Record<RpcMethod, z.ZodTypeAny>
 
 export const HOST_CAPABILITIES = [
@@ -50,6 +55,7 @@ export const HOST_CAPABILITIES = [
   'session.streaming',
   'permission.allow-once',
   'permission.deny',
+  'harness.api.v1',
 ] as const
 
 type SystemInfo = Record<string, unknown>
@@ -64,8 +70,11 @@ export class RpcRouter {
     private readonly pending: PendingApprovals,
     private readonly events: EventSequencer,
     private readonly systemInfo: () => SystemInfo,
+    private readonly harnessApi?: HarnessApiBridge,
     private readonly maxPending = 128,
   ) {}
+
+  closePeerStreams(): Promise<void> { return this.harnessApi?.closeAll() ?? Promise.resolve() }
 
   async handle(message: RemoteMessage): Promise<RemoteMessage> {
     if (message.type !== 'rpc.request') {
@@ -128,8 +137,17 @@ export class RpcRouter {
         const value = params as { afterSeq: number; limit?: number }
         return this.events.replay(value.afterSeq, value.limit ?? 1_000)
       }
+      case 'harness.api.call': return this.requireHarnessApi().call(params)
+      case 'harness.api.respond': return this.requireHarnessApi().respond(params)
+      case 'harness.api.stream.open': return this.requireHarnessApi().openStream(params)
+      case 'harness.api.stream.close': return this.requireHarnessApi().closeStream(params)
       default: throw new RpcError('METHOD_NOT_FOUND', 'The requested method does not exist.')
     }
+  }
+
+  private requireHarnessApi(): HarnessApiBridge {
+    if (this.harnessApi === undefined) throw new RpcError('METHOD_NOT_ALLOWED', 'The native Harness API bridge is unavailable on this Host.')
+    return this.harnessApi
   }
 
   private cache(id: string, response: RemoteMessage): void {
@@ -154,5 +172,12 @@ function errorResponse(requestId: string, error: unknown): RemoteMessage {
 }
 
 function isSideEffecting(method: RpcMethod): boolean {
-  return method === 'sessions.create' || method === 'session.send' || method === 'session.stop' || method === 'permissions.respond'
+  return method === 'sessions.create'
+    || method === 'session.send'
+    || method === 'session.stop'
+    || method === 'permissions.respond'
+    || method === 'harness.api.call'
+    || method === 'harness.api.respond'
+    || method === 'harness.api.stream.open'
+    || method === 'harness.api.stream.close'
 }

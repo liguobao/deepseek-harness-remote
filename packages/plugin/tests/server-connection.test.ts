@@ -136,6 +136,7 @@ describe('HostServerConnection', () => {
 function config(): ResolvedConfig {
   return {
     enabled: true,
+    role: 'host',
     serverUrl: 'https://dsh.r2049.cn',
     deviceName: 'Host',
     forceRelay: true,

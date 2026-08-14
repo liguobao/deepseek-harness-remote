@@ -4,7 +4,7 @@
 更新时间：2026-08-15
 上游需求：[vibe-coding.md](../../vibe-coding.md)
 
-本目录定义当前仓库内 Plugin、Android/Desktop Client 和共享基础包的产品与功能。
+本目录定义当前仓库内双角色 Plugin、Android Client 和共享基础包的产品与功能。
 
 Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Client 的线协议以 [../protocol.md](../protocol.md) 为准。两份文档必须保留，但 Server 由独立项目实现，不得在当前仓库创建 Server 源码或部署目录。
 
@@ -12,7 +12,7 @@ Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Clie
 
 | 项目 | 交付物 | 产品设计 | 功能设计 |
 | --- | --- | --- | --- |
-| Harness Host Plugin | `packages/plugin` | [plugin/product-design.md](plugin/product-design.md) | [plugin/functional-design.md](plugin/functional-design.md) |
+| Harness Remote Plugin | `packages/plugin` | [plugin/product-design.md](plugin/product-design.md) | [plugin/functional-design.md](plugin/functional-design.md) |
 
 跨项目协议、身份、加密、连接降级和错误语义统一定义在 [shared-foundation.md](shared-foundation.md)。`protocol`、`crypto`、`client-core`、`webrtc` 属于当前仓库的共享基础包。
 
@@ -27,7 +27,7 @@ Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Clie
 
 ## MVP 主路径
 
-1. Host Plugin 启动并向 Server 建立出站连接。
+1. Plugin Host 启动并向 Server 建立出站连接；本地 Plugin Client 也注册独立 Client identity。
 2. Plugin 生成 10 分钟有效的设备码。
 3. 用户在 Android Client 输入设备码，Host 明确确认新设备。
 4. Android Client 连接 Host，读取工作区和会话列表。

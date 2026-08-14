@@ -1,4 +1,4 @@
-# Harness Host Plugin 功能设计
+# Harness Remote Plugin 功能设计
 
 状态：Draft v0.1
 目标项目：`packages/plugin`
@@ -19,6 +19,9 @@
 - 当前 Harness wire-safe approval outcome 只允许 Client 返回 `allowed-once` 或 `rejected`；`cancelled` 和 `unavailable` 是 Host 结果。
 - workspace 服务键为 `ctx.workspaceRegistry`，可通过 `list()`、`get()` 和 session header 的 `cwd` 建立显示关系。
 - dsh-desktop 已验证：独立插件可复制到 `$DSH_HOME/profiles/node_modules`，通过一次性 `--patch` 加载，不修改上游 CLI 和用户 patch。
+- DSH Desktop 的 GitHub installer 读取仓库根 `package.json`；根包必须声明 `dsh.bundle.patch`，根 patch 的插件名和浏览器 `__ModuleLoader__` ID 都必须等于 `deepseek-harness-remote`。
+- Web profile 的 `ctx.apiProxy` 是官方 UI 的 transport-independent Host API；`ctx.connection.rpc` 可提供 loopback-only 插件控制面。
+- WebSocket downlink 持有 `apiProxy` service identity，因此可安装稳定 forwarder，并在新连接上按 Local/Remote 目标选择事件源。
 
 ## 2. 待验证接入点
 
@@ -42,6 +45,12 @@ packages/plugin/src/
   identity-store.ts
   pairing-controller.ts
   connection-controller.ts
+  client-runtime.ts
+  client-secure-transport.ts
+  api-proxy-switch.ts
+  harness-api-bridge.ts
+  remote-api-proxy.ts
+  client.ts
   rpc-router.ts
   event-sequencer.ts
   pending-approvals.ts
@@ -55,7 +64,12 @@ packages/plugin/src/
     doctor.ts
 ```
 
-依赖方向固定为：`Harness -> adapters -> protocol handlers`。RPC router 不导入 Harness 具体类型，adapter 不导入 Remote Web/Server 代码。
+构建同时生成两个浏览器入口：npm 子包的 `dist/client.js` 注册
+`@dsh-remote/plugin`，GitHub 根包提交的 `dist/client.github.js` 注册
+`deepseek-harness-remote`。根包还提交 `dist/index.js`，所以 Desktop 默认
+禁用 GitHub build scripts 时仍可直接识别并加载；CI 必须验证这两个提交产物与源码构建一致。
+
+Host adapter 方向固定为：`Harness -> adapters -> protocol handlers`。原生 UI 方向固定为：`official apiProxy -> stable switch -> encrypted allowlist bridge -> remote apiProxy`。任何一条路径都不得退化成通用 Cordis/Harness 反射。
 
 ## 4. 插件生命周期
 
@@ -80,6 +94,7 @@ export const inject = ['sessions', 'agents', 'approval']
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `enabled` | `true` | 总开关 |
+| `role` | `both` | `host`、`client` 或 `both` |
 | `serverUrl` | 构建时默认值 | 必须允许用户覆盖，不写死生产域名 |
 | `deviceName` | OS 主机名的可编辑副本 | 仅显示，不作为 ID |
 | `forceRelay` | `false` | 联调/故障诊断 |
@@ -98,9 +113,19 @@ trusted-peers.json
 remote.log
 ```
 
+Client 角色使用 `$DSH_HOME/remote/client/` 下的独立 device identity、trusted Host 和 Server credential，避免同一个 Server deviceId 同时注册为 Host 与 Client。
+
+## 7. Local / Remote API switch
+
+Plugin 不替换 Cordis `apiProxy` service identity，而是一次性安装稳定 forwarding domain。Local 模式调用启动时捕获的本机 API；Remote 模式调用 `RemoteHarnessApiProxy`。`settings`、`credentials` 和 `downloads` 始终不切到远端。
+
+切换 Remote 前必须完成 Server membership、本地 pinned Host public key、presence 和 Noise IK 校验，并通过 `system.info` 确认 `harness.api.v1`。切换后浏览器刷新以重建官方 mux/host streams。远端 transport 意外关闭时 switch 立即回落 Local，现有 stream 结束，由官方 Connection 重连取得本机 baseline。
+
+控制面独立注册在 loopback-only `/remote` channel，包含 status、device list、pairing claim/status、Host pairing create/confirm 和 mode.set；这些 endpoint 不经过远端 Host，也不能从 Server 调用。
+
 写入采用临时文件 + 原子 rename；启动时校验 schema、权限和公私钥匹配。损坏密钥不得静默重建并继续信任旧 membership，应进入 `IDENTITY_INVALID` 并要求用户显式修复。
 
-## 7. 连接控制器
+## 8. 连接控制器
 
 状态：
 
@@ -114,7 +139,7 @@ DISABLED -> LOADING_IDENTITY -> CONNECTING -> ONLINE
 
 MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 LAN/P2P/TURN/Relay 降级。
 
-## 8. RPC 路由
+## 9. RPC 路由
 
 所有请求依次经过：
 
@@ -128,7 +153,7 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 
 单连接限制并发 RPC 数，避免远端耗尽 Host 内存。未知方法返回 `METHOD_NOT_FOUND`，不反射内部对象结构。
 
-## 9. Session Adapter
+## 10. Session Adapter
 
 ### `sessions.list`
 
@@ -154,7 +179,7 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 
 调用目标 Agent 的公开取消能力。RPC 只表示取消已接受；最终状态以 `agent.status` 和会话终止事件为准。
 
-## 10. Streaming 映射
+## 11. Streaming 映射
 
 `ctx.on('session/event', (session, event))` 是权威事件源。
 
@@ -171,7 +196,7 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 
 每个 Remote event 由 `EventSequencer` 分配 Host 级单调 `seq`，保留 bounded replay buffer。敏感 content 只进入端到端加密 payload。
 
-## 11. Permission Adapter
+## 12. Permission Adapter
 
 交互请求来自 `ctx.on('approval/request', ...)`，不是从 `approval/asked` 审计事件反推。
 
@@ -188,7 +213,7 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 
 本机 UI 与 Remote answerer 的并存属于实现前 spike。任何方案都必须保证不会出现两个相互矛盾的最终决定，且本机 `never` policy 永远优先拒绝。
 
-## 12. 配对控制器
+## 13. 配对控制器
 
 - 调用 Server 创建 pairing，展示 code/QR 内容。
 - 接收 claim 通知后验证 Client 公钥与 fingerprint。
@@ -196,13 +221,13 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 - 确认成功后原子写入 trusted peer。
 - 拒绝、过期和错误达到上限后清除 pending 状态。
 
-## 13. 日志和指标
+## 14. 日志和指标
 
 允许记录：connectionId、peer deviceId 的截断形式、transport、持续时间、状态迁移、错误码、P2P/Relay 结果。
 
 禁止记录：token、私钥、共享密钥、完整 prompt、源码、工具输出、TURN 密码和 permission 原始敏感参数。
 
-## 14. 核心测试
+## 15. 核心测试
 
 - Mock Harness context 验证 RPC 到 adapter 的路由。
 - `session/event` 到 Remote event 的顺序和投影。
@@ -213,7 +238,7 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 
 doctor 输出、终端排版、普通配置默认值等非核心功能不单独写测试。
 
-## 15. 实现门槛
+## 16. 实现门槛
 
 进入真实插件实现前必须完成：
 

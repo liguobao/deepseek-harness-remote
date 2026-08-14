@@ -6,8 +6,8 @@
 
 当前仓库实现：
 
-- DeepSeek Harness Host Plugin
-- Android Client 和未来 Desktop Client
+- DeepSeek Harness 双角色 Plugin（Remote Host + 本地 Harness Client 模式）
+- Android Client
 - Protocol、Crypto、WebRTC、Client Core 等共享能力
 - 依赖外部 Server 的 Mock Host/Smoke Client
 - Server 设计与跨仓库协议契约
@@ -27,7 +27,7 @@ Server、Remote Web 和 Admin 必须由独立 Server 仓库作为同一站点实
 apps/
   android/             React Native / Expo Android Client
 packages/
-  plugin/              DeepSeek Harness Host Plugin
+  plugin/              双角色 Plugin、原生 API 代理与 Web Client 切换入口
   protocol/            Remote/Control frame 类型和运行时校验
   crypto/              X25519、HKDF、ChaCha20-Poly1305 与 Noise IK
   webrtc/              Relay、WebRTC、LAN transport 抽象
@@ -40,13 +40,18 @@ docs/
   server.md            独立 Server 仓库设计输入
 ```
 
+仓库根包同时是 DSH Desktop 的 GitHub 安装边界：根 `package.json` 必须保留
+`dsh.bundle.patch`、Host/Client exports 和 `cordis.patch.yml`；GitHub 默认禁用
+构建脚本，所以 `packages/plugin/dist/index.js` 与 `client.github.js` 是需要提交的发布入口。
+
 空的 Web/UI 预留目录不应创建。Expo 生成的 `.expo/web` cache、`.webp` 图片格式和 `packages/webrtc` 不属于 Remote Web 项目。
 
 ## Current Status
 
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
-| Host Plugin | Server connector、Pairing、Relay/Noise IK 与核心 runtime 已实现 | 本地确认入口、真实 Harness E2E |
+| Plugin Host | Server connector、Pairing、Relay/Noise IK 与核心 runtime 已实现 | 真实 Harness E2E |
+| Plugin Client Mode | Local/Remote API switch、配对/设备控制、原生 API 白名单代理与 Web 入口已实现 | 真实 dsh-desktop 安装/E2E、断线重连 |
 | Android | Server API、membership reconcile 与 Relay/Noise IK 已实现 | 完整 resync、真机/外部 Server E2E |
 | Protocol | 基础与 Control frame 已实现 | 完整 Zod schema、limits、golden vectors |
 | Crypto | 基础原语与标准 Noise IK 已实现 | 第三方实现审查、rekey、跨端 conformance |
@@ -54,7 +59,7 @@ docs/
 | WebRTC | 基础骨架 | signaling、ICE、TURN、自动 fallback |
 | Client Core | RPC/Event 基础实现 | reconnect、`sync.from`、full resync、idempotency |
 | Mock Host | Protocol v1 联调实现 | 依赖独立 Server 做真实 smoke |
-| Desktop | 未开始 | Android/Plugin 纵向链路稳定后开始 |
+| Desktop | 已复用 Harness Web UI 接入 Plugin Client face | 原生窗口安装与跨机 E2E |
 | Server/Remote Web/Admin | 仅文档 | 只能在独立 Server 仓库实现 |
 
 完整任务和优先级以 `TODO.md` 为准。不得把 TODO 中的目标能力描述成已经完成。
@@ -88,7 +93,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 截至 2026-08-15：
 
 - `pnpm check` 通过
-- `pnpm test` 通过：24 个测试文件、48 个测试
+- `pnpm test` 通过：27 个测试文件、56 个测试
 - `pnpm build` 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 
@@ -104,7 +109,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 6. 不提供 Shell、PTY、任意文件读写、远程桌面或通用 Harness tool RPC。
 7. Token、私钥、配对码、prompt、源码和工具输出不得写日志。
 8. 优先复用现有 adapter、transport 和 protocol helper，不在 App 内复制另一套 wire format。
-9. 不修改用户已有变更，不提交 `node_modules`、`dist`、Expo cache、Android build 产物或个人 Agent 配置。
+9. 不修改用户已有变更，不提交 `node_modules`、Expo cache、Android build 产物或个人 Agent 配置；唯一允许提交的 `dist` 是根 DSH GitHub Bundle 所需的 `packages/plugin/dist/index.js` 与 `client.github.js`。
 
 ## Test Policy
 

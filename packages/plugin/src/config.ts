@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 export interface Config {
   enabled?: boolean
+  role?: 'host' | 'client' | 'both'
   serverUrl?: string
   deviceName?: string
   forceRelay?: boolean
@@ -18,6 +19,7 @@ export interface Config {
 
 export interface ResolvedConfig {
   enabled: boolean
+  role: 'host' | 'client' | 'both'
   serverUrl?: string
   deviceName: string
   forceRelay: boolean
@@ -34,6 +36,7 @@ export interface ResolvedConfig {
 /** Cordis-facing configuration shape; runtime bounds are enforced by resolveConfig. */
 export const Config: s<Config> = s.object({
   enabled: s.boolean(),
+  role: s.union(['host', 'client', 'both'] as const),
   serverUrl: s.string(),
   deviceName: s.string(),
   forceRelay: s.boolean(),
@@ -60,6 +63,7 @@ const reconnectSchema = z.union([
 
 const configSchema = z.object({
   enabled: z.boolean().optional(),
+  role: z.enum(['host', 'client', 'both']).optional(),
   serverUrl: z.string().url().optional(),
   deviceName: z.string().trim().min(1).max(80).optional(),
   forceRelay: z.boolean().optional(),
@@ -80,6 +84,7 @@ export function resolveConfig(input: Config = {}, env: NodeJS.ProcessEnv = proce
   }
   return {
     enabled: parsed.enabled ?? true,
+    role: parsed.role ?? 'both',
     ...(serverUrl === undefined ? {} : { serverUrl }),
     deviceName: parsed.deviceName ?? hostname(),
     forceRelay: parsed.forceRelay ?? false,

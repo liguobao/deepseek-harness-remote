@@ -35,6 +35,7 @@ export class ConnectionController {
       previous.unsubscribe()
       await previous.channel.close('CONNECTION_REPLACED')
       this.pending.failAll('unavailable')
+      await this.router.closePeerStreams?.()
     }
     const connection: ActiveConnection = {
       channel,
@@ -92,6 +93,7 @@ export class ConnectionController {
     this.active = undefined
     connection.unsubscribe()
     this.pending.failAll('unavailable')
+    await this.router.closePeerStreams?.()
     await connection.channel.close(code)
   }
 }

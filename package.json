@@ -1,18 +1,88 @@
 {
   "name": "deepseek-harness-remote",
   "version": "0.1.0",
+  "description": "Local/remote mode DSH plugin for DeepSeek Harness",
+  "license": "MIT",
   "private": true,
   "type": "module",
+  "main": "./packages/plugin/dist/index.js",
+  "types": "./packages/plugin/public.d.ts",
+  "exports": {
+    ".": {
+      "types": "./packages/plugin/public.d.ts",
+      "import": "./packages/plugin/dist/index.js"
+    },
+    "./client": "./packages/plugin/dist/client.github.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "packages/plugin/dist/index.js",
+    "packages/plugin/dist/client.github.js",
+    "packages/plugin/public.d.ts",
+    "packages/plugin/LICENSE",
+    "cordis.patch.yml",
+    "README.md",
+    "package.json"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
+  },
   "packageManager": "pnpm@9.15.4",
   "scripts": {
     "build": "pnpm -r build",
     "build:packages": "pnpm --filter './packages/**' -r build",
-    "check": "pnpm build:packages && pnpm -r check",
+    "check": "pnpm build:packages && pnpm -r check && pnpm check:dsh-plugin",
+    "check:dsh-plugin": "node scripts/verify-dsh-plugin.mjs",
     "test": "pnpm build:packages && pnpm -r test",
     "dev:android": "pnpm --filter @dsh-remote/android start",
     "android": "pnpm --filter @dsh-remote/android android",
     "dev:mock-host": "tsx examples/mock-host/index.ts",
     "dev:plugin": "pnpm --filter @dsh-remote/plugin build --watch"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "zod": "^3.24.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.1 <5",
+    "@deepseek-ai/dsh-agent": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-client-connection": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-sidebar": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-host-apiproxy": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-llm": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-session": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-user-approval": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-workspace": ">=0.1.0-rc.6 <0.2.0",
+    "react": ">=18.2.0 <19"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-sidebar": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-host-apiproxy": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-workspace": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.10.7",

@@ -4,7 +4,7 @@
 
 ## 1. 目的
 
-统一 Host Plugin、Android/Desktop 客户端，以及独立 Server 项目内 Remote Web 的协议、身份、加密、连接、重连与错误语义。任何业务项目不得自行定义另一套消息格式或直接依赖具体传输实现。
+统一双角色 Plugin、Android 客户端，以及独立 Server 项目内 Remote Web 的协议、身份、加密、连接、重连与错误语义。Plugin Client 模式复用 Harness 原生 Web UI；任何业务项目不得自行定义另一套消息格式或直接依赖具体传输实现。
 
 ## 2. 包边界
 
@@ -18,8 +18,8 @@
 ## 3. 端到端边界
 
 ```text
-Harness API
-  -> Plugin Adapter
+Harness API / official apiProxy
+  -> Plugin Adapter or native API allowlist bridge
   -> Remote Protocol
   -> Secure Channel
   -> RemoteTransport
@@ -116,6 +116,10 @@ MVP RPC：
 - `permissions.respond`
 - `connection.ping`
 - `sync.from`
+- `harness.api.call`
+- `harness.api.respond`
+- `harness.api.stream.open`
+- `harness.api.stream.close`
 
 MVP Event：
 
@@ -130,8 +134,10 @@ MVP Event：
 - `permission.resolved`
 - `agent.status`
 - `connection.stats`
+- `harness.api.frame`
+- `harness.api.stream.closed`
 
-明确禁止增加绕过 Harness 的通用 `shell.exec`、`filesystem.read`、`filesystem.write` RPC。
+明确禁止增加绕过 Harness 的通用 `shell.exec`、`filesystem.read`、`filesystem.write` RPC。Native API bridge 的 method 字段只能选择固定 allowlist，不得映射成任意 `ApiProxy`、Cordis service 或 Harness tool 调用。
 
 ## 8. 事件顺序与恢复
 

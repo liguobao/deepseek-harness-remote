@@ -1,10 +1,10 @@
 # TODO
 
-本清单按当前代码和 2026-08-15 的验证结果维护。优先完成 Host Plugin + Android 的可用纵向链路。Server、Remote Web 和 Admin 只在独立 Server 仓库实现。
+本清单按当前代码和 2026-08-15 的验证结果维护。优先完成双角色 Plugin（本地 Harness Remote 模式 + 远端 Host）和 Android 的可用纵向链路。Server、Remote Web 和 Admin 只在独立 Server 仓库实现。
 
 优先级定义：
 
-- **P0**：Host Plugin + Android 第一条可用、安全、可恢复的端到端链路所必需
+- **P0**：双角色 Plugin + Android 第一条可用、安全、可恢复的端到端链路所必需
 - **P1**：MVP 完整性和跨网络可靠性
 - **P2**：Desktop、发布工程和后续体验完善
 
@@ -16,6 +16,8 @@
 - [x] 完成 Protocol 基础 envelope、RPC/Event 名称和部分 schema
 - [x] 完成 X25519、HKDF-SHA256、ChaCha20-Poly1305 基础原语
 - [x] 完成 Host Plugin 的 Harness adapter、身份存储、配对控制、RPC 路由、事件序列、权限 fail-closed 与 doctor 基础能力
+- [x] 完成 Plugin `role: host | client | both`、可安装 bundle metadata 与 Web client face
+- [x] 完成原生 Harness `apiProxy` Local/Remote switch、白名单 RPC/事件流代理和断线回落
 - [x] 完成 Android MVP 的 Server 配置、配对、设备、会话、聊天流、停止、权限处理、SecureStore 与基础重连
 - [x] 建立 Relay、WebRTC、LAN transport 抽象与 Client Core RPC 基础能力
 - [x] 提供依赖外部 Server 的 Mock Host 与 Android smoke client
@@ -34,7 +36,7 @@
 - [ ] 为加密篡改、防重放、错误身份、counter 越界等核心安全不变量补测试
 - [ ] 确保业务 payload 只在认证后的端到端加密 channel 中传输
 
-## P0：Host Plugin 纵向链路
+## P0：Plugin 纵向链路
 
 - [x] 实现真实 Server control connection provider：注册、认证、心跳响应、指数退避和连接状态上报
 - [x] 把 Pairing Controller 接到外部 Server API，完成 create、claim、Host confirm 与过期流程
@@ -44,6 +46,7 @@
 - [ ] 验证 `session.send`、流式 delta、tool events、`session.stop` 的真实 Harness 行为
 - [ ] 验证远端权限请求与 Host 本地审批 UI 并存时的首次有效决策和超时行为
 - [ ] 完成 Plugin 安装、加载、配置、配对、doctor 的实际用户路径
+- [ ] 在真实 dsh-desktop 中验证 `.tgz` 安装、Host 生成/确认配对及 Local/Remote 切换
 - [ ] 用真实 Harness + 外部 Server + Android 跑通一条可复现 smoke 流程
 - [ ] 只为 RPC 映射、事件恢复和权限竞态等核心路径补测试
 
@@ -79,11 +82,11 @@
 
 ## P2：Desktop Client
 
-- [ ] 确认 Desktop 技术栈与 `dsh-desktop` 集成边界
-- [ ] 复用 Client Core、协议、视觉 token 和主要 Remote 流程
+- [x] 确认 Desktop 技术栈与 `dsh-desktop` 集成边界：复用 Harness Web UI、`apiProxy` 和 client slot
+- [x] 复用 Client Core、协议和主要 Remote 流程，提供侧边栏 Local/Remote 入口
 - [ ] 使用系统 Keychain/Secret Service 保存身份私钥和 refresh token
 - [ ] 完成多窗口、系统休眠/唤醒、代理网络和 deep link 配对处理
-- [ ] 在 Host Plugin 与 Android 纵向链路稳定后再开始 Desktop 实现
+- [ ] 完成 dsh-desktop 安装、窗口重启、休眠/唤醒和跨机真实 E2E
 
 ## P2：工程与发布
 
@@ -105,7 +108,7 @@
 
 ## 第一版完成标准
 
-- [ ] Host Plugin 可安装到真实 DeepSeek Harness，并主动连接外部 Server
+- [ ] 双角色 Plugin 可安装到真实 DeepSeek Harness，并主动连接外部 Server
 - [ ] Android 可通过 8 位配对码完成 Host 二次确认和身份持久化
 - [ ] 客户端可查看 Host/Workspace、列出并打开会话、发送消息并接收流式事件
 - [ ] 客户端可停止生成，并对权限请求执行 `Allow once` 或 `Deny`

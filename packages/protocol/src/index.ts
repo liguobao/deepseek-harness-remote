@@ -46,6 +46,10 @@ export const rpcMethods = [
   'permissions.respond',
   'connection.ping',
   'sync.from',
+  'harness.api.call',
+  'harness.api.respond',
+  'harness.api.stream.open',
+  'harness.api.stream.close',
 ] as const
 
 export const remoteEvents = [
@@ -60,6 +64,8 @@ export const remoteEvents = [
   'permission.resolved',
   'agent.status',
   'connection.stats',
+  'harness.api.frame',
+  'harness.api.stream.closed',
 ] as const
 
 export type MessageType = typeof messageTypes[number]
@@ -223,6 +229,46 @@ export interface TransportStats {
   rttMs?: number
   bytesSent?: number
   bytesReceived?: number
+}
+
+/** Native Harness API request tunneled inside the authenticated business channel. */
+export interface HarnessApiCallParams {
+  method: string
+  rpcId: string
+  payload: unknown
+}
+
+/** Response to an answerable native Harness server request (approval/question). */
+export interface HarnessApiRespondParams {
+  message: {
+    type: 'client-response'
+    rpcId: string
+    result: unknown
+  }
+}
+
+export interface HarnessApiStreamOpenParams {
+  streamId: string
+  stream: 'mux' | 'host'
+  rpcId: string
+  payload: unknown
+}
+
+export interface HarnessApiStreamCloseParams {
+  streamId: string
+}
+
+export interface HarnessApiFrameData {
+  streamId: string
+  frame: {
+    rpcId: string
+    payload: unknown
+  }
+}
+
+export interface HarnessApiStreamClosedData {
+  streamId: string
+  reason: 'cancelled' | 'completed' | 'failed' | 'peer-disconnected'
 }
 
 const rpcMethodSchema = z.enum(rpcMethods)

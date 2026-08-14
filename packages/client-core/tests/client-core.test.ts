@@ -10,6 +10,7 @@ class LoopbackTransport extends BaseTransport {
   async close() {}
   getStats() { return { mode: 'Relay' as const, connected: true } }
   push(data: Uint8Array) { this.emit(data) }
+  drop() { this.emitClose() }
 }
 
 describe('RemoteClientCore', () => {
@@ -21,5 +22,19 @@ describe('RemoteClientCore', () => {
     const request = JSON.parse(new TextDecoder().decode(transport.sent[0]!))
     transport.push(encodeMessage(createRpcResponse(request.id, { ok: true })))
     await expect(call).resolves.toEqual({ ok: true })
+  })
+
+  it('fails pending calls and notifies listeners when the transport closes', async () => {
+    const transport = new LoopbackTransport()
+    const client = new RemoteClientCore(transport)
+    await client.connect()
+    let closed = false
+    client.onClose(() => { closed = true })
+    const call = client.rpc('connection.ping', {})
+
+    transport.drop()
+
+    await expect(call).rejects.toThrow(/transport closed/)
+    expect(closed).toBe(true)
   })
 })

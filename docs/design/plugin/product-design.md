@@ -1,18 +1,18 @@
-# Harness Host Plugin 产品设计
+# Harness Remote Plugin 产品设计
 
 状态：Draft v0.1
 目标项目：`packages/plugin`
-包名：`@dsh-remote/plugin`
+包名：npm 子包为 `@dsh-remote/plugin`；DSH Desktop GitHub 安装边界为仓库根包 `deepseek-harness-remote`
 
 ## 1. 产品定位
 
-Host Plugin 是 DSH Remote 在用户电脑上的可信执行端。它把 DeepSeek Harness 已有的会话、Agent 事件和权限系统映射为 Remote Protocol，同时保持代码、会话明文和执行权限留在 Host。
+Remote Plugin 同时承担两个角色：在远端机器上作为可信 Host，把 Harness 会话与权限系统映射到 Remote Protocol；在本地机器上作为 Client，把官方 Harness UI 的目标在 Local 与已配对 Remote Host 之间切换。代码、会话明文和执行权限始终留在被选中的 Host。
 
 它不是独立 Agent、远程 shell 或 Harness 的替代服务。
 
 ## 2. 用户
 
-主要用户是已经运行 DeepSeek Harness，希望在离开电脑后通过 Android 或其他 Remote Client 继续当前任务的开发者。
+主要用户是在多台机器运行 DeepSeek Harness，希望从本机原生 Harness UI 或 Android 继续远端任务的开发者。
 
 用户期望：
 
@@ -22,6 +22,7 @@ Host Plugin 是 DSH Remote 在用户电脑上的可信执行端。它把 DeepSee
 - 新设备绑定必须由 Host 确认。
 - 远端权限决定与本机 Harness 权限语义一致。
 - 网络断开后自动恢复，不影响本地 Harness 继续运行。
+- Local/Remote 切换不迁移、合并或覆盖任一侧会话。
 
 ## 3. 核心任务
 
@@ -37,11 +38,15 @@ Host 生成临时设备码。Client claim 后，Host 显示 Client 名称与公�
 
 可信 Client 可以读取 Host/工作区状态、查看和创建会话、发送消息、停止当前生成，并订阅会话、工具和 Agent 状态事件。
 
-### 3.4 处理权限请求
+### 3.4 从本地 Harness 切换目标
+
+Plugin Client face 在侧边栏提供目标入口。选择 Remote Host 后页面刷新，官方 Harness Runtime 仍使用同一个本地 HTTP/WebSocket carrier，但 Node 侧 `apiProxy` 将 allowlisted 调用转发到远端。选择 Local 恢复本机 API；两边 SessionId 空间不合并，切换不触发复制。
+
+### 3.5 处理权限请求
 
 Harness 发起 approval 时，Plugin 将请求上下文发送给可信 Client。MVP 只暴露 Harness 已确认支持的 `Allow once` 和 `Deny`。没有可信 Client、请求超时、Client 断开或适配器异常时必须 fail closed。
 
-### 3.5 诊断连接
+### 3.6 诊断连接
 
 Host 提供清晰日志和 doctor 信息：插件是否加载、身份是否有效、Server 是否可达、signaling 是否连接、STUN/TURN 是否配置、当前传输与最近错误码。
 
@@ -56,6 +61,8 @@ Host 提供清晰日志和 doctor 信息：插件是否加载、身份是否有�
 - 心跳、指数退避重连和连接状态输出。
 - Relay 安全通道；P2P/TURN 通过统一传输接口后续启用。
 - 不包含敏感正文的本地日志。
+- DSH bundle/client metadata、侧边栏目标入口和可逆 `apiProxy` switch。
+- 原生 Harness API allowlist、mux/host 流转发和断线回落 Local。
 
 ## 5. 非目标
 
@@ -64,6 +71,7 @@ Host 提供清晰日志和 doctor 信息：插件是否加载、身份是否有�
 - 不修改 DeepSeek Harness 源码或用户现有 `cordis.patch.yml`。
 - 不自动接受权限，不设置比 Harness 更宽松的策略。
 - 不在 Plugin 中实现账户、组织、计费或多人协作。
+- 不代理 credentials、settings 写入、任意目录/文件、native open、附件或下载 API。
 
 ## 6. 主机侧体验
 
@@ -105,10 +113,11 @@ Allow from the local Harness UI or CLI prompt
 
 ## 9. MVP 验收
 
-1. 插件通过独立 patch 加载，不修改 Harness 核心和用户配置。
+1. npm 子包或 GitHub 根包均通过各自的 bundle patch 和同名 client metadata 加载，不修改 Harness 核心。
 2. Host 不监听公网端口，只建立出站连接。
 3. Host 可生成设备码并确认/拒绝 Client。
-4. Android Client 发送消息后，真实 Harness Agent 收到并执行。
-5. `assistant/chunk`、工具和状态事件实时转发。
-6. Harness approval 可由 Android Client `Allow once` 或 `Deny`，且断线/超时 fail closed。
-7. 插件卸载时网络、定时器和 pending approval 全部清理。
+4. 本地 Harness 可选择已配对 Host，刷新后通过原生会话 UI 创建/继续远端会话。
+5. Android Client 发送消息后，真实 Harness Agent 收到并执行。
+6. `assistant/chunk`、工具和状态事件实时转发。
+7. Harness approval 可由 Remote Client `Allow once` 或 `Deny`，且断线/超时 fail closed。
+8. 插件卸载时网络、定时器、原生流和 pending approval 全部清理。

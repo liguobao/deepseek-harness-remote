@@ -673,7 +673,8 @@ Host handshake 的 capability 例子：
   "sync.from",
   "session.streaming",
   "permission.allow-once",
-  "permission.deny"
+  "permission.deny",
+  "harness.api.v1"
 ]
 ```
 
@@ -905,6 +906,53 @@ Result：`{ "sentAt": 1786000000000, "hostAt": 1786000000020 }`
 Params：`{ "afterSeq": 8271, "limit": 1000 }`。
 Result：见“Event Replay 与重连”。这是 v1 核心恢复 RPC；Host 不具备 replay window 时必须返回 `FULL_RESYNC_REQUIRED`，不能返回不连续事件。
 
+### Native Harness API bridge
+
+`harness.api.v1` 用于让安装了 Plugin Client face 的本地 Harness 继续使用官方 UI 操作远端 Host。它不是通用反射 RPC；Host 必须以代码内固定 allowlist 校验每个 `method`，未知或禁止方法返回 `METHOD_NOT_ALLOWED`。
+
+#### `harness.api.call`
+
+Params：
+
+```json
+{
+  "method": "session.list",
+  "rpcId": "native-harness-rpc-id",
+  "payload": {}
+}
+```
+
+Result 是 Harness `ApiProxy` 的原生 `RpcResponse`，必须回显内层 `rpcId`。v1 allowlist 仅包括：
+
+- session list/search/create/history/models/selectModel/rename/fork/prompt/updateQueue/cancel
+- subagent list/history/prompt/interrupt
+- `host.describe`
+- workspace list/create/rename/delete/reorder/attach/archive
+- skill list、agent preset list/select/read
+- goal create/edit/pause/resume/complete/clear
+- LLM provider/model list
+
+明确禁止 credentials、settings 写入、model endpoint discovery、native path open/picker、目录枚举/创建、attachment、download 以及任何未列出方法。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
+
+#### `harness.api.respond`
+
+Params：`{ "message": ClientResponse }`。只用于回答由 Harness 原生事件流发出的 approval/question ServerRequest；`rpcId` 必须来自该请求，Client 不能自行创造可回答的 Host request。
+
+#### `harness.api.stream.open` / `harness.api.stream.close`
+
+Open Params：
+
+```json
+{
+  "streamId": "client-stream-id",
+  "stream": "mux",
+  "rpcId": "native-open-rpc-id",
+  "payload": {}
+}
+```
+
+`stream` 仅允许 `mux | host`，每条 peer connection 最多同时打开两个原生流。Close Params：`{ "streamId": "client-stream-id" }`。连接替换、撤销或断开时 Host 必须取消全部流。
+
 ## 20. Events
 
 Event envelope：
@@ -992,6 +1040,14 @@ status：`idle`, `running`, `stopping`, `disposed`, `error`。
 }
 ```
 
+### `harness.api.frame`
+
+data：`{ "streamId": "...", "frame": RpcRequest<MuxFrame | HostFrame> }`。该 event 不进入 Host 的通用 seq replay buffer；Harness Client Runtime 负责按原生流语义重连并重新取得 history baseline。
+
+### `harness.api.stream.closed`
+
+data：`{ "streamId": "...", "reason": "cancelled|completed|failed|peer-disconnected" }`。Client 收到后必须结束对应 iterator；transport 意外关闭时本地模式切换器必须 fail closed，不得继续向旧 Host 提交请求。
+
 ## 21. Event Replay 与重连
 
 Client 为每台 Host 持久化 `lastSeq`，但不必持久化解密后的 conversation。
@@ -1057,6 +1113,8 @@ pong 回显 nonce。Heartbeat 不能携带业务数据。
 - `UNSUPPORTED_VERSION`
 - `CAPABILITY_NOT_SUPPORTED`
 - `METHOD_NOT_FOUND`
+- `METHOD_NOT_ALLOWED`
+- `REQUEST_CONFLICT`
 - `FRAME_TOO_LARGE`
 - `RATE_LIMITED`
 
@@ -1133,6 +1191,7 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 4. TLS/WSS 不能替代 Noise secure channel。
 5. Client 不能请求通用 shell/filesystem RPC 绕过 Harness。
 6. Permission 只能映射 Harness 当前 request，默认 fail closed。
+7. `harness.api.call.method` 必须命中编译期固定 allowlist；禁止通过对象反射、Cordis service 名或任意 endpoint 扩权。
 7. 当前 Harness v1 只允许 Remote `allow_once`/`deny`，不得伪造 session grant。
 8. Device revoke 使 token、membership 和现有 connection 失效。
 9. 重放/乱序/身份不匹配的 secure frame 必须拒绝。

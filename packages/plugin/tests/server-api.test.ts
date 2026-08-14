@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { generateKeyPair } from '@dsh-remote/crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { HostIdentity } from '../src/identity-store.js'
-import { HostServerApi } from '../src/server-api.js'
+import { ClientServerApi, HostServerApi } from '../src/server-api.js'
 import { ServerCredentialStore } from '../src/server-credentials.js'
 
 const directories: string[] = []
@@ -64,6 +64,20 @@ describe('HostServerApi', () => {
     expect(JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]?.[1]?.body))).toMatchObject({
       deviceId: identity.deviceId,
       refreshToken: 'refresh-token-value',
+    })
+  })
+
+  it('registers the local remote-mode identity as a client device', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-server-client-'))
+    directories.push(directory)
+    const fetchMock = vi.fn(async () => json(tokens())) as unknown as typeof fetch
+    const identity = hostIdentity()
+    const api = new ClientServerApi('https://dsh.r2049.cn', new ServerCredentialStore(directory), fetchMock)
+
+    await api.authenticate(identity)
+
+    expect(JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]?.[1]?.body))).toMatchObject({
+      device: { deviceId: identity.deviceId, role: 'client' },
     })
   })
 })

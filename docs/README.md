@@ -4,8 +4,8 @@
 
 本仓库只实现以下内容：
 
-- DeepSeek Harness Host Plugin
-- Android / Desktop Remote Client
+- DeepSeek Harness 双角色 Plugin（Host + 本地 Remote 模式）
+- Android Remote Client
 - `protocol`、`crypto`、`webrtc`、`client-core`、`ui` 等共享包
 - 用于客户端和插件联调的 Mock Host
 
@@ -17,7 +17,7 @@
 - Server migration、Server test、Server Docker image 或 Server deployment 目录
 - Admin 后端或 Server 托管的 React 站点
 
-Server、Remote Web 和 Admin 将由独立 Server 项目作为同一站点实现。本仓库保留 Server 设计和协议，是因为 Plugin 与 Android/Desktop Client 必须基于同一份外部服务契约开发。
+Server、Remote Web 和 Admin 将由独立 Server 项目作为同一站点实现。本仓库保留 Server 设计和协议，是因为 Plugin Host、Plugin Client 模式与 Android 必须基于同一份外部服务契约开发。
 
 ## 权威文档
 

@@ -3,7 +3,8 @@ import type { Agent, AgentRegistry, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent, SessionStore } from '@deepseek-ai/dsh-session'
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import type { WorkspaceRegistry } from '@deepseek-ai/dsh-workspace'
-import type { RemoteMessage } from '@dsh-remote/protocol'
+import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { createEvent, type RemoteEventName, type RemoteMessage } from '@dsh-remote/protocol'
 import { AgentAdapter } from './adapters/agent-adapter.js'
 import { PermissionAdapter } from './adapters/permission-adapter.js'
 import { SessionAdapter } from './adapters/session-adapter.js'
@@ -19,6 +20,7 @@ import { HOST_CAPABILITIES, RpcRouter } from './rpc-router.js'
 import { HostServerApi } from './server-api.js'
 import { HostServerConnection } from './server-connection.js'
 import { ServerCredentialStore } from './server-credentials.js'
+import { HarnessApiBridge } from './harness-api-bridge.js'
 import type { AuthenticatedPeerChannel } from './types.js'
 
 interface SessionTitleService {
@@ -31,6 +33,7 @@ export interface RuntimeDependencies {
   agents: AgentRegistry
   workspaceRegistry?: WorkspaceRegistry
   sessionTitle?: SessionTitleService
+  apiProxy?: ApiProxy
 }
 
 export class HostPluginRuntime {
@@ -46,6 +49,7 @@ export class HostPluginRuntime {
   private readonly serverApi?: HostServerApi
   private serverConnection?: HostServerConnection
   private closed = false
+  private readonly harnessApiAvailable: boolean
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -72,7 +76,12 @@ export class HostPluginRuntime {
       dependencies.sessionTitle,
     )
     this.agents = new AgentAdapter(dependencies.agents, dependencies.sessionTitle)
-    this.router = new RpcRouter(this.sessions, this.agents, this.pending, this.events, () => this.systemInfo())
+    const harnessApi = dependencies.apiProxy === undefined ? undefined : new HarnessApiBridge(
+      dependencies.apiProxy,
+      (event, data) => this.publishHarnessEvent(event, data),
+    )
+    this.harnessApiAvailable = harnessApi !== undefined
+    this.router = new RpcRouter(this.sessions, this.agents, this.pending, this.events, () => this.systemInfo(), harnessApi)
     this.connections = new ConnectionController(this.identities, this.router, this.pending)
     this.permissions = new PermissionAdapter(
       this.pending,
@@ -197,7 +206,7 @@ export class HostPluginRuntime {
       harnessVersion: 'unknown',
       pluginVersion: '0.1.0',
       protocol: 1,
-      capabilities: [...HOST_CAPABILITIES],
+      capabilities: HOST_CAPABILITIES.filter(capability => capability !== 'harness.api.v1' || this.harnessApiAvailable),
       connectionMode: this.connections.connectionMode(),
       online: this.connections.isOnline(),
     }
@@ -206,6 +215,10 @@ export class HostPluginRuntime {
   private publish(event: Parameters<EventSequencer['publish']>[0], data: unknown, sessionId?: string): void {
     const message = this.events.publish(event, data, sessionId)
     void this.connections.send(message as RemoteMessage)
+  }
+
+  private publishHarnessEvent(event: RemoteEventName, data: unknown): Promise<void> {
+    return this.connections.send(createEvent(event, data))
   }
 }
 

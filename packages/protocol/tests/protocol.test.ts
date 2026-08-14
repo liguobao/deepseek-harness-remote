@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { controlFrameTypes, createControlFrame, createEvent, createRpcError, createRpcRequest, decodeMessage, encodeMessage, parseControlFrame, parseRemoteMessage } from '../src/index.js'
+import { controlFrameTypes, createControlFrame, createEvent, createRpcError, createRpcRequest, decodeMessage, encodeMessage, parseControlFrame, parseRemoteMessage, remoteEvents, rpcMethods } from '../src/index.js'
 
 describe('protocol envelope', () => {
   it('contains every Server control frame used by protocol v1', () => {
@@ -9,6 +9,13 @@ describe('protocol envelope', () => {
   it('round-trips RPC messages', () => {
     const message = createRpcRequest('sessions.list', {})
     expect(decodeMessage(encodeMessage(message))).toEqual(message)
+  })
+
+  it('advertises the native Harness bridge as closed protocol methods and events', () => {
+    expect(rpcMethods).toContain('harness.api.call')
+    expect(rpcMethods).toContain('harness.api.stream.open')
+    expect(remoteEvents).toContain('harness.api.frame')
+    expect(remoteEvents).toContain('harness.api.stream.closed')
   })
 
   it('rejects unsupported protocol versions', () => {
