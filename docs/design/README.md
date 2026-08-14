@@ -6,7 +6,7 @@
 
 本目录定义当前仓库内双角色 Plugin、Android Client 和共享基础包的产品与功能。
 
-Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Client 的线协议以 [../protocol.md](../protocol.md) 为准。两份文档必须保留，但 Server 由独立项目实现，不得在当前仓库创建 Server 源码或部署目录。
+Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Client 的线协议以 [../protocol.md](../protocol.md) 为准，Host 的账号登录与授权注册流程见 [../plugin-integration.md](../plugin-integration.md)。这些文档必须保留，但 Server 由独立项目实现，不得在当前仓库创建 Server 源码或部署目录。
 
 ## 项目清单
 

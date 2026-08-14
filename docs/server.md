@@ -19,7 +19,9 @@
 
 ## 1. 定位
 
-DSH Remote Server 是一个自部署的**协调与中继服务**。它负责设备注册、配对、在线状态、连接授权、WebRTC signaling、短期 TURN credential、加密 Relay 和站点管理；它不执行 Harness 任务，也不保存会话明文。
+DSH Remote Server 是一个自部署的**协调与中继服务**。它负责站点账号登录、Host
+归属、设备注册、配对、在线状态、连接授权、WebRTC signaling、短期 TURN credential、
+加密 Relay 和站点管理；它不执行 Harness 任务，也不保存会话明文。
 
 Server、Remote Web 和 Admin 是一个站点：
 
@@ -29,7 +31,7 @@ Server、Remote Web 和 Admin 是一个站点：
 - 一个 SQLite 数据库
 - 一个 WebSocket endpoint
 - `/app` 为 Remote 用户区
-- `/admin` 为管理区
+- `/app/admin` 为站点管理区（兼容旧 `/admin`，仅白名单管理员）
 
 独立 Server 项目内部可以按 Python 后端与 React 前端分层，但生产部署不可拆成两个用户站点。这里描述的是外部 Server 项目的目标结构，不是当前仓库目录规划。
 
@@ -59,7 +61,7 @@ Server、Remote Web 和 Admin 是一个站点：
 ```text
 Host Plugin                         Browser
     |                                  |
-    | WSS outbound                     | HTTPS / WSS
+    | HTTPS / WSS outbound             | HTTPS / WSS
     v                                  v
              DSH Remote Server
        +---------------------------+
@@ -92,11 +94,12 @@ Host Plugin                         Browser
 
 | 路由 | 内容 |
 | --- | --- |
-| `/` | 根据本地身份跳转 `/pair` 或 `/app/devices` |
-| `/pair` | 设备配对 |
-| `/app/*` | Remote 用户区 |
-| `/admin/*` | Admin 管理区 |
-| `/api/v1/*` | Remote REST API |
+| `/` | 项目介绍（Landing Page，公开） |
+| `/guide` | 使用指南（公开） |
+| `/pair` | 设备配对（需登录） |
+| `/app/*` | Remote 用户区（需登录） |
+| `/app/admin`（兼容旧 `/admin`） | 站点管理（仅白名单管理员） |
+| `/api/v1/*` | Remote REST API（包含站点账号登录） |
 | `/api/v1/admin/*` | Admin REST API |
 | `/ws/v1/connect` | Host/Client 统一 WebSocket |
 | `/health` | liveness |
@@ -124,13 +127,26 @@ Membership 是一个 Host 与一个 Client 的长期绑定关系。只有 active
 
 ### Admin
 
-Admin 使用独立 session cookie 和 CSRF 防护。Remote Bearer token 不能访问 Admin API；Admin cookie 不能解密 E2EE payload。
+Admin 没有独立密码入口或会话。只有命中 `DSH_ADMIN_EMAILS` 或
+`DSH_ADMIN_ZHIHU_OPEN_IDS` 白名单的站点账号可以访问 Admin API；接口仅接受
+`typ=web` 的 web account Bearer token。普通 web 账号和 device Bearer token 都不能
+访问 Admin API，管理员也不能解密 E2EE payload。
 
 ## 7. 设备注册
 
-匿名设备可在 TLS 连接上注册随机身份并获取 Server credential。注册行为按 IP/设备限速；重复 deviceId 不允许覆盖已有 public key。
+Host Plugin 接入要求见 [Host Plugin 接入指南](plugin-integration.md)。Host 必须先在
+目标 Server 登录站点账号，再用同一 Server 签发的 web account Bearer token 注册
+随机身份；Server 将 Host 归属绑定到该账号。Client 设备仍可在 TLS 连接上匿名注册，
+作为 pairing bootstrap。
+
+注册行为按 IP/设备限速；重复 deviceId 不允许覆盖已有 public key、role 或 Host
+owner。相同账号和相同 identity 可以幂等重新注册；属于其他账号或历史上没有 owner
+的 Host 不得自动认领。
 
 Server credential 使用短 access token + 可旋转 refresh token。数据库仅保存 refresh token hash；检测旧 token 重用时撤销整个 token family。
+
+web account token 只用于 Host 注册和账号接口；注册成功后的 WebSocket、pairing 与
+后台 token 轮换使用独立的 device credential，两类 token 不得互换。
 
 Host/Client private key 和 trusted peer 列表始终留在设备本地。
 
@@ -167,7 +183,7 @@ Server 即使知道设备码，也不能静默把一个 Client 加入 Host 本�
 
 | Method | Path | Auth | 说明 |
 | --- | --- | --- | --- |
-| `POST` | `/api/v1/devices/register` | rate limited | 注册随机设备身份 |
+| `POST` | `/api/v1/devices/register` | Host: web account；Client: anonymous；rate limited | 注册随机设备身份 |
 | `POST` | `/api/v1/pairings` | Host | 创建 pairing |
 | `POST` | `/api/v1/pairings/claim` | Client | claim code |
 | `GET` | `/api/v1/pairings/{id}/status` | pairing claimant | 等待 Host 结果 |
@@ -180,12 +196,26 @@ Server 即使知道设备码，也不能静默把一个 Client 加入 Host 本�
 
 具体 request/response 和错误 envelope 见 [protocol.md](protocol.md)。
 
+### 站点账号 API
+
+| Method | Path | Auth | 说明 |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/auth/register` | invite code；rate limited | 注册邮箱账号 |
+| `POST` | `/api/v1/auth/login` | rate limited | 邮箱密码登录并签发 web account token |
+| `GET` | `/api/v1/auth/me` | web account | 当前账号、profile 与 `isAdmin` |
+| `GET` | `/api/v1/auth/oauth/status` | public | OAuth 是否启用 |
+| `GET` | `/api/v1/auth/oauth/start` | public | 开始知乎 OAuth，回调必须留在同源站点 |
+| `POST` | `/api/v1/auth/invite-code` | web account | 创建一次性邀请码 |
+| `GET` | `/api/v1/auth/invite-codes` | web account | 查询当前账号的邀请码 |
+| `GET` | `/api/v1/account/devices` | web account | 查询当前账号拥有的 Host |
+
+web account token 与 device token 必须由依赖类型严格隔离；`/account/devices` 只用于
+展示/恢复提示，不授予缺少本机 private key 的调用方冒充 Host。
+
 ### Admin API
 
 | Method | Path | 说明 |
 | --- | --- | --- |
-| `POST` | `/api/v1/admin/login` | 创建 Admin session |
-| `POST` | `/api/v1/admin/logout` | 撤销当前 session |
 | `GET` | `/api/v1/admin/health` | Server/DB/WebSocket/TURN 健康 |
 | `GET` | `/api/v1/admin/devices` | 全站设备元数据 |
 | `POST` | `/api/v1/admin/devices/{id}/revoke` | 撤销设备、token、连接 |
@@ -257,7 +287,8 @@ Server 不向前端返回 `TURN_SECRET`。Admin 只能看到 TURN URL、是否�
 
 ### `devices`
 
-`id`, `name`, `role`, `platform`, `public_key`, `version`, `created_at`, `last_seen_at`, `revoked_at`
+`id`, `name`, `role`, `platform`, `public_key`, `owner_account`（Host 对应账号，Client
+为空）, `version`, `created_at`, `last_seen_at`, `revoked_at`
 
 ### `device_pairings`
 
@@ -275,9 +306,26 @@ Server 不向前端返回 `TURN_SECRET`。Admin 只能看到 TURN URL、是否�
 
 `id`, `host_device_id`, `client_device_id`, `transport`, `connected_at`, `disconnected_at`, `disconnect_code`, `bytes_relayed`, `p2p_established_ms`
 
-### `admin_sessions`
+### `user_accounts`
 
-`id`, `session_hash`, `created_at`, `expires_at`, `revoked_at`, `last_seen_at`
+站点账号（邮箱或知乎衍生账号 id）：`account`, `password_hash`（argon2id，可空）、
+`created_at`, `updated_at`, `archived_at`
+
+### `oauth_identities`
+
+知乎 open_id 与账号绑定：`id`, `account`, `zhihu_open_id`, OAuth credential 及过期时间、
+`created_at`, `updated_at`
+
+### `user_profiles`
+
+展示资料：`account`, `open_id`, `name`, `headline`, `avatar_url`, `source`, `updated_at`
+
+### `invite_codes`
+
+一次性邀请码：`invite_code`, `inviter_account`, `invitee_account`, `generation_month`,
+`created_at`, `used_at`
+
+旧 `admin_sessions`（Admin 密码会话）表已随白名单 Admin 移除。
 
 数据库 schema 明确禁止加入 conversation payload、workspace、session message、tool output 或密钥字段。
 
@@ -288,16 +336,49 @@ Server 不向前端返回 `TURN_SECRET`。Admin 只能看到 TURN URL、是否�
 | `REMOTE_PUBLIC_URL` | 必填，HTTPS URL |
 | `REMOTE_SECRET_KEY` | 必填，高熵，不允许默认值 |
 | `DATABASE_URL` | 默认 `sqlite:////data/remote.db` |
-| `ADMIN_PASSWORD_HASH` | MVP Admin 开启时必填 |
+| `DSH_ADMIN_EMAILS` | Admin 白名单邮箱（逗号分隔）；可选 |
+| `DSH_ADMIN_ZHIHU_OPEN_IDS` | Admin 白名单知乎 open_id（逗号分隔）；可选 |
 | `STUN_URLS` | 可选 |
 | `TURN_URL` | TURN 启用时必填 |
 | `TURN_SECRET` | TURN 启用时必填 |
 | `PAIRING_TTL_SECONDS` | 默认 600 |
 | `ACCESS_TOKEN_TTL_SECONDS` | 短 TTL |
 | `REFRESH_TOKEN_TTL_SECONDS` | 可配置并支持轮换 |
+| `DSH_ZHIHU_OAUTH_APP_ID` | 可选；配置后启用知乎授权登录 |
+| `DSH_ZHIHU_OAUTH_APP_KEY` | 可选；同上 |
+| `DSH_WEB_LOGIN_TTL_SECONDS` | web account 会话有效期，默认 28 天 |
+| `DSH_INVITE_CODE_MONTHLY_LIMIT` | 每账号每月邀请码上限，默认 10 |
+| `DSH_INVITE_CODE` | 可选；站点通用邀请码，可重复使用且不占账号月度配额 |
 | `LOG_LEVEL` | 默认 `INFO` |
 
 启动时校验配置、数据库迁移、可写性和 secret 强度。生产安全配置缺失时拒绝启动。
+
+## 15a. 站点账号登录与 Host 归属
+
+- `/pair`、`/app/*` 需要登录；`/guide`、`/` 公开；`/app/admin`（兼容旧
+  `/admin`）仅白名单管理员。
+- 登录方式一：知乎 OAuth（`/api/v1/auth/oauth/start` → 知乎授权 →
+  `/api/v1/auth/oauth/callback` → 同源路径 `?token=`）。`return_to` 只接受站点内部
+  绝对路径，不能回调插件自定义 scheme 或外部 URL。
+- 登录方式二：邮箱密码，使用邀请码调用 `POST /api/v1/auth/register` 注册，再调用
+  `POST /api/v1/auth/login` 登录。
+- web account token 为 `typ=web` 的 HS256 JWT，与 device credential 隔离；当前没有
+  account refresh 接口，过期后重新登录。已经注册 Host 的后台连接只依赖 device
+  refresh token。
+- 已注册账号可创建有月度限额的一次性邀请码，且不能使用自己创建的邀请码；可选
+  `DSH_INVITE_CODE` 是可重复使用、无 inviter 且不占月度配额的站点通用邀请码。
+- Host 注册必须记录 `account -> Host device` 归属。`ACCOUNT_AUTH_REQUIRED` 表示需要
+  登录；`DEVICE_OWNERSHIP_REQUIRED` 表示当前账号无权认领该 Host。历史无 owner 的
+  Host 只能轮换 identity 或由管理员显式迁移。
+
+## 15b. Admin（账号白名单，无独立入口）
+
+- 账号邮箱命中 `DSH_ADMIN_EMAILS`，或其知乎 open_id 命中
+  `DSH_ADMIN_ZHIHU_OPEN_IDS`，即为管理员。
+- Admin API 统一要求 web account Bearer token + 白名单判定，普通账号返回 403，
+  device token 返回 401；不再使用 Admin 密码、cookie session 或 CSRF 双提交。
+- 站点管理并入 `/app` 用户区。`/api/v1/auth/me` 的 `isAdmin` 只用于前端显示；后端
+  仍必须对每个 `/api/v1/admin/*` 请求重新鉴权。
 
 ## 16. SQLite 与迁移
 
@@ -329,7 +410,10 @@ MVP 指标：
 - REST 使用严格 Pydantic schema；未知字段按 endpoint 风险决定拒绝。
 - Pairing、login、refresh、register、WebSocket hello 独立限速。
 - 所有设备查询从 token subject 的 membership 反查，防止 IDOR。
-- Admin cookie 使用 `HttpOnly`, `Secure`, `SameSite=Strict`，并验证 CSRF。
+- Host 注册校验 web account 与既有 `owner_account`；公开的 deviceId/public key 不能
+  用于跨账号认领 Host。
+- Admin 仅接受白名单账号的 web account Bearer token；普通 web token 与 device
+  token 一律拒绝。
 - WebSocket 浏览器 Origin 只允许 `REMOTE_PUBLIC_URL`。
 - Static 站点启用严格 CSP、HSTS、`X-Content-Type-Options` 和 frame 限制。
 - Token hash 存储、refresh rotation 和 reuse detection。
@@ -338,7 +422,9 @@ MVP 指标：
 
 ## 19. Admin 功能
 
-Admin 页面属于同一 React 站点 `/admin`，但使用独立 auth guard 和 `/api/v1/admin/*`。
+Admin 页面并入同一 React 站点的 `/app` 用户区（`/app/admin`，兼容旧 `/admin`）。
+导航栏没有独立 Admin 入口；白名单管理员在用户区看到「站点管理」标签页，
+`/api/v1/admin/*` 统一依赖 web account Bearer token 和 Admin 白名单。
 
 MVP 页面：Health、Devices、Connections、Pairings、Settings。Settings 对环境变量驱动字段只读并脱敏。Admin 能撤销设备和取消 active pairing，但不能查看 Remote 会话内容。
 
@@ -349,11 +435,12 @@ MVP 页面：Health、Devices、Connections、Pairings、Settings。Settings 对
 - pairing create/claim/confirm/reject/expire/single-use/rate-limit
 - membership 授权与 IDOR
 - token rotation/reuse/revoke
+- Host account authorization、owner 归属与跨账号/legacy Host 拒绝
 - WebSocket hello auth、origin、replacement
 - signaling target authorization
 - relay membership、frame limit、backpressure
 - device revoke 后实时断连
-- Admin/Remote auth 隔离
+- Admin/web account/device auth 隔离
 - 数据模型和日志不接收业务明文
 
 静态页面托管、Admin 普通筛选、视觉样式、状态标签和非关键 doctor 展示不单独写测试。

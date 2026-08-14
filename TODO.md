@@ -38,7 +38,7 @@
 
 ## P0：Plugin 纵向链路
 
-- [x] 实现真实 Server control connection provider：注册、认证、心跳响应、指数退避和连接状态上报
+- [x] 按旧版匿名 Host 注册契约实现 Server control connection provider：注册、认证、心跳响应、指数退避和连接状态上报
 - [ ] 适配最新 Server 账号契约：登录站点账号、用 web account token 授权 Host 注册，并保持账号 token 与 device token 隔离
 - [ ] 按规范化 `serverUrl` 隔离 Host identity、账号状态和设备凭证；切换 Server 时不得复用旧域名的 deviceId/token/配对关系
 - [ ] 处理 `ACCOUNT_AUTH_REQUIRED`、`DEVICE_OWNERSHIP_REQUIRED`、账号过期和 legacy owner 缺失，提供安全的重新登录/轮换 identity 路径

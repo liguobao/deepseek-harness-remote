@@ -3,10 +3,18 @@
 Dual-role DeepSeek Harness plugin for DSH Remote.
 
 The package implements the Harness adapter boundary, persistent host identity
-and trusted peers, Server registration/token rotation, the outbound WebSocket
+and trusted peers, legacy anonymous Server registration/token rotation, the outbound WebSocket
 control connection, pairing, Relay transport, Noise IK, permission fail-closed
 behavior, RPC routing, and event replay. Unencrypted business channels are not
 accepted.
+
+The latest Server contract requires a site account token to authorize Host
+registration. Account login, authenticated Host registration, and per-Server
+identity/credential isolation are not implemented yet, so first-time Host
+registration against that Server will fail with `ACCOUNT_AUTH_REQUIRED`. See
+the [Host Plugin integration guide](../../docs/plugin-integration.md) and
+[TODO](../../TODO.md). Anonymous Client bootstrap remains supported by the
+Server contract.
 
 With the default `role: both`, the same package also installs a browser client
 face. The sidebar target control can pair another machine, approve a local

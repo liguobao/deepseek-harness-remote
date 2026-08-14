@@ -85,9 +85,10 @@ export const inject = ['sessions', 'agents', 'approval']
 `apply(ctx, config)` 的职责：
 
 1. 校验配置，不进行网络阻塞。
-2. 注册 session、agent 和 approval 监听器。
-3. 在 `ctx.effect()` 中加载身份、启动连接与心跳。
-4. disposer 顺序关闭新请求入口、拒绝 pending approval、关闭传输、停止定时器并 flush 非敏感日志。
+2. 解析规范化 Server origin，并加载该 Server 独立的身份、账号状态和 device credential。
+3. 注册 session、agent 和 approval 监听器。
+4. 只有 device credential 就绪后，才在 `ctx.effect()` 中启动连接与心跳；否则进入等待账号登录状态。
+5. disposer 顺序关闭新请求入口、拒绝 pending approval、关闭传输、停止定时器并 flush 非敏感日志。
 
 ## 5. 配置
 
@@ -95,7 +96,7 @@ export const inject = ['sessions', 'agents', 'approval']
 | --- | --- | --- |
 | `enabled` | `true` | 总开关 |
 | `role` | `both` | `host`、`client` 或 `both` |
-| `serverUrl` | 构建时默认值 | 必须允许用户覆盖，不写死生产域名 |
+| `serverUrl` | `https://dsh.r2049.cn` | 必须允许用户覆盖；规范化为无末尾 `/` 的 HTTPS origin，开发期 loopback 可用 HTTP |
 | `deviceName` | OS 主机名的可编辑副本 | 仅显示，不作为 ID |
 | `forceRelay` | `false` | 联调/故障诊断 |
 | `logLevel` | `info` | 禁止记录敏感正文 |
@@ -115,7 +116,44 @@ remote.log
 
 Client 角色使用 `$DSH_HOME/remote/client/` 下的独立 device identity、trusted Host 和 Server credential，避免同一个 Server deviceId 同时注册为 Host 与 Client。
 
-## 7. Local / Remote API switch
+Host identity、账号状态、device credential 与 trusted peer 必须再按规范化后的
+`serverUrl` 分区。不得将密码或 account token 写入 Cordis 配置；private key、device
+refresh token 和必要的账号状态使用权限受限的安全存储。切换 Server 不自动迁移身份。
+
+## 7. 账号授权与 Host 注册
+
+最新 Server 要求 Host 注册前完成账号登录，完整接口见
+[Host Plugin 接入指南](../../plugin-integration.md)。最小状态机：
+
+```text
+NO_SERVER
+  -> ACCOUNT_LOGIN_REQUIRED
+  -> ACCOUNT_AUTHENTICATED
+  -> DEVICE_REGISTERED
+  -> DEVICE_TOKEN_READY
+  -> CONNECTING
+  -> ONLINE
+
+TOKEN_EXPIRED          -> REFRESHING -> CONNECTING
+AUTH_INVALID           -> ACCOUNT_LOGIN_REQUIRED
+DEVICE_REVOKED         -> REVOKED
+serverUrl changed      -> NO_SERVER
+```
+
+约束：
+
+- 邮箱密码登录取得的 web account token 只在内存中用于 Host 注册和账号接口；账号
+  token 不用于 WebSocket，也不能替代 device token。
+- 知乎 OAuth 当前只能安全回跳 Server 同源路径；在没有一次性授权码/PKCE exchange
+  前，不得通过自定义 scheme 或要求用户复制 token 接入系统浏览器。
+- `POST /api/v1/devices/register` 注册 `role=host` 时携带同域 account token；成功后
+  原子保存 device access/refresh token，并清除不再需要的 account token。
+- refresh 必须 single-flight；新 token pair 原子落盘后再废弃旧值。旧 refresh token
+  重用会撤销整个 family。
+- `ACCOUNT_AUTH_REQUIRED` 进入登录流程；`DEVICE_OWNERSHIP_REQUIRED` 不得静默重试
+  或自动认领，legacy 无 owner Host 只能显式轮换 identity 或请求管理员迁移。
+
+## 8. Local / Remote API switch
 
 Plugin 不替换 Cordis `apiProxy` service identity，而是一次性安装稳定 forwarding domain。Local 模式调用启动时捕获的本机 API；Remote 模式调用 `RemoteHarnessApiProxy`。`settings`、`credentials` 和 `downloads` 始终不切到远端。
 
@@ -125,21 +163,25 @@ Plugin 不替换 Cordis `apiProxy` service identity，而是一次性安装稳�
 
 写入采用临时文件 + 原子 rename；启动时校验 schema、权限和公私钥匹配。损坏密钥不得静默重建并继续信任旧 membership，应进入 `IDENTITY_INVALID` 并要求用户显式修复。
 
-## 8. 连接控制器
+## 9. 连接控制器
 
 状态：
 
 ```text
-DISABLED -> LOADING_IDENTITY -> CONNECTING -> ONLINE
+DISABLED -> LOADING_IDENTITY -> ACCOUNT_LOGIN_REQUIRED
+                              -> CONNECTING -> ONLINE
                               -> RECONNECTING -> ONLINE
                               -> OFFLINE
 ```
 
-连接建立后发送 authenticated hello 和 capability handshake。心跳间隔 20-30 秒；断开使用带 jitter 的指数退避。Server 返回 `DEVICE_REVOKED` 时停止自动重连，等待本机重新配对。
+device credential 就绪后才建立 WebSocket，并在连接后发送 authenticated hello 和
+capability handshake。心跳间隔 20-30 秒；断开使用带 jitter 的指数退避。认证失败时
+至多刷新 device token 后重试一次；Server 返回 `DEVICE_REVOKED` 时停止自动重连，
+等待用户重新登录/接入。
 
 MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 LAN/P2P/TURN/Relay 降级。
 
-## 9. RPC 路由
+## 10. RPC 路由
 
 所有请求依次经过：
 
@@ -153,7 +195,7 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 
 单连接限制并发 RPC 数，避免远端耗尽 Host 内存。未知方法返回 `METHOD_NOT_FOUND`，不反射内部对象结构。
 
-## 10. Session Adapter
+## 11. Session Adapter
 
 ### `sessions.list`
 
@@ -179,7 +221,7 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 
 调用目标 Agent 的公开取消能力。RPC 只表示取消已接受；最终状态以 `agent.status` 和会话终止事件为准。
 
-## 11. Streaming 映射
+## 12. Streaming 映射
 
 `ctx.on('session/event', (session, event))` 是权威事件源。
 
@@ -196,7 +238,7 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 
 每个 Remote event 由 `EventSequencer` 分配 Host 级单调 `seq`，保留 bounded replay buffer。敏感 content 只进入端到端加密 payload。
 
-## 12. Permission Adapter
+## 13. Permission Adapter
 
 交互请求来自 `ctx.on('approval/request', ...)`，不是从 `approval/asked` 审计事件反推。
 
@@ -213,7 +255,7 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 
 本机 UI 与 Remote answerer 的并存属于实现前 spike。任何方案都必须保证不会出现两个相互矛盾的最终决定，且本机 `never` policy 永远优先拒绝。
 
-## 13. 配对控制器
+## 14. 配对控制器
 
 - 调用 Server 创建 pairing，展示 code/QR 内容。
 - 接收 claim 通知后验证 Client 公钥与 fingerprint。
@@ -221,13 +263,14 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 - 确认成功后原子写入 trusted peer。
 - 拒绝、过期和错误达到上限后清除 pending 状态。
 
-## 14. 日志和指标
+## 15. 日志和指标
 
 允许记录：connectionId、peer deviceId 的截断形式、transport、持续时间、状态迁移、错误码、P2P/Relay 结果。
 
-禁止记录：token、私钥、共享密钥、完整 prompt、源码、工具输出、TURN 密码和 permission 原始敏感参数。
+禁止记录：账号密码、account/device token、私钥、共享密钥、完整 prompt、源码、
+工具输出、TURN 密码和 permission 原始敏感参数。
 
-## 15. 核心测试
+## 16. 核心测试
 
 - Mock Harness context 验证 RPC 到 adapter 的路由。
 - `session/event` 到 Remote event 的顺序和投影。
@@ -235,10 +278,11 @@ MVP 先启用加密 Relay。连接控制器保留 transport factory，后续按 
 - approval allow/deny/abort/timeout/disconnect 的 fail-closed 行为。
 - 插件 unload 清理 pending 和网络资源。
 - 身份损坏、设备撤销和重放消息拒绝。
+- Host 注册的账号/device token 隔离、跨账号 owner 拒绝和 refresh single-flight。
 
 doctor 输出、终端排版、普通配置默认值等非核心功能不单独写测试。
 
-## 16. 实现门槛
+## 17. 实现门槛
 
 进入真实插件实现前必须完成：
 
@@ -247,3 +291,4 @@ doctor 输出、终端排版、普通配置默认值等非核心功能不单独�
 3. event content 映射样本。
 4. 一份固定的 capability 矩阵。
 5. Mock Host 上已跑通相同协议的 Android vertical slice。
+6. 最新 Server 上完成账号登录、Host 授权注册、device token refresh 与重新连接。

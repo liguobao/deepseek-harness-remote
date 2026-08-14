@@ -1225,6 +1225,8 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 7. 当前 Harness v1 只允许 Remote `allow_once`/`deny`，不得伪造 session grant。
 8. Device revoke 使 token、membership 和现有 connection 失效。
 9. 重放/乱序/身份不匹配的 secure frame 必须拒绝。
+10. Host 注册必须由同一 Server 的 web account token 授权；account token 与 device
+    token 不可互换，切换 Server 不得复用旧 origin 的身份、凭证或配对状态。
 10. 日志禁止记录 token、code 明文、key、prompt、source、workspace 和 tool output。
 11. Admin 无法从数据库或 API 获取 E2EE conversation。
 12. 未协商 capability 的功能不得调用或展示为可用。

@@ -43,6 +43,22 @@ Server 可以读取路由 envelope 和连接元数据，但不能解密 `payload
 
 私钥只能保存在设备本地。Host 第一版写入 `$DSH_HOME/remote/` 并限制文件权限；独立 Server 项目中的 Web Client 写入 IndexedDB，并明确提示浏览器存储、页面生命周期和备份能力有限。
 
+Host identity、账号状态、device credential 与配对关系必须按规范化后的 `serverUrl`
+隔离。切换 Server 时不得发送或自动迁移旧 Server 的 deviceId、token、private key
+或 trusted peer；如果未来提供迁移，必须是用户明确发起且重新经过目标 Server 授权。
+
+### Host 账号授权与设备认证
+
+Host 接入包含两个互不替代的认证层：
+
+- 站点账号认证：用户登录目标 Server，web account token 只用于注册 Host 和账号接口；
+- 设备认证：Host 注册成功后取得独立 access/refresh token，用于 WebSocket、pairing
+  和后台常驻连接。
+
+Host 注册必须携带同一 Server 签发的 web account token；Client 仍可匿名注册作为
+pairing bootstrap。Server 返回账号拥有的 Host 只表示归属元数据，本机缺少对应
+private key 时不能自动恢复、冒充或认领该 Host。
+
 ## 5. 配对协议
 
 设备码使用 8 位无歧义 Base32，展示为 `XXXX-XXXX`，至少约 40 bit 熵。
@@ -194,6 +210,8 @@ OFFLINE
 
 稳定错误码至少包括：
 
+- `ACCOUNT_AUTH_REQUIRED`
+- `DEVICE_OWNERSHIP_REQUIRED`
 - `DEVICE_REVOKED`
 - `CONNECTION_FAILED`
 - `P2P_FAILED`

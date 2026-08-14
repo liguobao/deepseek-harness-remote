@@ -4,7 +4,7 @@ DSH Remote 是 DeepSeek Harness 的安全远程控制方案。安装同一个 Pl
 
 它不是远程桌面、Web Shell、SSH 替代品或通用文件管理器。客户端不能绕过 Harness 调用任意 Shell、文件系统或工具接口。
 
-> DSH Remote 当前是开发预览版本，需要符合 [Server 设计](docs/server.md) 和 [Remote Protocol v1](docs/protocol.md) 的外部 Server。Noise IK 链路已经实现，但跨端 conformance、独立安全审查和生产级互操作仍未完成，请勿用于生产环境。
+> DSH Remote 当前是开发预览版本，需要符合 [Server 设计](docs/server.md) 和 [Remote Protocol v1](docs/protocol.md) 的外部 Server。最新 Server 已要求站点账号授权 Host 注册，当前 Plugin 的账号登录/授权注册适配尚未完成；Noise IK 跨端 conformance、独立安全审查和生产级互操作也未完成，请勿用于生产环境。
 
 ## 特性
 
@@ -17,6 +17,7 @@ DSH Remote 是 DeepSeek Harness 的安全远程控制方案。安装同一个 Pl
 - **权限不扩权**：远端只能为当前 Harness request 选择 `Allow once` 或 `Deny`，默认 fail closed。
 - **加密 Relay**：Server 负责协调和转发，不应读取 Remote RPC、Event 或会话业务明文。
 - **连接恢复**：客户端处理网络变化和应用前后台切换，并为事件回放与完整同步保留协议能力。
+- **Host 账号归属**：Host 注册必须由目标 Server 的站点账号授权，账号认证与后台 device credential 相互隔离。
 - **自部署契约**：Server、Remote Web 和 Admin 由独立 Server 项目作为同一站点实现。
 
 ## 工作方式
@@ -32,7 +33,7 @@ Local Harness UI + Plugin Client       Android Client
                     on remote machine
 ```
 
-Plugin 只建立出站连接，不在 Host 上公开监听 HTTP/WebSocket 端口。Server 负责设备注册、配对协调、在线状态、WebRTC signaling 和加密 Relay，但不能获得 Harness Remote authority；Server membership 与 Host 本地 trusted peer 必须同时成立。
+Plugin 只建立出站连接，不在 Host 上公开监听 HTTP/WebSocket 端口。Server 负责站点账号、Host 归属、设备注册、配对协调、在线状态、WebRTC signaling 和加密 Relay，但不能获得 Harness Remote authority；Server membership 与 Host 本地 trusted peer 必须同时成立。
 
 ## Plugin（Host + Client）
 
@@ -74,7 +75,9 @@ github:liguobao/deepseek-harness-remote#<tag-or-commit>
 
 安装成功后条目应显示为 DSH 插件并自动启用；重启 Harness 后生效。GitHub 安装不需要执行构建脚本，因为仓库会提交根 Host 入口 `index.js`、`packages/plugin/dist/index.js` 与 `packages/plugin/dist/client.github.js` 三个发布入口。浏览器入口使用与根包一致的模块 ID；`packages/plugin` 仍是用于 npm 发布和 CI artifact 的 `@dsh-remote/plugin` 子包。
 
-Plugin 不创建公开端口；它会主动连接配置的 Server，完成设备注册、Token 轮换、WSS 控制面、Relay 与 Noise IK。只有通过 Server membership、本机 trusted peer 和 Noise static identity 三重校验的通道才会进入 Harness RPC。
+Plugin 不创建公开端口。最新 Server 的目标接入流程是：先登录同一 Server 的站点账号，使用 web account token 授权注册 Host，再用独立 device token 完成 WSS 控制面、Token 轮换、Relay 与 Noise IK。只有通过 Server membership、本机 trusted peer 和 Noise static identity 三重校验的通道才会进入 Harness RPC。
+
+当前代码仍按旧版 Host 匿名注册契约实现，尚不能完成最新 Server 的首轮 Host 注册；适配范围和错误处理见 [Host Plugin 接入指南](docs/plugin-integration.md) 与 [TODO](TODO.md)。Android/浏览器 `client` 角色的匿名 pairing bootstrap 不受此变更影响。
 
 ### 配置
 
@@ -104,6 +107,9 @@ export DSH_REMOTE_SERVER=https://dsh.r2049.cn
 ```
 
 生产 Server 必须使用 HTTPS/WSS；只有 `localhost`、`127.0.0.1` 和 `::1` 允许开发期 HTTP。
+账号登录、Host 注册、device token refresh 和 WebSocket 必须使用同一个规范化
+Server origin。切换 Server 时不得把旧 Server 的账号 token、device token、
+deviceId 或配对关系发送到新 Server。
 
 ### 配置项
 
@@ -128,14 +134,19 @@ Plugin 将 Host 身份保存在 `$DSH_HOME/remote`，本地 Client 身份保存�
 - `server-credentials.json`：当前 Server 的短期 access token 与轮换 refresh token，权限必须为 `0600`
 
 私钥损坏、公私钥不匹配或权限过宽时，Plugin 会拒绝继续使用该身份，而不是静默重建并继承旧信任。
+最新 Server 契约还要求按规范化 `serverUrl` 隔离 Host identity、账号状态和 device
+credential；当前单 Server 存储布局需要在账号授权注册适配中一并迁移。
 
 ### Local / Remote 操作流程
 
-1. 在远端机器和本地机器安装 Plugin，保持 `role: both`，并连接同一个 Server。
-2. 在远端机器侧边栏的 Harness target 面板生成配对码。
-3. 在本地面板输入配对码；回到远端机器核对 Client fingerprint 并批准。
-4. 本地面板会列出已配对 Host。选择在线 Host 后页面刷新，原生 Harness 会话界面改为读取该远端机器。
-5. 选择 `This machine (Local)` 返回本机会话。远端断线时代理会 fail closed 并回落到 Local，既不迁移会话也不自动重放未知结果的写操作。
+1. 在远端机器和本地机器安装 Plugin，保持 `role: both`，并选择同一个 Server。
+2. 在远端 Host 登录该 Server 的站点账号，授权注册本机；后台连接随后只使用 device token。
+3. 在远端机器侧边栏的 Harness target 面板生成配对码。
+4. 在本地面板输入配对码；回到远端机器核对 Client fingerprint 并批准。
+5. 本地面板会列出已配对 Host。选择在线 Host 后页面刷新，原生 Harness 会话界面改为读取该远端机器。
+6. 选择 `This machine (Local)` 返回本机会话。远端断线时代理会 fail closed 并回落到 Local，既不迁移会话也不自动重放未知结果的写操作。
+
+第 2 步是最新 Server 要求，当前 Plugin UI/状态机仍待实现。
 
 Remote 模式只代理会话、Workspace、Skills、Agent preset 读取/选择、Goal 和模型目录等明确允许的 Harness API。凭据、设置写入、原生路径打开、目录浏览/创建、附件上传和下载不会穿过远端通道。
 
@@ -176,14 +187,16 @@ CI APK 使用构建时临时生成的 debug key 签名，只适合开发预览�
 Server、Remote Web 和 Admin 不在本仓库实现。独立 Server 项目必须把三者作为一个站点交付，并严格遵守：
 
 - [Server 设计说明](docs/server.md)
+- [Host Plugin 接入指南](docs/plugin-integration.md)
 - [Remote Protocol v1](docs/protocol.md)
 
-向 Server 项目交接时，至少复制以上两份文档；[产品定义](PRODUCT.md) 和 [共享基础设计](docs/design/shared-foundation.md) 可作为补充背景。
+向 Server 项目交接时，至少复制以上三份文档；[产品定义](PRODUCT.md) 和 [共享基础设计](docs/design/shared-foundation.md) 可作为补充背景。
 
 ## 安全边界
 
 - Host 私钥和 Client 私钥只能保存在各自设备本地。
 - Server credential 不能代替 Host trusted peer，也不能直接调用 Harness RPC。
+- web account token 只能授权 Host 注册和访问账号接口；WebSocket 与 pairing 必须使用独立 device token。
 - Relay payload 必须经过端到端认证加密；TLS/WSS 不是唯一安全边界。
 - Native Harness 代理使用固定 allowlist；方法名是协议字段，不是反射式通用 Harness RPC。
 - 设备撤销后，Token、membership 和现有连接都必须失效。
@@ -195,5 +208,6 @@ Server、Remote Web 和 Admin 不在本仓库实现。独立 Server 项目必须
 - [产品定义](PRODUCT.md)
 - [设计系统](DESIGN.md)
 - [设计文档索引](docs/design/README.md)
+- [Host Plugin 接入指南](docs/plugin-integration.md)
 - [项目协作与实现状态](AGENTS.md)
 - [工作清单](TODO.md)

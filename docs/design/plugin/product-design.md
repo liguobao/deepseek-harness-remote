@@ -17,6 +17,7 @@ Remote Plugin 同时承担两个角色：在远端机器上作为可信 Host，�
 用户期望：
 
 - 一次安装后即可随 Harness 启动。
+- 能登录所选 Server 的站点账号，并清楚区分账号授权与后台设备连接状态。
 - 不配置端口转发，不暴露本机公网端口。
 - 能明确看到配对码、当前连接和远端设备。
 - 新设备绑定必须由 Host 确认。
@@ -28,7 +29,10 @@ Remote Plugin 同时承担两个角色：在远端机器上作为可信 Host，�
 
 ### 3.1 启用 Remote
 
-用户安装插件并通过 Cordis patch 或 profile 配置加载。Harness 启动后终端显示：设备名称、设备 ID、Server、配对码、过期时间和连接状态。
+用户安装插件并通过 Cordis patch 或 profile 配置加载，选择 Server 后登录该站点账号。
+Plugin 使用临时 web account token 授权注册本机 Host，再保存独立 device credential
+用于后台常驻。Harness 启动后终端显示：设备名称、设备 ID、Server、账号/设备连接
+状态、配对码和过期时间，但不显示任何 token。
 
 ### 3.2 配对新设备
 
@@ -53,6 +57,8 @@ Host 提供清晰日志和 doctor 信息：插件是否加载、身份是否有�
 ## 4. MVP 范围
 
 - Cordis 生命周期加载与卸载。
+- 同源站点账号登录、Host 授权注册与账号/device credential 隔离。
+- 按规范化 Server origin 隔离 Host identity、credential 和配对关系。
 - 持久设备身份和可信设备列表。
 - Host 主动建立 WSS 出站连接。
 - 创建配对、Host 确认和撤销设备。
@@ -70,7 +76,7 @@ Host 提供清晰日志和 doctor 信息：插件是否加载、身份是否有�
 - 不提供 PTY、SSH、VNC、文件浏览器或任意 shell API。
 - 不修改 DeepSeek Harness 源码或用户现有 `cordis.patch.yml`。
 - 不自动接受权限，不设置比 Harness 更宽松的策略。
-- 不在 Plugin 中实现账户、组织、计费或多人协作。
+- 不在 Plugin 中实现 Server 侧账户系统、组织、计费或多人协作；Plugin 只实现登录与授权接入客户端。
 - 不代理 credentials、settings 写入、任意目录/文件、native open、附件或下载 API。
 
 ## 6. 主机侧体验
@@ -105,7 +111,7 @@ Allow from the local Harness UI or CLI prompt
 
 ## 8. 成功指标
 
-- 首次启动到显示可用配对码不超过 5 秒（Server 可达时）。
+- 已有有效 device credential 时，启动到显示可用配对码不超过 5 秒（Server 可达时）；首次账号登录耗时不计入。
 - 已配对设备在普通断网恢复后 10 秒内重新连通。
 - 会话事件在 Relay 模式下 P95 端到端延迟低于 500 ms（不含模型生成耗时）。
 - 所有远端允许操作都能追溯到一个 Harness approval request。
@@ -115,9 +121,10 @@ Allow from the local Harness UI or CLI prompt
 
 1. npm 子包或 GitHub 根包均通过各自的 bundle patch 和同名 client metadata 加载，不修改 Harness 核心。
 2. Host 不监听公网端口，只建立出站连接。
-3. Host 可生成设备码并确认/拒绝 Client。
-4. 本地 Harness 可选择已配对 Host，刷新后通过原生会话 UI 创建/继续远端会话。
-5. Android Client 发送消息后，真实 Harness Agent 收到并执行。
-6. `assistant/chunk`、工具和状态事件实时转发。
-7. Harness approval 可由 Remote Client `Allow once` 或 `Deny`，且断线/超时 fail closed。
-8. 插件卸载时网络、定时器、原生流和 pending approval 全部清理。
+3. Host 用目标 Server 的 web account token 完成账号授权注册，随后只用 device token 建立后台连接。
+4. Host 可生成设备码并确认/拒绝 Client。
+5. 本地 Harness 可选择已配对 Host，刷新后通过原生会话 UI 创建/继续远端会话。
+6. Android Client 发送消息后，真实 Harness Agent 收到并执行。
+7. `assistant/chunk`、工具和状态事件实时转发。
+8. Harness approval 可由 Remote Client `Allow once` 或 `Deny`，且断线/超时 fail closed。
+9. 插件卸载时网络、定时器、原生流和 pending approval 全部清理。
