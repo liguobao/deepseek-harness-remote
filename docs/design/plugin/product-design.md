@@ -13,7 +13,7 @@ Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新�
 
 ## 2. 核心用户路径
 
-1. 远端 Harness 选择 Host，用站点账号密码或网页生成的主机匹配码完成设备接入。
+1. 远端 Harness 选择 Host，用网页生成的一次性设备授权码完成设备接入。
 2. 本地 Harness 选择 Client，用相同 Server 和相同账号完成设备接入。
 3. Server 自动建立同账号 membership，双端从受保护设备详情固定对端公钥。
 4. 本地侧边栏选择 Remote Host，官方 Harness UI 通过远端 ApiProxy 工作。
@@ -22,7 +22,7 @@ Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新�
 ## 3. MVP 范围
 
 - Cordis 生命周期与 GitHub/npm Bundle 入口。
-- 站点账号授权 Host/Client 注册，Host 支持账号密码或主机匹配码；账号 token 与 device token 隔离。
+- 站点账号授权 Host/Client 注册；当前 Host 设置页仅开放一次性设备授权码，账号 token 与 device token 隔离。
 - 按 Server origin 与 Host/Client 角色隔离身份和 credential。
 - 同账号 membership、双端 pinned peer 与设备撤销。
 - Host 主动建立 WSS，Relay 上运行 Noise IK。

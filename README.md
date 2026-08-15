@@ -26,7 +26,7 @@ dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.2.10"
 重启 Harness，前往 **设置 → 插件 → 插件配置 → DeepSeek 远程连接**：
 
 1. 配置 Server 地址。
-2. 使用站点账号密码，或输入登录 Server 网页后生成的一次性连接码；密码和连接码都只用于本次 HTTPS 接入。
+2. 输入登录 Server 网页后生成的一次性设备授权码；授权码只用于本次 HTTPS 接入。
 3. 重启 Harness，使 Host 常驻连接生效。
 
 当前 Plugin 固定运行 Host 模式；Client 配置和侧边栏本地/远程切换入口暂时隐藏。

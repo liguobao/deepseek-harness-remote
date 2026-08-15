@@ -16,7 +16,7 @@
     client: "Client",
     authorization: "Authorization",
     account: "Account",
-    hostRegistrationCode: "One-time connection code",
+    hostRegistrationCode: "One-time device authorization code",
     ownedDeviceAuthorization: "Owned device",
     authorizedOn: "{role} is authorized on {serverUrl}.",
     readOnly: "This DSH profile does not provide writable user settings.",
@@ -29,7 +29,7 @@
     serverUrlHint: "HTTPS origin used for account authorization and encrypted relay.",
     authorizationMethod: "Authorization method",
     accountPassword: "Account password",
-    registrationCode: "Connection code",
+    registrationCode: "Device authorization code",
     registrationCodeHint: "Generate it after signing in on the Server website. Use it once to connect this device.",
     accountHint: "The account must belong to the selected Server.",
     password: "Password",
@@ -37,7 +37,7 @@
     modeSavedNeedsAuthorization: "Mode saved. Authorize {role} before connecting. Existing registrations were kept.",
     modeSavedReused: "Mode saved. Existing registration reused. Restart Harness to apply.",
     modeSavedOwnedRole: "Mode saved. This owned device was authorized automatically. Restart Harness to apply.",
-    enterRegistrationCode: "Enter the connection code.",
+    enterRegistrationCode: "Enter the device authorization code.",
     enterAccountPassword: "Enter the Server account and password.",
     associationSaved: "Associated. Restart Harness to apply.",
     signedOut: "Signed out. Restart Harness to disconnect this mode.",
@@ -95,7 +95,7 @@
     client: "Client",
     authorization: "\u6388\u6743",
     account: "\u8D26\u53F7",
-    hostRegistrationCode: "\u4E00\u6B21\u6027\u8FDE\u63A5\u7801",
+    hostRegistrationCode: "\u4E00\u6B21\u6027\u8BBE\u5907\u6388\u6743\u7801",
     ownedDeviceAuthorization: "\u81EA\u6709\u8BBE\u5907",
     authorizedOn: "{role}\u5DF2\u7ECF\u5728 {serverUrl} \u5B8C\u6210\u6388\u6743\u3002",
     readOnly: "\u6B64 DSH profile \u4E0D\u63D0\u4F9B\u53EF\u5199\u7684\u7528\u6237\u8BBE\u7F6E\u3002",
@@ -108,7 +108,7 @@
     serverUrlHint: "\u7528\u4E8E\u8D26\u53F7\u6388\u6743\u548C\u52A0\u5BC6\u4E2D\u7EE7\u7684 HTTPS \u5730\u5740\u3002",
     authorizationMethod: "\u6388\u6743\u65B9\u5F0F",
     accountPassword: "\u8D26\u53F7\u5BC6\u7801",
-    registrationCode: "\u8FDE\u63A5\u7801",
+    registrationCode: "\u8BBE\u5907\u6388\u6743\u7801",
     registrationCodeHint: "\u767B\u5F55 Server \u7F51\u9875\u540E\u751F\u6210\uFF0C\u7528\u4E00\u6B21\u5373\u53EF\u8FDE\u63A5\u8FD9\u53F0\u8BBE\u5907\u3002",
     accountHint: "\u8D26\u53F7\u5FC5\u987B\u5C5E\u4E8E\u6240\u9009 Server\u3002",
     password: "\u5BC6\u7801",
@@ -116,7 +116,7 @@
     modeSavedNeedsAuthorization: "\u6A21\u5F0F\u5DF2\u4FDD\u5B58\u3002\u8FDE\u63A5\u524D\u8BF7\u5148\u6388\u6743 {role}\uFF1B\u5DF2\u6709\u6CE8\u518C\u4FE1\u606F\u5DF2\u4FDD\u7559\u3002",
     modeSavedReused: "\u6A21\u5F0F\u5DF2\u4FDD\u5B58\u5E76\u590D\u7528\u5DF2\u6709\u6CE8\u518C\u4FE1\u606F\u3002\u91CD\u542F Harness \u540E\u751F\u6548\u3002",
     modeSavedOwnedRole: "\u6A21\u5F0F\u5DF2\u4FDD\u5B58\uFF0C\u5E76\u5DF2\u81EA\u52A8\u6388\u6743\u6B64\u81EA\u6709\u8BBE\u5907\u3002\u91CD\u542F Harness \u540E\u751F\u6548\u3002",
-    enterRegistrationCode: "\u8BF7\u8F93\u5165\u8FDE\u63A5\u7801\u3002",
+    enterRegistrationCode: "\u8BF7\u8F93\u5165\u8BBE\u5907\u6388\u6743\u7801\u3002",
     enterAccountPassword: "\u8BF7\u8F93\u5165 Server \u8D26\u53F7\u548C\u5BC6\u7801\u3002",
     associationSaved: "\u5173\u8054\u6210\u529F\u3002\u91CD\u542F Harness \u540E\u751F\u6548\u3002",
     signedOut: "\u5DF2\u9000\u51FA\u6388\u6743\u3002\u91CD\u542F Harness \u540E\u5C06\u65AD\u5F00\u6B64\u6A21\u5F0F\u3002",
@@ -178,7 +178,7 @@
     factory: (require2) => {
       let module = { exports: {} }, React = require2("react"), inject = ["connection", "slots", "locale"];
       function RemotePluginOptions(props) {
-        let { t } = props, [open, setOpen] = React.useState(!1), [serverUrl, setServerUrl] = React.useState(""), role = "host", [hostEnrollment, setHostEnrollment] = React.useState("account"), [registrationCode, setRegistrationCode] = React.useState(""), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [associations, setAssociations] = React.useState({}), [loaded, setLoaded] = React.useState(!1), [writable, setWritable] = React.useState(!1), [busy, setBusy] = React.useState(!1), [reconnectBusy, setReconnectBusy] = React.useState(!1), [hostStatus, setHostStatus] = React.useState(void 0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0), [settingsView, setSettingsView] = React.useState(void 0), persistedServerUrl = settingsView?.config.serverUrl ?? "https://dsh.r2049.cn", association = associations.host, draftDirty = settingsView !== void 0 && serverUrl !== persistedServerUrl || (email !== "" || password !== "" || registrationCode !== ""), applyView = (view) => {
+        let { t } = props, [open, setOpen] = React.useState(!1), [serverUrl, setServerUrl] = React.useState(""), role = "host", [registrationCode, setRegistrationCode] = React.useState(""), [associations, setAssociations] = React.useState({}), [loaded, setLoaded] = React.useState(!1), [writable, setWritable] = React.useState(!1), [busy, setBusy] = React.useState(!1), [reconnectBusy, setReconnectBusy] = React.useState(!1), [hostStatus, setHostStatus] = React.useState(void 0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0), [settingsView, setSettingsView] = React.useState(void 0), persistedServerUrl = settingsView?.config.serverUrl ?? "https://dsh.r2049.cn", association = associations.host, draftDirty = settingsView !== void 0 && serverUrl !== persistedServerUrl || registrationCode !== "", applyView = (view) => {
           setSettingsView(view), setServerUrl(view.config.serverUrl ?? "https://dsh.r2049.cn"), setAssociations(view.associations ?? (view.association === void 0 ? {} : { host: view.association })), setWritable(view.writable), setLoaded(!0);
         }, load = async () => {
           let [view, status] = await Promise.all([
@@ -206,16 +206,14 @@
           if (event?.preventDefault(), !!writable) {
             setBusy(!0), setNotice(void 0), setError(void 0);
             try {
-              if (hostEnrollment === "host_registration_code" && registrationCode.trim() === "")
+              if (registrationCode.trim() === "")
                 throw new Error(t("enterRegistrationCode"));
-              if (hostEnrollment === "account" && (email.trim() === "" || password === ""))
-                throw new Error(t("enterAccountPassword"));
               let result = await props.control("settings.configure", {
                 serverUrl,
                 role,
-                ...hostEnrollment === "host_registration_code" ? { registrationCode } : { email, password }
+                registrationCode
               });
-              applyView(result.settings), setNotice({ key: "associationSaved" }), setRegistrationCode(""), setEmail(""), setPassword("");
+              applyView(result.settings), setNotice({ key: "associationSaved" }), setRegistrationCode("");
             } catch (reason) {
               setError(messageOf(reason));
             } finally {
@@ -226,7 +224,7 @@
           setBusy(!0), setError(void 0), setNotice(void 0);
           try {
             let view = await props.control("settings.logout");
-            applyView(view), setEmail(""), setPassword(""), setRegistrationCode(""), setNotice({ key: "signedOut" });
+            applyView(view), setRegistrationCode(""), setNotice({ key: "signedOut" });
           } catch (reason) {
             setError(messageOf(reason));
           } finally {
@@ -243,7 +241,7 @@
             setReconnectBusy(!1);
           }
         }, discard = () => {
-          settingsView !== void 0 && applyView(settingsView), setRegistrationCode(""), setEmail(""), setPassword(""), setNotice(void 0), setError(void 0);
+          settingsView !== void 0 && applyView(settingsView), setRegistrationCode(""), setNotice(void 0), setError(void 0);
         };
         return React.createElement(
           "li",
@@ -354,104 +352,20 @@
               ),
               React.createElement(
                 "div",
-                { className: "dshRemoteAuthMethod" },
-                React.createElement("span", { className: "dshRemoteFieldLabel" }, t("authorizationMethod")),
-                React.createElement(
-                  "div",
-                  { className: "dshRemoteAuthTabs", role: "tablist", "aria-label": t("authorizationMethod") },
-                  React.createElement("button", {
-                    type: "button",
-                    role: "tab",
-                    id: "dsh-remote-auth-account-tab",
-                    className: hostEnrollment === "account" ? "isActive" : "",
-                    "aria-selected": hostEnrollment === "account",
-                    "aria-controls": "dsh-remote-auth-account-panel",
-                    disabled: busy || !writable,
-                    onClick: () => {
-                      setHostEnrollment("account"), setNotice(void 0), setError(void 0);
-                    }
-                  }, t("accountPassword")),
-                  React.createElement("button", {
-                    type: "button",
-                    role: "tab",
-                    id: "dsh-remote-auth-code-tab",
-                    className: hostEnrollment === "host_registration_code" ? "isActive" : "",
-                    "aria-selected": hostEnrollment === "host_registration_code",
-                    "aria-controls": "dsh-remote-auth-code-panel",
-                    disabled: busy || !writable,
-                    onClick: () => {
-                      setHostEnrollment("host_registration_code"), setNotice(void 0), setError(void 0);
-                    }
-                  }, t("registrationCode"))
-                )
-              ),
-              hostEnrollment === "host_registration_code" ? React.createElement(
-                "div",
-                {
-                  className: "dshRemoteAuthPanel",
-                  role: "tabpanel",
-                  id: "dsh-remote-auth-code-panel",
-                  "aria-labelledby": "dsh-remote-auth-code-tab"
-                },
-                React.createElement(
-                  "div",
-                  { className: "dshRemoteField" },
-                  React.createElement("label", { htmlFor: "dsh-remote-registration-code" }, t("hostRegistrationCode")),
-                  React.createElement("input", {
-                    id: "dsh-remote-registration-code",
-                    value: registrationCode,
-                    disabled: busy || !writable,
-                    required: !0,
-                    autoComplete: "one-time-code",
-                    placeholder: "ABCD-EFGH",
-                    onChange: (event) => {
-                      setRegistrationCode(event.target.value), setNotice(void 0);
-                    }
-                  }),
-                  React.createElement("p", null, t("registrationCodeHint"))
-                )
-              ) : React.createElement(
-                "div",
-                {
-                  className: "dshRemoteAuthPanel",
-                  role: "tabpanel",
-                  id: "dsh-remote-auth-account-panel",
-                  "aria-labelledby": "dsh-remote-auth-account-tab"
-                },
-                React.createElement(
-                  "div",
-                  { className: "dshRemoteField" },
-                  React.createElement("label", { htmlFor: "dsh-remote-account" }, t("account")),
-                  React.createElement("input", {
-                    id: "dsh-remote-account",
-                    type: "email",
-                    value: email,
-                    disabled: busy || !writable,
-                    required: !0,
-                    autoComplete: "username",
-                    onChange: (event) => {
-                      setEmail(event.target.value), setNotice(void 0);
-                    }
-                  }),
-                  React.createElement("p", null, t("accountHint"))
-                ),
-                React.createElement(
-                  "div",
-                  { className: "dshRemoteField" },
-                  React.createElement("label", { htmlFor: "dsh-remote-password" }, t("password")),
-                  React.createElement("input", {
-                    id: "dsh-remote-password",
-                    type: "password",
-                    value: password,
-                    disabled: busy || !writable,
-                    required: !0,
-                    autoComplete: "current-password",
-                    onChange: (event) => {
-                      setPassword(event.target.value), setNotice(void 0);
-                    }
-                  }),
-                  React.createElement("p", null, t("passwordHint"))
-                )
+                { className: "dshRemoteField" },
+                React.createElement("label", { htmlFor: "dsh-remote-registration-code" }, t("hostRegistrationCode")),
+                React.createElement("input", {
+                  id: "dsh-remote-registration-code",
+                  value: registrationCode,
+                  disabled: busy || !writable,
+                  required: !0,
+                  autoComplete: "one-time-code",
+                  placeholder: "ABCD-EFGH",
+                  onChange: (event) => {
+                    setRegistrationCode(event.target.value), setNotice(void 0);
+                  }
+                }),
+                React.createElement("p", null, t("registrationCodeHint"))
               ),
               writable ? null : React.createElement("p", { className: "dshRemoteError" }, t("readOnly")),
               React.createElement(
@@ -625,12 +539,11 @@
           ".dshRemotePluginCardHeader{display:flex;align-items:center}.dshRemotePluginCardToggle{appearance:none;width:100%;min-width:0;font:inherit;color:inherit;text-align:left;cursor:pointer;background:transparent;border:0;border-radius:12px;display:flex;align-items:center;gap:12px;padding:14px 16px}.dshRemotePluginCardToggle:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}",
           ".dshRemotePluginCardHeading{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}.dshRemotePluginCardHeading>strong{color:var(--dsw-alias-label-primary);font-size:15px;font-weight:600;line-height:1.4}.dshRemotePluginCardHeading>span{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1.5}.dshRemotePluginCardStatus{white-space:nowrap;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-secondary);border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;line-height:17px}.dshRemotePluginCardStatus.isOnline{color:var(--dsw-alias-state-success,#287a3d)}.dshRemotePluginCardStatus.isReconnecting{color:var(--dsw-alias-state-warning,#8a5a00)}.dshRemotePluginCardStatus.isOffline{color:var(--dsw-alias-state-danger,#b42318)}.dshRemotePluginCardChevron{color:var(--dsw-alias-label-tertiary);font-size:18px;line-height:14px;transition:transform .16s}.dshRemotePluginCard.isOpen .dshRemotePluginCardChevron{transform:rotate(180deg)}",
           ".dshRemotePluginCardBody{border-top:1px solid var(--dsw-alias-border-l2);margin:0 16px;padding-bottom:8px}.dshRemoteSettings{display:flex;flex-direction:column;max-width:720px}.dshRemoteSettingsTop{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:12px 0}.dshRemoteSettingsState{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1.5}",
-          ".dshRemoteAuthPanel{display:flex;flex-direction:column}.dshRemoteField,.dshRemoteAuthMethod{display:flex;flex-direction:column;gap:6px;padding:12px 0}.dshRemoteField+.dshRemoteField,.dshRemoteField+.dshRemoteAuthMethod,.dshRemoteAuthMethod+.dshRemoteField,.dshRemoteAuthMethod+.dshRemoteAuthPanel>.dshRemoteField:first-child{border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteField label,.dshRemoteFieldLabel{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}.dshRemoteField input{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5}.dshRemoteField input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}.dshRemoteField input:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}.dshRemoteField p{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}",
-          ".dshRemoteAuthTabs{align-self:flex-start;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;display:flex;padding:2px}.dshRemoteAuthTabs button{appearance:none;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;line-height:28px;padding:0 12px;cursor:pointer}.dshRemoteAuthTabs button:hover:not(:disabled){color:var(--dsw-alias-label-primary)}.dshRemoteAuthTabs button.isActive{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);font-weight:500}.dshRemoteAuthTabs button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:0}.dshRemoteAuthTabs button:disabled{cursor:default;opacity:.45}",
+          ".dshRemoteField{display:flex;flex-direction:column;gap:6px;padding:12px 0}.dshRemoteField+.dshRemoteField{border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteField label{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}.dshRemoteField input{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5}.dshRemoteField input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}.dshRemoteField input:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}.dshRemoteField p{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}",
           ".dshRemoteAssociation{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}.dshRemoteAssociation>span{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}.dshRemoteAssociation strong{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:1.5}.dshRemoteAssociation p{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}",
           ".dshRemoteConnection{border-top:1px solid var(--dsw-alias-border-l2);display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0}.dshRemoteConnectionSummary{min-width:0;display:flex;flex-direction:column;gap:4px}.dshRemoteConnectionSummary>span{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}.dshRemoteConnectionSummary strong{display:flex;align-items:center;gap:7px;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:1.5}.dshRemoteConnectionSummary p,.dshRemoteConnectionIssue{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}.dshRemoteConnectionDot{width:8px;height:8px;flex:0 0 auto;border-radius:999px;background:var(--dsw-alias-label-tertiary)}.dshRemoteConnectionDot.isOnline{background:var(--dsw-alias-state-success,#287a3d)}.dshRemoteConnectionDot.isReconnecting{background:var(--dsw-alias-state-warning,#8a5a00)}.dshRemoteConnectionDot.isOffline{background:var(--dsw-alias-state-danger,#b42318)}.dshRemoteConnectionIssue{color:var(--dsw-alias-state-danger,#b42318);padding:0 0 12px}.dshRemoteReconnect{appearance:none;flex:0 0 auto;font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);min-height:34px;padding:5px 14px;font-size:13px;line-height:1.5}.dshRemoteReconnect:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteReconnect:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}.dshRemoteReconnect:disabled{opacity:.4;cursor:default}",
           ".dshRemoteSettingsFooter{border-top:1px solid var(--dsw-alias-border-l2);display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 0 4px}.dshRemoteSettingsFooter .dshRemoteError,.dshRemoteNotice{min-width:0;flex:1;margin:0;font-size:12px;line-height:1.5}.dshRemoteNotice{color:var(--dsw-alias-label-tertiary)}.dshRemoteDiscard,.dshRemoteSave{appearance:none;font:inherit;cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}.dshRemoteDiscard{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);background:transparent}.dshRemoteDiscard:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}.dshRemoteSave{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3)}.dshRemoteDiscard:disabled,.dshRemoteSave:disabled{opacity:.4;cursor:default}.dshRemoteDiscard:focus-visible,.dshRemoteSave:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}",
-          "@media(max-width:620px){.dshRemotePluginCardStatus{display:none}.dshRemoteSettingsTop{gap:10px}.dshRemoteConnection{align-items:flex-start}.dshRemoteReconnect{min-height:40px}.dshRemoteAuthTabs{align-self:stretch}.dshRemoteAuthTabs button{flex:1;padding:0 8px}}"
+          "@media(max-width:620px){.dshRemotePluginCardStatus{display:none}.dshRemoteSettingsTop{gap:10px}.dshRemoteConnection{align-items:flex-start}.dshRemoteReconnect{min-height:40px}}"
         ].join(""), document.head.append(style), () => style.remove();
       }
       function apply(ctx) {

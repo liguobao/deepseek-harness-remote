@@ -91,7 +91,7 @@ const en = {
   client: 'Client',
   authorization: 'Authorization',
   account: 'Account',
-  hostRegistrationCode: 'One-time connection code',
+  hostRegistrationCode: 'One-time device authorization code',
   ownedDeviceAuthorization: 'Owned device',
   authorizedOn: '{role} is authorized on {serverUrl}.',
   readOnly: 'This DSH profile does not provide writable user settings.',
@@ -104,7 +104,7 @@ const en = {
   serverUrlHint: 'HTTPS origin used for account authorization and encrypted relay.',
   authorizationMethod: 'Authorization method',
   accountPassword: 'Account password',
-  registrationCode: 'Connection code',
+  registrationCode: 'Device authorization code',
   registrationCodeHint: 'Generate it after signing in on the Server website. Use it once to connect this device.',
   accountHint: 'The account must belong to the selected Server.',
   password: 'Password',
@@ -112,7 +112,7 @@ const en = {
   modeSavedNeedsAuthorization: 'Mode saved. Authorize {role} before connecting. Existing registrations were kept.',
   modeSavedReused: 'Mode saved. Existing registration reused. Restart Harness to apply.',
   modeSavedOwnedRole: 'Mode saved. This owned device was authorized automatically. Restart Harness to apply.',
-  enterRegistrationCode: 'Enter the connection code.',
+  enterRegistrationCode: 'Enter the device authorization code.',
   enterAccountPassword: 'Enter the Server account and password.',
   associationSaved: 'Associated. Restart Harness to apply.',
   signedOut: 'Signed out. Restart Harness to disconnect this mode.',
@@ -172,7 +172,7 @@ const zh: Record<keyof typeof en, string> = {
   client: 'Client',
   authorization: '授权',
   account: '账号',
-  hostRegistrationCode: '一次性连接码',
+  hostRegistrationCode: '一次性设备授权码',
   ownedDeviceAuthorization: '自有设备',
   authorizedOn: '{role}已经在 {serverUrl} 完成授权。',
   readOnly: '此 DSH profile 不提供可写的用户设置。',
@@ -185,7 +185,7 @@ const zh: Record<keyof typeof en, string> = {
   serverUrlHint: '用于账号授权和加密中继的 HTTPS 地址。',
   authorizationMethod: '授权方式',
   accountPassword: '账号密码',
-  registrationCode: '连接码',
+  registrationCode: '设备授权码',
   registrationCodeHint: '登录 Server 网页后生成，用一次即可连接这台设备。',
   accountHint: '账号必须属于所选 Server。',
   password: '密码',
@@ -193,7 +193,7 @@ const zh: Record<keyof typeof en, string> = {
   modeSavedNeedsAuthorization: '模式已保存。连接前请先授权 {role}；已有注册信息已保留。',
   modeSavedReused: '模式已保存并复用已有注册信息。重启 Harness 后生效。',
   modeSavedOwnedRole: '模式已保存，并已自动授权此自有设备。重启 Harness 后生效。',
-  enterRegistrationCode: '请输入连接码。',
+  enterRegistrationCode: '请输入设备授权码。',
   enterAccountPassword: '请输入 Server 账号和密码。',
   associationSaved: '关联成功。重启 Harness 后生效。',
   signedOut: '已退出授权。重启 Harness 后将断开此模式。',
@@ -296,10 +296,7 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false)
       const [serverUrl, setServerUrl] = React.useState('')
       const role = 'host' as const
-      const [hostEnrollment, setHostEnrollment] = React.useState<'account' | 'host_registration_code'>('account')
       const [registrationCode, setRegistrationCode] = React.useState('')
-      const [email, setEmail] = React.useState('')
-      const [password, setPassword] = React.useState('')
       const [associations, setAssociations] = React.useState<Partial<Record<'host' | 'client', PluginAssociation>>>({})
       const [loaded, setLoaded] = React.useState(false)
       const [writable, setWritable] = React.useState(false)
@@ -312,7 +309,7 @@ window.__ModuleLoader__.load({
       const persistedServerUrl = settingsView?.config.serverUrl ?? 'https://dsh.r2049.cn'
       const association = associations.host
       const serverDirty = settingsView !== undefined && serverUrl !== persistedServerUrl
-      const authorizationDirty = email !== '' || password !== '' || registrationCode !== ''
+      const authorizationDirty = registrationCode !== ''
       const draftDirty = serverDirty || authorizationDirty
 
       const applyView = (view: PluginSettingsView): void => {
@@ -356,24 +353,17 @@ window.__ModuleLoader__.load({
         setNotice(undefined)
         setError(undefined)
         try {
-          if (hostEnrollment === 'host_registration_code' && registrationCode.trim() === '') {
+          if (registrationCode.trim() === '') {
             throw new Error(t('enterRegistrationCode'))
-          }
-          if (hostEnrollment === 'account' && (email.trim() === '' || password === '')) {
-            throw new Error(t('enterAccountPassword'))
           }
           const result = await props.control<PluginConfigureResult>('settings.configure', {
             serverUrl,
             role,
-            ...(hostEnrollment === 'host_registration_code'
-              ? { registrationCode }
-              : { email, password }),
+            registrationCode,
           })
           applyView(result.settings)
           setNotice({ key: 'associationSaved' })
           setRegistrationCode('')
-          setEmail('')
-          setPassword('')
         } catch (reason) {
           setError(messageOf(reason))
         } finally {
@@ -388,8 +378,6 @@ window.__ModuleLoader__.load({
         try {
           const view = await props.control<PluginSettingsView>('settings.logout')
           applyView(view)
-          setEmail('')
-          setPassword('')
           setRegistrationCode('')
           setNotice({ key: 'signedOut' })
         } catch (reason) {
@@ -417,8 +405,6 @@ window.__ModuleLoader__.load({
       const discard = (): void => {
         if (settingsView !== undefined) applyView(settingsView)
         setRegistrationCode('')
-        setEmail('')
-        setPassword('')
         setNotice(undefined)
         setError(undefined)
       }
@@ -505,78 +491,18 @@ window.__ModuleLoader__.load({
             onChange: (event: Event) => { setServerUrl((event.target as HTMLInputElement).value); setNotice(undefined) },
           }),
           React.createElement('p', null, t('serverUrlHint'))),
-        React.createElement('div', { className: 'dshRemoteAuthMethod' },
-          React.createElement('span', { className: 'dshRemoteFieldLabel' }, t('authorizationMethod')),
-          React.createElement('div', { className: 'dshRemoteAuthTabs', role: 'tablist', 'aria-label': t('authorizationMethod') },
-            React.createElement('button', {
-              type: 'button',
-              role: 'tab',
-              id: 'dsh-remote-auth-account-tab',
-              className: hostEnrollment === 'account' ? 'isActive' : '',
-              'aria-selected': hostEnrollment === 'account',
-              'aria-controls': 'dsh-remote-auth-account-panel',
-              disabled: busy || !writable,
-              onClick: () => { setHostEnrollment('account'); setNotice(undefined); setError(undefined) },
-            }, t('accountPassword')),
-            React.createElement('button', {
-              type: 'button',
-              role: 'tab',
-              id: 'dsh-remote-auth-code-tab',
-              className: hostEnrollment === 'host_registration_code' ? 'isActive' : '',
-              'aria-selected': hostEnrollment === 'host_registration_code',
-              'aria-controls': 'dsh-remote-auth-code-panel',
-              disabled: busy || !writable,
-              onClick: () => { setHostEnrollment('host_registration_code'); setNotice(undefined); setError(undefined) },
-            }, t('registrationCode')))),
-        hostEnrollment === 'host_registration_code'
-          ? React.createElement('div', {
-            className: 'dshRemoteAuthPanel',
-            role: 'tabpanel',
-            id: 'dsh-remote-auth-code-panel',
-            'aria-labelledby': 'dsh-remote-auth-code-tab',
-          },
-            React.createElement('div', { className: 'dshRemoteField' },
-              React.createElement('label', { htmlFor: 'dsh-remote-registration-code' }, t('hostRegistrationCode')),
-              React.createElement('input', {
-                id: 'dsh-remote-registration-code',
-                value: registrationCode,
-                disabled: busy || !writable,
-                required: true,
-                autoComplete: 'one-time-code',
-                placeholder: 'ABCD-EFGH',
-                onChange: (event: Event) => { setRegistrationCode((event.target as HTMLInputElement).value); setNotice(undefined) },
-              }),
-              React.createElement('p', null, t('registrationCodeHint'))))
-          : React.createElement('div', {
-            className: 'dshRemoteAuthPanel',
-            role: 'tabpanel',
-            id: 'dsh-remote-auth-account-panel',
-            'aria-labelledby': 'dsh-remote-auth-account-tab',
-          },
-            React.createElement('div', { className: 'dshRemoteField' },
-              React.createElement('label', { htmlFor: 'dsh-remote-account' }, t('account')),
-              React.createElement('input', {
-                id: 'dsh-remote-account',
-                type: 'email',
-                value: email,
-                disabled: busy || !writable,
-                required: true,
-                autoComplete: 'username',
-                onChange: (event: Event) => { setEmail((event.target as HTMLInputElement).value); setNotice(undefined) },
-              }),
-              React.createElement('p', null, t('accountHint'))),
-            React.createElement('div', { className: 'dshRemoteField' },
-              React.createElement('label', { htmlFor: 'dsh-remote-password' }, t('password')),
-              React.createElement('input', {
-                id: 'dsh-remote-password',
-                type: 'password',
-                value: password,
-                disabled: busy || !writable,
-                required: true,
-                autoComplete: 'current-password',
-                onChange: (event: Event) => { setPassword((event.target as HTMLInputElement).value); setNotice(undefined) },
-              }),
-              React.createElement('p', null, t('passwordHint')))),
+        React.createElement('div', { className: 'dshRemoteField' },
+          React.createElement('label', { htmlFor: 'dsh-remote-registration-code' }, t('hostRegistrationCode')),
+          React.createElement('input', {
+            id: 'dsh-remote-registration-code',
+            value: registrationCode,
+            disabled: busy || !writable,
+            required: true,
+            autoComplete: 'one-time-code',
+            placeholder: 'ABCD-EFGH',
+            onChange: (event: Event) => { setRegistrationCode((event.target as HTMLInputElement).value); setNotice(undefined) },
+          }),
+          React.createElement('p', null, t('registrationCodeHint'))),
         !writable ? React.createElement('p', { className: 'dshRemoteError' }, t('readOnly')) : null,
         React.createElement('div', { className: 'dshRemoteSettingsFooter' },
           error !== undefined
@@ -782,12 +708,11 @@ window.__ModuleLoader__.load({
         '.dshRemotePluginCardHeader{display:flex;align-items:center}.dshRemotePluginCardToggle{appearance:none;width:100%;min-width:0;font:inherit;color:inherit;text-align:left;cursor:pointer;background:transparent;border:0;border-radius:12px;display:flex;align-items:center;gap:12px;padding:14px 16px}.dshRemotePluginCardToggle:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}',
         '.dshRemotePluginCardHeading{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}.dshRemotePluginCardHeading>strong{color:var(--dsw-alias-label-primary);font-size:15px;font-weight:600;line-height:1.4}.dshRemotePluginCardHeading>span{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1.5}.dshRemotePluginCardStatus{white-space:nowrap;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-secondary);border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;line-height:17px}.dshRemotePluginCardStatus.isOnline{color:var(--dsw-alias-state-success,#287a3d)}.dshRemotePluginCardStatus.isReconnecting{color:var(--dsw-alias-state-warning,#8a5a00)}.dshRemotePluginCardStatus.isOffline{color:var(--dsw-alias-state-danger,#b42318)}.dshRemotePluginCardChevron{color:var(--dsw-alias-label-tertiary);font-size:18px;line-height:14px;transition:transform .16s}.dshRemotePluginCard.isOpen .dshRemotePluginCardChevron{transform:rotate(180deg)}',
         '.dshRemotePluginCardBody{border-top:1px solid var(--dsw-alias-border-l2);margin:0 16px;padding-bottom:8px}.dshRemoteSettings{display:flex;flex-direction:column;max-width:720px}.dshRemoteSettingsTop{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:12px 0}.dshRemoteSettingsState{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1.5}',
-        '.dshRemoteAuthPanel{display:flex;flex-direction:column}.dshRemoteField,.dshRemoteAuthMethod{display:flex;flex-direction:column;gap:6px;padding:12px 0}.dshRemoteField+.dshRemoteField,.dshRemoteField+.dshRemoteAuthMethod,.dshRemoteAuthMethod+.dshRemoteField,.dshRemoteAuthMethod+.dshRemoteAuthPanel>.dshRemoteField:first-child{border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteField label,.dshRemoteFieldLabel{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}.dshRemoteField input{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5}.dshRemoteField input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}.dshRemoteField input:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}.dshRemoteField p{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}',
-        '.dshRemoteAuthTabs{align-self:flex-start;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;display:flex;padding:2px}.dshRemoteAuthTabs button{appearance:none;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;line-height:28px;padding:0 12px;cursor:pointer}.dshRemoteAuthTabs button:hover:not(:disabled){color:var(--dsw-alias-label-primary)}.dshRemoteAuthTabs button.isActive{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);font-weight:500}.dshRemoteAuthTabs button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:0}.dshRemoteAuthTabs button:disabled{cursor:default;opacity:.45}',
+        '.dshRemoteField{display:flex;flex-direction:column;gap:6px;padding:12px 0}.dshRemoteField+.dshRemoteField{border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteField label{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}.dshRemoteField input{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5}.dshRemoteField input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}.dshRemoteField input:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}.dshRemoteField p{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}',
         '.dshRemoteAssociation{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}.dshRemoteAssociation>span{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}.dshRemoteAssociation strong{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:1.5}.dshRemoteAssociation p{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}',
         '.dshRemoteConnection{border-top:1px solid var(--dsw-alias-border-l2);display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0}.dshRemoteConnectionSummary{min-width:0;display:flex;flex-direction:column;gap:4px}.dshRemoteConnectionSummary>span{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}.dshRemoteConnectionSummary strong{display:flex;align-items:center;gap:7px;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:1.5}.dshRemoteConnectionSummary p,.dshRemoteConnectionIssue{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}.dshRemoteConnectionDot{width:8px;height:8px;flex:0 0 auto;border-radius:999px;background:var(--dsw-alias-label-tertiary)}.dshRemoteConnectionDot.isOnline{background:var(--dsw-alias-state-success,#287a3d)}.dshRemoteConnectionDot.isReconnecting{background:var(--dsw-alias-state-warning,#8a5a00)}.dshRemoteConnectionDot.isOffline{background:var(--dsw-alias-state-danger,#b42318)}.dshRemoteConnectionIssue{color:var(--dsw-alias-state-danger,#b42318);padding:0 0 12px}.dshRemoteReconnect{appearance:none;flex:0 0 auto;font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);min-height:34px;padding:5px 14px;font-size:13px;line-height:1.5}.dshRemoteReconnect:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteReconnect:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}.dshRemoteReconnect:disabled{opacity:.4;cursor:default}',
         '.dshRemoteSettingsFooter{border-top:1px solid var(--dsw-alias-border-l2);display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 0 4px}.dshRemoteSettingsFooter .dshRemoteError,.dshRemoteNotice{min-width:0;flex:1;margin:0;font-size:12px;line-height:1.5}.dshRemoteNotice{color:var(--dsw-alias-label-tertiary)}.dshRemoteDiscard,.dshRemoteSave{appearance:none;font:inherit;cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}.dshRemoteDiscard{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);background:transparent}.dshRemoteDiscard:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}.dshRemoteSave{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3)}.dshRemoteDiscard:disabled,.dshRemoteSave:disabled{opacity:.4;cursor:default}.dshRemoteDiscard:focus-visible,.dshRemoteSave:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
-        '@media(max-width:620px){.dshRemotePluginCardStatus{display:none}.dshRemoteSettingsTop{gap:10px}.dshRemoteConnection{align-items:flex-start}.dshRemoteReconnect{min-height:40px}.dshRemoteAuthTabs{align-self:stretch}.dshRemoteAuthTabs button{flex:1;padding:0 8px}}',
+        '@media(max-width:620px){.dshRemotePluginCardStatus{display:none}.dshRemoteSettingsTop{gap:10px}.dshRemoteConnection{align-items:flex-start}.dshRemoteReconnect{min-height:40px}}',
       ].join('')
       document.head.append(style)
       return () => style.remove()

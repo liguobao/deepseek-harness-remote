@@ -28,7 +28,7 @@ Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Clie
 
 ## MVP 主路径
 
-1. Plugin Host 用账号密码或网页生成的一次性主机匹配码接入账号，并向 Server 建立出站连接。
+1. Plugin Host 用网页生成的一次性设备授权码接入账号，并向 Server 建立出站连接。
 2. 本地 Plugin Client 用同一账号注册独立 Client identity，Server 自动建立 membership。
 3. 双端通过受 membership 保护的设备详情固定对端 identity key。
 4. 用户在本地 Harness 侧边栏选择同账号 Remote Host。
