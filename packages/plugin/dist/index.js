@@ -13791,7 +13791,9 @@ var ConnectionController = class {
     try {
       const response = await this.router.handle(message);
       if (this.active !== connection) return;
+      console.error("[stream-debug] sending response", message.payload?.method);
       await connection.channel.send(response);
+      console.error("[stream-debug] response sent", message.payload?.method);
     } catch {
       await this.disconnect(connection);
     }
@@ -13844,9 +13846,12 @@ var RpcRouter = class {
     }
     this.active += 1;
     try {
+      console.error("[stream-debug] invoke start", request.payload.method);
       const result = await this.invoke(request.payload.method, request.payload.params);
+      console.error("[stream-debug] invoke done", request.payload.method);
       return createRpcResponse(request.id, result);
     } catch (error) {
+      console.error("[stream-debug] invoke error", request.payload.method, error?.message);
       return errorResponse(request.id, error);
     } finally {
       this.active -= 1;
@@ -14567,7 +14572,9 @@ var HarnessApiBridge = class {
     if (this.streams.size >= this.maxStreams) throw new RpcError("RATE_LIMITED", "Too many Harness event streams are open.", void 0, true);
     const controller = new AbortController();
     const request = { rpcId: params.rpcId, payload: params.payload };
+    console.error("[stream-debug] calling native events", params.stream);
     const stream = params.stream === "mux" ? this.mux(request, controller.signal) : this.host(request, controller.signal);
+    console.error("[stream-debug] native events returned", params.stream, typeof stream, typeof stream?.[Symbol.asyncIterator]);
     const task = this.pump(params.streamId, stream, controller.signal);
     this.streams.set(params.streamId, { controller, task });
     return { opened: true, streamId: params.streamId };
