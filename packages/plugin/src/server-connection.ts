@@ -162,7 +162,12 @@ export class HostServerConnection {
           if (!acknowledged) throw new ControlConnectionError('INVALID_MESSAGE', 'Server sent a frame before hello.ack.')
           await this.handleFrame(frame)
         }).catch(error => {
-          this.terminalError = errorCode(error)
+          const code = errorCode(error)
+          this.terminalError = code
+          this.logger.error('server control frame failed', {
+            code,
+            reason: diagnosticReason(error),
+          })
           socket.close(4008, 'invalid control frame')
         })
       }
@@ -301,9 +306,15 @@ export class HostServerConnection {
   }
 
   private async handleRelay(payload: RelayPayload): Promise<void> {
+    if (payload.targetDeviceId !== this.identity.deviceId) {
+      throw new ControlConnectionError('INVALID_MESSAGE', 'Relay frame target does not match this Host.')
+    }
     const tunnel = this.tunnels.get(payload.connectionId)
-    if (tunnel?.channel === undefined || payload.targetDeviceId !== this.identity.deviceId) {
-      throw new ControlConnectionError('CONNECTION_NOT_FOUND', 'Relay frame does not belong to an authenticated connection.')
+    if (tunnel?.channel === undefined) {
+      this.logger.warn('stale relay frame ignored', {
+        connectionId: shortId(payload.connectionId),
+      })
+      return
     }
     try {
       tunnel.channel.receive(payload.counter, fromBase64Url(payload.ciphertext))
@@ -481,6 +492,10 @@ function requireObject(value: unknown): Record<string, unknown> {
 function objectValue(value: unknown, key: string): unknown { return requireObject(value)[key] }
 function shortId(value: string): string { return value.length <= 12 ? value : `${value.slice(0, 8)}…${value.slice(-4)}` }
 function asError(error: unknown): Error { return error instanceof Error ? error : new Error('Unknown Server connection error.') }
+function diagnosticReason(error: unknown): string {
+  const message = asError(error).message.replace(/[\r\n]+/g, ' ').slice(0, 160)
+  return message || 'Unknown Server connection error.'
+}
 function errorCode(error: unknown): string { return error instanceof ServerApiError || error instanceof ControlConnectionError ? error.code : 'CONNECTION_FAILED' }
 function isRetryable(error: unknown): boolean { return error instanceof ServerApiError ? error.retryable : errorCode(error) !== 'DEVICE_REVOKED' }
 function closeCode(code: number): string {

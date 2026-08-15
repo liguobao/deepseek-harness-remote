@@ -145,6 +145,20 @@ describe('HostServerConnection', () => {
     const relay = JSON.parse(socket.sent[3]!)
     expect(relay).toMatchObject({ type: 'relay', payload: { counter: 0, targetDeviceId: 'client-1' } })
     expect(decodeMessage(clientNoise.decrypt(fromBase64UrlForTest(relay.payload.ciphertext)))).toEqual(request)
+
+    // A replaced Client can leave an already-queued Relay frame behind. The
+    // stale connection must be isolated instead of taking down the Host's
+    // long-lived Server control socket.
+    await accepted!.close()
+    socket.receive(createControlFrame('relay', {
+      connectionId: 'connection-1',
+      targetDeviceId: 'host-1',
+      counter: 1,
+      ciphertext: toBase64Url(clientNoise.encrypt(encodeMessage(request))),
+    }))
+    await flush()
+    expect(socket.readyState).toBe(1)
+
     await server.stop()
   })
 
