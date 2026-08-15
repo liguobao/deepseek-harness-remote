@@ -13964,7 +13964,11 @@ async function activate(ctx, input) {
       resolveConfig(value);
     }
   });
-  const config = resolveConfig(settingsScope?.get() ?? input);
+  const configured = resolveConfig(settingsScope?.get() ?? input);
+  const config = { ...configured, role: "host" };
+  if (configured.role !== "host" && settingsScope !== void 0) {
+    await settingsScope.replace({ ...settingsScope.get(), role: "host" });
+  }
   if (!config.enabled) return;
   const logger = new SafeLogger(ctx.logger, config.logLevel);
   const defaultIdentityDirectory = new IdentityStore().directory;

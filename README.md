@@ -2,7 +2,7 @@
 
 中文 | [English](README.en.md)
 
-DeepSeek 远程连接（DSH Remote）是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的双角色 Desktop Plugin，让本地 Harness 通过官方 `ApiProxy` 安全连接另一台机器上的 Harness。
+DeepSeek 远程连接（DSH Remote）是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Remote Host Plugin。仓库保留 Desktop Client 实现，但当前版本暂不开放 Client 模式和本地/远程切换入口。
 
 > [!WARNING]
 > 项目仍处于开发预览阶段，需要兼容 [Remote Protocol v1](docs/protocol.md) 的外部 Server，尚未完成生产级互操作与独立安全审查，请勿用于生产环境。
@@ -17,10 +17,11 @@ github:liguobao/deepseek-harness-remote#<tag-or-commit>
 
 重启 Harness，前往 **设置 → 插件 → 插件配置 → DeepSeek 远程连接**：
 
-1. 远端机器选择 **Host**，使用站点账号密码，或输入登录 Server 网页后生成的一次性主机匹配码；密码和匹配码都只用于本次 HTTPS 接入。
-2. 本地机器选择 **Client**，填写相同的 Server 和同一站点账号密码。若这台安装已注册过另一角色，直接切换即可，Server 会继承自有设备的账号归属并为新角色签发独立凭据。
-3. 分别重启两端 Harness；Server 会为同账号 Host/Client 自动建立 membership。
-4. 从本地侧边栏选择 Remote Host；选择 `This machine (Local)` 可切回本机。
+1. 配置 Server 地址。
+2. 使用站点账号密码，或输入登录 Server 网页后生成的一次性连接码；密码和连接码都只用于本次 HTTPS 接入。
+3. 重启 Harness，使 Host 常驻连接生效。
+
+当前 Plugin 固定运行 Host 模式；Client 配置和侧边栏本地/远程切换入口暂时隐藏。
 
 配置保存在 `$DSH_HOME/settings.yaml` 的 `dsh-remote` namespace 中，重启后生效。没有设置服务时可用 `DSH_REMOTE_SERVER` 覆盖默认 Server；生产部署必须使用 HTTPS/WSS。
 

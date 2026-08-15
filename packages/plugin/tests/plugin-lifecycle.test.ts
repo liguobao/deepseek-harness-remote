@@ -55,6 +55,33 @@ describe('Cordis plugin lifecycle', () => {
     expect(ctx.get('dshRemote')).toBeUndefined()
     await ctx.fiber.dispose()
   })
+
+  it('forces a saved Client configuration back to Host-only runtime', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-remote-host-only-'))
+    directories.push(dshHome)
+    vi.stubEnv('DSH_HOME', dshHome)
+    const replace = vi.fn(async () => undefined)
+    const ctx = new Context()
+    ctx.provide('settings', {
+      register: () => ({
+        get: () => ({ role: 'client', deviceName: 'Former client' }),
+        replace,
+      }),
+    } as never)
+    ctx.provide('apiProxy', apiProxy())
+    ctx.provide('connection', connection())
+
+    const fiber = await ctx.plugin(remotePlugin, { role: 'client', deviceName: 'Former client' })
+
+    await vi.waitFor(() => {
+      expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Former client' })
+    })
+    expect(replace).toHaveBeenCalledWith(expect.objectContaining({ role: 'host' }))
+    expect(ctx.get('dshRemoteClient')).toBeUndefined()
+
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
 })
 
 function settings(value: Record<string, unknown>) {

@@ -2,7 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
 import { ClientModeRuntime, type HostConnectionHandle } from './client-runtime.js'
-import { Config, resolveConfig, type Config as ConfigInput } from './config.js'
+import { Config, resolveConfig, type Config as ConfigInput, type ResolvedConfig } from './config.js'
 import { PluginControlRuntime } from './control-runtime.js'
 import { IdentityStore, serverStorageDirectory } from './identity-store.js'
 import { SafeLogger } from './logging.js'
@@ -31,7 +31,11 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
     applies: 'restart',
     validate: value => { resolveConfig(value) },
   })
-  const config = resolveConfig(settingsScope?.get() ?? input)
+  const configured = resolveConfig(settingsScope?.get() ?? input)
+  const config: ResolvedConfig = { ...configured, role: 'host' }
+  if (configured.role !== 'host' && settingsScope !== undefined) {
+    await settingsScope.replace({ ...settingsScope.get(), role: 'host' })
+  }
   if (!config.enabled) return
   const logger = new SafeLogger(ctx.logger, config.logLevel)
   const defaultIdentityDirectory = new IdentityStore().directory

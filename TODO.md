@@ -3,6 +3,9 @@
 本清单按 2026-08-15 的 ApiProxy-only Desktop Plugin 方向维护。当前不投入 Android 产品线；
 Server、Remote Web 和 Admin 只在独立 Server 仓库实现。
 
+当前发布版暂时只开放 Plugin Host；Desktop Client runtime 与 UI 代码保留，但
+Host/Client 配置切换和侧边栏 Local/Remote 入口均关闭，重新开放前必须完成真实 E2E。
+
 测试预算只用于协议、安全、账号授权、认证连接、ApiProxy allowlist/stream 生命周期和核心
 transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 
@@ -12,8 +15,8 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [x] Host 账号密码/主机匹配码接入、Client 账号接入、device token rotation 与按 Server/角色隔离的身份状态
 - [x] 同账号 membership、受保护 peer descriptor 与本地 pinned trust 双重授权
 - [x] Relay control、标准 Noise IK、counter/replay 拒绝与 opaque ciphertext
-- [x] Desktop Plugin Host/Client 双角色、Settings 配置和 GitHub/npm Bundle 入口
-- [x] 官方 ApiProxy Local/Remote switch、Host allowlist bridge、mux/host stream 与断线回落
+- [x] Desktop Plugin Host runtime、Settings 配置和 GitHub/npm Bundle 入口
+- [x] Host ApiProxy allowlist bridge 与 mux/host stream；Client Local/Remote switch 实现保留但入口暂时关闭
 - [x] 删除自定义 Session/Agent/Workspace/Permission adapters、event replay 和旧 Host RPC 路由
 
 ## P0：Plugin 可用链路
