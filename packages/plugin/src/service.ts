@@ -39,9 +39,11 @@ export class HostPluginRuntime {
       const harnessApi = new HarnessApiBridge(
         apiProxy,
         (event, data) => send(createEvent(event, data)),
+        undefined,
+        this.logger,
       )
-      return new RpcRouter(harnessApi)
-    })
+      return new RpcRouter(harnessApi, undefined, this.logger)
+    }, this.logger)
     if (config.serverUrl !== undefined) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory))
     }

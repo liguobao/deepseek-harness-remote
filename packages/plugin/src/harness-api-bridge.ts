@@ -14,6 +14,7 @@ import type {
   HarnessApiStreamOpenParams,
 } from '@dsh-remote/protocol'
 import { z } from 'zod'
+import type { SafeLogger } from './logging.js'
 import { RpcError } from './rpc-router.js'
 
 type HarnessStream = AsyncIterable<RpcRequest<MuxFrame | HostFrame>>
@@ -95,6 +96,15 @@ interface ActiveStream {
   task: Promise<void>
 }
 
+/**
+ * Native Harness ApiProxy call timeout. The Remote Web frontend gives each
+ * `harness.api.call` RPC a 60s window; this bridge must fail faster so the
+ * RPC error (not a silent Web-side timeout) reaches the peer and the pending
+ * call is released. 30s gives slow native methods room while still beating the
+ * Web-side 60s timer by a wide margin.
+ */
+const NATIVE_CALL_TIMEOUT_MS = 30_000
+
 export class HarnessApiBridge {
   private readonly methods: ReadonlyMap<string, NativeMethod>
   private readonly streams = new Map<string, ActiveStream>()
@@ -107,6 +117,7 @@ export class HarnessApiBridge {
     private readonly api: ApiProxy,
     private readonly publish: PublishFrame,
     private readonly maxStreams = 2,
+    private readonly logger?: SafeLogger,
   ) {
     this.methods = createMethodMap(api)
     this.mux = api.events.mux.bind(api.events)
@@ -118,12 +129,39 @@ export class HarnessApiBridge {
     const params = callSchema.parse(input) as HarnessApiCallParams
     const method = this.methods.get(params.method)
     if (method === undefined) throw deniedMethod(params.method)
-    const signal = AbortSignal.timeout(60_000)
-    return method({ rpcId: params.rpcId as never, payload: params.payload }, signal)
+    const startedAt = performance.now()
+    const signal = AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS)
+    const request = { rpcId: params.rpcId as never, payload: params.payload }
+    try {
+      // Race the native call against the timeout: some native ApiProxy
+      // methods ignore AbortSignal, and without this the Host would never
+      // answer and the Web-side 60s timer would fire instead. A guaranteed
+      // local response turns that into a fast, explicit RPC error.
+      const response = await withTimeout(
+        method(request, signal),
+        NATIVE_CALL_TIMEOUT_MS,
+        `Harness API call ${params.method} timed out after ${NATIVE_CALL_TIMEOUT_MS}ms`,
+      )
+      this.logger?.debug('harness api call ok', {
+        method: params.method,
+        durationMs: Math.round(performance.now() - startedAt),
+      })
+      return response
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - startedAt)
+      this.logger?.warn('harness api call failed', {
+        method: params.method,
+        durationMs,
+        timedOut: signal.aborted,
+        reason: diagnosticReason(error),
+      })
+      throw error
+    }
   }
 
   async respond(input: unknown): Promise<unknown> {
     const params = respondSchema.parse(input) as HarnessApiRespondParams
+    this.logger?.debug('harness api respond', { rpcId: shortId(params.message.rpcId) })
     if (!this.respondable.has(params.message.rpcId)) {
       throw new RpcError('PERMISSION_NOT_PENDING', 'The response id was not emitted on this peer connection.')
     }
@@ -143,6 +181,7 @@ export class HarnessApiBridge {
       : this.host(request as never, controller.signal)
     const task = this.pump(params.streamId, stream, controller.signal)
     this.streams.set(params.streamId, { controller, task })
+    this.logger?.debug('harness api stream open', { stream: params.stream, streamId: shortId(params.streamId) })
     return { opened: true, streamId: params.streamId }
   }
 
@@ -150,6 +189,7 @@ export class HarnessApiBridge {
     const params = streamCloseSchema.parse(input)
     const active = this.streams.get(params.streamId)
     active?.controller.abort()
+    this.logger?.debug('harness api stream close', { streamId: shortId(params.streamId), closed: active !== undefined })
     return { closed: active !== undefined, streamId: params.streamId }
   }
 
@@ -233,3 +273,23 @@ function domainProperty(wireDomain: string): string {
 function deniedMethod(method: string): RpcError {
   return new RpcError('METHOD_NOT_ALLOWED', `Harness API method ${JSON.stringify(method)} is not available in remote mode.`)
 }
+
+function diagnosticReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.replace(/[\r\n]+/g, ' ').slice(0, 160) || 'Unknown Harness API failure.'
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new RpcError('TIMEOUT', message, undefined, true))
+    }, ms)
+    timer.unref?.()
+    promise.then(
+      value => { clearTimeout(timer); resolve(value) },
+      error => { clearTimeout(timer); reject(error) },
+    )
+  })
+}
+
+function shortId(value: string): string { return value.length <= 12 ? value : `${value.slice(0, 8)}…${value.slice(-4)}` }

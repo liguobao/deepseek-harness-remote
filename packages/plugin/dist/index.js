@@ -13881,9 +13881,10 @@ function redact(value, key = "") {
 
 // src/connection-controller.ts
 var ConnectionController = class {
-  constructor(identities, createRouter) {
+  constructor(identities, createRouter, logger) {
     this.identities = identities;
     this.createRouter = createRouter;
+    this.logger = logger;
   }
   active = /* @__PURE__ */ new Map();
   acceptQueue = Promise.resolve();
@@ -13908,6 +13909,13 @@ var ConnectionController = class {
       throw new ConnectionRejectedError("SECURE_CHANNEL_FAILED", "The connection id is already bound to another peer.");
     }
     const replaced = [...this.active.values()].filter((connection2) => connection2.channel.peerDeviceId === channel.peerDeviceId || connection2.channel.security.connectionId === connectionId);
+    if (replaced.length > 0) {
+      this.logger?.warn("replacing active peer connection", {
+        peerDeviceId: shortId2(channel.peerDeviceId),
+        replacedCount: replaced.length,
+        replacedPeerDeviceIds: replaced.map((connection2) => shortId2(connection2.channel.peerDeviceId))
+      });
+    }
     await Promise.all(replaced.map((connection2) => this.disconnect(connection2, "CONNECTION_REPLACED")));
     const router = this.createRouter(
       { connectionId, peerDeviceId: channel.peerDeviceId },
@@ -13927,6 +13935,11 @@ var ConnectionController = class {
       await this.disconnect(connection);
       throw error;
     }
+    this.logger?.info("peer connection accepted", {
+      peerDeviceId: shortId2(channel.peerDeviceId),
+      connectionId: shortId2(connectionId),
+      mode: channel.mode
+    });
   }
   isOnline() {
     return this.active.size > 0;
@@ -13962,7 +13975,11 @@ var ConnectionController = class {
       const response = await connection.router.handle(message);
       if (!this.isActive(connection)) return;
       await connection.channel.send(response);
-    } catch {
+    } catch (error) {
+      this.logger?.warn("peer message handling failed; disconnecting", {
+        peerDeviceId: shortId2(connection.channel.peerDeviceId),
+        reason: diagnosticReason(error)
+      });
       await this.disconnect(connection);
     }
   }
@@ -13975,7 +13992,12 @@ var ConnectionController = class {
     if (!this.isActive(connection)) return;
     try {
       await connection.channel.send(message);
-    } catch {
+    } catch (error) {
+      this.logger?.warn("peer send failed; disconnecting", {
+        peerDeviceId: shortId2(connection.channel.peerDeviceId),
+        messageType: message.type,
+        reason: diagnosticReason(error)
+      });
       await this.disconnect(connection);
     }
   }
@@ -13988,6 +14010,11 @@ var ConnectionController = class {
     } finally {
       await connection.channel.close(code);
     }
+    this.logger?.info("peer connection disconnected", {
+      peerDeviceId: shortId2(connection.channel.peerDeviceId),
+      connectionId: shortId2(connection.channel.security.connectionId),
+      code: code ?? "closed"
+    });
   }
   isActive(connection) {
     return this.active.get(connection.channel.security.connectionId) === connection;
@@ -13999,6 +14026,13 @@ var ConnectionRejectedError = class extends Error {
     this.code = code;
   }
 };
+function diagnosticReason(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/[\r\n]+/g, " ").slice(0, 160) || "Unknown peer connection failure.";
+}
+function shortId2(value) {
+  return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
+}
 
 // src/rpc-router.ts
 var wireRequestSchema = external_exports.object({ method: external_exports.string().min(1), params: external_exports.unknown() }).strict();
@@ -14010,9 +14044,10 @@ var apiMethods = /* @__PURE__ */ new Set([
 ]);
 var HOST_CAPABILITIES = ["harness.api.v1"];
 var RpcRouter = class {
-  constructor(harnessApi, maxPending = 128) {
+  constructor(harnessApi, maxPending = 128, logger) {
     this.harnessApi = harnessApi;
     this.maxPending = maxPending;
+    this.logger = logger;
   }
   active = 0;
   closePeerStreams() {
@@ -14032,11 +14067,24 @@ var RpcRouter = class {
       return createRpcError(request.id, "RATE_LIMITED", "Too many Host requests are already pending.", void 0, true);
     }
     this.active += 1;
+    const startedAt = performance.now();
     try {
       const result = await this.invoke(request.payload.method, request.payload.params);
+      this.logger?.debug("host rpc ok", {
+        method: request.payload.method,
+        durationMs: Math.round(performance.now() - startedAt)
+      });
       return createRpcResponse(request.id, result);
     } catch (error) {
-      return errorResponse(request.id, error);
+      const response = errorResponse(request.id, error);
+      this.logger?.warn("host rpc failed", {
+        method: request.payload.method,
+        durationMs: Math.round(performance.now() - startedAt),
+        code: response.payload.code,
+        retryable: response.payload.retryable,
+        reason: diagnosticReason2(error)
+      });
+      return response;
     } finally {
       this.active -= 1;
     }
@@ -14068,6 +14116,10 @@ function errorResponse(requestId, error) {
   if (error instanceof RpcError) return createRpcError(requestId, error.code, error.message, error.details, error.retryable);
   if (error instanceof external_exports.ZodError) return createRpcError(requestId, "INVALID_MESSAGE", "The RPC parameters are invalid.");
   return createRpcError(requestId, "INTERNAL_ERROR", "The Host could not complete the request.");
+}
+function diagnosticReason2(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/[\r\n]+/g, " ").slice(0, 160) || "Unknown Host request failure.";
 }
 
 // src/server-connection.ts
@@ -14220,7 +14272,7 @@ var HostServerConnection = class {
             this.terminalError = void 0;
             this.logger.info("server control connection online", {
               serverVersion: payload.serverVersion,
-              connectionSessionId: shortId2(payload.connectionSessionId)
+              connectionSessionId: shortId3(payload.connectionSessionId)
             });
             return;
           }
@@ -14231,7 +14283,7 @@ var HostServerConnection = class {
           this.terminalError = code;
           this.logger.error("server control frame failed", {
             code,
-            reason: diagnosticReason(error)
+            reason: diagnosticReason3(error)
           });
           socket.close(4008, "invalid control frame");
         });
@@ -14310,7 +14362,7 @@ var HostServerConnection = class {
     } catch (error) {
       this.sendControl("connect.rejected", { connectionId: payload.connectionId });
       this.logger.warn("connection rejected by account authorization", {
-        clientDeviceId: shortId2(payload.clientDeviceId),
+        clientDeviceId: shortId3(payload.clientDeviceId),
         code: errorCode(error)
       });
       return;
@@ -14318,7 +14370,7 @@ var HostServerConnection = class {
     if (descriptor.role !== "client" || descriptor.deviceId !== payload.clientDeviceId || descriptor.identityKey !== payload.clientIdentityKey) {
       this.sendControl("connect.rejected", { connectionId: payload.connectionId });
       this.logger.warn("connection rejected by peer identity validation", {
-        clientDeviceId: shortId2(payload.clientDeviceId)
+        clientDeviceId: shortId3(payload.clientDeviceId)
       });
       return;
     }
@@ -14326,7 +14378,7 @@ var HostServerConnection = class {
     if (existing !== void 0 && existing.publicKey !== descriptor.identityKey) {
       this.sendControl("connect.rejected", { connectionId: payload.connectionId });
       this.logger.warn("connection rejected by pinned peer identity", {
-        clientDeviceId: shortId2(payload.clientDeviceId)
+        clientDeviceId: shortId3(payload.clientDeviceId)
       });
       return;
     }
@@ -14379,8 +14431,8 @@ var HostServerConnection = class {
     tunnel.channel = channel;
     await this.connections.accept(channel);
     this.logger.info("authenticated peer channel ready", {
-      connectionId: shortId2(tunnel.connectionId),
-      peerDeviceId: shortId2(tunnel.peer.deviceId),
+      connectionId: shortId3(tunnel.connectionId),
+      peerDeviceId: shortId3(tunnel.peer.deviceId),
       transport: mode
     });
   }
@@ -14391,7 +14443,7 @@ var HostServerConnection = class {
     const tunnel = this.tunnels.get(payload.connectionId);
     if (tunnel?.channel === void 0) {
       this.logger.warn("stale relay frame ignored", {
-        connectionId: shortId2(payload.connectionId)
+        connectionId: shortId3(payload.connectionId)
       });
       return;
     }
@@ -14405,22 +14457,22 @@ var HostServerConnection = class {
   async handleSignalOffer(payload) {
     const tunnel = this.tunnels.get(payload.connectionId);
     if (tunnel === void 0 || payload.targetDeviceId !== this.identity.deviceId) {
-      this.logger.warn("stale webrtc offer ignored", { connectionId: shortId2(payload.connectionId) });
+      this.logger.warn("stale webrtc offer ignored", { connectionId: shortId3(payload.connectionId) });
       return;
     }
     if (tunnel.channel !== void 0 || tunnel.rtc !== void 0) {
-      this.logger.warn("duplicate webrtc offer ignored", { connectionId: shortId2(tunnel.connectionId) });
+      this.logger.warn("duplicate webrtc offer ignored", { connectionId: shortId3(tunnel.connectionId) });
       return;
     }
     if (this.config.forceRelay) {
-      this.logger.warn("webrtc offer ignored: forceRelay is enabled", { connectionId: shortId2(tunnel.connectionId) });
+      this.logger.warn("webrtc offer ignored: forceRelay is enabled", { connectionId: shortId3(tunnel.connectionId) });
       return;
     }
     if (this.rtcFactory === void 0 && this.rtcFactoryProvider !== void 0) {
       this.rtcFactory = await this.rtcFactoryProvider().catch(() => void 0);
     }
     if (this.rtcFactory === void 0) {
-      this.logger.warn("webrtc offer ignored: no RTC backend available", { connectionId: shortId2(tunnel.connectionId) });
+      this.logger.warn("webrtc offer ignored: no RTC backend available", { connectionId: shortId3(tunnel.connectionId) });
       return;
     }
     let iceServers = [];
@@ -14428,7 +14480,7 @@ var HostServerConnection = class {
       iceServers = await this.api.turnCredentials(tunnel.connectionId);
     } catch (error) {
       this.logger.warn("TURN credentials unavailable; trying direct candidates", {
-        connectionId: shortId2(tunnel.connectionId),
+        connectionId: shortId3(tunnel.connectionId),
         code: errorCode(error)
       });
     }
@@ -14477,8 +14529,8 @@ var HostServerConnection = class {
     tunnel.transport = selected;
     this.sendTransportSelected(tunnel, selected);
     this.logger.info("webrtc data channel ready", {
-      connectionId: shortId2(tunnel.connectionId),
-      peerDeviceId: shortId2(tunnel.peer.deviceId),
+      connectionId: shortId3(tunnel.connectionId),
+      peerDeviceId: shortId3(tunnel.peer.deviceId),
       transport: selected
     });
   }
@@ -14491,8 +14543,8 @@ var HostServerConnection = class {
     }
     await rtc?.close();
     this.logger.warn("webrtc negotiation failed; falling back to relay", {
-      connectionId: shortId2(tunnel.connectionId),
-      reason: diagnosticReason(error)
+      connectionId: shortId3(tunnel.connectionId),
+      reason: diagnosticReason3(error)
     });
   }
   sendTransportSelected(tunnel, transport) {
@@ -14682,13 +14734,13 @@ function requireObject(value) {
 function objectValue(value, key) {
   return requireObject(value)[key];
 }
-function shortId2(value) {
+function shortId3(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
 }
 function asError2(error) {
   return error instanceof Error ? error : new Error("Unknown Server connection error.");
 }
-function diagnosticReason(error) {
+function diagnosticReason3(error) {
   const message = asError2(error).message.replace(/[\r\n]+/g, " ").slice(0, 160);
   return message || "Unknown Server connection error.";
 }
@@ -14764,11 +14816,13 @@ var HARNESS_API_ALLOWLIST = [
   "llm.providers",
   "llm.models"
 ];
+var NATIVE_CALL_TIMEOUT_MS = 3e4;
 var HarnessApiBridge = class {
-  constructor(api, publish, maxStreams = 2) {
+  constructor(api, publish, maxStreams = 2, logger) {
     this.api = api;
     this.publish = publish;
     this.maxStreams = maxStreams;
+    this.logger = logger;
     this.methods = createMethodMap(api);
     this.mux = api.events.mux.bind(api.events);
     this.host = api.events.host.bind(api.events);
@@ -14784,11 +14838,34 @@ var HarnessApiBridge = class {
     const params = callSchema.parse(input);
     const method = this.methods.get(params.method);
     if (method === void 0) throw deniedMethod(params.method);
-    const signal = AbortSignal.timeout(6e4);
-    return method({ rpcId: params.rpcId, payload: params.payload }, signal);
+    const startedAt = performance.now();
+    const signal = AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS);
+    const request = { rpcId: params.rpcId, payload: params.payload };
+    try {
+      const response = await withTimeout(
+        method(request, signal),
+        NATIVE_CALL_TIMEOUT_MS,
+        `Harness API call ${params.method} timed out after ${NATIVE_CALL_TIMEOUT_MS}ms`
+      );
+      this.logger?.debug("harness api call ok", {
+        method: params.method,
+        durationMs: Math.round(performance.now() - startedAt)
+      });
+      return response;
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - startedAt);
+      this.logger?.warn("harness api call failed", {
+        method: params.method,
+        durationMs,
+        timedOut: signal.aborted,
+        reason: diagnosticReason4(error)
+      });
+      throw error;
+    }
   }
   async respond(input) {
     const params = respondSchema.parse(input);
+    this.logger?.debug("harness api respond", { rpcId: shortId4(params.message.rpcId) });
     if (!this.respondable.has(params.message.rpcId)) {
       throw new RpcError("PERMISSION_NOT_PENDING", "The response id was not emitted on this peer connection.");
     }
@@ -14805,12 +14882,14 @@ var HarnessApiBridge = class {
     const stream = params.stream === "mux" ? this.mux(request, controller.signal) : this.host(request, controller.signal);
     const task = this.pump(params.streamId, stream, controller.signal);
     this.streams.set(params.streamId, { controller, task });
+    this.logger?.debug("harness api stream open", { stream: params.stream, streamId: shortId4(params.streamId) });
     return { opened: true, streamId: params.streamId };
   }
   closeStream(input) {
     const params = streamCloseSchema.parse(input);
     const active = this.streams.get(params.streamId);
     active?.controller.abort();
+    this.logger?.debug("harness api stream close", { streamId: shortId4(params.streamId), closed: active !== void 0 });
     return { closed: active !== void 0, streamId: params.streamId };
   }
   async closeAll(reason = "peer-disconnected") {
@@ -14881,6 +14960,31 @@ function domainProperty(wireDomain) {
 }
 function deniedMethod(method) {
   return new RpcError("METHOD_NOT_ALLOWED", `Harness API method ${JSON.stringify(method)} is not available in remote mode.`);
+}
+function diagnosticReason4(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/[\r\n]+/g, " ").slice(0, 160) || "Unknown Harness API failure.";
+}
+function withTimeout(promise, ms, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new RpcError("TIMEOUT", message, void 0, true));
+    }, ms);
+    timer.unref?.();
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+function shortId4(value) {
+  return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
 }
 
 // src/werift-rtc.ts
@@ -15085,10 +15189,12 @@ var HostPluginRuntime = class {
     this.connections = new ConnectionController(this.identities, (_context, send) => {
       const harnessApi = new HarnessApiBridge(
         apiProxy,
-        (event, data) => send(createEvent(event, data))
+        (event, data) => send(createEvent(event, data)),
+        void 0,
+        this.logger
       );
-      return new RpcRouter(harnessApi);
-    });
+      return new RpcRouter(harnessApi, void 0, this.logger);
+    }, this.logger);
     if (config.serverUrl !== void 0) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory));
     }
@@ -15102,7 +15208,7 @@ var HostPluginRuntime = class {
     if (this.closed) throw new Error("remote runtime is closed");
     this.identity = await this.identities.loadOrCreate(this.config.deviceName);
     this.logger.info("host identity ready", {
-      deviceId: shortId3(this.identity.deviceId),
+      deviceId: shortId5(this.identity.deviceId),
       fingerprint: this.identity.fingerprint,
       server: this.config.serverUrl ?? "not configured"
     });
@@ -15182,20 +15288,20 @@ var HostPluginRuntime = class {
   diagnostics() {
     return {
       loaded: this.identity !== void 0,
-      deviceId: this.identity === void 0 ? void 0 : shortId3(this.identity.deviceId),
+      deviceId: this.identity === void 0 ? void 0 : shortId5(this.identity.deviceId),
       identityValid: this.identity !== void 0,
       serverConfigured: this.config.serverUrl !== void 0,
       serverOnline: this.serverConnection?.isOnline() ?? false,
       serverError: this.serverConnection?.lastError(),
       online: this.connections.isOnline(),
       activeConnections: this.connections.connectionCount(),
-      peerDeviceId: this.connections.peerDeviceId() === void 0 ? void 0 : shortId3(this.connections.peerDeviceId()),
-      peerDeviceIds: this.connections.peerDeviceIds().map(shortId3),
+      peerDeviceId: this.connections.peerDeviceId() === void 0 ? void 0 : shortId5(this.connections.peerDeviceId()),
+      peerDeviceIds: this.connections.peerDeviceIds().map(shortId5),
       trustedPeers: this.identities.listTrustedPeers().length
     };
   }
 };
-function shortId3(value) {
+function shortId5(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
 }
 
@@ -15219,7 +15325,24 @@ async function activate(ctx, input) {
     await settingsScope.replace({ ...settingsScope.get(), role: "host" });
   }
   if (!config.enabled) return;
-  const logger = new SafeLogger(ctx.logger, config.logLevel);
+  const logger = new SafeLogger({
+    debug: (message) => {
+      ctx.logger.debug(message);
+      console.debug(message);
+    },
+    info: (message) => {
+      ctx.logger.info(message);
+      console.info(message);
+    },
+    warn: (message) => {
+      ctx.logger.warn(message);
+      console.warn(message);
+    },
+    error: (message) => {
+      ctx.logger.error(message);
+      console.error(message);
+    }
+  }, config.logLevel);
   const defaultIdentityDirectory = new IdentityStore().directory;
   const hostIdentities = new IdentityStore({
     directory: config.serverUrl === void 0 ? defaultIdentityDirectory : serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, "host")

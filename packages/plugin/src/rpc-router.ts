@@ -2,10 +2,12 @@ import {
   createRpcError,
   createRpcResponse,
   type RemoteMessage,
+  type RpcErrorPayload,
   type RpcRequestPayload,
 } from '@dsh-remote/protocol'
 import { z } from 'zod'
 import type { HarnessApiBridge } from './harness-api-bridge.js'
+import type { SafeLogger } from './logging.js'
 
 const wireRequestSchema = z.object({ method: z.string().min(1), params: z.unknown() }).strict()
 const apiMethods = new Set([
@@ -23,6 +25,7 @@ export class RpcRouter {
   constructor(
     private readonly harnessApi: HarnessApiBridge,
     private readonly maxPending = 128,
+    private readonly logger?: SafeLogger,
   ) {}
 
   closePeerStreams(): Promise<void> { return this.harnessApi.closeAll() }
@@ -41,11 +44,24 @@ export class RpcRouter {
       return createRpcError(request.id, 'RATE_LIMITED', 'Too many Host requests are already pending.', undefined, true)
     }
     this.active += 1
+    const startedAt = performance.now()
     try {
       const result = await this.invoke(request.payload.method, request.payload.params)
+      this.logger?.debug('host rpc ok', {
+        method: request.payload.method,
+        durationMs: Math.round(performance.now() - startedAt),
+      })
       return createRpcResponse(request.id, result)
     } catch (error: unknown) {
-      return errorResponse(request.id, error)
+      const response = errorResponse(request.id, error)
+      this.logger?.warn('host rpc failed', {
+        method: request.payload.method,
+        durationMs: Math.round(performance.now() - startedAt),
+        code: response.payload.code,
+        retryable: response.payload.retryable,
+        reason: diagnosticReason(error),
+      })
+      return response
     } finally {
       this.active -= 1
     }
@@ -66,8 +82,13 @@ export class RpcError extends Error {
   constructor(readonly code: string, message: string, readonly details?: unknown, readonly retryable = false) { super(message) }
 }
 
-function errorResponse(requestId: string, error: unknown): RemoteMessage {
+function errorResponse(requestId: string, error: unknown): RemoteMessage<RpcErrorPayload> {
   if (error instanceof RpcError) return createRpcError(requestId, error.code, error.message, error.details, error.retryable)
   if (error instanceof z.ZodError) return createRpcError(requestId, 'INVALID_MESSAGE', 'The RPC parameters are invalid.')
   return createRpcError(requestId, 'INTERNAL_ERROR', 'The Host could not complete the request.')
+}
+
+function diagnosticReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.replace(/[\r\n]+/g, ' ').slice(0, 160) || 'Unknown Host request failure.'
 }

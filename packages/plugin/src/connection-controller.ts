@@ -1,5 +1,6 @@
 import type { RemoteMessage } from '@dsh-remote/protocol'
 import type { IdentityStore } from './identity-store.js'
+import type { SafeLogger } from './logging.js'
 import type { RpcRouter } from './rpc-router.js'
 import type { AuthenticatedPeerChannel } from './types.js'
 
@@ -26,6 +27,7 @@ export class ConnectionController {
   constructor(
     private readonly identities: IdentityStore,
     private readonly createRouter: RpcRouterFactory,
+    private readonly logger?: SafeLogger,
   ) {}
 
   accept(channel: AuthenticatedPeerChannel): Promise<void> {
@@ -45,7 +47,6 @@ export class ConnectionController {
       await channel.close('PEER_IDENTITY_MISMATCH')
       throw new ConnectionRejectedError('PEER_IDENTITY_MISMATCH', 'The peer identity does not match local trust.')
     }
-
     const connectionId = channel.security.connectionId
     const connectionConflict = this.active.get(connectionId)
     if (connectionConflict !== undefined && connectionConflict.channel.peerDeviceId !== channel.peerDeviceId) {
@@ -57,6 +58,13 @@ export class ConnectionController {
       connection.channel.peerDeviceId === channel.peerDeviceId
       || connection.channel.security.connectionId === connectionId
     ))
+    if (replaced.length > 0) {
+      this.logger?.warn('replacing active peer connection', {
+        peerDeviceId: shortId(channel.peerDeviceId),
+        replacedCount: replaced.length,
+        replacedPeerDeviceIds: replaced.map(connection => shortId(connection.channel.peerDeviceId)),
+      })
+    }
     await Promise.all(replaced.map(connection => this.disconnect(connection, 'CONNECTION_REPLACED')))
 
     const router = this.createRouter(
@@ -75,6 +83,11 @@ export class ConnectionController {
       await this.disconnect(connection)
       throw error
     }
+    this.logger?.info('peer connection accepted', {
+      peerDeviceId: shortId(channel.peerDeviceId),
+      connectionId: shortId(connectionId),
+      mode: channel.mode,
+    })
   }
 
   isOnline(): boolean { return this.active.size > 0 }
@@ -115,7 +128,11 @@ export class ConnectionController {
       const response = await connection.router.handle(message)
       if (!this.isActive(connection)) return
       await connection.channel.send(response)
-    } catch {
+    } catch (error) {
+      this.logger?.warn('peer message handling failed; disconnecting', {
+        peerDeviceId: shortId(connection.channel.peerDeviceId),
+        reason: diagnosticReason(error),
+      })
       await this.disconnect(connection)
     }
   }
@@ -130,7 +147,12 @@ export class ConnectionController {
     if (!this.isActive(connection)) return
     try {
       await connection.channel.send(message)
-    } catch {
+    } catch (error) {
+      this.logger?.warn('peer send failed; disconnecting', {
+        peerDeviceId: shortId(connection.channel.peerDeviceId),
+        messageType: message.type,
+        reason: diagnosticReason(error),
+      })
       await this.disconnect(connection)
     }
   }
@@ -144,6 +166,11 @@ export class ConnectionController {
     } finally {
       await connection.channel.close(code)
     }
+    this.logger?.info('peer connection disconnected', {
+      peerDeviceId: shortId(connection.channel.peerDeviceId),
+      connectionId: shortId(connection.channel.security.connectionId),
+      code: code ?? 'closed',
+    })
   }
 
   private isActive(connection: ActiveConnection): boolean {
@@ -154,3 +181,10 @@ export class ConnectionController {
 export class ConnectionRejectedError extends Error {
   constructor(readonly code: string, message: string) { super(message) }
 }
+
+function diagnosticReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.replace(/[\r\n]+/g, ' ').slice(0, 160) || 'Unknown peer connection failure.'
+}
+
+function shortId(value: string): string { return value.length <= 12 ? value : `${value.slice(0, 8)}…${value.slice(-4)}` }

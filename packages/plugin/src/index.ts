@@ -37,7 +37,15 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
     await settingsScope.replace({ ...settingsScope.get(), role: 'host' })
   }
   if (!config.enabled) return
-  const logger = new SafeLogger(ctx.logger, config.logLevel)
+  // Mirrors SafeLogger output to the process stdout/stderr as well as the DSH
+  // logger: the web process stdout is captured by the Desktop shell into
+  // desktop.log, so remote RPC/transport diagnostics stay greppable there.
+  const logger = new SafeLogger({
+    debug: message => { ctx.logger.debug(message); console.debug(message) },
+    info: message => { ctx.logger.info(message); console.info(message) },
+    warn: message => { ctx.logger.warn(message); console.warn(message) },
+    error: message => { ctx.logger.error(message); console.error(message) },
+  }, config.logLevel)
   const defaultIdentityDirectory = new IdentityStore().directory
   const hostIdentities = new IdentityStore({
     directory: config.serverUrl === undefined
