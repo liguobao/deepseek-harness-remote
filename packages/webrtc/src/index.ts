@@ -8,51 +8,13 @@ import {
   type SecureHandshakePayload,
   type TransportStats,
 } from '@dsh-remote/protocol'
+import { BaseTransport } from './transport.js'
+import { fromBase64Url, socketText, toBase64Url } from './util.js'
 
-export interface RemoteTransport {
-  connect(): Promise<void>
-  send(data: Uint8Array): Promise<void>
-  onMessage(cb: (data: Uint8Array) => void): () => void
-  onClose?(cb: () => void): () => void
-  close(): Promise<void>
-  getStats(): TransportStats
-}
-
-export interface SecureHandshakeTransport extends RemoteTransport {
-  connectionInfo(): { connectionId: string; localDeviceId: string; remoteDeviceId: string }
-  sendHandshake(step: number, data: Uint8Array): Promise<void>
-  onHandshake(cb: (step: number, data: Uint8Array) => void): () => void
-}
-
-type MessageHandler = (data: Uint8Array) => void
-
-export abstract class BaseTransport implements RemoteTransport {
-  protected handlers = new Set<MessageHandler>()
-  protected closeHandlers = new Set<() => void>()
-
-  onMessage(cb: MessageHandler): () => void {
-    this.handlers.add(cb)
-    return () => this.handlers.delete(cb)
-  }
-
-  onClose(cb: () => void): () => void {
-    this.closeHandlers.add(cb)
-    return () => this.closeHandlers.delete(cb)
-  }
-
-  protected emit(data: Uint8Array): void {
-    for (const handler of this.handlers) handler(data)
-  }
-
-  protected emitClose(): void {
-    for (const handler of this.closeHandlers) handler()
-  }
-
-  abstract connect(): Promise<void>
-  abstract send(data: Uint8Array): Promise<void>
-  abstract close(): Promise<void>
-  abstract getStats(): TransportStats
-}
+export * from './transport.js'
+export * from './rtc-adapter.js'
+export * from './rtc-data-channel.js'
+export * from './adaptive-transport.js'
 
 export interface RelayTransportOptions {
   role: 'client'
@@ -257,67 +219,4 @@ export class RelayTransport extends BaseTransport {
     if (this.handshakeTimer !== undefined) clearTimeout(this.handshakeTimer)
     this.handshakeTimer = undefined
   }
-}
-
-export class WebRTCTransport extends BaseTransport {
-  private pc?: RTCPeerConnection
-  private channel?: RTCDataChannel
-
-  constructor(private readonly iceServers: RTCIceServer[] = []) {
-    super()
-  }
-
-  async connect(): Promise<void> {
-    this.pc = new RTCPeerConnection({ iceServers: this.iceServers })
-    this.channel = this.pc.createDataChannel('dsh', { ordered: true })
-    this.channel.binaryType = 'arraybuffer'
-    this.channel.onmessage = event => {
-      const data = typeof event.data === 'string'
-        ? new TextEncoder().encode(event.data)
-        : new Uint8Array(event.data)
-      this.emit(data)
-    }
-    this.channel.onclose = () => this.emitClose()
-  }
-
-  async send(data: Uint8Array): Promise<void> {
-    if (this.channel?.readyState !== 'open') throw new Error('webrtc data channel is not open')
-    this.channel.send(new Uint8Array(data).buffer)
-  }
-
-  async close(): Promise<void> {
-    this.channel?.close()
-    this.pc?.close()
-    this.channel = undefined
-    this.pc = undefined
-  }
-
-  getStats(): TransportStats {
-    const state = this.pc?.connectionState
-    return {
-      mode: state === 'connected' ? 'P2P' : 'Disconnected',
-      connected: state === 'connected',
-    }
-  }
-}
-
-export class LanTransport extends RelayTransport {}
-
-async function socketText(data: string | ArrayBuffer | Blob): Promise<string> {
-  if (typeof data === 'string') return data
-  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data)
-  return new TextDecoder().decode(await data.arrayBuffer())
-}
-
-function toBase64Url(bytes: Uint8Array): string {
-  const binary = Array.from(bytes, byte => String.fromCharCode(byte)).join('')
-  const base64 = typeof btoa === 'function' ? btoa(binary) : Buffer.from(bytes).toString('base64')
-  return base64.replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
-}
-
-function fromBase64Url(value: string): Uint8Array {
-  const normalized = value.replaceAll('-', '+').replaceAll('_', '/')
-  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
-  if (typeof atob === 'function') return Uint8Array.from(atob(padded), char => char.charCodeAt(0))
-  return new Uint8Array(Buffer.from(padded, 'base64'))
 }

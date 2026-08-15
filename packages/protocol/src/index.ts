@@ -28,6 +28,7 @@ export const controlFrameTypes = [
   'signal.offer',
   'signal.answer',
   'signal.ice',
+  'transport.selected',
   'ping',
   'pong',
   'error',
@@ -84,6 +85,8 @@ export interface HelloAckPayload {
   heartbeatIntervalMs: number
   maxControlFrameBytes: number
   maxRelayFrameBytes: number
+  webrtcEnabled?: boolean
+  webrtcFallbackTimeoutMs?: number
 }
 
 export interface ConnectRequestPayload {
@@ -128,6 +131,41 @@ export interface RelayPayload {
   counter: number
   ciphertext: string
 }
+
+export const selectedTransports = ['p2p', 'turn', 'relay'] as const
+export type SelectedTransport = typeof selectedTransports[number]
+
+export interface SignalPayload {
+  connectionId: string
+  targetDeviceId: string
+  sdp: string
+}
+
+export interface IceCandidatePayload {
+  candidate?: string
+  sdpMid?: string | null
+  sdpMLineIndex?: number | null
+  usernameFragment?: string | null
+}
+
+export interface SignalIcePayload {
+  connectionId: string
+  targetDeviceId: string
+  candidate: IceCandidatePayload
+}
+
+export interface TransportSelectedPayload {
+  connectionId: string
+  targetDeviceId: string
+  transport: SelectedTransport
+}
+
+/** Capabilities both ends announce in ``hello`` to negotiate the data plane. */
+export const transportCapabilities = [
+  'transport.p2p',
+  'transport.turn',
+  'transport.relay',
+] as const
 
 export interface RemoteMessage<TPayload = unknown> {
   v: typeof PROTOCOL_VERSION

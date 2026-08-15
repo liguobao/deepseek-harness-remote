@@ -1,5 +1,6 @@
 import { platform } from 'node:os'
 import { fromBase64Url, toBase64Url } from '@dsh-remote/crypto'
+import type { RtcIceServer } from '@dsh-remote/webrtc'
 import type { HostIdentity } from './identity-store.js'
 import type { ServerCredentialStore, ServerCredentials } from './server-credentials.js'
 import { normalizeServerUrl } from './config.js'
@@ -171,6 +172,14 @@ export class HostServerApi {
   async deviceFor(peerDeviceId: string): Promise<AuthorizedPeerDevice> {
     const result = await this.request<unknown>(`/api/v1/devices/${encodeURIComponent(peerDeviceId)}`)
     return parseAuthorizedPeer(result)
+  }
+
+  async turnCredentials(connectionId: string): Promise<RtcIceServer[]> {
+    const result = await this.request<{ iceServers?: unknown }>(
+      `/api/v1/turn/credentials?connection_id=${encodeURIComponent(connectionId)}`,
+    )
+    if (!Array.isArray(result.iceServers)) return []
+    return result.iceServers.map(parseIceServer)
   }
 
   async presenceFor(deviceId: string): Promise<{ online: boolean; lastSeenAt?: number }> {
@@ -388,6 +397,19 @@ function parseAuthorizedPeer(value: unknown): AuthorizedPeerDevice {
     membershipId: item.membershipId,
     ...(typeof item.online === 'boolean' ? { online: item.online } : {}),
     ...(typeof item.lastSeenAt === 'number' && Number.isSafeInteger(item.lastSeenAt) ? { lastSeenAt: item.lastSeenAt } : {}),
+  }
+}
+
+function parseIceServer(value: unknown): RtcIceServer {
+  const item = requireRecord(value, 'ICE server')
+  const urls = item.urls
+  if (typeof urls !== 'string' && !(Array.isArray(urls) && urls.every(url => typeof url === 'string'))) {
+    throw new ServerApiError('INVALID_MESSAGE', 'The Server returned an invalid ICE server.', false)
+  }
+  return {
+    urls,
+    ...(typeof item.username === 'string' ? { username: item.username } : {}),
+    ...(typeof item.credential === 'string' ? { credential: item.credential } : {}),
   }
 }
 

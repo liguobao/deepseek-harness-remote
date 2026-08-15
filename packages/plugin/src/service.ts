@@ -9,6 +9,7 @@ import { HostServerApi, ServerApiError, type DeviceAuthorization } from './serve
 import { HostServerConnection } from './server-connection.js'
 import { ServerCredentialStore } from './server-credentials.js'
 import { HarnessApiBridge } from './harness-api-bridge.js'
+import { loadWeriftFactory } from './werift-rtc.js'
 import type { AuthenticatedPeerChannel } from './types.js'
 
 export interface HostRemoteStatus {
@@ -61,6 +62,8 @@ export class HostPluginRuntime {
         this.serverApi,
         this.connections,
         this.logger,
+        undefined,
+        this.config.forceRelay ? undefined : loadWeriftFactory,
       )
       this.serverConnection.start()
     }

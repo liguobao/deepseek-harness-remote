@@ -17,7 +17,18 @@ import {
   type RelayPayload,
   type RemoteMessage,
   type SecureHandshakePayload,
+  type SelectedTransport,
+  type SignalIcePayload,
+  type SignalPayload,
+  type TransportSelectedPayload,
 } from '@dsh-remote/protocol'
+import {
+  RtcDataChannelTransport,
+  type RtcIceServer,
+  type RtcPeerConnectionFactory,
+  type RtcSelectedTransport,
+  type RtcSignal,
+} from '@dsh-remote/webrtc'
 import type { ConnectionController } from './connection-controller.js'
 import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
@@ -43,8 +54,12 @@ interface PendingTunnel {
   membershipId: string
   peer: TrustedPeer
   noise: NoiseIkSession
+  transport: 'negotiating' | SelectedTransport
+  rtc?: RtcDataChannelTransport
   channel?: ServerNoiseChannel
 }
+
+const DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 8_000
 
 export class HostServerConnection {
   private socket?: WebSocketLike
@@ -55,6 +70,7 @@ export class HostServerConnection {
   private readonly tunnels = new Map<string, PendingTunnel>()
   private terminalError?: string
   private resumeQueued = false
+  private rtcFactory?: RtcPeerConnectionFactory
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -64,6 +80,7 @@ export class HostServerConnection {
     private readonly connections: ConnectionController,
     private readonly logger: SafeLogger,
     private readonly createWebSocket: WebSocketFactory = url => new WebSocket(url) as unknown as WebSocketLike,
+    private readonly rtcFactoryProvider?: () => Promise<RtcPeerConnectionFactory | undefined>,
   ) {}
 
   start(): void {
@@ -142,7 +159,9 @@ export class HostServerConnection {
           deviceId: this.identity.deviceId,
           accessToken: credentials.accessToken,
           protocols: [PROTOCOL_VERSION],
-          capabilities: ['transport.relay', 'harness.api.v1'],
+          capabilities: this.rtcFactoryProvider === undefined || this.config.forceRelay
+            ? ['transport.relay', 'harness.api.v1']
+            : ['transport.p2p', 'transport.turn', 'transport.relay', 'harness.api.v1'],
         })
       }
       socket.onmessage = event => {
@@ -209,6 +228,16 @@ export class HostServerConnection {
       await this.handleRelay(requireRelay(frame.payload))
       return
     }
+    if (frame.type === 'signal.offer') {
+      await this.handleSignalOffer(requireSignal(frame.payload))
+      return
+    }
+    if (frame.type === 'signal.ice') {
+      this.handleSignalIce(requireSignalIce(frame.payload))
+      return
+    }
+    if (frame.type === 'transport.selected') return
+    if (frame.type === 'signal.answer') return
     if (frame.type === 'error') {
       const payload = requireControlError(frame.payload)
       this.terminalError = payload.code
@@ -276,6 +305,7 @@ export class HostServerConnection {
       membershipId: descriptor.membershipId,
       peer,
       noise,
+      transport: 'negotiating',
     })
     this.sendControl('connect.accepted', { connectionId: payload.connectionId })
   }
@@ -294,15 +324,21 @@ export class HostServerConnection {
       step: 2,
       data: toBase64Url(reply),
     } satisfies SecureHandshakePayload)
-    const channel = new ServerNoiseChannel(tunnel, ciphertext => this.sendRelay(tunnel, ciphertext), () => {
+    const viaWebRtc = tunnel.rtc !== undefined && (tunnel.transport === 'p2p' || tunnel.transport === 'turn')
+    if (!viaWebRtc && tunnel.transport === 'negotiating') tunnel.transport = 'relay'
+    const mode = viaWebRtc ? (tunnel.transport === 'turn' ? 'TURN' : 'P2P') : 'Relay'
+    const transmit = viaWebRtc
+      ? (ciphertext: Uint8Array) => tunnel.rtc!.send(ciphertext)
+      : (ciphertext: Uint8Array) => this.sendRelay(tunnel, ciphertext)
+    const channel = new ServerNoiseChannel(tunnel, transmit, () => {
       if (this.tunnels.get(tunnel.connectionId) === tunnel) this.tunnels.delete(tunnel.connectionId)
-    })
+    }, mode)
     tunnel.channel = channel
     await this.connections.accept(channel)
     this.logger.info('authenticated peer channel ready', {
       connectionId: shortId(tunnel.connectionId),
       peerDeviceId: shortId(tunnel.peer.deviceId),
-      transport: 'Relay',
+      transport: mode,
     })
   }
 
@@ -323,6 +359,116 @@ export class HostServerConnection {
       await tunnel.channel.close()
       throw new ControlConnectionError('SECURE_CHANNEL_FAILED', asError(error).message)
     }
+  }
+
+  private async handleSignalOffer(payload: SignalPayload): Promise<void> {
+    const tunnel = this.tunnels.get(payload.connectionId)
+    if (tunnel === undefined || payload.targetDeviceId !== this.identity.deviceId) {
+      this.logger.warn('stale webrtc offer ignored', { connectionId: shortId(payload.connectionId) })
+      return
+    }
+    if (tunnel.channel !== undefined || tunnel.rtc !== undefined) {
+      // Late or duplicate offer after relay establishment / RTC start: ignore.
+      this.logger.warn('duplicate webrtc offer ignored', { connectionId: shortId(tunnel.connectionId) })
+      return
+    }
+    if (this.config.forceRelay) {
+      // Device-level forced degradation (webrtc plan §11).
+      this.logger.warn('webrtc offer ignored: forceRelay is enabled', { connectionId: shortId(tunnel.connectionId) })
+      return
+    }
+    if (this.rtcFactory === undefined && this.rtcFactoryProvider !== undefined) {
+      this.rtcFactory = await this.rtcFactoryProvider().catch(() => undefined)
+    }
+    if (this.rtcFactory === undefined) {
+      // No Node RTC backend on this Host (webrtc plan §6.2): drop the offer so
+      // the initiator times out and falls back to the Relay data plane.
+      this.logger.warn('webrtc offer ignored: no RTC backend available', { connectionId: shortId(tunnel.connectionId) })
+      return
+    }
+    let iceServers: RtcIceServer[] = []
+    try {
+      iceServers = await this.api.turnCredentials(tunnel.connectionId)
+    } catch (error) {
+      this.logger.warn('TURN credentials unavailable; trying direct candidates', {
+        connectionId: shortId(tunnel.connectionId),
+        code: errorCode(error),
+      })
+    }
+    const rtc = new RtcDataChannelTransport({
+      role: 'responder',
+      factory: this.rtcFactory,
+      iceServers,
+      onSignal: signal => this.sendRtcSignal(tunnel, signal),
+      negotiateTimeoutMs: DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS,
+      label: `host<-${tunnel.peer.deviceId}`,
+    })
+    tunnel.rtc = rtc
+    rtc.onMessage(data => tunnel.channel?.receive(undefined, data))
+    rtc.onClose(() => {
+      void this.handleRtcFailed(tunnel, new Error('WebRTC data channel closed.'))
+    })
+    void rtc.connect().then(() => {
+      this.handleRtcOpened(tunnel, rtc.selectedTransport() ?? 'p2p')
+    }).catch(error => {
+      void this.handleRtcFailed(tunnel, asError(error))
+    })
+    rtc.handleSignal({ type: 'offer', sdp: payload.sdp })
+  }
+
+  private handleSignalIce(payload: SignalIcePayload): void {
+    const tunnel = this.tunnels.get(payload.connectionId)
+    if (tunnel === undefined || payload.targetDeviceId !== this.identity.deviceId) return
+    tunnel.rtc?.handleSignal({ type: 'ice', candidate: payload.candidate })
+  }
+
+  private sendRtcSignal(tunnel: PendingTunnel, signal: RtcSignal): void {
+    if (signal.type === 'answer') {
+      this.sendControl('signal.answer', {
+        connectionId: tunnel.connectionId,
+        targetDeviceId: tunnel.peer.deviceId,
+        sdp: signal.sdp,
+      } satisfies SignalPayload)
+    } else if (signal.type === 'ice') {
+      this.sendControl('signal.ice', {
+        connectionId: tunnel.connectionId,
+        targetDeviceId: tunnel.peer.deviceId,
+        candidate: signal.candidate,
+      } satisfies SignalIcePayload)
+    }
+  }
+
+  private handleRtcOpened(tunnel: PendingTunnel, selected: RtcSelectedTransport): void {
+    if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc === undefined) return
+    tunnel.transport = selected
+    this.sendTransportSelected(tunnel, selected)
+    this.logger.info('webrtc data channel ready', {
+      connectionId: shortId(tunnel.connectionId),
+      peerDeviceId: shortId(tunnel.peer.deviceId),
+      transport: selected,
+    })
+  }
+
+  private async handleRtcFailed(tunnel: PendingTunnel, error: Error): Promise<void> {
+    if (this.tunnels.get(tunnel.connectionId) !== tunnel) return
+    const rtc = tunnel.rtc
+    tunnel.rtc = undefined
+    if (tunnel.transport !== 'p2p' && tunnel.transport !== 'turn') {
+      tunnel.transport = 'relay'
+    }
+    await rtc?.close()
+    this.logger.warn('webrtc negotiation failed; falling back to relay', {
+      connectionId: shortId(tunnel.connectionId),
+      reason: diagnosticReason(error),
+    })
+  }
+
+  private sendTransportSelected(tunnel: PendingTunnel, transport: SelectedTransport): void {
+    this.sendControl('transport.selected', {
+      connectionId: tunnel.connectionId,
+      targetDeviceId: tunnel.peer.deviceId,
+      transport,
+    } satisfies TransportSelectedPayload)
   }
 
   private async sendRelay(tunnel: PendingTunnel, ciphertext: Uint8Array): Promise<void> {
@@ -346,6 +492,7 @@ export class HostServerConnection {
     const tunnels = [...this.tunnels.values()]
     this.tunnels.clear()
     await Promise.all(tunnels.map(async tunnel => {
+      if (tunnel.rtc !== undefined) await tunnel.rtc.close()
       if (tunnel.channel !== undefined) await tunnel.channel.close()
       else tunnel.noise.destroy()
     }))
@@ -374,7 +521,7 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
   readonly security
   readonly peerDeviceId: string
   readonly peerIdentityKey: string
-  readonly mode = 'Relay' as const
+  readonly mode: 'P2P' | 'TURN' | 'Relay'
   private readonly handlers = new Set<(message: RemoteMessage) => void>()
   private readonly incoming = new SecureMessageCodec()
   private readonly outgoing = new SecureMessageCodec()
@@ -384,7 +531,9 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
     private readonly tunnel: PendingTunnel,
     private readonly transmit: (ciphertext: Uint8Array) => Promise<void>,
     private readonly onClose: () => void,
+    mode: 'P2P' | 'TURN' | 'Relay',
   ) {
+    this.mode = mode
     this.security = {
       protocol: 'Noise_IK_25519_ChaChaPoly_SHA256' as const,
       connectionId: tunnel.connectionId,
@@ -406,11 +555,13 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
     return () => this.handlers.delete(handler)
   }
 
-  receive(counter: number, ciphertext: Uint8Array): void {
+  receive(counter: number | undefined, ciphertext: Uint8Array): void {
     if (this.closed) return
-    const expected = Number(this.tunnel.noise.receivingCounter())
-    if (!Number.isSafeInteger(counter) || counter !== expected) {
-      throw new ControlConnectionError('INVALID_MESSAGE', 'Relay counter is duplicated or out of order.')
+    if (counter !== undefined) {
+      const expected = Number(this.tunnel.noise.receivingCounter())
+      if (!Number.isSafeInteger(counter) || counter !== expected) {
+        throw new ControlConnectionError('INVALID_MESSAGE', 'Relay counter is duplicated or out of order.')
+      }
     }
     const plaintext = this.incoming.decode(this.tunnel.noise.decrypt(ciphertext))
     if (plaintext === undefined) return
@@ -481,6 +632,24 @@ function requireRelay(value: unknown): RelayPayload {
     throw new ControlConnectionError('INVALID_MESSAGE', 'relay payload is invalid.')
   }
   return payload as unknown as RelayPayload
+}
+
+function requireSignal(value: unknown): SignalPayload {
+  const payload = requireObject(value)
+  if (typeof payload.connectionId !== 'string' || typeof payload.targetDeviceId !== 'string'
+    || typeof payload.sdp !== 'string' || payload.sdp.length === 0) {
+    throw new ControlConnectionError('INVALID_MESSAGE', 'signal offer/answer payload is invalid.')
+  }
+  return payload as unknown as SignalPayload
+}
+
+function requireSignalIce(value: unknown): SignalIcePayload {
+  const payload = requireObject(value)
+  if (typeof payload.connectionId !== 'string' || typeof payload.targetDeviceId !== 'string'
+    || typeof payload.candidate !== 'object' || payload.candidate === null || Array.isArray(payload.candidate)) {
+    throw new ControlConnectionError('INVALID_MESSAGE', 'signal.ice payload is invalid.')
+  }
+  return payload as unknown as SignalIcePayload
 }
 
 function requireControlError(value: unknown): ControlErrorPayload {

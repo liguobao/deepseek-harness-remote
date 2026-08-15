@@ -4074,6 +4074,7 @@ var controlFrameTypes = [
   "signal.offer",
   "signal.answer",
   "signal.ice",
+  "transport.selected",
   "ping",
   "pong",
   "error"
@@ -4385,7 +4386,7 @@ var RemoteClientCore = class {
   }
 };
 
-// ../webrtc/dist/index.js
+// ../webrtc/dist/transport.js
 var BaseTransport = class {
   handlers = /* @__PURE__ */ new Set();
   closeHandlers = /* @__PURE__ */ new Set();
@@ -4406,189 +4407,8 @@ var BaseTransport = class {
       handler();
   }
 };
-var RelayTransport = class extends BaseTransport {
-  url;
-  options;
-  handshakeHandlers = /* @__PURE__ */ new Set();
-  socket;
-  bytesSent = 0;
-  bytesReceived = 0;
-  connectionId;
-  relayCounter = 0;
-  readyResolve;
-  readyReject;
-  handshakeTimer;
-  constructor(url, options) {
-    super();
-    this.url = url;
-    this.options = options;
-  }
-  async connect() {
-    if (this.socket !== void 0)
-      return;
-    this.socket = new WebSocket(this.url);
-    this.socket.binaryType = "arraybuffer";
-    await new Promise((resolve, reject) => {
-      this.readyResolve = resolve;
-      this.readyReject = reject;
-      this.handshakeTimer = setTimeout(() => this.failConnection(new Error("Relay control handshake timed out")), this.options.handshakeTimeoutMs ?? 1e4);
-      const socket = this.socket;
-      socket.onmessage = (event) => {
-        void this.handleSocketMessage(event.data);
-      };
-      socket.onopen = () => {
-        this.sendControl("hello", {
-          role: this.options.role,
-          deviceId: this.options.deviceId,
-          accessToken: this.options.accessToken,
-          protocols: [PROTOCOL_VERSION],
-          capabilities: this.options.capabilities ?? ["transport.relay"]
-        });
-      };
-      socket.onerror = () => this.failConnection(new Error(`RelayTransport failed to connect to ${this.url}`));
-      socket.onclose = () => {
-        const pending = this.readyReject !== void 0;
-        if (pending)
-          this.failConnection(new Error("Relay control channel closed before it was ready"));
-        this.socket = void 0;
-        this.connectionId = void 0;
-        this.emitClose();
-      };
-    });
-  }
-  async send(data) {
-    if (this.socket?.readyState !== WebSocket.OPEN)
-      throw new Error("relay transport is not connected");
-    if (this.connectionId === void 0)
-      throw new Error("relay connection has not been authorized");
-    this.bytesSent += data.byteLength;
-    this.sendControl("relay", {
-      connectionId: this.connectionId,
-      targetDeviceId: this.options.targetDeviceId,
-      counter: this.relayCounter,
-      ciphertext: toBase64Url(data)
-    });
-    this.relayCounter += 1;
-  }
-  connectionInfo() {
-    if (this.connectionId === void 0)
-      throw new Error("relay connection has not been authorized");
-    return {
-      connectionId: this.connectionId,
-      localDeviceId: this.options.deviceId,
-      remoteDeviceId: this.options.targetDeviceId
-    };
-  }
-  async sendHandshake(step, data) {
-    if (this.socket?.readyState !== WebSocket.OPEN || this.connectionId === void 0) {
-      throw new Error("relay connection has not been authorized");
-    }
-    this.sendControl("secure.handshake", {
-      connectionId: this.connectionId,
-      targetDeviceId: this.options.targetDeviceId,
-      step,
-      data: toBase64Url(data)
-    });
-  }
-  onHandshake(cb) {
-    this.handshakeHandlers.add(cb);
-    return () => this.handshakeHandlers.delete(cb);
-  }
-  async close() {
-    this.clearHandshake();
-    this.socket?.close();
-    this.socket = void 0;
-    this.connectionId = void 0;
-  }
-  getStats() {
-    return {
-      mode: this.socket?.readyState === WebSocket.OPEN ? "Relay" : "Disconnected",
-      connected: this.socket?.readyState === WebSocket.OPEN,
-      bytesSent: this.bytesSent,
-      bytesReceived: this.bytesReceived
-    };
-  }
-  async handleSocketMessage(raw) {
-    try {
-      const text = await socketText(raw);
-      const frame = parseControlFrame(JSON.parse(text));
-      if (frame.type === "hello.ack") {
-        const payload = frame.payload;
-        if (payload.protocol !== PROTOCOL_VERSION)
-          throw new Error("Server selected an unsupported protocol version");
-        this.sendControl("connect.request", {
-          hostDeviceId: this.options.targetDeviceId,
-          preferredTransports: this.options.preferredTransports ?? ["relay"]
-        });
-        return;
-      }
-      if (frame.type === "connect.accepted") {
-        const payload = frame.payload;
-        if (typeof payload.connectionId !== "string" || payload.connectionId.length === 0) {
-          throw new Error("connect.accepted did not include a connectionId");
-        }
-        this.connectionId = payload.connectionId;
-        this.finishConnection();
-        return;
-      }
-      if (frame.type === "connect.rejected" || frame.type === "error") {
-        const payload = frame.payload;
-        const message = typeof payload.message === "string" ? payload.message : "Server rejected the relay connection";
-        throw Object.assign(new Error(message), { code: payload.code });
-      }
-      if (frame.type === "relay") {
-        const payload = frame.payload;
-        if (payload.connectionId !== this.connectionId || payload.targetDeviceId !== this.options.deviceId || !Number.isSafeInteger(payload.counter) || typeof payload.ciphertext !== "string") {
-          throw new Error("Received a relay frame for an unknown connection");
-        }
-        const data = fromBase64Url(payload.ciphertext);
-        this.bytesReceived += data.byteLength;
-        this.emit(data);
-        return;
-      }
-      if (frame.type === "secure.handshake") {
-        const payload = frame.payload;
-        if (payload.connectionId !== this.connectionId || payload.targetDeviceId !== this.options.deviceId || !Number.isSafeInteger(payload.step) || typeof payload.data !== "string") {
-          throw new Error("Received a secure handshake frame for an unknown connection");
-        }
-        const data = fromBase64Url(payload.data);
-        for (const handler of this.handshakeHandlers)
-          handler(payload.step, data);
-        return;
-      }
-      if (frame.type === "ping")
-        this.sendControl("pong", frame.payload);
-    } catch (error) {
-      this.failConnection(error instanceof Error ? error : new Error("Invalid relay control frame"));
-    }
-  }
-  sendControl(type, payload) {
-    if (this.socket?.readyState !== WebSocket.OPEN)
-      throw new Error("relay control socket is not open");
-    this.socket.send(JSON.stringify(createControlFrame(type, payload)));
-  }
-  finishConnection() {
-    this.clearHandshake();
-    this.readyResolve?.();
-    this.readyResolve = void 0;
-    this.readyReject = void 0;
-  }
-  failConnection(error) {
-    this.clearHandshake();
-    const reject = this.readyReject;
-    this.readyResolve = void 0;
-    this.readyReject = void 0;
-    reject?.(error);
-    this.socket?.close();
-    this.socket = void 0;
-    this.connectionId = void 0;
-  }
-  clearHandshake() {
-    if (this.handshakeTimer !== void 0)
-      clearTimeout(this.handshakeTimer);
-    this.handshakeTimer = void 0;
-  }
-};
+
+// ../webrtc/dist/util.js
 async function socketText(data) {
   if (typeof data === "string")
     return data;
@@ -4607,6 +4427,811 @@ function fromBase64Url(value) {
   if (typeof atob === "function")
     return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
   return new Uint8Array(Buffer.from(padded, "base64"));
+}
+
+// ../webrtc/dist/rtc-adapter.js
+var RTC_DATA_CHANNEL_LABEL = "dsh";
+var RTC_DATA_CHANNEL_OPTIONS = { ordered: true };
+function browserRtcFactory() {
+  return {
+    create(configuration) {
+      const raw = new RTCPeerConnection(configuration);
+      return {
+        get connectionState() {
+          return raw.connectionState;
+        },
+        get iceConnectionState() {
+          return raw.iceConnectionState;
+        },
+        get iceGatheringState() {
+          return raw.iceGatheringState;
+        },
+        get signalingState() {
+          return raw.signalingState;
+        },
+        set onconnectionstatechange(value) {
+          raw.onconnectionstatechange = value;
+        },
+        get onconnectionstatechange() {
+          return raw.onconnectionstatechange;
+        },
+        set oniceconnectionstatechange(value) {
+          raw.oniceconnectionstatechange = value;
+        },
+        get oniceconnectionstatechange() {
+          return raw.oniceconnectionstatechange;
+        },
+        set onicegatheringstatechange(value) {
+          raw.onicegatheringstatechange = value;
+        },
+        get onicegatheringstatechange() {
+          return raw.onicegatheringstatechange;
+        },
+        set onicecandidate(value) {
+          raw.onicecandidate = value;
+        },
+        get onicecandidate() {
+          return raw.onicecandidate;
+        },
+        set ondatachannel(value) {
+          raw.ondatachannel = value;
+        },
+        get ondatachannel() {
+          return raw.ondatachannel;
+        },
+        createDataChannel(label, options) {
+          return adaptDataChannel(raw.createDataChannel(label, options));
+        },
+        createOffer() {
+          return raw.createOffer();
+        },
+        createAnswer() {
+          return raw.createAnswer();
+        },
+        setLocalDescription(description) {
+          return raw.setLocalDescription(description);
+        },
+        setRemoteDescription(description) {
+          return raw.setRemoteDescription(description);
+        },
+        addIceCandidate(candidate) {
+          return raw.addIceCandidate(candidate);
+        },
+        async getStats() {
+          return await raw.getStats();
+        },
+        close() {
+          raw.close();
+        }
+      };
+    }
+  };
+}
+function adaptDataChannel(raw) {
+  return {
+    get label() {
+      return raw.label;
+    },
+    get ordered() {
+      return raw.ordered;
+    },
+    get readyState() {
+      return raw.readyState;
+    },
+    get bufferedAmount() {
+      return raw.bufferedAmount;
+    },
+    get binaryType() {
+      return raw.binaryType;
+    },
+    set onopen(value) {
+      raw.onopen = value;
+    },
+    get onopen() {
+      return raw.onopen;
+    },
+    set onmessage(value) {
+      raw.onmessage = value;
+    },
+    get onmessage() {
+      return raw.onmessage;
+    },
+    set onclose(value) {
+      raw.onclose = value;
+    },
+    get onclose() {
+      return raw.onclose;
+    },
+    set onerror(value) {
+      raw.onerror = value;
+    },
+    get onerror() {
+      return raw.onerror;
+    },
+    set onbufferedamountlow(value) {
+      raw.onbufferedamountlow = value;
+    },
+    get onbufferedamountlow() {
+      return raw.onbufferedamountlow;
+    },
+    send(data) {
+      raw.send(data);
+    },
+    close() {
+      raw.close();
+    }
+  };
+}
+
+// ../webrtc/dist/rtc-data-channel.js
+var DEFAULT_NEGOTIATE_TIMEOUT_MS = 8e3;
+var DEFAULT_HIGH_WATERMARK_BYTES = 1048576;
+var DEFAULT_LOW_WATERMARK_BYTES = 256 * 1024;
+var DRAIN_POLL_INTERVAL_MS = 20;
+var RtcDataChannelTransport = class {
+  pc;
+  role;
+  onSignal;
+  negotiateTimeoutMs;
+  channelLabel;
+  highWatermarkBytes;
+  lowWatermarkBytes;
+  channel;
+  remoteCandidates = [];
+  remoteDescriptionSet = false;
+  opened = false;
+  closed = false;
+  messageHandlers = /* @__PURE__ */ new Set();
+  closeHandlers = /* @__PURE__ */ new Set();
+  errorHandlers = /* @__PURE__ */ new Set();
+  connectPromise;
+  openResolve;
+  openReject;
+  negotiateTimer;
+  removeAbort;
+  bytesSent = 0;
+  bytesReceived = 0;
+  selected;
+  constructor(options) {
+    this.role = options.role;
+    this.onSignal = options.onSignal;
+    this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS;
+    this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL;
+    this.highWatermarkBytes = Math.max(options.highWatermarkBytes ?? DEFAULT_HIGH_WATERMARK_BYTES, 64 * 1024);
+    this.lowWatermarkBytes = Math.max(Math.min(options.lowWatermarkBytes ?? DEFAULT_LOW_WATERMARK_BYTES, this.highWatermarkBytes), 16 * 1024);
+    this.pc = options.factory.create({ iceServers: options.iceServers });
+    this.pc.ondatachannel = (event) => this.adoptChannel(event.channel);
+    this.pc.onicecandidate = (event) => {
+      if (event.candidate !== null && !this.closed) {
+        this.onSignal({ type: "ice", candidate: event.candidate });
+      }
+    };
+    this.pc.onconnectionstatechange = () => this.checkConnectionState();
+    this.pc.oniceconnectionstatechange = () => this.checkConnectionState();
+  }
+  /** Begin negotiation; resolves when the DataChannel is open. */
+  connect(signal) {
+    if (this.opened)
+      return Promise.resolve();
+    if (this.connectPromise !== void 0)
+      return this.connectPromise;
+    this.armAbort(signal);
+    this.connectPromise = new Promise((resolve, reject) => {
+      this.openResolve = resolve;
+      this.openReject = reject;
+      this.negotiateTimer = setTimeout(() => {
+        this.failOpen(new RtcConnectError("RTC_CONNECT_TIMEOUT", `WebRTC negotiation timed out after ${this.negotiateTimeoutMs}ms.`));
+      }, this.negotiateTimeoutMs);
+      if (this.role === "initiator") {
+        void this.startInitiator().catch((error) => this.failOpen(asError(error)));
+      }
+    });
+    return this.connectPromise;
+  }
+  handleSignal(signal) {
+    if (this.closed)
+      return;
+    if (signal.type === "offer")
+      void this.handleOffer(signal.sdp);
+    else if (signal.type === "answer")
+      void this.handleAnswer(signal.sdp);
+    else
+      void this.handleIce(signal.candidate);
+  }
+  async send(data) {
+    const channel = this.requireOpenChannel();
+    await this.drain(channel);
+    if (channel.readyState !== "open")
+      throw new Error("WebRTC data channel is not open.");
+    channel.send(toArrayBuffer(data));
+    this.bytesSent += data.byteLength;
+  }
+  onMessage(handler) {
+    this.messageHandlers.add(handler);
+    return () => this.messageHandlers.delete(handler);
+  }
+  onClose(handler) {
+    this.closeHandlers.add(handler);
+    return () => this.closeHandlers.delete(handler);
+  }
+  onError(handler) {
+    this.errorHandlers.add(handler);
+    return () => this.errorHandlers.delete(handler);
+  }
+  selectedTransport() {
+    return this.selected;
+  }
+  getStats() {
+    const connected = this.channel?.readyState === "open";
+    return {
+      mode: !connected ? "Disconnected" : this.selected === "turn" ? "TURN" : "P2P",
+      connected,
+      bytesSent: this.bytesSent,
+      bytesReceived: this.bytesReceived
+    };
+  }
+  /** Idempotent close: releases PeerConnection, DataChannel, timers and listeners. */
+  async close() {
+    if (this.closed)
+      return;
+    this.closed = true;
+    this.clearNegotiation();
+    const channel = this.channel;
+    this.channel = void 0;
+    if (channel !== void 0) {
+      channel.onopen = null;
+      channel.onmessage = null;
+      channel.onclose = null;
+      channel.onerror = null;
+      channel.onbufferedamountlow = null;
+      try {
+        channel.close();
+      } catch {
+      }
+    }
+    this.pc.onicecandidate = null;
+    this.pc.ondatachannel = null;
+    this.pc.onconnectionstatechange = null;
+    this.pc.oniceconnectionstatechange = null;
+    try {
+      this.pc.close();
+    } catch {
+    }
+    if (this.opened) {
+      this.opened = false;
+      for (const handler of this.closeHandlers)
+        handler();
+    }
+  }
+  armAbort(signal) {
+    this.removeAbort?.();
+    this.removeAbort = void 0;
+    if (signal === void 0)
+      return;
+    const onAbort = () => {
+      this.failOpen(new RtcConnectError("RTC_ABORTED", "WebRTC negotiation was aborted."));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    this.removeAbort = () => signal.removeEventListener("abort", onAbort);
+    if (signal.aborted)
+      onAbort();
+  }
+  async startInitiator() {
+    const channel = this.pc.createDataChannel(this.channelLabel, RTC_DATA_CHANNEL_OPTIONS);
+    this.adoptChannel(channel);
+    const offer = await this.pc.createOffer();
+    await this.pc.setLocalDescription(offer);
+    this.onSignal({ type: "offer", sdp: requireSdp(offer) });
+  }
+  async handleOffer(sdp) {
+    if (this.role !== "responder" || this.remoteDescriptionSet) {
+      this.failOpen(new RtcConnectError("RTC_INVALID_STATE", "Received an unexpected WebRTC offer."));
+      return;
+    }
+    try {
+      await this.pc.setRemoteDescription({ type: "offer", sdp });
+      this.remoteDescriptionSet = true;
+      await this.flushRemoteCandidates();
+      const answer = await this.pc.createAnswer();
+      await this.pc.setLocalDescription(answer);
+      this.onSignal({ type: "answer", sdp: requireSdp(answer) });
+    } catch (error) {
+      this.failOpen(asError(error));
+    }
+  }
+  async handleAnswer(sdp) {
+    if (this.role !== "initiator" || this.remoteDescriptionSet) {
+      this.failOpen(new RtcConnectError("RTC_INVALID_STATE", "Received an unexpected WebRTC answer."));
+      return;
+    }
+    try {
+      await this.pc.setRemoteDescription({ type: "answer", sdp });
+      this.remoteDescriptionSet = true;
+      await this.flushRemoteCandidates();
+    } catch (error) {
+      this.failOpen(asError(error));
+    }
+  }
+  async handleIce(candidate) {
+    if (!this.remoteDescriptionSet) {
+      this.remoteCandidates.push(candidate);
+      return;
+    }
+    try {
+      await this.pc.addIceCandidate(candidate);
+    } catch {
+    }
+  }
+  async flushRemoteCandidates() {
+    const buffered = this.remoteCandidates.splice(0, this.remoteCandidates.length);
+    for (const candidate of buffered) {
+      try {
+        await this.pc.addIceCandidate(candidate);
+      } catch {
+      }
+    }
+  }
+  adoptChannel(channel) {
+    if (this.channel !== void 0 && this.channel !== channel) {
+      try {
+        channel.close();
+      } catch {
+      }
+      return;
+    }
+    this.channel = channel;
+    channel.binaryType = "arraybuffer";
+    channel.onopen = () => {
+      if (this.closed || this.opened)
+        return;
+      this.opened = true;
+      const resolve = this.openResolve;
+      this.clearNegotiation();
+      void this.resolveSelectedTransport().then(() => resolve?.());
+    };
+    channel.onmessage = (event) => {
+      if (this.closed || !this.opened)
+        return;
+      const data = event.data;
+      const bytes = typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data);
+      this.bytesReceived += bytes.byteLength;
+      for (const handler of this.messageHandlers)
+        handler(bytes);
+    };
+    channel.onclose = () => {
+      if (this.closed)
+        return;
+      this.failOpen(new RtcConnectError("RTC_CLOSED", "WebRTC data channel closed."));
+      if (this.opened) {
+        this.opened = false;
+        for (const handler of this.closeHandlers)
+          handler();
+      }
+    };
+    channel.onerror = () => {
+      const error = new RtcConnectError("RTC_FAILED", "WebRTC data channel reported an error.");
+      this.failOpen(error);
+      for (const handler of this.errorHandlers)
+        handler(error);
+    };
+  }
+  async resolveSelectedTransport() {
+    try {
+      this.selected = detectSelectedTransport(await this.pc.getStats());
+    } catch {
+      this.selected = void 0;
+    }
+  }
+  checkConnectionState() {
+    if (this.closed || this.opened)
+      return;
+    if (this.pc.connectionState === "failed" || this.pc.iceConnectionState === "failed" || this.pc.connectionState === "closed" || this.pc.iceConnectionState === "closed") {
+      this.failOpen(new RtcConnectError("RTC_FAILED", "WebRTC peer connection failed before the data channel opened."));
+    }
+  }
+  failOpen(error) {
+    if (this.closed || this.opened || this.openReject === void 0)
+      return;
+    const reject = this.openReject;
+    this.clearNegotiation();
+    this.openResolve = void 0;
+    this.openReject = void 0;
+    reject(error);
+    void this.close();
+  }
+  clearNegotiation() {
+    if (this.negotiateTimer !== void 0)
+      clearTimeout(this.negotiateTimer);
+    this.negotiateTimer = void 0;
+    this.removeAbort?.();
+    this.removeAbort = void 0;
+    this.openResolve = void 0;
+    this.openReject = void 0;
+  }
+  requireOpenChannel() {
+    const channel = this.channel;
+    if (channel === void 0 || channel.readyState !== "open" || this.closed || !this.opened) {
+      throw new Error("WebRTC data channel is not open.");
+    }
+    return channel;
+  }
+  async drain(channel) {
+    if (channel.bufferedAmount < this.highWatermarkBytes)
+      return;
+    while (channel.readyState === "open" && channel.bufferedAmount >= this.lowWatermarkBytes) {
+      await sleep(DRAIN_POLL_INTERVAL_MS);
+    }
+  }
+};
+var RtcConnectError = class extends Error {
+  code;
+  constructor(code, message) {
+    super(message);
+    this.code = code;
+  }
+};
+function detectSelectedTransport(stats) {
+  const candidateTypes = /* @__PURE__ */ new Map();
+  const selectedPairs = [];
+  for (const [, entry] of stats) {
+    if (entry.type === "local-candidate" || entry.type === "remote-candidate") {
+      if (typeof entry.candidateType === "string" && entry.id !== void 0) {
+        candidateTypes.set(String(entry.id), entry.candidateType);
+      }
+    } else if (entry.type === "candidate-pair" || entry.type === "transport") {
+      if (entry.selected === true || entry.nominated === true)
+        selectedPairs.push(entry);
+    }
+  }
+  for (const pair of selectedPairs) {
+    const local = candidateTypes.get(String(pair.localCandidateId));
+    const remote = candidateTypes.get(String(pair.remoteCandidateId));
+    if (local === "relay" || remote === "relay")
+      return "turn";
+    if (local !== void 0 || remote !== void 0)
+      return "p2p";
+  }
+  return void 0;
+}
+function requireSdp(description) {
+  if (typeof description.sdp !== "string" || description.sdp.length === 0) {
+    throw new RtcConnectError("RTC_FAILED", "The RTC backend produced an empty session description.");
+  }
+  return description.sdp;
+}
+function toArrayBuffer(data) {
+  if (data.byteOffset === 0 && data.byteLength === data.buffer.byteLength)
+    return data.buffer;
+  return data.slice().buffer;
+}
+function asError(error) {
+  return error instanceof Error ? error : new RtcConnectError("RTC_FAILED", "WebRTC negotiation failed.");
+}
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ../webrtc/dist/adaptive-transport.js
+var DEFAULT_CAPABILITIES = ["transport.p2p", "transport.turn", "transport.relay", "harness.api.v1"];
+var DEFAULT_PREFERRED_TRANSPORTS = ["p2p", "turn", "relay"];
+var AdaptiveTransport = class extends BaseTransport {
+  url;
+  options;
+  handshakeHandlers = /* @__PURE__ */ new Set();
+  socket;
+  connectionId;
+  relayCounter = 0;
+  bytesSent = 0;
+  bytesReceived = 0;
+  dataMode = "relay";
+  selected;
+  rtc;
+  readyResolve;
+  readyReject;
+  handshakeTimer;
+  webrtcEnabled = true;
+  serverNegotiateTimeoutMs;
+  constructor(url, options) {
+    super();
+    this.url = url;
+    this.options = options;
+  }
+  async connect() {
+    if (this.socket !== void 0)
+      return;
+    this.socket = new WebSocket(this.url);
+    this.socket.binaryType = "arraybuffer";
+    await new Promise((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
+      this.handshakeTimer = setTimeout(() => this.failConnection(new Error("Adaptive control handshake timed out")), this.options.handshakeTimeoutMs ?? 15e3);
+      const socket = this.socket;
+      socket.onmessage = (event) => {
+        void this.handleSocketMessage(event.data);
+      };
+      socket.onopen = () => {
+        this.sendControl("hello", {
+          role: this.options.role,
+          deviceId: this.options.deviceId,
+          accessToken: this.options.accessToken,
+          protocols: [PROTOCOL_VERSION],
+          capabilities: this.options.capabilities ?? DEFAULT_CAPABILITIES
+        });
+      };
+      socket.onerror = () => this.failConnection(new Error(`AdaptiveTransport failed to connect to ${this.url}`));
+      socket.onclose = () => {
+        const pending = this.readyReject !== void 0;
+        if (pending)
+          this.failConnection(new Error("Adaptive control channel closed before it was ready"));
+        this.socket = void 0;
+        this.connectionId = void 0;
+        this.emitClose();
+      };
+    });
+  }
+  async send(data) {
+    if (this.connectionId === void 0)
+      throw new Error("adaptive transport has not been authorized");
+    if (this.dataMode === "webrtc") {
+      const rtc = this.rtc;
+      if (rtc === void 0)
+        throw new Error("webrtc data channel is not available");
+      this.bytesSent += data.byteLength;
+      await rtc.send(data);
+      return;
+    }
+    if (this.socket?.readyState !== WebSocket.OPEN)
+      throw new Error("adaptive transport is not connected");
+    this.bytesSent += data.byteLength;
+    this.sendControl("relay", {
+      connectionId: this.connectionId,
+      targetDeviceId: this.options.targetDeviceId,
+      counter: this.relayCounter,
+      ciphertext: toBase64Url(data)
+    });
+    this.relayCounter += 1;
+  }
+  connectionInfo() {
+    if (this.connectionId === void 0)
+      throw new Error("adaptive transport has not been authorized");
+    return {
+      connectionId: this.connectionId,
+      localDeviceId: this.options.deviceId,
+      remoteDeviceId: this.options.targetDeviceId
+    };
+  }
+  async sendHandshake(step, data) {
+    if (this.socket?.readyState !== WebSocket.OPEN || this.connectionId === void 0) {
+      throw new Error("adaptive transport has not been authorized");
+    }
+    this.sendControl("secure.handshake", {
+      connectionId: this.connectionId,
+      targetDeviceId: this.options.targetDeviceId,
+      step,
+      data: toBase64Url(data)
+    });
+  }
+  onHandshake(cb) {
+    this.handshakeHandlers.add(cb);
+    return () => this.handshakeHandlers.delete(cb);
+  }
+  async close() {
+    this.clearHandshake();
+    await this.rtc?.close();
+    this.rtc = void 0;
+    this.socket?.close();
+    this.socket = void 0;
+    this.connectionId = void 0;
+  }
+  getStats() {
+    const webrtcConnected = this.dataMode === "webrtc" && this.rtc?.getStats().connected === true;
+    const relayConnected = this.dataMode === "relay" && this.socket?.readyState === WebSocket.OPEN && this.connectionId !== void 0;
+    const connected = webrtcConnected || relayConnected;
+    let mode = "Disconnected";
+    if (this.selected === "relay")
+      mode = relayConnected ? "Relay" : "Disconnected";
+    else if (this.selected === "turn")
+      mode = webrtcConnected ? "TURN" : "Disconnected";
+    else if (this.selected === "p2p")
+      mode = webrtcConnected ? "P2P" : "Disconnected";
+    return { mode, connected, bytesSent: this.bytesSent, bytesReceived: this.bytesReceived };
+  }
+  async handleSocketMessage(raw) {
+    try {
+      const text = await socketText(raw);
+      const frame = parseControlFrame(JSON.parse(text));
+      if (frame.type === "hello.ack") {
+        const payload = frame.payload;
+        if (payload.protocol !== PROTOCOL_VERSION)
+          throw new Error("Server selected an unsupported protocol version");
+        if (payload.webrtcEnabled === false)
+          this.webrtcEnabled = false;
+        if (typeof payload.webrtcFallbackTimeoutMs === "number" && Number.isSafeInteger(payload.webrtcFallbackTimeoutMs) && payload.webrtcFallbackTimeoutMs > 0) {
+          this.serverNegotiateTimeoutMs = payload.webrtcFallbackTimeoutMs;
+        }
+        this.sendControl("connect.request", {
+          hostDeviceId: this.options.targetDeviceId,
+          preferredTransports: this.options.forceRelay === true ? ["relay"] : this.options.preferredTransports ?? [...DEFAULT_PREFERRED_TRANSPORTS]
+        });
+        return;
+      }
+      if (frame.type === "connect.accepted") {
+        const payload = frame.payload;
+        if (typeof payload.connectionId !== "string" || payload.connectionId.length === 0) {
+          throw new Error("connect.accepted did not include a connectionId");
+        }
+        this.connectionId = payload.connectionId;
+        void this.negotiate();
+        return;
+      }
+      if (frame.type === "connect.rejected" || frame.type === "error") {
+        const payload = frame.payload;
+        const message = typeof payload.message === "string" ? payload.message : "Server rejected the connection";
+        throw Object.assign(new Error(message), { code: payload.code });
+      }
+      if (frame.type === "relay") {
+        if (this.dataMode !== "relay")
+          return;
+        this.handleRelay(frame.payload);
+        return;
+      }
+      if (frame.type === "secure.handshake") {
+        const payload = frame.payload;
+        if (payload.connectionId !== this.connectionId || payload.targetDeviceId !== this.options.deviceId || !Number.isSafeInteger(payload.step) || typeof payload.data !== "string") {
+          throw new Error("Received a secure handshake frame for an unknown connection");
+        }
+        const data = fromBase64Url(payload.data);
+        for (const handler of this.handshakeHandlers)
+          handler(payload.step, data);
+        return;
+      }
+      if (frame.type === "signal.answer") {
+        const payload = frame.payload;
+        if (payload.connectionId === this.connectionId && typeof payload.sdp === "string") {
+          this.rtc?.handleSignal({ type: "answer", sdp: payload.sdp });
+        }
+        return;
+      }
+      if (frame.type === "signal.ice") {
+        const payload = frame.payload;
+        if (payload.connectionId === this.connectionId && isObject(payload.candidate)) {
+          this.rtc?.handleSignal({ type: "ice", candidate: payload.candidate });
+        }
+        return;
+      }
+      if (frame.type === "signal.offer" || frame.type === "transport.selected")
+        return;
+      if (frame.type === "ping")
+        this.sendControl("pong", frame.payload);
+    } catch (error) {
+      this.failConnection(error instanceof Error ? error : new Error("Invalid adaptive control frame"));
+    }
+  }
+  handleRelay(payload) {
+    if (payload.connectionId !== this.connectionId || payload.targetDeviceId !== this.options.deviceId || !Number.isSafeInteger(payload.counter) || typeof payload.ciphertext !== "string") {
+      throw new Error("Received a relay frame for an unknown connection");
+    }
+    const data = fromBase64Url(payload.ciphertext);
+    this.bytesReceived += data.byteLength;
+    this.emit(data);
+  }
+  async negotiate() {
+    if (this.connectionId === void 0)
+      return;
+    const preferred = this.options.preferredTransports ?? [...DEFAULT_PREFERRED_TRANSPORTS];
+    const wantWebRtc = !this.options.forceRelay && this.webrtcEnabled && (preferred.includes("p2p") || preferred.includes("turn"));
+    let selected = "relay";
+    if (wantWebRtc) {
+      try {
+        const rtcSelected = await this.tryWebRtc();
+        this.dataMode = "webrtc";
+        selected = rtcSelected;
+      } catch {
+        await this.rtc?.close();
+        this.rtc = void 0;
+        this.dataMode = "relay";
+        selected = "relay";
+      }
+    } else {
+      this.dataMode = "relay";
+      selected = "relay";
+    }
+    this.selected = selected;
+    this.sendControl("transport.selected", {
+      connectionId: this.connectionId,
+      targetDeviceId: this.options.targetDeviceId,
+      transport: selected
+    });
+    this.finishConnection();
+  }
+  async tryWebRtc() {
+    const connectionId = this.connectionId;
+    if (connectionId === void 0)
+      throw new RtcConnectError("RTC_UNAVAILABLE", "No connection id for WebRTC negotiation.");
+    const factory = this.options.rtcFactory ?? (typeof RTCPeerConnection === "undefined" ? void 0 : browserRtcFactory());
+    if (factory === void 0) {
+      throw new RtcConnectError("RTC_UNAVAILABLE", "No RTC backend is available in this environment.");
+    }
+    const iceServers = await (this.options.fetchIceServers?.(connectionId) ?? []);
+    const rtc = new RtcDataChannelTransport({
+      role: "initiator",
+      factory,
+      iceServers,
+      onSignal: (signal) => this.sendRtcSignal(signal),
+      negotiateTimeoutMs: this.serverNegotiateTimeoutMs ?? this.options.negotiateTimeoutMs,
+      highWatermarkBytes: this.options.highWatermarkBytes,
+      lowWatermarkBytes: this.options.lowWatermarkBytes,
+      label: `client->${this.options.targetDeviceId}`
+    });
+    this.rtc = rtc;
+    rtc.onMessage((data) => {
+      this.bytesReceived += data.byteLength;
+      this.emit(data);
+    });
+    rtc.onClose(() => this.emitClose());
+    try {
+      await rtc.connect();
+    } catch (error) {
+      await rtc.close();
+      this.rtc = void 0;
+      throw error;
+    }
+    return rtc.selectedTransport() ?? "p2p";
+  }
+  sendRtcSignal(signal) {
+    if (this.connectionId === void 0)
+      return;
+    if (signal.type === "offer") {
+      this.sendControl("signal.offer", {
+        connectionId: this.connectionId,
+        targetDeviceId: this.options.targetDeviceId,
+        sdp: signal.sdp
+      });
+    } else if (signal.type === "answer") {
+      this.sendControl("signal.answer", {
+        connectionId: this.connectionId,
+        targetDeviceId: this.options.targetDeviceId,
+        sdp: signal.sdp
+      });
+    } else {
+      this.sendControl("signal.ice", {
+        connectionId: this.connectionId,
+        targetDeviceId: this.options.targetDeviceId,
+        candidate: signal.candidate
+      });
+    }
+  }
+  sendControl(type, payload) {
+    if (this.socket?.readyState !== WebSocket.OPEN)
+      throw new Error("adaptive control socket is not open");
+    this.socket.send(JSON.stringify(createControlFrame(type, payload)));
+  }
+  finishConnection() {
+    this.clearHandshake();
+    this.readyResolve?.();
+    this.readyResolve = void 0;
+    this.readyReject = void 0;
+  }
+  failConnection(error) {
+    this.clearHandshake();
+    const reject = this.readyReject;
+    this.readyResolve = void 0;
+    this.readyReject = void 0;
+    reject?.(error);
+    void this.rtc?.close();
+    this.rtc = void 0;
+    this.socket?.close();
+    this.socket = void 0;
+    this.connectionId = void 0;
+  }
+  clearHandshake() {
+    if (this.handshakeTimer !== void 0)
+      clearTimeout(this.handshakeTimer);
+    this.handshakeTimer = void 0;
+  }
+};
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // src/api-proxy-switch.ts
@@ -12095,15 +12720,16 @@ var ClientModeRuntime = class {
     const presence = await this.server.presenceFor(targetDeviceId);
     if (!presence.online) throw new ClientModeError("HOST_OFFLINE", "The selected Host is offline.", true);
     const credentials = await this.server.authenticate(identity);
-    const relay = new RelayTransport(websocketUrl(this.server.baseUrl), {
+    const transport = new AdaptiveTransport(websocketUrl(this.server.baseUrl), {
       role: "client",
       deviceId: identity.deviceId,
       accessToken: credentials.accessToken,
       targetDeviceId,
-      capabilities: ["transport.relay", "harness.api.v1"],
-      preferredTransports: ["relay"]
+      forceRelay: this.config.forceRelay,
+      preferredTransports: this.config.forceRelay ? ["relay"] : ["p2p", "turn", "relay"],
+      fetchIceServers: async (connectionId) => this.server.turnCredentials(connectionId)
     });
-    const client = new RemoteClientCore(new ClientSecureTransport(relay, identity, target), 6e4);
+    const client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 6e4);
     try {
       await client.connect();
       signal?.throwIfAborted();
@@ -12586,6 +13212,13 @@ var HostServerApi = class {
     const result = await this.request(`/api/v1/devices/${encodeURIComponent(peerDeviceId)}`);
     return parseAuthorizedPeer(result);
   }
+  async turnCredentials(connectionId) {
+    const result = await this.request(
+      `/api/v1/turn/credentials?connection_id=${encodeURIComponent(connectionId)}`
+    );
+    if (!Array.isArray(result.iceServers)) return [];
+    return result.iceServers.map(parseIceServer);
+  }
   async presenceFor(deviceId) {
     const result = await this.request(`/api/v1/devices/${encodeURIComponent(deviceId)}/presence`);
     if (typeof result.online !== "boolean" || result.lastSeenAt !== null && result.lastSeenAt !== void 0 && !Number.isSafeInteger(result.lastSeenAt)) {
@@ -12762,6 +13395,18 @@ function parseAuthorizedPeer(value) {
     membershipId: item.membershipId,
     ...typeof item.online === "boolean" ? { online: item.online } : {},
     ...typeof item.lastSeenAt === "number" && Number.isSafeInteger(item.lastSeenAt) ? { lastSeenAt: item.lastSeenAt } : {}
+  };
+}
+function parseIceServer(value) {
+  const item = requireRecord(value, "ICE server");
+  const urls = item.urls;
+  if (typeof urls !== "string" && !(Array.isArray(urls) && urls.every((url) => typeof url === "string"))) {
+    throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid ICE server.", false);
+  }
+  return {
+    urls,
+    ...typeof item.username === "string" ? { username: item.username } : {},
+    ...typeof item.credential === "string" ? { credential: item.credential } : {}
   };
 }
 function isIdentityKey(value) {
@@ -13232,8 +13877,9 @@ function errorResponse(requestId, error) {
 }
 
 // src/server-connection.ts
+var DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 8e3;
 var HostServerConnection = class {
-  constructor(config, identity, identities, api, connections, logger, createWebSocket = (url) => new WebSocket(url)) {
+  constructor(config, identity, identities, api, connections, logger, createWebSocket = (url) => new WebSocket(url), rtcFactoryProvider) {
     this.config = config;
     this.identity = identity;
     this.identities = identities;
@@ -13241,6 +13887,7 @@ var HostServerConnection = class {
     this.connections = connections;
     this.logger = logger;
     this.createWebSocket = createWebSocket;
+    this.rtcFactoryProvider = rtcFactoryProvider;
   }
   socket;
   running;
@@ -13250,6 +13897,7 @@ var HostServerConnection = class {
   tunnels = /* @__PURE__ */ new Map();
   terminalError;
   resumeQueued = false;
+  rtcFactory;
   start() {
     if (this.running !== void 0) return;
     this.stopped = false;
@@ -13326,7 +13974,7 @@ var HostServerConnection = class {
           deviceId: this.identity.deviceId,
           accessToken: credentials.accessToken,
           protocols: [PROTOCOL_VERSION],
-          capabilities: ["transport.relay", "harness.api.v1"]
+          capabilities: this.rtcFactoryProvider === void 0 || this.config.forceRelay ? ["transport.relay", "harness.api.v1"] : ["transport.p2p", "transport.turn", "transport.relay", "harness.api.v1"]
         });
       };
       socket.onmessage = (event) => {
@@ -13366,7 +14014,7 @@ var HostServerConnection = class {
             try {
               await this.api.refreshCredentials();
             } catch (error) {
-              finish(asError(error));
+              finish(asError2(error));
               return;
             }
           }
@@ -13400,6 +14048,16 @@ var HostServerConnection = class {
       await this.handleRelay(requireRelay(frame.payload));
       return;
     }
+    if (frame.type === "signal.offer") {
+      await this.handleSignalOffer(requireSignal(frame.payload));
+      return;
+    }
+    if (frame.type === "signal.ice") {
+      this.handleSignalIce(requireSignalIce(frame.payload));
+      return;
+    }
+    if (frame.type === "transport.selected") return;
+    if (frame.type === "signal.answer") return;
     if (frame.type === "error") {
       const payload = requireControlError(frame.payload);
       this.terminalError = payload.code;
@@ -13459,7 +14117,8 @@ var HostServerConnection = class {
       connectionId: payload.connectionId,
       membershipId: descriptor.membershipId,
       peer,
-      noise
+      noise,
+      transport: "negotiating"
     });
     this.sendControl("connect.accepted", { connectionId: payload.connectionId });
   }
@@ -13477,15 +14136,19 @@ var HostServerConnection = class {
       step: 2,
       data: toBase64Url2(reply)
     });
-    const channel = new ServerNoiseChannel(tunnel, (ciphertext) => this.sendRelay(tunnel, ciphertext), () => {
+    const viaWebRtc = tunnel.rtc !== void 0 && (tunnel.transport === "p2p" || tunnel.transport === "turn");
+    if (!viaWebRtc && tunnel.transport === "negotiating") tunnel.transport = "relay";
+    const mode = viaWebRtc ? tunnel.transport === "turn" ? "TURN" : "P2P" : "Relay";
+    const transmit = viaWebRtc ? (ciphertext) => tunnel.rtc.send(ciphertext) : (ciphertext) => this.sendRelay(tunnel, ciphertext);
+    const channel = new ServerNoiseChannel(tunnel, transmit, () => {
       if (this.tunnels.get(tunnel.connectionId) === tunnel) this.tunnels.delete(tunnel.connectionId);
-    });
+    }, mode);
     tunnel.channel = channel;
     await this.connections.accept(channel);
     this.logger.info("authenticated peer channel ready", {
       connectionId: shortId2(tunnel.connectionId),
       peerDeviceId: shortId2(tunnel.peer.deviceId),
-      transport: "Relay"
+      transport: mode
     });
   }
   async handleRelay(payload) {
@@ -13503,8 +14166,108 @@ var HostServerConnection = class {
       tunnel.channel.receive(payload.counter, fromBase64Url2(payload.ciphertext));
     } catch (error) {
       await tunnel.channel.close();
-      throw new ControlConnectionError("SECURE_CHANNEL_FAILED", asError(error).message);
+      throw new ControlConnectionError("SECURE_CHANNEL_FAILED", asError2(error).message);
     }
+  }
+  async handleSignalOffer(payload) {
+    const tunnel = this.tunnels.get(payload.connectionId);
+    if (tunnel === void 0 || payload.targetDeviceId !== this.identity.deviceId) {
+      this.logger.warn("stale webrtc offer ignored", { connectionId: shortId2(payload.connectionId) });
+      return;
+    }
+    if (tunnel.channel !== void 0 || tunnel.rtc !== void 0) {
+      this.logger.warn("duplicate webrtc offer ignored", { connectionId: shortId2(tunnel.connectionId) });
+      return;
+    }
+    if (this.config.forceRelay) {
+      this.logger.warn("webrtc offer ignored: forceRelay is enabled", { connectionId: shortId2(tunnel.connectionId) });
+      return;
+    }
+    if (this.rtcFactory === void 0 && this.rtcFactoryProvider !== void 0) {
+      this.rtcFactory = await this.rtcFactoryProvider().catch(() => void 0);
+    }
+    if (this.rtcFactory === void 0) {
+      this.logger.warn("webrtc offer ignored: no RTC backend available", { connectionId: shortId2(tunnel.connectionId) });
+      return;
+    }
+    let iceServers = [];
+    try {
+      iceServers = await this.api.turnCredentials(tunnel.connectionId);
+    } catch (error) {
+      this.logger.warn("TURN credentials unavailable; trying direct candidates", {
+        connectionId: shortId2(tunnel.connectionId),
+        code: errorCode(error)
+      });
+    }
+    const rtc = new RtcDataChannelTransport({
+      role: "responder",
+      factory: this.rtcFactory,
+      iceServers,
+      onSignal: (signal) => this.sendRtcSignal(tunnel, signal),
+      negotiateTimeoutMs: DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS,
+      label: `host<-${tunnel.peer.deviceId}`
+    });
+    tunnel.rtc = rtc;
+    rtc.onMessage((data) => tunnel.channel?.receive(void 0, data));
+    rtc.onClose(() => {
+      void this.handleRtcFailed(tunnel, new Error("WebRTC data channel closed."));
+    });
+    void rtc.connect().then(() => {
+      this.handleRtcOpened(tunnel, rtc.selectedTransport() ?? "p2p");
+    }).catch((error) => {
+      void this.handleRtcFailed(tunnel, asError2(error));
+    });
+    rtc.handleSignal({ type: "offer", sdp: payload.sdp });
+  }
+  handleSignalIce(payload) {
+    const tunnel = this.tunnels.get(payload.connectionId);
+    if (tunnel === void 0 || payload.targetDeviceId !== this.identity.deviceId) return;
+    tunnel.rtc?.handleSignal({ type: "ice", candidate: payload.candidate });
+  }
+  sendRtcSignal(tunnel, signal) {
+    if (signal.type === "answer") {
+      this.sendControl("signal.answer", {
+        connectionId: tunnel.connectionId,
+        targetDeviceId: tunnel.peer.deviceId,
+        sdp: signal.sdp
+      });
+    } else if (signal.type === "ice") {
+      this.sendControl("signal.ice", {
+        connectionId: tunnel.connectionId,
+        targetDeviceId: tunnel.peer.deviceId,
+        candidate: signal.candidate
+      });
+    }
+  }
+  handleRtcOpened(tunnel, selected) {
+    if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc === void 0) return;
+    tunnel.transport = selected;
+    this.sendTransportSelected(tunnel, selected);
+    this.logger.info("webrtc data channel ready", {
+      connectionId: shortId2(tunnel.connectionId),
+      peerDeviceId: shortId2(tunnel.peer.deviceId),
+      transport: selected
+    });
+  }
+  async handleRtcFailed(tunnel, error) {
+    if (this.tunnels.get(tunnel.connectionId) !== tunnel) return;
+    const rtc = tunnel.rtc;
+    tunnel.rtc = void 0;
+    if (tunnel.transport !== "p2p" && tunnel.transport !== "turn") {
+      tunnel.transport = "relay";
+    }
+    await rtc?.close();
+    this.logger.warn("webrtc negotiation failed; falling back to relay", {
+      connectionId: shortId2(tunnel.connectionId),
+      reason: diagnosticReason(error)
+    });
+  }
+  sendTransportSelected(tunnel, transport) {
+    this.sendControl("transport.selected", {
+      connectionId: tunnel.connectionId,
+      targetDeviceId: tunnel.peer.deviceId,
+      transport
+    });
   }
   async sendRelay(tunnel, ciphertext) {
     const counter = Number(tunnel.noise.sendingCounter() - 1n);
@@ -13525,6 +14288,7 @@ var HostServerConnection = class {
     const tunnels = [...this.tunnels.values()];
     this.tunnels.clear();
     await Promise.all(tunnels.map(async (tunnel) => {
+      if (tunnel.rtc !== void 0) await tunnel.rtc.close();
       if (tunnel.channel !== void 0) await tunnel.channel.close();
       else tunnel.noise.destroy();
     }));
@@ -13553,10 +14317,11 @@ var TERMINAL_AUTH_ERRORS = /* @__PURE__ */ new Set([
   "TOKEN_EXPIRED"
 ]);
 var ServerNoiseChannel = class {
-  constructor(tunnel, transmit, onClose) {
+  constructor(tunnel, transmit, onClose, mode) {
     this.tunnel = tunnel;
     this.transmit = transmit;
     this.onClose = onClose;
+    this.mode = mode;
     this.security = {
       protocol: "Noise_IK_25519_ChaChaPoly_SHA256",
       connectionId: tunnel.connectionId,
@@ -13568,7 +14333,7 @@ var ServerNoiseChannel = class {
   security;
   peerDeviceId;
   peerIdentityKey;
-  mode = "Relay";
+  mode;
   handlers = /* @__PURE__ */ new Set();
   incoming = new SecureMessageCodec();
   outgoing = new SecureMessageCodec();
@@ -13585,9 +14350,11 @@ var ServerNoiseChannel = class {
   }
   receive(counter, ciphertext) {
     if (this.closed) return;
-    const expected = Number(this.tunnel.noise.receivingCounter());
-    if (!Number.isSafeInteger(counter) || counter !== expected) {
-      throw new ControlConnectionError("INVALID_MESSAGE", "Relay counter is duplicated or out of order.");
+    if (counter !== void 0) {
+      const expected = Number(this.tunnel.noise.receivingCounter());
+      if (!Number.isSafeInteger(counter) || counter !== expected) {
+        throw new ControlConnectionError("INVALID_MESSAGE", "Relay counter is duplicated or out of order.");
+      }
     }
     const plaintext = this.incoming.decode(this.tunnel.noise.decrypt(ciphertext));
     if (plaintext === void 0) return;
@@ -13652,6 +14419,20 @@ function requireRelay(value) {
   }
   return payload;
 }
+function requireSignal(value) {
+  const payload = requireObject(value);
+  if (typeof payload.connectionId !== "string" || typeof payload.targetDeviceId !== "string" || typeof payload.sdp !== "string" || payload.sdp.length === 0) {
+    throw new ControlConnectionError("INVALID_MESSAGE", "signal offer/answer payload is invalid.");
+  }
+  return payload;
+}
+function requireSignalIce(value) {
+  const payload = requireObject(value);
+  if (typeof payload.connectionId !== "string" || typeof payload.targetDeviceId !== "string" || typeof payload.candidate !== "object" || payload.candidate === null || Array.isArray(payload.candidate)) {
+    throw new ControlConnectionError("INVALID_MESSAGE", "signal.ice payload is invalid.");
+  }
+  return payload;
+}
 function requireControlError(value) {
   const payload = requireObject(value);
   if (typeof payload.code !== "string" || typeof payload.message !== "string") {
@@ -13671,11 +14452,11 @@ function objectValue(value, key) {
 function shortId2(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
 }
-function asError(error) {
+function asError2(error) {
   return error instanceof Error ? error : new Error("Unknown Server connection error.");
 }
 function diagnosticReason(error) {
-  const message = asError(error).message.replace(/[\r\n]+/g, " ").slice(0, 160);
+  const message = asError2(error).message.replace(/[\r\n]+/g, " ").slice(0, 160);
   return message || "Unknown Server connection error.";
 }
 function errorCode(error) {
@@ -13837,6 +14618,159 @@ function deniedMethod(method) {
   return new RpcError("METHOD_NOT_ALLOWED", `Harness API method ${JSON.stringify(method)} is not available in remote mode.`);
 }
 
+// src/werift-rtc.ts
+var cachedFactory;
+async function loadWeriftFactory() {
+  if (cachedFactory !== void 0) return cachedFactory;
+  try {
+    const werift = await import("werift");
+    cachedFactory = buildWeriftFactory(werift);
+    return cachedFactory;
+  } catch {
+    return void 0;
+  }
+}
+function buildWeriftFactory(werift) {
+  return {
+    create(configuration) {
+      const raw = new werift.RTCPeerConnection({
+        iceServers: configuration.iceServers ?? []
+      });
+      let onIceCandidate = null;
+      let onDataChannel = null;
+      raw.onicecandidate = (event) => {
+        if (onIceCandidate === null) return;
+        onIceCandidate({ candidate: event.candidate === void 0 ? null : event.candidate.toJSON() });
+      };
+      raw.ondatachannel = (event) => {
+        if (onDataChannel === null) return;
+        onDataChannel({ channel: adaptDataChannel2(event.channel) });
+      };
+      const pc = {
+        get connectionState() {
+          return raw.connectionState;
+        },
+        get iceConnectionState() {
+          return raw.iceConnectionState;
+        },
+        get iceGatheringState() {
+          return raw.iceGatheringState;
+        },
+        get signalingState() {
+          return raw.signalingState;
+        },
+        set onconnectionstatechange(value) {
+          raw.onconnectionstatechange = value;
+        },
+        get onconnectionstatechange() {
+          return raw.onconnectionstatechange;
+        },
+        set oniceconnectionstatechange(value) {
+          raw.oniceconnectionstatechange = value;
+        },
+        get oniceconnectionstatechange() {
+          return raw.oniceconnectionstatechange;
+        },
+        set onicegatheringstatechange(value) {
+          raw.onicegatheringstatechange = value;
+        },
+        get onicegatheringstatechange() {
+          return raw.onicegatheringstatechange;
+        },
+        set onicecandidate(value) {
+          onIceCandidate = value;
+        },
+        get onicecandidate() {
+          return onIceCandidate;
+        },
+        set ondatachannel(value) {
+          onDataChannel = value;
+        },
+        get ondatachannel() {
+          return onDataChannel;
+        },
+        createDataChannel(label, options) {
+          return adaptDataChannel2(raw.createDataChannel(label, { ordered: options?.ordered ?? true }));
+        },
+        createOffer() {
+          return raw.createOffer();
+        },
+        createAnswer() {
+          return raw.createAnswer();
+        },
+        setLocalDescription(description) {
+          return raw.setLocalDescription(description).then(() => void 0);
+        },
+        setRemoteDescription(description) {
+          return raw.setRemoteDescription(description);
+        },
+        addIceCandidate(candidate) {
+          return raw.addIceCandidate(candidate);
+        },
+        getStats() {
+          return raw.getStats();
+        },
+        close() {
+          void raw.close().catch(() => void 0);
+        }
+      };
+      return pc;
+    }
+  };
+}
+function adaptDataChannel2(raw) {
+  return {
+    get label() {
+      return raw.label;
+    },
+    get ordered() {
+      return raw.ordered;
+    },
+    get readyState() {
+      return raw.readyState;
+    },
+    get bufferedAmount() {
+      return raw.bufferedAmount;
+    },
+    binaryType: "arraybuffer",
+    set onopen(value) {
+      raw.onopen = value;
+    },
+    get onopen() {
+      return raw.onopen;
+    },
+    set onmessage(value) {
+      raw.onmessage = value === null ? null : (event) => value({ data: toArrayBuffer2(event.data) });
+    },
+    get onmessage() {
+      return null;
+    },
+    set onclose(value) {
+      raw.onclose = value;
+    },
+    get onclose() {
+      return raw.onclose;
+    },
+    set onerror(value) {
+      raw.onerror = value;
+    },
+    get onerror() {
+      return raw.onerror;
+    },
+    onbufferedamountlow: null,
+    send(data) {
+      raw.send(typeof data === "string" ? data : Buffer.from(data));
+    },
+    close() {
+      raw.close();
+    }
+  };
+}
+function toArrayBuffer2(data) {
+  if (typeof data === "string") return data;
+  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+}
+
 // src/service.ts
 var HostPluginRuntime = class {
   constructor(config, identities, apiProxy, logger) {
@@ -13875,7 +14809,9 @@ var HostPluginRuntime = class {
         this.identities,
         this.serverApi,
         this.connections,
-        this.logger
+        this.logger,
+        void 0,
+        this.config.forceRelay ? void 0 : loadWeriftFactory
       );
       this.serverConnection.start();
     }

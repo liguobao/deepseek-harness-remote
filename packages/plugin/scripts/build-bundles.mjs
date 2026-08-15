@@ -11,7 +11,7 @@ await build({
   format: 'esm',
   sourcemap: true,
   outfile: join(root, 'dist/index.js'),
-  external: ['@deepseek-ai/*'],
+  external: ['@deepseek-ai/*', 'werift'],
 })
 
 await build({

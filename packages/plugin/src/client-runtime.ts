@@ -1,6 +1,6 @@
 import type { ApiProxy, RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RemoteClientCore } from '@dsh-remote/client-core'
-import { RelayTransport } from '@dsh-remote/webrtc'
+import { AdaptiveTransport } from '@dsh-remote/webrtc'
 import { ApiProxySwitch, type HarnessMode } from './api-proxy-switch.js'
 import { ClientSecureTransport } from './client-secure-transport.js'
 import type { ResolvedConfig } from './config.js'
@@ -145,15 +145,16 @@ export class ClientModeRuntime {
     const presence = await this.server.presenceFor(targetDeviceId)
     if (!presence.online) throw new ClientModeError('HOST_OFFLINE', 'The selected Host is offline.', true)
     const credentials = await this.server.authenticate(identity)
-    const relay = new RelayTransport(websocketUrl(this.server.baseUrl), {
+    const transport = new AdaptiveTransport(websocketUrl(this.server.baseUrl), {
       role: 'client',
       deviceId: identity.deviceId,
       accessToken: credentials.accessToken,
       targetDeviceId,
-      capabilities: ['transport.relay', 'harness.api.v1'],
-      preferredTransports: ['relay'],
+      forceRelay: this.config.forceRelay,
+      preferredTransports: this.config.forceRelay ? ['relay'] : ['p2p', 'turn', 'relay'],
+      fetchIceServers: async connectionId => this.server.turnCredentials(connectionId),
     })
-    const client = new RemoteClientCore(new ClientSecureTransport(relay, identity, target), 60_000)
+    const client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 60_000)
     try {
       await client.connect()
       signal?.throwIfAborted()
