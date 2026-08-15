@@ -13683,8 +13683,8 @@ var HarnessApiBridge = class {
   }
   async closeAll(reason = "peer-disconnected") {
     const streams = [...this.streams.values()];
+    this.streams.clear();
     for (const stream of streams) stream.controller.abort(reason);
-    await Promise.allSettled(streams.map((stream) => stream.task));
   }
   async pump(streamId, stream, signal) {
     let reason = "completed";

@@ -35,6 +35,32 @@ describe('HarnessApiBridge', () => {
     expect(publish.mock.calls[0]).toMatchObject(['harness.api.frame', { streamId: 'stream-1' }])
     expect(publish.mock.calls[1]).toEqual(['harness.api.stream.closed', { streamId: 'stream-1', reason: 'completed' }])
   })
+
+  it('does not block peer replacement when a native stream ignores abort', async () => {
+    let streamSignal: AbortSignal | undefined
+    const stalled = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<never>>(() => undefined),
+      }),
+    }
+    const bridge = new HarnessApiBridge(api({
+      events: {
+        mux: (_request: unknown, signal: AbortSignal) => {
+          streamSignal = signal
+          return stalled
+        },
+        host: async function* () { return },
+      },
+    }), vi.fn(async () => undefined), 1)
+
+    bridge.openStream({ streamId: 'stalled-stream', stream: 'mux', rpcId: 'open-1', payload: {} })
+    await expect(bridge.closeAll()).resolves.toBeUndefined()
+    expect(streamSignal?.aborted).toBe(true)
+    expect(bridge.openStream({ streamId: 'replacement-stream', stream: 'host', rpcId: 'open-2', payload: {} })).toEqual({
+      opened: true,
+      streamId: 'replacement-stream',
+    })
+  })
 })
 
 function api(overrides: Record<string, unknown>): ApiProxy {

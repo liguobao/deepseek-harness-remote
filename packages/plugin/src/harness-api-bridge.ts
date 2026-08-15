@@ -147,8 +147,13 @@ export class HarnessApiBridge {
 
   async closeAll(reason: HarnessApiStreamClosedData['reason'] = 'peer-disconnected'): Promise<void> {
     const streams = [...this.streams.values()]
+    this.streams.clear()
     for (const stream of streams) stream.controller.abort(reason)
-    await Promise.allSettled(streams.map(stream => stream.task))
+    // A native ApiProxy stream may not observe AbortSignal until its next
+    // frame. Waiting for every pump here would block a replacement peer from
+    // installing its message handler indefinitely. The detached pumps own
+    // their errors and terminal event publication, so abort and release them
+    // without holding up the authenticated connection handoff.
   }
 
   private async pump(streamId: string, stream: HarnessStream, signal: AbortSignal): Promise<void> {
