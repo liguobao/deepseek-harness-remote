@@ -12,16 +12,16 @@ DSH Remote is a Remote Host Plugin for [DeepSeek Harness](https://github.com/dee
 In DSH Desktop, open **Extensions → Manage plugins…** and install a pinned version:
 
 ```text
-github:liguobao/deepseek-harness-remote#v0.2.10
+github:liguobao/deepseek-harness-remote#v0.2.11
 ```
 
 Alternatively, install it into the `web` profile from the command line:
 
 ```sh
-dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.2.10"
+dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.2.11"
 ```
 
-To install another version, replace `v0.2.10` with the desired tag or commit. For a custom profile, replace `web` with its profile name.
+To install another version, replace `v0.2.11` with the desired tag or commit. For a custom profile, replace `web` with its profile name.
 
 Restart Harness, then open **Settings → Plugins → Plugin configuration → DSH Remote**:
 

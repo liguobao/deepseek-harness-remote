@@ -49,7 +49,7 @@ starts in the Host role and uses `https://dsh.r2049.cn`; the plugin options card
 persists the Server in `$DSH_HOME/settings.yaml` and applies it after restart.
 
 For DSH Desktop GitHub installation, install the repository root with
-`github:liguobao/deepseek-harness-remote#v0.2.10`. Git dependencies are
+`github:liguobao/deepseek-harness-remote#v0.2.11`. Git dependencies are
 installed as the root package `dsh-remote`, which carries an equivalent root bundle
 manifest and committed Host/browser entries. This nested package remains the
 npm publication and CI artifact boundary.
