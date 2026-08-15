@@ -1,8 +1,8 @@
-# DSH Remote
+# DeepSeek 远程连接
 
 中文 | [English](README.en.md)
 
-DSH Remote 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的双角色 Desktop Plugin，让本地 Harness 通过官方 `ApiProxy` 安全连接另一台机器上的 Harness。
+DeepSeek 远程连接（DSH Remote）是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的双角色 Desktop Plugin，让本地 Harness 通过官方 `ApiProxy` 安全连接另一台机器上的 Harness。
 
 > [!WARNING]
 > 项目仍处于开发预览阶段，需要兼容 [Remote Protocol v1](docs/protocol.md) 的外部 Server，尚未完成生产级互操作与独立安全审查，请勿用于生产环境。
@@ -15,7 +15,7 @@ DSH Remote 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harnes
 github:liguobao/deepseek-harness-remote#<tag-or-commit>
 ```
 
-重启 Harness，前往 **设置 → 插件 → 插件配置 → DSH Remote**：
+重启 Harness，前往 **设置 → 插件 → 插件配置 → DeepSeek 远程连接**：
 
 1. 远端机器选择 **Host**，填写 Server 和站点账号密码并保存；密码仅用于本次 HTTPS 授权，不会存储。
 2. 重启远端 Harness，在侧边栏生成一次性授权码。

@@ -12533,7 +12533,7 @@ var HostServerApi = class {
           role: this.role,
           platform: platform(),
           identityKey: identity.publicKey,
-          clientVersion: "0.2.5",
+          clientVersion: "0.2.6",
           harnessVersion: "0.1.0-rc.6"
         }
       })

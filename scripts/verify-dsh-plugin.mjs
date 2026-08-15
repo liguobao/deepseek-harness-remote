@@ -7,6 +7,8 @@ import { runInNewContext } from 'node:vm'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 
+assert.equal(manifest.name, 'dsh-remote', 'root package must keep the stable DSH installation id')
+assert.equal(manifest.description, 'DeepSeek 远程连接', 'root package must expose the Chinese plugin name')
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml', 'root package must declare a DSH bundle patch')
 assert.equal(manifest.dsh?.client?.platform, 'web', 'root package must declare its browser client face')
 assert.ok(
@@ -27,6 +29,7 @@ for (const file of [
 }
 
 const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
+assert.match(patch, /^\s*- id:\s*dsh-remote\s*$/m, 'root patch must keep the stable Cordis instance id')
 assert.match(patch, new RegExp(`name:\\s*['\"]?${manifest.name.replaceAll('-', '\\-')}['\"]?`), 'root patch must load the installed root package')
 
 const rootHostEntry = readFileSync(join(root, 'index.js'), 'utf8')
@@ -38,6 +41,10 @@ assert.doesNotMatch(hostBundle, /(?:from\s+|require\()['\"]@dsh-remote\//, 'Host
 const clientBundle = readFileSync(join(root, 'packages/plugin/dist/client.github.js'), 'utf8')
 assert.match(clientBundle, /window\.__ModuleLoader__\.load/, 'browser client entry must register with the DSH module loader')
 assert.match(clientBundle, /settings\.plugin\.item/, 'browser client must contribute its options inside Plugin configuration')
+assert.ok(
+  clientBundle.includes('DeepSeek 远程连接') || clientBundle.includes('DeepSeek \\u8FDC\\u7A0B\\u8FDE\\u63A5'),
+  'browser client must expose the Chinese plugin name',
+)
 assert.doesNotMatch(clientBundle, /settings\.plugins\.tab/, 'browser client must not create a separate plugin settings tab')
 
 let githubClient

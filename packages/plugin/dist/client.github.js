@@ -103,7 +103,7 @@
             React.createElement(
               "span",
               { className: "dshRemotePluginCardHeading" },
-              React.createElement("strong", null, "DSH Remote"),
+              React.createElement("strong", null, "DeepSeek \u8FDC\u7A0B\u8FDE\u63A5"),
               React.createElement("span", null, "Remote Host and Client connection")
             ),
             association === void 0 ? null : React.createElement("span", { className: "dshRemotePluginCardStatus" }, "Associated"),
@@ -217,7 +217,7 @@
               ),
               writable ? null : React.createElement("p", { className: "dshRemoteError" }, "This DSH profile does not provide writable user settings."),
               error === void 0 ? null : React.createElement("p", { className: "dshRemoteError", role: "alert" }, error)
-            ) : React.createElement("p", { className: "dshRemoteSettingsState" }, error ?? "Loading DSH Remote settings\u2026")
+            ) : React.createElement("p", { className: "dshRemoteSettingsState" }, error ?? "\u6B63\u5728\u52A0\u8F7D DeepSeek \u8FDC\u7A0B\u8FDE\u63A5\u8BBE\u7F6E\u2026")
           ) : null
         );
       }

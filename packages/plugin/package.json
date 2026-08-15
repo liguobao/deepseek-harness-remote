@@ -1,7 +1,7 @@
 {
   "name": "@dsh-remote/plugin",
-  "version": "0.2.5",
-  "description": "Local/remote mode plugin for DeepSeek Harness",
+  "version": "0.2.6",
+  "description": "DeepSeek 远程连接",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./public.d.ts",

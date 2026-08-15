@@ -234,14 +234,14 @@ window.__ModuleLoader__.load({
           onClick: () => setOpen(current => !current),
         },
         React.createElement('span', { className: 'dshRemotePluginCardHeading' },
-          React.createElement('strong', null, 'DSH Remote'),
+          React.createElement('strong', null, 'DeepSeek 远程连接'),
           React.createElement('span', null, 'Remote Host and Client connection')),
         association === undefined ? null : React.createElement('span', { className: 'dshRemotePluginCardStatus' }, 'Associated'),
         pending === undefined ? null : React.createElement('span', { className: 'dshRemotePluginCardStatus' }, 'Pairing…'),
         React.createElement('span', { className: 'dshRemotePluginCardChevron', 'aria-hidden': true }, '⌄')),
         !open ? null : React.createElement('div', { className: 'dshRemotePluginCardBody' },
           !loaded
-            ? React.createElement('p', { className: 'dshRemoteSettingsState' }, error ?? 'Loading DSH Remote settings…')
+            ? React.createElement('p', { className: 'dshRemoteSettingsState' }, error ?? '正在加载 DeepSeek 远程连接设置…')
             : association !== undefined
               ? React.createElement('div', { className: 'dshRemoteSettings' },
         React.createElement('div', { className: 'dshRemoteAssociation' },
