@@ -397,6 +397,12 @@ Web 与电脑 Web 可同时连接。RPC pending 数、stream namespace、stream 
 `connectionId` 隔离。仅同一个 `clientDeviceId` 的新连接替换该设备的旧连接，不得关闭其他
 Client 的 connection 或原生流。
 
+Server 使用现有 `error` control frame 的可选 `payload.connectionId` 通知单条逻辑连接
+断开。字段存在时 Host 只关闭该 connection 的 Noise/RTC、RPC router 和 stream，不得把错误
+提升为整个 Control WebSocket 的终止状态；字段不存在时保持原有 Control/操作级错误语义。
+这是兼容扩展，旧插件可以忽略未知字段。Server 对 `hello.clientVersion < 0.2.13`、缺失或
+无效版本保持 last-client-wins，避免把多个 Client fan-in 到旧插件的单例连接状态。
+
 ## 12. Secure Channel
 
 ### 12.1 算法
@@ -1115,7 +1121,7 @@ pong 回显 nonce。Heartbeat 不能携带业务数据。
 - `FULL_RESYNC_REQUIRED`
 - `INTERNAL_ERROR`
 
-错误 message 面向用户但不包含内部路径、stack、secret 或原始异常。`retryable` 只表示同一操作稍后重试可能成功，不代表 Client 应自动重放非幂等请求。
+错误 message 面向用户但不包含内部路径、stack、secret 或原始异常。`retryable` 只表示同一操作稍后重试可能成功，不代表 Client 应自动重放非幂等请求。`error.payload.connectionId` 为可选字段；存在时错误作用域仅限该逻辑连接。
 
 ## 24. 默认限制
 

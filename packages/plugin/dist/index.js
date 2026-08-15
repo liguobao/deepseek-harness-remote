@@ -13965,6 +13965,12 @@ var ConnectionController = class {
     const revoked = [...this.active.values()].filter((connection) => connection.channel.peerDeviceId === deviceId);
     await Promise.all(revoked.map((connection) => this.disconnect(connection, "DEVICE_REVOKED")));
   }
+  async closeConnection(connectionId, code) {
+    const connection = this.active.get(connectionId);
+    if (connection === void 0) return false;
+    await this.disconnect(connection, code);
+    return true;
+  }
   async close() {
     await this.acceptQueue;
     await Promise.all([...this.active.values()].map((connection) => this.disconnect(connection)));
@@ -14345,10 +14351,18 @@ var HostServerConnection = class {
     if (frame.type === "signal.answer") return;
     if (frame.type === "error") {
       const payload = requireControlError(frame.payload);
-      this.terminalError = payload.code;
       if (payload.code === "DEVICE_REVOKED") {
+        this.terminalError = payload.code;
         this.socket?.close(4004, "device revoked");
+      } else if (payload.connectionId !== void 0) {
+        await this.dropTunnel(payload.connectionId, payload.code);
+        this.logger.warn("server closed a remote connection", {
+          code: payload.code,
+          connectionId: shortId3(payload.connectionId),
+          retryable: payload.retryable
+        });
       } else {
+        this.terminalError = payload.code;
         this.logger.warn("server returned a control error", { code: payload.code, retryable: payload.retryable });
       }
       return;
@@ -14579,6 +14593,33 @@ var HostServerConnection = class {
     }));
     await this.connections.close();
   }
+  async dropTunnel(connectionId, code) {
+    const tunnel = this.tunnels.get(connectionId);
+    if (tunnel === void 0) return;
+    this.tunnels.delete(connectionId);
+    try {
+      await tunnel.rtc?.close();
+    } catch (error) {
+      this.logger.warn("remote connection RTC cleanup failed", {
+        connectionId: shortId3(connectionId),
+        reason: diagnosticReason3(error)
+      });
+    }
+    if (tunnel.channel !== void 0) {
+      try {
+        const closed = await this.connections.closeConnection(connectionId, code);
+        if (!closed) await tunnel.channel.close(code);
+      } catch (error) {
+        await tunnel.channel.close(code).catch(() => void 0);
+        this.logger.warn("remote connection channel cleanup failed", {
+          connectionId: shortId3(connectionId),
+          reason: diagnosticReason3(error)
+        });
+      }
+    } else {
+      tunnel.noise.destroy();
+    }
+  }
   waitBeforeRetry(baseDelay) {
     const spread = baseDelay * this.config.reconnect.jitter;
     const delay = Math.max(0, Math.round(baseDelay - spread + Math.random() * spread * 2));
@@ -14720,7 +14761,7 @@ function requireSignalIce(value) {
 }
 function requireControlError(value) {
   const payload = requireObject(value);
-  if (typeof payload.code !== "string" || typeof payload.message !== "string") {
+  if (typeof payload.code !== "string" || typeof payload.message !== "string" || payload.connectionId !== void 0 && (typeof payload.connectionId !== "string" || payload.connectionId === "")) {
     throw new ControlConnectionError("INVALID_MESSAGE", "error payload is invalid.");
   }
   return payload;

@@ -8,6 +8,7 @@ import type { SafeLogger } from '../src/logging.js'
 import { ServerApiError, type HostServerApi } from '../src/server-api.js'
 import { HostServerConnection } from '../src/server-connection.js'
 import type { AuthenticatedPeerChannel } from '../src/types.js'
+import { PLUGIN_VERSION } from '../src/version.js'
 
 class FakeWebSocket {
   readyState = 0
@@ -47,6 +48,11 @@ describe('HostServerConnection', () => {
     let accepted: AuthenticatedPeerChannel | undefined
     const connections = {
       accept: vi.fn(async (channel: AuthenticatedPeerChannel) => { accepted = channel }),
+      closeConnection: vi.fn(async (connectionId: string, code?: string) => {
+        if (accepted?.security.connectionId !== connectionId) return false
+        await accepted.close(code)
+        return true
+      }),
       close: vi.fn(async () => undefined),
     } as unknown as ConnectionController
     const api = {
@@ -81,7 +87,7 @@ describe('HostServerConnection', () => {
     socket.open()
     expect(JSON.parse(socket.sent[0]!)).toMatchObject({
       type: 'hello',
-      payload: { role: 'host', deviceId: 'host-1', clientVersion: '0.2.13' },
+      payload: { role: 'host', deviceId: 'host-1', clientVersion: PLUGIN_VERSION },
     })
     socket.receive(createControlFrame('hello.ack', {
       protocol: 1,
@@ -149,10 +155,20 @@ describe('HostServerConnection', () => {
     expect(relay).toMatchObject({ type: 'relay', payload: { counter: 0, targetDeviceId: 'client-1' } })
     expect(decodeMessage(clientNoise.decrypt(fromBase64UrlForTest(relay.payload.ciphertext)))).toEqual(request)
 
-    // A replaced Client can leave an already-queued Relay frame behind. The
-    // stale connection must be isolated instead of taking down the Host's
-    // long-lived Server control socket.
-    await accepted!.close()
+    socket.receive(createControlFrame('error', {
+      code: 'CONNECTION_FAILED',
+      message: 'the remote peer disconnected',
+      retryable: true,
+      connectionId: 'connection-1',
+    }))
+    await flush()
+    expect(connections.closeConnection).toHaveBeenCalledWith('connection-1', 'CONNECTION_FAILED')
+    expect(server.lastError()).toBeUndefined()
+    expect(socket.readyState).toBe(1)
+
+    // A disconnected Client can leave an already-queued Relay frame behind.
+    // The stale connection must be isolated instead of taking down the Host's
+    // long-lived Server control socket or another Client tunnel.
     socket.receive(createControlFrame('relay', {
       connectionId: 'connection-1',
       targetDeviceId: 'host-1',

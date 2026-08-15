@@ -116,6 +116,34 @@ describe('ConnectionController', () => {
     expect(phone.send).toHaveBeenCalledWith(phoneFrame)
     expect(desktop.send).not.toHaveBeenCalled()
   })
+
+  it('closes only the connection named by a Server connection error', async () => {
+    const routers = new Map<string, { closePeerStreams: ReturnType<typeof vi.fn> }>()
+    const controller = new ConnectionController(
+      { isTrusted: () => true } as unknown as IdentityStore,
+      context => {
+        const router = {
+          handle: vi.fn(),
+          closePeerStreams: vi.fn(async () => undefined),
+        }
+        routers.set(context.connectionId, router)
+        return router as unknown as RpcRouter
+      },
+    )
+    const phone = fakeChannel('connection-phone', 'client-phone')
+    const desktop = fakeChannel('connection-desktop', 'client-desktop')
+    await controller.accept(phone)
+    await controller.accept(desktop)
+
+    await expect(controller.closeConnection('connection-phone', 'CONNECTION_FAILED')).resolves.toBe(true)
+
+    expect(phone.close).toHaveBeenCalledWith('CONNECTION_FAILED')
+    expect(routers.get('connection-phone')!.closePeerStreams).toHaveBeenCalledOnce()
+    expect(desktop.close).not.toHaveBeenCalled()
+    expect(routers.get('connection-desktop')!.closePeerStreams).not.toHaveBeenCalled()
+    expect(controller.connectionCount()).toBe(1)
+    await expect(controller.closeConnection('missing')).resolves.toBe(false)
+  })
 })
 
 function fakeChannel(connectionId = 'connection-1', peerDeviceId = 'client-1'): AuthenticatedPeerChannel & { push(message: RemoteMessage): void } {

@@ -125,6 +125,7 @@ export interface ControlErrorPayload {
   code: string
   message: string
   retryable?: boolean
+  connectionId?: string
 }
 
 export interface RelayPayload {

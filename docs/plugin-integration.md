@@ -353,6 +353,11 @@ Host 必须按 `connectionId` 同时维护来自不同 `clientDeviceId` 的安�
 其 stream frame 只返回原连接。同一 `clientDeviceId` 重连时只替换该设备的旧连接，不影响其他
 Client。
 
+Server 通过原有 `error` frame 的可选 `payload.connectionId` 关闭单条逻辑连接。字段存在时
+插件只清理对应 tunnel、RPC router 与原生流，Control WebSocket 和其他 Client 保持在线；字段
+不存在时沿用原来的 Control/操作级错误处理。为兼容旧插件，Server 对低于 `0.2.13`、未上报
+或版本格式无效的 Host 保持 last-client-wins，不会同时下发多个 Client connection。
+
 ## 9. 账号设备查询
 
 使用账号 token 查询当前账号拥有的 Host：

@@ -117,6 +117,13 @@ export class ConnectionController {
     await Promise.all(revoked.map(connection => this.disconnect(connection, 'DEVICE_REVOKED')))
   }
 
+  async closeConnection(connectionId: string, code?: string): Promise<boolean> {
+    const connection = this.active.get(connectionId)
+    if (connection === undefined) return false
+    await this.disconnect(connection, code)
+    return true
+  }
+
   async close(): Promise<void> {
     await this.acceptQueue
     await Promise.all([...this.active.values()].map(connection => this.disconnect(connection)))
