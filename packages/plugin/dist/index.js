@@ -4638,7 +4638,12 @@ var RtcDataChannelTransport = class {
       const channel = this.requireOpenChannel();
       if (channel.readyState !== "open")
         throw new Error("WebRTC data channel is not open.");
-      channel.send(toArrayBuffer(data));
+      try {
+        channel.send(toArrayBuffer(data));
+      } catch (error) {
+        console.error("[rtc-send-error] bytes=" + data.byteLength, error instanceof Error ? error.message : error);
+        throw error;
+      }
       while (channel.readyState === "open" && channel.bufferedAmount > 0) {
         await sleep(1);
       }
@@ -14763,7 +14768,13 @@ function adaptDataChannel2(raw) {
     },
     onbufferedamountlow: null,
     send(data) {
-      raw.send(typeof data === "string" ? data : Buffer.from(data));
+      const bytes = typeof data === "string" ? Buffer.byteLength(data) : data.byteLength;
+      try {
+        raw.send(typeof data === "string" ? data : Buffer.from(data));
+      } catch (error) {
+        console.error("[werift-send-error] bytes=" + bytes, error instanceof Error ? error.message : error);
+        throw error;
+      }
     },
     close() {
       raw.close();

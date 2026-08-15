@@ -138,7 +138,15 @@ function adaptDataChannel(raw: WeriftDataChannel): RtcDataChannel {
     set onerror(value: (() => void) | null) { raw.onerror = value },
     get onerror(): (() => void) | null { return raw.onerror },
     onbufferedamountlow: null,
-    send(data: ArrayBuffer | string) { raw.send(typeof data === 'string' ? data : Buffer.from(data)) },
+    send(data: ArrayBuffer | string) {
+      const bytes = typeof data === 'string' ? Buffer.byteLength(data) : data.byteLength
+      try {
+        raw.send(typeof data === 'string' ? data : Buffer.from(data))
+      } catch (error) {
+        console.error('[werift-send-error] bytes=' + bytes, error instanceof Error ? error.message : error)
+        throw error
+      }
+    },
     close() { raw.close() },
   }
 }

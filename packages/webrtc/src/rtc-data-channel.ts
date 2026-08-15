@@ -116,7 +116,12 @@ export class RtcDataChannelTransport {
     const next = previous.then(async () => {
       const channel = this.requireOpenChannel()
       if (channel.readyState !== 'open') throw new Error('WebRTC data channel is not open.')
-      channel.send(toArrayBuffer(data))
+      try {
+        channel.send(toArrayBuffer(data))
+      } catch (error) {
+        console.error('[rtc-send-error] bytes=' + data.byteLength, error instanceof Error ? error.message : error)
+        throw error
+      }
       // werift flushes asynchronously and can reorder/drop ordered frames when
       // sends race. Serialize sends and wait for the queue to drain before the
       // next frame, so ordered DataChannel frames are never sent concurrently.
