@@ -81,7 +81,7 @@ describe('HostServerConnection', () => {
     socket.open()
     expect(JSON.parse(socket.sent[0]!)).toMatchObject({
       type: 'hello',
-      payload: { role: 'host', deviceId: 'host-1', clientVersion: '0.2.9' },
+      payload: { role: 'host', deviceId: 'host-1', clientVersion: '0.2.10' },
     })
     socket.receive(createControlFrame('hello.ack', {
       protocol: 1,
