@@ -7,7 +7,8 @@
     expandSettings: "Show settings: {name}",
     collapseSettings: "Hide settings: {name}",
     unsaved: "Unsaved",
-    associated: "Associated",
+    associated: "Authorized",
+    authorizationComplete: "Authorization complete",
     loadingSettings: "Loading DeepSeek Remote settings\u2026",
     mode: "Mode",
     pluginMode: "Plugin mode",
@@ -68,7 +69,8 @@
     expandSettings: "\u5C55\u5F00\u8BBE\u7F6E\uFF1A{name}",
     collapseSettings: "\u6536\u8D77\u8BBE\u7F6E\uFF1A{name}",
     unsaved: "\u672A\u4FDD\u5B58",
-    associated: "\u5DF2\u5173\u8054",
+    associated: "\u5DF2\u6388\u6743",
+    authorizationComplete: "\u5DF2\u5B8C\u6210\u6388\u6743",
     loadingSettings: "\u6B63\u5728\u52A0\u8F7D DeepSeek \u8FDC\u7A0B\u8FDE\u63A5\u8BBE\u7F6E\u2026",
     mode: "\u6A21\u5F0F",
     pluginMode: "\u63D2\u4EF6\u6A21\u5F0F",
@@ -208,9 +210,9 @@
                 React.createElement(
                   "div",
                   { className: "dshRemoteAssociation" },
-                  React.createElement("span", null, t(association.account === void 0 ? "authorization" : "account")),
-                  React.createElement("strong", null, association.account ?? t(association.method === "owned_device" ? "ownedDeviceAuthorization" : "hostRegistrationCode")),
-                  React.createElement("p", null, t("authorizedOn", { role: t(role), serverUrl }))
+                  React.createElement("span", null, t(association.account === void 0 ? role : "account")),
+                  React.createElement("strong", null, association.account ?? t("authorizationComplete")),
+                  React.createElement("p", null, association.account === void 0 ? serverUrl : t("authorizedOn", { role: t(role), serverUrl }))
                 )
               ),
               writable ? null : React.createElement("p", { className: "dshRemoteError" }, t("readOnly")),
@@ -506,7 +508,7 @@
       }
       function installStyle() {
         let style = document.createElement("style");
-        return style.dataset.pluginCss = "@dsh-remote/plugin", style.textContent = [
+        return style.dataset.pluginCss = "dsh-remote", style.textContent = [
           ".dshRemoteModeButton{min-height:36px;border:0;background:transparent;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px;cursor:pointer}",
           ".dshRemoteModeButton:hover{background:var(--dsw-alias-interactive-bg-hover)}",
           ".dshRemoteBackdrop{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.42);display:grid;place-items:center;padding:20px}",
