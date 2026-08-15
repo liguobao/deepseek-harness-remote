@@ -1,7 +1,7 @@
 import type { DeviceCredentials, DeviceIdentity } from '../types'
 import { RemoteServerApi } from './api'
 
-type TokenPair = Omit<DeviceCredentials, 'deviceId' | 'serverUrl'>
+type TokenPair = Pick<DeviceCredentials, 'accessToken' | 'accessTokenExpiresAt' | 'refreshToken' | 'refreshTokenExpiresAt'>
 
 export interface AuthenticatedServer {
   api: RemoteServerApi
@@ -23,6 +23,28 @@ export class ServerSessionManager {
     private readonly apiFactory: ApiFactory,
   ) {}
 
+  /**
+   * Log in with the account password and register (or restore) this Android
+   * device under the account. The account token is used only for this HTTPS
+   * registration and never persisted; the device token pair is stored instead.
+   */
+  async authenticateWithAccount(
+    baseUrl: string,
+    identity: DeviceIdentity,
+    email: string,
+    password: string,
+  ): Promise<AuthenticatedServer> {
+    const key = `${baseUrl}\0${identity.deviceId}`
+    const pending = this.inFlight.get(key)
+    if (pending !== undefined) return pending
+
+    const created = this.authenticateWithAccountOnce(baseUrl, identity, email, password).finally(() => {
+      if (this.inFlight.get(key) === created) this.inFlight.delete(key)
+    })
+    this.inFlight.set(key, created)
+    return created
+  }
+
   authenticate(baseUrl: string, identity: DeviceIdentity): Promise<AuthenticatedServer> {
     const key = `${baseUrl}\0${identity.deviceId}`
     const pending = this.inFlight.get(key)
@@ -35,6 +57,29 @@ export class ServerSessionManager {
     return created
   }
 
+  private async authenticateWithAccountOnce(
+    baseUrl: string,
+    identity: DeviceIdentity,
+    email: string,
+    password: string,
+  ): Promise<AuthenticatedServer> {
+    const publicApi = this.apiFactory(baseUrl)
+    const login = await publicApi.loginAccount(email, password)
+    const tokens = await publicApi.registerDevice(identity, login.token)
+    const credentials: DeviceCredentials = {
+      serverUrl: baseUrl,
+      deviceId: identity.deviceId,
+      authorizationMethod: 'account',
+      account: login.account,
+      ...tokens,
+    }
+    await this.persistence.save(credentials)
+    return {
+      api: this.apiFactory(baseUrl, credentials.accessToken),
+      credentials,
+    }
+  }
+
   private async authenticateOnce(baseUrl: string, identity: DeviceIdentity): Promise<AuthenticatedServer> {
     const now = Date.now()
     let credentials = await this.persistence.load(baseUrl, identity.deviceId)
@@ -44,11 +89,13 @@ export class ServerSessionManager {
       if (credentials !== undefined && credentials.refreshTokenExpiresAt > now + 30_000) {
         tokens = await publicApi.refreshToken(identity.deviceId, credentials.refreshToken)
       } else {
-        // The Server treats registration with the same deviceId and identity key
-        // as idempotent, while still rejecting revoked or key-mismatched devices.
-        tokens = await publicApi.registerDevice(identity)
+        // No valid device credential: the user must log in again.
+        throw new AccountRequiredError('The phone must be authorized for this server again.')
       }
-      credentials = { ...tokens, deviceId: identity.deviceId, serverUrl: baseUrl }
+      credentials = {
+        ...credentials,
+        ...tokens,
+      }
       await this.persistence.save(credentials)
     }
     return {
@@ -56,4 +103,8 @@ export class ServerSessionManager {
       credentials,
     }
   }
+}
+
+export class AccountRequiredError extends Error {
+  constructor(message: string) { super(message) }
 }

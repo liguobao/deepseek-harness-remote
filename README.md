@@ -41,7 +41,9 @@ dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.2.13"
 - Client/Host 都会通过受 membership 保护的设备详情固定对端公钥；Server membership 与本地 trusted peer 必须同时成立。
 - 同一 Host 支持手机 Web、电脑 Web 等不同 Client 设备同时连接；每条连接的 RPC 与原生事件流独立管理。
 
-Android 原型已冻结，尚不兼容当前 ApiProxy-only 数据面。
+Android Client 与 Plugin 共享同一 ApiProxy-only 数据面：账号登录注册、成员设备列表与
+identity key 固定、Adaptive transport + Noise 加密通道、`harness.api` tunnel 与 mux 事件流。
+仍在开发预览阶段，需配合外部 Server 联调验证。
 
 ## 文档
 

@@ -5,11 +5,14 @@ import { generateKeyPair } from '@dsh-remote/crypto'
 import { PROTOCOL_VERSION } from '@dsh-remote/protocol'
 import { RelayTransport } from '@dsh-remote/webrtc'
 import { SecureTransport } from '../../apps/android/src/services/secure-transport'
-import type { DeviceIdentity, PairingResult, PairingStatus, RemoteDevice } from '../../apps/android/src/types'
+import type { DeviceIdentity, RemoteDevice } from '../../apps/android/src/types'
 
 const baseUrl = (process.env.DSH_REMOTE_HTTP_SERVER ?? 'http://127.0.0.1:8080').replace(/\/$/, '')
-const code = process.env.DSH_REMOTE_PAIRING_CODE
-if (code === undefined) throw new Error('DSH_REMOTE_PAIRING_CODE is required')
+const email = process.env.DSH_REMOTE_ACCOUNT_EMAIL
+const password = process.env.DSH_REMOTE_ACCOUNT_PASSWORD
+if (email === undefined || password === undefined) {
+  throw new Error('DSH_REMOTE_ACCOUNT_EMAIL and DSH_REMOTE_ACCOUNT_PASSWORD are required')
+}
 
 Object.assign(globalThis, { WebSocket })
 
@@ -20,6 +23,12 @@ const identity: DeviceIdentity = {
   platform: 'android',
   ...clientKeys,
 }
+
+// Account authorization: log in, then register this client under the account.
+const login = await request<{ token: string; account: string }>('/api/v1/auth/login', {
+  method: 'POST',
+  body: JSON.stringify({ email, password }),
+})
 const registration = await request<{ accessToken: string }>('/api/v1/devices/register', {
   method: 'POST',
   body: JSON.stringify({
@@ -30,29 +39,35 @@ const registration = await request<{ accessToken: string }>('/api/v1/devices/reg
       role: 'client',
       platform: identity.platform,
       identityKey: identity.publicKey,
-      clientVersion: '0.1.0',
+      clientVersion: '0.3.0',
     },
   }),
-})
+}, login.token)
 const accessToken = registration.accessToken
-const claim = await request<PairingResult>('/api/v1/pairings/claim', {
-  method: 'POST',
-  body: JSON.stringify({
-    v: PROTOCOL_VERSION,
-    code: code.replace(/[^0-9A-HJKMNP-TV-Z]/gi, '').toUpperCase(),
-    clientDeviceId: identity.deviceId,
-  }),
-}, accessToken)
 
-for (let attempt = 0; attempt < 40; attempt += 1) {
-  const status = await request<PairingStatus>(`/api/v1/pairings/${encodeURIComponent(claim.pairingId)}/status`, {}, accessToken)
-  if (status.status === 'paired') break
-  if (status.status === 'rejected' || status.status === 'expired') throw new Error(`Pairing ${status.status}`)
-  await new Promise(resolve => setTimeout(resolve, 250))
-  if (attempt === 39) throw new Error('Host did not confirm pairing')
+// Membership device list + authorized peer descriptor for identity pinning.
+const hosts = await request<{ items: Array<{ deviceId: string; membershipId: string }> }>('/api/v1/devices', {}, accessToken)
+const hostId = process.env.DSH_REMOTE_HOST_DEVICE_ID ?? hosts.items[0]?.deviceId
+if (hostId === undefined) throw new Error('No host devices in this account')
+const descriptor = await request<{
+  deviceId: string
+  role: string
+  identityKey: string
+  membershipId: string
+}>(`/api/v1/devices/${encodeURIComponent(hostId)}`, {}, accessToken)
+if (descriptor.role !== 'host' || descriptor.identityKey.length === 0) {
+  throw new Error('The selected device is not an authorized Host')
+}
+const host: RemoteDevice = {
+  deviceId: descriptor.deviceId,
+  name: descriptor.deviceId,
+  platform: 'linux',
+  identityKey: descriptor.identityKey,
+  membershipId: descriptor.membershipId,
+  online: true,
+  trusted: true,
 }
 
-const host: RemoteDevice = { ...claim.host, online: true, trusted: true }
 const wsUrl = new URL('/ws/v1/connect', baseUrl)
 wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:'
 const relay = new RelayTransport(wsUrl.toString(), {
@@ -60,30 +75,77 @@ const relay = new RelayTransport(wsUrl.toString(), {
   deviceId: identity.deviceId,
   accessToken,
   targetDeviceId: host.deviceId,
-  capabilities: ['transport.relay'],
+  capabilities: ['transport.relay', 'harness.api.v1'],
   preferredTransports: ['relay'],
 })
 const secure = new SecureTransport(relay, identity, host)
-const client = new RemoteClientCore(secure, 5_000)
-const events: string[] = []
-client.onEvent(event => events.push(event.event))
+const client = new RemoteClientCore(secure, 10_000)
+const muxFrames: Array<{ type: string; rpcId?: string }> = []
+let muxClosed = false
+client.onEvent(event => {
+  if (event.event === 'harness.api.frame') {
+    const data = event.data as { frame?: { rpcId?: string; payload?: { type?: string } } }
+    const type = data.frame?.payload?.type
+    if (type !== undefined) muxFrames.push({ type, rpcId: data.frame?.rpcId })
+  }
+  if (event.event === 'harness.api.stream.closed') muxClosed = true
+})
 await client.connect()
 
-const sessions = await client.rpc<Array<{ id: string }>>('sessions.list', {})
-if (sessions.length === 0) throw new Error('No sessions returned')
-const sessionId = sessions[0]!.id
-await client.rpc('session.send', { sessionId, text: 'Android encrypted smoke test' })
+// Open the mux stream through the ApiProxy tunnel.
+const streamId = randomUUID()
+const open = await client.rpc<{ opened: boolean }>('harness.api.stream.open', {
+  streamId,
+  stream: 'mux',
+  rpcId: randomUUID(),
+  payload: {},
+})
+if (!open.opened) throw new Error('Mux stream did not open')
 
-const deadline = Date.now() + 5_000
-while (!events.includes('permission.requested') && Date.now() < deadline) {
+// Unary ApiProxy call with native rpcId echo.
+const listRpcId = randomUUID()
+const list = await client.rpc<{ rpcId: string; result: { ok: boolean; value?: unknown } }>('harness.api.call', {
+  method: 'session.list',
+  rpcId: listRpcId,
+  payload: {},
+})
+if (list.rpcId !== listRpcId || !list.result.ok) throw new Error('session.list failed')
+
+// Prompt and wait for the mux frames the mock host emits.
+const promptRpcId = randomUUID()
+const prompt = await client.rpc<{ rpcId: string; result: { ok: boolean; value?: unknown } }>('harness.api.call', {
+  method: 'session.prompt',
+  rpcId: promptRpcId,
+  payload: { sessionId: 's1', mode: 'queue', content: [{ type: 'text', text: 'Android encrypted smoke test' }] },
+})
+if (!prompt.result.ok) throw new Error('session.prompt failed')
+
+const deadline = Date.now() + 8_000
+while (!muxFrames.some(frame => frame.type === 'approval/requested') && Date.now() < deadline) {
   await new Promise(resolve => setTimeout(resolve, 100))
 }
-if (!events.includes('message.delta')) throw new Error('No streaming event received')
-if (!events.includes('permission.requested')) throw new Error('No permission request received')
+if (!muxFrames.some(frame => frame.type === 'assistant/chunk')) throw new Error('No streaming event received')
+const approval = muxFrames.find(frame => frame.type === 'approval/requested')
+if (approval === undefined) throw new Error('No approval request received')
 
-await client.rpc('permissions.respond', { sessionId, requestId: 'perm-1', decision: 'deny' })
+// Answer the approval with the native client-response envelope.
+await client.rpc('harness.api.respond', {
+  message: {
+    type: 'client-response',
+    rpcId: approval.rpcId ?? '',
+    result: { ok: true, value: { sessionId: 's1', approvalId: 'approval-1', outcome: 'rejected' } },
+  },
+})
+
+await client.rpc('harness.api.stream.close', { streamId })
 await client.close()
-console.log(JSON.stringify({ paired: true, encryptedRelay: true, sessions: sessions.length, events }))
+console.log(JSON.stringify({
+  accountAuthorized: true,
+  encryptedRelay: true,
+  muxOpened: open.opened,
+  sessionsListed: true,
+  frames: muxFrames.map(frame => frame.type),
+}))
 
 async function request<TResult>(path: string, init: RequestInit = {}, token?: string): Promise<TResult> {
   const response = await fetch(`${baseUrl}${path}`, {

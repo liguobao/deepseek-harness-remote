@@ -1,95 +1,88 @@
-import { RemoteClientCore, type EventPayload } from '@dsh-remote/client-core'
-import type { PermissionDecision } from '@dsh-remote/protocol'
-import { RelayTransport } from '@dsh-remote/webrtc'
+import { RemoteClientCore } from '@dsh-remote/client-core'
+import { AdaptiveTransport, type RtcIceServer } from '@dsh-remote/webrtc'
 import { websocketUrl } from '../lib/server-url'
-import type {
-  DeviceIdentity,
-  RemoteDevice,
-  RemoteSession,
-  SystemInfo,
-  WorkspaceInfo,
-} from '../types'
+import type { DeviceIdentity, MuxStreamFrame, RemoteDevice } from '../types'
+import { RemoteApiProxy } from './api-proxy'
 import { SecureTransport } from './secure-transport'
 
-export type RemoteEventHandler = (event: EventPayload) => void
+export type MuxFrameHandler = (frame: MuxStreamFrame) => void
+export type CloseHandler = () => void
+
+export interface AndroidConnectionOptions {
+  preferredTransports?: Array<'lan' | 'p2p' | 'turn' | 'relay'>
+  forceRelay?: boolean
+  fetchIceServers?: (connectionId: string) => Promise<RtcIceServer[]>
+  onClose?: CloseHandler
+}
 
 export class AndroidRemoteConnection {
   private core?: RemoteClientCore
-  private unsubscribeEvent?: () => void
+  private proxy?: RemoteApiProxy
+  private closeMux?: () => Promise<void>
+  private unsubscribeClose?: () => void
+  private muxHandler?: MuxFrameHandler
 
   async connect(
     baseUrl: string,
     identity: DeviceIdentity,
     host: RemoteDevice,
     accessToken: string,
-    onEvent: RemoteEventHandler,
+    onFrame: MuxFrameHandler,
+    options: AndroidConnectionOptions = {},
   ): Promise<void> {
     await this.close()
-    const relay = new RelayTransport(
-      websocketUrl(baseUrl),
-      {
-        role: 'client',
-        deviceId: identity.deviceId,
-        accessToken,
-        targetDeviceId: host.deviceId,
-        capabilities: ['transport.relay'],
-        preferredTransports: ['relay'],
-      },
-    )
-    const secure = new SecureTransport(relay, identity, host)
-    const core = new RemoteClientCore(secure, 20_000)
+    this.muxHandler = onFrame
+    const transport = new AdaptiveTransport(websocketUrl(baseUrl), {
+      role: 'client',
+      deviceId: identity.deviceId,
+      accessToken,
+      targetDeviceId: host.deviceId,
+      forceRelay: options.forceRelay,
+      preferredTransports: options.forceRelay
+        ? ['relay']
+        : options.preferredTransports ?? ['p2p', 'turn', 'relay'],
+      fetchIceServers: options.fetchIceServers,
+    })
+    const secure = new SecureTransport(transport, identity, host)
+    const core = new RemoteClientCore(secure, 60_000)
     this.core = core
-    this.unsubscribeEvent = core.onEvent(onEvent)
-    await core.connect()
-    await core.rpc('connection.ping', {})
+    this.unsubscribeClose = core.onClose(() => {
+      this.closeMux?.()
+      this.closeMux = undefined
+      this.core = undefined
+      this.proxy = undefined
+      options.onClose?.()
+    })
+    try {
+      await core.connect()
+      this.proxy = new RemoteApiProxy(core)
+      this.closeMux = await this.proxy.openMuxStream(frame => this.muxHandler?.(frame))
+    } catch (error) {
+      await this.close()
+      throw error
+    }
   }
 
-  systemInfo(): Promise<SystemInfo> {
-    return this.requireCore().rpc<SystemInfo>('system.info', {})
-  }
-
-  workspace(): Promise<WorkspaceInfo> {
-    return this.requireCore().rpc<WorkspaceInfo>('workspace.get', {})
-  }
-
-  sessions(): Promise<RemoteSession[]> {
-    return this.requireCore().rpc<RemoteSession[]>('sessions.list', {})
-  }
-
-  session(sessionId: string): Promise<RemoteSession> {
-    return this.requireCore().rpc<RemoteSession, { sessionId: string }>('sessions.get', { sessionId })
-  }
-
-  createSession(cwd?: string): Promise<RemoteSession> {
-    return this.requireCore().rpc<RemoteSession, { cwd?: string }>('sessions.create', { cwd })
-  }
-
-  async sendMessage(sessionId: string, text: string): Promise<void> {
-    await this.requireCore().rpc('session.send', { sessionId, text })
-  }
-
-  async stop(sessionId: string): Promise<void> {
-    await this.requireCore().rpc('session.stop', { sessionId })
-  }
-
-  async respondPermission(sessionId: string, requestId: string, decision: PermissionDecision): Promise<void> {
-    await this.requireCore().rpc('permissions.respond', { sessionId, requestId, decision })
+  /** ApiProxy tunnel client; only available while connected. */
+  requireProxy(): RemoteApiProxy {
+    if (this.proxy === undefined) throw new Error('Connect to the host first.')
+    return this.proxy
   }
 
   getStats() {
-    return this.core?.getStats?.()
+    return this.core?.getStats()
   }
 
   async close(): Promise<void> {
-    this.unsubscribeEvent?.()
-    this.unsubscribeEvent = undefined
+    this.muxHandler = undefined
+    const mux = this.closeMux
+    this.closeMux = undefined
+    if (mux !== undefined) await mux().catch(() => undefined)
+    this.unsubscribeClose?.()
+    this.unsubscribeClose = undefined
     const core = this.core
     this.core = undefined
+    this.proxy = undefined
     if (core !== undefined) await core.close()
-  }
-
-  private requireCore(): RemoteClientCore {
-    if (this.core === undefined) throw new Error('Connect to the host first.')
-    return this.core
   }
 }

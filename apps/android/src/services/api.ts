@@ -4,9 +4,7 @@ import type {
   DeviceCredentials,
   DeviceIdentity,
   DevicePresence,
-  PairingResult,
-  PairingStatus,
-  ServerHostDevice,
+  RemoteDevice,
 } from '../types'
 
 interface ErrorBody {
@@ -19,7 +17,33 @@ interface ErrorBody {
   }
 }
 
-type TokenPair = Omit<DeviceCredentials, 'deviceId' | 'serverUrl'>
+interface AccountLoginResult {
+  token: string
+  expiresAt: number
+  account: string
+  isAdmin: boolean
+}
+
+export interface AuthorizedPeerDevice {
+  deviceId: string
+  name: string
+  role: 'host' | 'client'
+  platform: string
+  identityKey: string
+  membershipId: string
+  online?: boolean
+  lastSeenAt?: number
+  clientVersion?: string
+  harnessVersion?: string
+}
+
+export interface RtcIceServer {
+  urls: string | string[]
+  username?: string
+  credential?: string
+}
+
+type TokenPair = Omit<DeviceCredentials, 'serverUrl' | 'deviceId' | 'authorizationMethod' | 'account'>
 type FetchImplementation = typeof fetch
 
 export class RemoteServerApi {
@@ -41,7 +65,29 @@ export class RemoteServerApi {
     }
   }
 
-  async registerDevice(identity: DeviceIdentity): Promise<TokenPair> {
+  /** Account password login; the returned token only authorizes device registration. */
+  async loginAccount(email: string, password: string): Promise<AccountLoginResult> {
+    const body = await this.request<unknown>('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: email.trim(), password }),
+    }, false)
+    if (!isRecord(body)
+      || typeof body.token !== 'string' || body.token.length < 16
+      || typeof body.account !== 'string' || body.account.length === 0
+      || typeof body.expiresAt !== 'number' || !Number.isSafeInteger(body.expiresAt)
+      || typeof body.isAdmin !== 'boolean') {
+      invalidResponse('account login')
+    }
+    return {
+      token: body.token,
+      expiresAt: body.expiresAt,
+      account: body.account,
+      isAdmin: body.isAdmin,
+    }
+  }
+
+  /** Register this Android client under the account token. */
+  async registerDevice(identity: DeviceIdentity, accountToken: string): Promise<TokenPair> {
     const body = await this.request<unknown>('/api/v1/devices/register', {
       method: 'POST',
       body: JSON.stringify({
@@ -52,10 +98,10 @@ export class RemoteServerApi {
           role: 'client',
           platform: identity.platform,
           identityKey: identity.publicKey,
-          clientVersion: '0.2.5',
+          clientVersion: ANDROID_CLIENT_VERSION,
         },
       }),
-    }, false)
+    }, false, accountToken)
     return parseTokenPair(body)
   }
 
@@ -67,15 +113,17 @@ export class RemoteServerApi {
     return parseTokenPair(body)
   }
 
-  async listDevices(): Promise<ServerHostDevice[]> {
+  /** Hosts visible through same-account membership. */
+  async listDevices(): Promise<RemoteDevice[]> {
     const body = await this.request<unknown>('/api/v1/devices')
     if (!isRecord(body) || !Array.isArray(body.items)) invalidResponse('device list')
-    return body.items.map(parseServerHost)
+    return body.items.flatMap(parseHostDevice)
   }
 
-  async getDevice(deviceId: string): Promise<ServerHostDevice> {
+  /** Authorized peer descriptor including the identity key used for Noise pinning. */
+  async deviceFor(deviceId: string): Promise<AuthorizedPeerDevice> {
     const body = await this.request<unknown>(`/api/v1/devices/${encodeURIComponent(deviceId)}`)
-    return parseServerHost(body)
+    return parseAuthorizedPeer(body)
   }
 
   async getPresence(deviceId: string): Promise<DevicePresence> {
@@ -93,29 +141,22 @@ export class RemoteServerApi {
     }
   }
 
-  async claimPairing(code: string, clientDeviceId: string): Promise<PairingResult> {
-    const body = await this.request<unknown>('/api/v1/pairings/claim', {
-      method: 'POST',
-      body: JSON.stringify({
-        v: 1,
-        code: code.replace('-', ''),
-        clientDeviceId,
-      }),
-    })
-    return parsePairingResult(body)
+  async turnCredentials(connectionId: string): Promise<RtcIceServer[]> {
+    const body = await this.request<unknown>(
+      `/api/v1/turn/credentials?connection_id=${encodeURIComponent(connectionId)}`,
+    )
+    if (!isRecord(body) || !Array.isArray(body.iceServers)) return []
+    return body.iceServers.flatMap(parseIceServer)
   }
 
-  async pairingStatus(pairingId: string): Promise<PairingStatus> {
-    const body = await this.request<unknown>(`/api/v1/pairings/${encodeURIComponent(pairingId)}/status`)
-    return parsePairingStatus(body)
-  }
-
-  async removeDevice(deviceId: string): Promise<void> {
-    await this.request(`/api/v1/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' })
-  }
-
-  private async request<TResult>(path: string, init: RequestInit = {}, authenticated = true): Promise<TResult> {
-    if (authenticated && this.accessToken === undefined) {
+  private async request<TResult>(
+    path: string,
+    init: RequestInit = {},
+    authenticated = true,
+    accountToken?: string,
+  ): Promise<TResult> {
+    const bearer = accountToken ?? this.accessToken
+    if (authenticated && bearer === undefined) {
       throw new RemoteApiError('AUTH_REQUIRED', 'This device is not registered with the server.')
     }
     const controller = new AbortController()
@@ -128,7 +169,7 @@ export class RemoteServerApi {
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          ...(authenticated ? { Authorization: `Bearer ${this.accessToken}` } : {}),
+          ...(bearer === undefined ? {} : { Authorization: `Bearer ${bearer}` }),
           ...init.headers,
         },
       })
@@ -165,6 +206,8 @@ export class RemoteServerApi {
   }
 }
 
+export const ANDROID_CLIENT_VERSION = '0.3.0'
+
 function parseTokenPair(input: unknown): TokenPair {
   if (!isRecord(input)
     || typeof input.accessToken !== 'string' || input.accessToken.length < 16
@@ -181,7 +224,7 @@ function parseTokenPair(input: unknown): TokenPair {
   }
 }
 
-function parseServerHost(input: unknown): ServerHostDevice {
+function parseHostDevice(input: unknown): RemoteDevice[] {
   if (!isRecord(input)
     || typeof input.deviceId !== 'string'
     || typeof input.name !== 'string'
@@ -189,62 +232,56 @@ function parseServerHost(input: unknown): ServerHostDevice {
     || input.role !== 'host'
     || typeof input.membershipId !== 'string'
     || input.membershipId.length === 0) {
-    invalidResponse('host device')
+    return []
   }
-  return {
+  return [{
     deviceId: input.deviceId,
     name: input.name,
     platform: input.platform,
     role: 'host',
     membershipId: input.membershipId,
+    identityKey: '',
+    online: input.online === true,
+    trusted: false,
     ...(typeof input.clientVersion === 'string' ? { clientVersion: input.clientVersion } : {}),
     ...(typeof input.harnessVersion === 'string' ? { harnessVersion: input.harnessVersion } : {}),
-    ...(typeof input.lastConnectedAt === 'number' ? { lastConnectedAt: input.lastConnectedAt } : {}),
+    ...(typeof input.lastSeenAt === 'number' ? { lastSeenAt: input.lastSeenAt } : {}),
+  }]
+}
+
+function parseAuthorizedPeer(input: unknown): AuthorizedPeerDevice {
+  if (!isRecord(input)
+    || (input.role !== 'host' && input.role !== 'client')
+    || typeof input.deviceId !== 'string' || input.deviceId.length === 0
+    || typeof input.name !== 'string' || input.name.length === 0
+    || typeof input.platform !== 'string'
+    || typeof input.identityKey !== 'string' || input.identityKey.length === 0
+    || typeof input.membershipId !== 'string' || input.membershipId.length === 0) {
+    invalidResponse('authorized peer')
+  }
+  return {
+    deviceId: input.deviceId,
+    name: input.name,
+    role: input.role,
+    platform: input.platform,
+    identityKey: input.identityKey,
+    membershipId: input.membershipId,
+    ...(typeof input.online === 'boolean' ? { online: input.online } : {}),
+    ...(typeof input.lastSeenAt === 'number' ? { lastSeenAt: input.lastSeenAt } : {}),
+    ...(typeof input.clientVersion === 'string' ? { clientVersion: input.clientVersion } : {}),
+    ...(typeof input.harnessVersion === 'string' ? { harnessVersion: input.harnessVersion } : {}),
   }
 }
 
-function parsePairingResult(input: unknown): PairingResult {
-  if (!isRecord(input)
-    || typeof input.pairingId !== 'string'
-    || input.status !== 'waiting_host'
-    || typeof input.expiresAt !== 'number' || !Number.isSafeInteger(input.expiresAt)
-    || !isRecord(input.host)
-    || typeof input.host.deviceId !== 'string'
-    || typeof input.host.name !== 'string'
-    || typeof input.host.platform !== 'string'
-    || typeof input.host.identityKey !== 'string'
-    || typeof input.host.fingerprint !== 'string') {
-    invalidResponse('pairing claim')
-  }
-  return {
-    pairingId: input.pairingId,
-    status: 'waiting_host',
-    expiresAt: input.expiresAt,
-    host: {
-      deviceId: input.host.deviceId,
-      name: input.host.name,
-      platform: input.host.platform,
-      identityKey: input.host.identityKey,
-      fingerprint: input.host.fingerprint,
-    },
-  }
-}
-
-function parsePairingStatus(input: unknown): PairingStatus {
-  if (!isRecord(input)
-    || !['waiting_host', 'paired', 'rejected', 'expired'].includes(String(input.status))
-    || (input.membershipId !== null && input.membershipId !== undefined && typeof input.membershipId !== 'string')
-    || (input.hostDeviceId !== null && input.hostDeviceId !== undefined && typeof input.hostDeviceId !== 'string')
-    || (input.expiresAt !== null && input.expiresAt !== undefined
-      && (typeof input.expiresAt !== 'number' || !Number.isSafeInteger(input.expiresAt)))) {
-    invalidResponse('pairing status')
-  }
-  return {
-    status: input.status as PairingStatus['status'],
-    ...(typeof input.membershipId === 'string' ? { membershipId: input.membershipId } : {}),
-    ...(typeof input.hostDeviceId === 'string' ? { hostDeviceId: input.hostDeviceId } : {}),
-    ...(typeof input.expiresAt === 'number' ? { expiresAt: input.expiresAt } : {}),
-  }
+function parseIceServer(input: unknown): RtcIceServer[] {
+  if (!isRecord(input)) return []
+  const urls = input.urls
+  if (typeof urls !== 'string' && !(Array.isArray(urls) && urls.every(url => typeof url === 'string'))) return []
+  return [{
+    urls,
+    ...(typeof input.username === 'string' ? { username: input.username } : {}),
+    ...(typeof input.credential === 'string' ? { credential: input.credential } : {}),
+  }]
 }
 
 function invalidResponse(name: string): never {
@@ -257,12 +294,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function mapStatus(status: number, detail: string, serverCode: unknown): string {
   if (typeof serverCode === 'string') return serverCode
-  if (detail.includes('expired') || status === 410) return 'PAIRING_EXPIRED'
-  if (detail.includes('pairing')) return 'PAIRING_INVALID'
   if (status === 401) return 'AUTH_INVALID'
   if (status === 403) return 'AUTH_REQUIRED'
   if (status === 404) return 'DEVICE_NOT_FOUND'
-  if (status === 409) return 'PAIRING_INVALID'
+  if (status === 409) return 'DEVICE_OWNERSHIP_REQUIRED'
   if (status === 429) return 'RATE_LIMITED'
   return status >= 500 ? 'CONNECTION_FAILED' : 'INVALID_MESSAGE'
 }

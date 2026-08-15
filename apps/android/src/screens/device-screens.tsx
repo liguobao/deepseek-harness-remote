@@ -1,5 +1,5 @@
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
-import { CirclePlus, Laptop, Link2, MessageSquareText, MoreVertical, Settings, Unplug } from 'lucide-react-native'
+import { CirclePlus, Laptop, MessageSquareText, MoreVertical, Settings, ShieldCheck, Unplug } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import type { RemoteDevice, RemoteSession } from '../types'
 import {
@@ -17,8 +17,7 @@ import {
 } from '../ui/components'
 import { colors, radius, spacing, type } from '../ui/theme'
 
-export function DevicesScreen({ onPair, onDevice, onSettings }: {
-  onPair: () => void
+export function DevicesScreen({ onDevice, onSettings }: {
   onDevice: (device: RemoteDevice) => void
   onSettings: () => void
 }) {
@@ -33,7 +32,7 @@ export function DevicesScreen({ onPair, onDevice, onSettings }: {
         <View style={styles.pageHeading}>
           <View>
             <Text style={styles.title}>My devices</Text>
-            <Text style={styles.subtitle}>Trusted Harness hosts</Text>
+            <Text style={styles.subtitle}>Harness hosts in your account</Text>
           </View>
           <RefreshAction refreshing={refreshing} onPress={() => void refresh()} />
         </View>
@@ -43,9 +42,8 @@ export function DevicesScreen({ onPair, onDevice, onSettings }: {
           : devices.length === 0
             ? <EmptyState
                 icon={Laptop}
-                title="No trusted hosts yet"
-                body="Create a one-time pairing code on a computer running the DSH Remote plugin."
-                action={<Button label="Pair a device" icon={Link2} onPress={onPair} />}
+                title="No hosts in this account"
+                body="Install the DSH Remote plugin on a computer and sign it into the same Server account. The host will appear here."
               />
             : <View>{devices.map(device => (
                 <ListRow
@@ -58,8 +56,6 @@ export function DevicesScreen({ onPair, onDevice, onSettings }: {
                   onPress={() => onDevice(device)}
                 />
               ))}</View>}
-
-        {devices.length > 0 && <View style={styles.bottomAction}><Button label="Pair another device" icon={CirclePlus} variant="secondary" onPress={onPair} /></View>}
       </Screen>
     </View>
   )
@@ -73,8 +69,9 @@ export function DeviceDetailScreen({ device, onBack, onSessions, onForgotten }: 
 }) {
   const selected = useAppStore(state => state.selectedDevice)
   const connection = useAppStore(state => state.connection)
-  const info = useAppStore(state => state.systemInfo)
-  const workspace = useAppStore(state => state.workspace)
+  const descriptor = useAppStore(state => state.hostDescriptor)
+  const workspaces = useAppStore(state => state.workspaces)
+  const trust = useAppStore(state => state.trustDevice)
   const connect = useAppStore(state => state.connectDevice)
   const reconnect = useAppStore(state => state.reconnect)
   const forget = useAppStore(state => state.forgetDevice)
@@ -84,7 +81,7 @@ export function DeviceDetailScreen({ device, onBack, onSessions, onForgotten }: 
 
   const forgetDevice = () => Alert.alert(
     `Forget ${device.name}?`,
-    'This revokes the server pairing and removes trust from this phone. To reconnect later, pair the device again.',
+    'This removes the trusted identity from this phone. To reconnect later, trust the host again.',
     [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -107,7 +104,7 @@ export function DeviceDetailScreen({ device, onBack, onSessions, onForgotten }: 
           </View>
           <StatusBadge
             status={isConnected ? 'relay' : device.online ? 'online' : 'offline'}
-            label={isConnected ? 'Encrypted relay' : undefined}
+            label={isConnected ? 'Encrypted' : undefined}
           />
         </View>
 
@@ -119,29 +116,33 @@ export function DeviceDetailScreen({ device, onBack, onSessions, onForgotten }: 
           </View>
         )}
 
-        {!isConnected
+        {!device.trusted
           ? <View style={styles.connectArea}>
-              <Text style={styles.connectCopy}>{device.online ? 'Connect to load the current workspace and sessions.' : 'The host appears offline. You can retry when the Remote plugin is running.'}</Text>
-              <Button label="Connect securely" onPress={() => void connect(device)} loading={isConnecting} disabled={!device.online && !isConnecting} />
+              <View style={styles.trustHeader}>
+                <View style={styles.trustIcon}><ShieldCheck size={22} color={colors.primary} /></View>
+                <View style={styles.trustCopy}>
+                  <Text style={styles.connectCopy}>Trust this host to pin its encryption key on this phone. The key cannot be replaced silently later.</Text>
+                  {device.fingerprint !== undefined && <Text selectable style={styles.fingerprint}>{device.fingerprint}</Text>}
+                </View>
+              </View>
+              <Button label="Trust this host" onPress={() => void trust(device)} />
             </View>
-          : <>
-              <SectionTitle>Current workspace</SectionTitle>
-              <View style={styles.group}>
-                <KeyValue label="Project" value={workspace?.name ?? 'Workspace'} />
-                <KeyValue label="Directory" value={workspace?.cwd ?? 'Unavailable'} mono />
+          : !isConnected
+            ? <View style={styles.connectArea}>
+                <Text style={styles.connectCopy}>{device.online ? 'Connect to load the host workspace and sessions.' : 'The host appears offline. You can retry when the Remote plugin is running.'}</Text>
+                <Button label="Connect securely" onPress={() => void connect(device)} loading={isConnecting} disabled={!device.online && !isConnecting} />
               </View>
+            : <>
+                <SectionTitle>Host</SectionTitle>
+                <View style={styles.group}>
+                  <KeyValue label="Harness" value={descriptor?.version ?? 'Unknown version'} />
+                  <KeyValue label="Directory" value={descriptor?.cwd ?? 'Unavailable'} mono />
+                  <KeyValue label="Workspaces" value={String(workspaces.length)} />
+                  <KeyValue label="Attached sessions" value={String(descriptor?.attachedSessions ?? 0)} />
+                </View>
 
-              <SectionTitle>Harness</SectionTitle>
-              <View style={styles.group}>
-                <KeyValue label="Status" value={info?.online ? 'Running' : 'Unavailable'} />
-                <KeyValue label="Hostname" value={info?.hostname ?? device.name} />
-                <KeyValue label="Harness" value={info?.harnessVersion ?? 'Unknown version'} />
-                <KeyValue label="Remote plugin" value={info?.pluginVersion ?? 'Unknown version'} />
-                <KeyValue label="Transport" value="End-to-end encrypted relay" />
-              </View>
-
-              <View style={styles.primaryArea}><Button label="Open sessions" icon={MessageSquareText} onPress={onSessions} /></View>
-            </>}
+                <View style={styles.primaryArea}><Button label="Open sessions" icon={MessageSquareText} onPress={onSessions} /></View>
+              </>}
       </Screen>
     </View>
   )
@@ -151,20 +152,14 @@ export function SessionsScreen({ onBack, onSession }: { onBack: () => void; onSe
   const sessions = useAppStore(state => state.sessions)
   const busy = useAppStore(state => state.busyAction)
   const openSession = useAppStore(state => state.openSession)
-  const createSession = useAppStore(state => state.createSession)
 
   const open = async (session: RemoteSession) => {
     if (await openSession(session)) onSession(session)
   }
 
-  const create = async () => {
-    const session = await createSession()
-    if (session !== undefined && await openSession(session)) onSession(session)
-  }
-
   return (
     <View style={styles.flex}>
-      <TopBar title="Sessions" onBack={onBack} action={<IconButton label="New session" icon={CirclePlus} onPress={() => void create()} disabled={busy === 'create-session'} />} />
+      <TopBar title="Sessions" onBack={onBack} />
       <Screen>
         <View style={styles.pageHeading}>
           <View><Text style={styles.title}>Harness sessions</Text><Text style={styles.subtitle}>Continue where you left off</Text></View>
@@ -173,13 +168,12 @@ export function SessionsScreen({ onBack, onSession }: { onBack: () => void; onSe
           ? <EmptyState
               icon={MessageSquareText}
               title="No sessions"
-              body="Start a session in the current workspace, then send your first instruction from this phone."
-              action={<Button label="New session" icon={CirclePlus} onPress={() => void create()} loading={busy === 'create-session'} />}
+              body="Start a session on the host, then open it from this phone."
             />
           : <View>{sessions.map(session => (
               <ListRow
-                key={session.id}
-                title={session.title}
+                key={session.sessionId}
+                title={sessionTitle(session)}
                 subtitle={session.cwd}
                 meta={updatedText(session.updatedAt)}
                 icon={MessageSquareText}
@@ -190,6 +184,15 @@ export function SessionsScreen({ onBack, onSession }: { onBack: () => void; onSe
       </Screen>
     </View>
   )
+}
+
+function sessionTitle(session: RemoteSession): string {
+  const projections = (session as { projections?: { values?: Record<string, { title?: string }> } }).projections
+  const title = projections?.values?.sessionListMetadata
+  const lastPrompt = typeof (title as { lastPromptAt?: number | null } | undefined)?.lastPromptAt === 'number'
+    ? 'Continue'
+    : undefined
+  return lastPrompt ?? (session.parentSessionId === undefined ? 'Session' : 'Subagent')
 }
 
 function platformName(platform: string): string {
@@ -216,7 +219,6 @@ const styles = StyleSheet.create({
   pageHeading: { paddingTop: spacing.xxl, paddingBottom: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { ...type.title, color: colors.ink },
   subtitle: { ...type.small, color: colors.muted, marginTop: 2 },
-  bottomAction: { marginTop: spacing.xxl },
   deviceHero: { paddingVertical: spacing.xxl, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   deviceIcon: { width: 56, height: 56, borderRadius: radius.lg, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   deviceHeroCopy: { flex: 1 },
@@ -224,6 +226,10 @@ const styles = StyleSheet.create({
   devicePlatform: { ...type.small, color: colors.muted, marginTop: 2 },
   connectArea: { marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, gap: spacing.lg },
   connectCopy: { ...type.body, color: colors.muted },
+  trustHeader: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
+  trustIcon: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  trustCopy: { flex: 1 },
+  fingerprint: { ...type.caption, color: colors.primary, fontFamily: 'monospace', marginTop: spacing.xs },
   connectionError: { padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.dangerSoft, gap: spacing.sm },
   connectionErrorTitle: { ...type.bodyStrong, color: colors.ink },
   connectionErrorBody: { ...type.small, color: colors.muted },

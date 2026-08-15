@@ -1,18 +1,32 @@
-import type { RemoteDevice } from '../types'
-import type { RemoteServerApi } from './api'
+import { identityFingerprint } from '@dsh-remote/crypto'
+import type { DevicePresence, RemoteDevice } from '../types'
+import type { AuthorizedPeerDevice } from './api'
+
+export interface DeviceDirectoryApi {
+  listDevices(): Promise<RemoteDevice[]>
+  deviceFor(deviceId: string): Promise<AuthorizedPeerDevice>
+  getPresence(deviceId: string): Promise<DevicePresence>
+}
 
 export interface ReconciledDevices {
   devices: RemoteDevice[]
+  /** Locally pinned hosts the Server no longer authorizes for this account. */
   missingTrustedDeviceIds: string[]
+  /** Hosts the account can see that are not yet pinned on this phone. */
+  unpinnedDeviceIds: string[]
 }
 
 /**
- * Reconcile Server membership metadata with locally pinned Host identities.
- * The Server intentionally omits identityKey from device reads, so the local
- * trusted key always wins and no Server response can silently replace it.
+ * Reconcile Server membership with locally pinned Host identities.
+ *
+ * The Server intentionally omits identityKey from the device list, so the
+ * client fetches each authorized Host's descriptor through `deviceFor` and
+ * pins its Noise identity key locally. A locally pinned key that differs from
+ * the Server descriptor fails closed (the Host was re-registered with a new
+ * key); a missing local pin is reported for the pairing/trust decision.
  */
 export async function reconcileTrustedDevices(
-  api: Pick<RemoteServerApi, 'listDevices' | 'getPresence'>,
+  api: DeviceDirectoryApi,
   trusted: RemoteDevice[],
 ): Promise<ReconciledDevices> {
   const memberships = await api.listDevices()
@@ -21,28 +35,50 @@ export async function reconcileTrustedDevices(
     .filter(device => !byId.has(device.deviceId))
     .map(device => device.deviceId)
 
-  const devices = await Promise.all(trusted.flatMap(local => {
-    const server = byId.get(local.deviceId)
-    if (server === undefined) return []
-    return [api.getPresence(local.deviceId).then(
-      presence => ({
+  const devices: RemoteDevice[] = []
+  const unpinnedDeviceIds: string[] = []
+  for (const membership of memberships) {
+    const local = trusted.find(device => device.deviceId === membership.deviceId)
+    if (local !== undefined) {
+      if (local.identityKey.length === 0) {
+        unpinnedDeviceIds.push(membership.deviceId)
+        continue
+      }
+      const descriptor = await api.deviceFor(membership.deviceId).catch(() => undefined)
+      if (descriptor !== undefined && descriptor.identityKey !== local.identityKey) {
+        // The Host re-registered with a different key: refuse to trust it.
+        continue
+      }
+      const presence = await api.getPresence(membership.deviceId).catch(() => undefined)
+      devices.push({
         ...local,
-        ...server,
+        ...membership,
         identityKey: local.identityKey,
-        fingerprint: local.fingerprint,
-        online: presence.online,
-        lastSeenAt: presence.lastSeenAt ?? local.lastSeenAt,
+        fingerprint: local.fingerprint ?? formatFingerprint(identityFingerprint(local.identityKey)),
+        online: presence?.online ?? membership.online === true,
+        lastSeenAt: presence?.lastSeenAt ?? local.lastSeenAt ?? membership.lastSeenAt,
         trusted: true,
-      }),
-      () => ({
-        ...local,
-        ...server,
-        identityKey: local.identityKey,
-        fingerprint: local.fingerprint,
-        online: false,
-        trusted: true,
-      }),
-    )]
-  }))
-  return { devices, missingTrustedDeviceIds }
+      })
+      continue
+    }
+    const descriptor = await api.deviceFor(membership.deviceId).catch(() => undefined)
+    if (descriptor === undefined || descriptor.role !== 'host' || descriptor.identityKey.length === 0) {
+      unpinnedDeviceIds.push(membership.deviceId)
+      continue
+    }
+    const presence = await api.getPresence(membership.deviceId).catch(() => undefined)
+    devices.push({
+      ...membership,
+      identityKey: descriptor.identityKey,
+      fingerprint: formatFingerprint(identityFingerprint(descriptor.identityKey)),
+      online: presence?.online ?? membership.online === true,
+      lastSeenAt: presence?.lastSeenAt ?? membership.lastSeenAt,
+      trusted: false,
+    })
+  }
+  return { devices, missingTrustedDeviceIds, unpinnedDeviceIds }
+}
+
+function formatFingerprint(value: string): string {
+  return value.match(/.{1,4}/g)?.join(' ') ?? value
 }

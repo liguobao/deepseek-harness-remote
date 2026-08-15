@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { AppState, BackHandler, Linking, StyleSheet, Text, View } from 'react-native'
+import { AppState, BackHandler, StyleSheet, Text, View } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { Bot } from 'lucide-react-native'
 import { ChatScreen } from './src/screens/chat-screen'
 import { DeviceDetailScreen, DevicesScreen, SessionsScreen } from './src/screens/device-screens'
-import { PairDeviceScreen, ServerSetupScreen, SettingsScreen } from './src/screens/setup-screens'
-import { parsePairLink } from './src/lib/server-url'
+import { ServerSetupScreen, SettingsScreen } from './src/screens/setup-screens'
 import { useAppStore } from './src/state/store'
 import { Button, ErrorBanner } from './src/ui/components'
 import { colors, radius, spacing, type } from './src/ui/theme'
@@ -15,7 +14,6 @@ import { colors, radius, spacing, type } from './src/ui/theme'
 type Route =
   | { name: 'server' }
   | { name: 'devices' }
-  | { name: 'pair'; code?: string; hostFingerprint?: string }
   | { name: 'device'; deviceId: string }
   | { name: 'sessions' }
   | { name: 'chat' }
@@ -39,7 +37,6 @@ function AppNavigator() {
   const selectedDevice = useAppStore(state => state.selectedDevice)
   const error = useAppStore(state => state.error)
   const bootstrap = useAppStore(state => state.bootstrap)
-  const configureServer = useAppStore(state => state.configureServer)
   const reconnect = useAppStore(state => state.reconnect)
   const setOffline = useAppStore(state => state.setOffline)
   const clearError = useAppStore(state => state.clearError)
@@ -81,22 +78,6 @@ function AppNavigator() {
     return () => subscription.remove()
   }, [reconnect])
 
-  useEffect(() => {
-    const openLink = async (url: string | null) => {
-      if (url === null) return
-      const pair = parsePairLink(url)
-      if (pair.code === undefined) return
-      if (pair.server !== undefined && pair.server !== useAppStore.getState().config?.baseUrl) {
-        const configured = await configureServer(pair.server)
-        if (!configured) return
-      }
-      reset({ name: 'pair', code: pair.code, hostFingerprint: pair.hostFingerprint })
-    }
-    void Linking.getInitialURL().then(openLink)
-    const subscription = Linking.addEventListener('url', event => { void openLink(event.url) })
-    return () => subscription.remove()
-  }, [configureServer])
-
   if (bootPhase === 'loading') return <LoadingScreen />
   if (bootPhase === 'error') return <BootError onRetry={() => void bootstrap()} message={error} />
 
@@ -108,8 +89,7 @@ function AppNavigator() {
     <View style={styles.flex}>
       {error !== undefined && <ErrorBanner message={error} onDismiss={clearError} />}
       {route.name === 'server' && <ServerSetupScreen onBack={routes.length > 1 ? pop : undefined} onComplete={() => reset({ name: 'devices' })} />}
-      {route.name === 'devices' && <DevicesScreen onPair={() => push({ name: 'pair' })} onDevice={device => push({ name: 'device', deviceId: device.deviceId })} onSettings={() => push({ name: 'settings' })} />}
-      {route.name === 'pair' && <PairDeviceScreen initialCode={route.code} expectedHostFingerprint={route.hostFingerprint} onBack={pop} onPaired={device => replace({ name: 'device', deviceId: device.deviceId })} />}
+      {route.name === 'devices' && <DevicesScreen onDevice={device => push({ name: 'device', deviceId: device.deviceId })} onSettings={() => push({ name: 'settings' })} />}
       {route.name === 'device' && deviceForRoute !== undefined && <DeviceDetailScreen device={deviceForRoute} onBack={pop} onSessions={() => push({ name: 'sessions' })} onForgotten={() => reset({ name: 'devices' })} />}
       {route.name === 'device' && deviceForRoute === undefined && <MissingRoute onBack={() => reset({ name: 'devices' })} />}
       {route.name === 'sessions' && <SessionsScreen onBack={pop} onSession={() => push({ name: 'chat' })} />}

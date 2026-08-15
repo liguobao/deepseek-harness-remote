@@ -1,4 +1,4 @@
-import type { PermissionDecision, PermissionRequest, SessionSummary, TransportStats } from '@dsh-remote/protocol'
+import type { TransportStats } from '@dsh-remote/protocol'
 
 export type ConnectionPhase =
   | 'disconnected'
@@ -20,39 +20,31 @@ export interface DeviceIdentity {
 }
 
 export interface DeviceCredentials {
-  deviceId: string
   serverUrl: string
+  deviceId: string
+  authorizationMethod: 'account' | 'owned_device'
+  account?: string
   accessToken: string
   accessTokenExpiresAt: number
   refreshToken: string
   refreshTokenExpiresAt: number
 }
 
+/** A Host visible through same-account membership, with its pinned identity key. */
 export interface RemoteDevice {
   deviceId: string
   name: string
   platform: string
+  /** Pinned Noise static X25519 public key; never replaced by a Server response. */
   identityKey: string
+  membershipId: string
   online: boolean
   role?: 'host' | 'client'
   clientVersion?: string
   harnessVersion?: string
-  fingerprint?: string
   lastSeenAt?: number
-  lastConnectedAt?: number
-  membershipId?: string
-  trusted?: boolean
-}
-
-export interface ServerHostDevice {
-  deviceId: string
-  name: string
-  platform: string
-  role: 'host'
-  clientVersion?: string
-  harnessVersion?: string
-  lastConnectedAt?: number
-  membershipId: string
+  fingerprint?: string
+  trusted: boolean
 }
 
 export interface DevicePresence {
@@ -61,42 +53,47 @@ export interface DevicePresence {
   lastSeenAt?: number
 }
 
-export interface PairingResult {
-  pairingId: string
-  status: 'waiting_host'
-  host: Omit<RemoteDevice, 'online'>
-  expiresAt: number
-}
-
-export interface PairingStatus {
-  status: 'waiting_host' | 'paired' | 'rejected' | 'expired'
-  membershipId?: string
-  hostDeviceId?: string
-  expiresAt?: number
-}
-
-export interface SystemInfo {
-  deviceId: string
-  deviceName: string
-  os: string
-  hostname?: string
-  harnessVersion?: string
-  pluginVersion?: string
-  online: boolean
-  connectionMode: TransportStats['mode']
-  capabilities?: string[]
-}
-
-export interface WorkspaceInfo {
+export interface HostDescriptor {
+  version: string
   cwd: string
-  name?: string
+  provider?: string
+  model?: string
+  attachedSessions: number
+  canOpenPath: boolean
 }
 
-export interface RemoteSession extends SessionSummary {
-  messages?: ChatItem[]
+export interface WorkspaceView {
+  workspaceId: string
+  path: string
+  title: string
+  sessionIds: string[]
+  createdAt: string
+  updatedAt: string
 }
 
-interface ChatItemBase {
+/** Native ApiProxy session row projection (mirrors @deepseek-ai/dsh-host-apiproxy). */
+export interface RemoteSession {
+  sessionId: string
+  updatedAt: number
+  running: boolean
+  blank: boolean
+  parentSessionId?: string
+  origin?: 'subagent'
+  cwd?: string
+  agentPreset?: string
+}
+
+export interface HistoryEntry {
+  event: NativeSessionEvent
+  view?: { for: 'call' | 'result'; view: unknown }
+}
+
+export interface SessionHistoryPage {
+  events: HistoryEntry[]
+  hasMore: boolean
+}
+
+export interface ChatItemBase {
   id: string
   sessionId: string
   createdAt: number
@@ -107,22 +104,95 @@ export interface ChatMessage extends ChatItemBase {
   role: 'user' | 'assistant' | 'system'
   text: string
   streaming?: boolean
+  /** Native session.prompt rpcId used to reconcile an optimistic user message. */
+  requestRpcId?: string
 }
 
 export interface ToolActivity extends ChatItemBase {
   kind: 'tool'
   toolName: string
+  arguments?: string
   summary?: string
   state: 'running' | 'finished' | 'failed'
 }
 
-export interface PermissionActivity extends ChatItemBase {
-  kind: 'permission'
-  request: PermissionRequest
-  decision?: PermissionDecision
+export interface ApprovalActivity extends ChatItemBase {
+  kind: 'approval'
+  approvalId: string
+  toolName: string
+  reason?: string
+  frameRpcId?: string
+  outcome?: ApprovalOutcome
 }
 
-export type ChatItem = ChatMessage | ToolActivity | PermissionActivity
+export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
+
+export interface QuestionActivity extends ChatItemBase {
+  kind: 'question'
+  frameRpcId?: string
+  questions: AskUserQuestionItem[]
+  outcome?: 'answered' | 'cancelled'
+}
+
+export type ChatItem = ChatMessage | ToolActivity | ApprovalActivity | QuestionActivity
+
+/** Wire-safe question surface (mirrors @deepseek-ai/dsh-user-questions/types). */
+export interface AskUserQuestionOption {
+  label: string
+  description?: string
+}
+
+export interface AskUserQuestionItem {
+  id: string
+  question: string
+  detail?: string
+  header?: string
+  options?: AskUserQuestionOption[]
+  multiSelect?: boolean
+  intent?: { kind: 'plan-review'; approve: string }
+}
+
+export interface AskUserQuestionAnswer {
+  answers: Array<{ id: string; selected: string[]; custom?: string }>
+}
+
+/** Structural mirror of @deepseek-ai/dsh-session SessionEvent (wire subset used by chat). */
+export interface NativeSessionEvent {
+  type: string
+  seq: number
+  time: number
+  data: Record<string, unknown>
+  sourceEventSeqs?: number[]
+  surfaceOp?: 'append' | 'replace'
+  ignorable?: true
+}
+
+export interface MuxFrame {
+  type: string
+  sessionId?: string
+  event?: NativeSessionEvent
+  view?: unknown
+  lastSeq?: number
+  approvalId?: string
+  toolName?: string
+  callId?: string
+  reason?: string
+  outcome?: string
+  questions?: AskUserQuestionItem[]
+  questionRpcId?: string
+  error?: unknown
+}
+
+/** One mux stream frame with its native rpcId (needed to answer approvals/questions). */
+export interface MuxStreamFrame {
+  rpcId: string
+  payload: MuxFrame
+}
+
+export interface HarnessApiFrame {
+  streamId: string
+  frame: { rpcId: string; payload: MuxFrame }
+}
 
 export interface ConnectionSnapshot {
   phase: ConnectionPhase
@@ -132,6 +202,4 @@ export interface ConnectionSnapshot {
 
 export interface PairLink {
   server?: string
-  code?: string
-  hostFingerprint?: string
 }

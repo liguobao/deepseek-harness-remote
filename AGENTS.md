@@ -7,7 +7,7 @@
 当前仓库实现：
 
 - DeepSeek Harness 双角色 Plugin（Remote Host + 本地 Harness Client 模式）
-- 冻结的 Android Client 原型（尚未迁移到 ApiProxy-only 数据面）
+- Android Client（账号授权 + Adaptive transport + ApiProxy tunnel 数据面）
 - Protocol、Crypto、WebRTC、Client Core 等共享能力
 - 依赖外部 Server 的 Mock Host/Smoke Client
 - Server 设计与跨仓库协议契约
@@ -25,7 +25,7 @@ Server、Remote Web 和 Admin 必须由独立 Server 仓库作为同一站点实
 
 ```text
 apps/
-  android/             冻结的 React Native / Expo Android 原型
+  android/             React Native / Expo Android Client（账号授权 + ApiProxy tunnel）
 packages/
   plugin/              双角色 Plugin、原生 API 代理与 Web Client 切换入口
   protocol/            Remote/Control frame 类型和运行时校验
@@ -53,8 +53,8 @@ docs/
 | --- | --- | --- |
 | Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
 | Plugin Client Mode | 实现保留；当前发布入口与 runtime 暂时关闭，不展示 Host/Client 或 Local/Remote 切换 | 重新开放前完成真实 dsh-desktop 安装/E2E、断线重连 |
-| Android | 旧 Remote RPC 原型已冻结，与当前 ApiProxy-only Host 不兼容 | 若恢复该产品线，先迁移到 ApiProxy contract |
-| Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 清理冻结 Android 的旧类型、完整 Zod schema、limits、golden vectors |
+| Android | 已迁移到 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、harness.api tunnel 与 mux frame 聊天 | 真机 E2E 与 Server 联调、重连后 mux 重开与 history baseline、WebRTC 走通验证 |
+| Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 完整 Zod schema、limits、golden vectors |
 | Crypto | 基础原语与标准 Noise IK 已实现 | 第三方实现审查、rekey、跨端 conformance |
 | Relay Transport | Protocol v1 control/relay 已实现 | 心跳、限制协商、断线状态传播 |
 | WebRTC | 基础骨架 | signaling、ICE、TURN、自动 fallback |
@@ -96,7 +96,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 截至 2026-08-16：
 
 - workspace check 与 DSH bundle 校验通过
-- workspace test 通过：27 个测试文件、85 个测试（Plugin 14 个文件、40 个测试）
+- workspace test 通过：28 个测试文件、105 个测试（Plugin 14 个文件、42 个测试；Android 7 个文件、31 个测试）
 - workspace build 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 

@@ -5,7 +5,7 @@
 本仓库只实现以下内容：
 
 - DeepSeek Harness 双角色 Plugin（Host + 本地 Remote 模式）
-- 冻结的 Android Remote Client 原型（尚未迁移到 ApiProxy-only 数据面）
+- Android Client（账号授权 + Adaptive transport + ApiProxy tunnel 数据面）
 - `protocol`、`crypto`、`webrtc`、`client-core`、`ui` 等共享包
 - 用于客户端和插件联调的 Mock Host
 
@@ -18,8 +18,8 @@
 - Admin 后端或 Server 托管的 React 站点
 
 Server、Remote Web 和 Admin 由独立 Server 项目作为同一站点实现。本仓库保留 Server
-设计和协议，用于约束 Plugin Host/Client 与外部服务；Android 恢复开发时也必须复用
-同一 Control/Relay 和 ApiProxy contract。
+设计和协议，用于约束 Plugin Host/Client 与外部服务；Android Client 复用同一
+Control/Relay 和 ApiProxy contract。
 
 ## 权威文档
 

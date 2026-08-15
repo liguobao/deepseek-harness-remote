@@ -1,10 +1,13 @@
 import { NoiseIkSession, createNoisePrologue } from '@dsh-remote/crypto'
+import { SecureMessageCodec } from '@dsh-remote/protocol'
 import type { RemoteTransport, SecureHandshakeTransport } from '@dsh-remote/webrtc'
 import type { DeviceIdentity, RemoteDevice } from '../types'
 
 export class SecureTransport implements RemoteTransport {
   private noise?: NoiseIkSession
   private unsubscribeInner?: () => void
+  private readonly incoming = new SecureMessageCodec()
+  private readonly outgoing = new SecureMessageCodec()
   private closed = false
 
   constructor(
@@ -12,11 +15,13 @@ export class SecureTransport implements RemoteTransport {
     private readonly identity: DeviceIdentity,
     private readonly host: RemoteDevice,
   ) {
-    if (host.identityKey.length === 0) throw new Error('The host has no encryption key. Pair it again.')
+    if (host.identityKey.length === 0) throw new Error('The host has no encryption key. Trust the host first.')
   }
 
   async connect(): Promise<void> {
     this.closed = false
+    this.incoming.reset()
+    this.outgoing.reset()
     await this.inner.connect()
     const info = this.inner.connectionInfo()
     if (info.localDeviceId !== this.identity.deviceId || info.remoteDeviceId !== this.host.deviceId) {
@@ -42,8 +47,9 @@ export class SecureTransport implements RemoteTransport {
   }
 
   async send(data: Uint8Array): Promise<void> {
-    const noise = this.requireNoise()
-    await this.inner.send(noise.encrypt(data))
+    for (const plaintext of this.outgoing.encode(data)) {
+      await this.inner.send(this.requireNoise().encrypt(plaintext))
+    }
   }
 
   onMessage(cb: (data: Uint8Array) => void): () => void {
@@ -52,7 +58,8 @@ export class SecureTransport implements RemoteTransport {
       const noise = this.noise
       if (noise === undefined || !noise.complete || this.closed) return
       try {
-        cb(noise.decrypt(data))
+        const message = this.incoming.decode(noise.decrypt(data))
+        if (message !== undefined) cb(message)
       } catch {
         void this.close()
       }
@@ -63,11 +70,17 @@ export class SecureTransport implements RemoteTransport {
     }
   }
 
+  onClose(handler: () => void): () => void {
+    return this.inner.onClose?.(handler) ?? (() => undefined)
+  }
+
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
     this.unsubscribeInner?.()
     this.unsubscribeInner = undefined
+    this.incoming.reset()
+    this.outgoing.reset()
     this.noise?.destroy()
     this.noise = undefined
     await this.inner.close()

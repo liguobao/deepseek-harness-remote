@@ -1,10 +1,9 @@
-import type { EventPayload, PermissionDecision } from '@dsh-remote/protocol'
-import { identityFingerprint } from '@dsh-remote/crypto'
 import * as Haptics from 'expo-haptics'
 import { create } from 'zustand'
-import { RemoteApiError, friendlyError } from '../lib/errors'
-import { normalizePairingCode, normalizeServerUrl } from '../lib/server-url'
+import { friendlyError } from '../lib/errors'
+import { normalizeServerUrl } from '../lib/server-url'
 import { RemoteServerApi } from '../services/api'
+import { createNativeRpcId } from '../services/api-proxy'
 import { AndroidRemoteConnection } from '../services/connection'
 import { reconcileTrustedDevices } from '../services/device-directory'
 import { serverSession } from '../services/server-session'
@@ -21,52 +20,54 @@ import type {
   ChatItem,
   ConnectionSnapshot,
   DeviceIdentity,
+  HistoryEntry,
+  HostDescriptor,
+  MuxStreamFrame,
   RemoteDevice,
   RemoteSession,
   ServerConfig,
-  SystemInfo,
-  WorkspaceInfo,
+  WorkspaceView,
 } from '../types'
-import { applyRemoteEvent } from './event-reducer'
+import { foldHistory, applyMuxFrameToMessages } from './event-reducer'
 
 type BootPhase = 'loading' | 'ready' | 'error'
-type PairingPhase = 'idle' | 'claiming' | 'waiting' | 'complete' | 'error'
+type AuthPhase = 'idle' | 'authenticating' | 'complete' | 'error'
 
 interface AppState {
   bootPhase: BootPhase
   config?: ServerConfig
   identity?: DeviceIdentity
+  account?: string
   devices: RemoteDevice[]
   selectedDevice?: RemoteDevice
   connection: ConnectionSnapshot
-  systemInfo?: SystemInfo
-  workspace?: WorkspaceInfo
+  hostDescriptor?: HostDescriptor
+  workspaces: WorkspaceView[]
   sessions: RemoteSession[]
   selectedSession?: RemoteSession
   messages: Record<string, ChatItem[]>
-  pairingPhase: PairingPhase
-  pairingMessage?: string
+  authPhase: AuthPhase
   refreshing: boolean
   busyAction?: string
   error?: string
 
   bootstrap(): Promise<void>
-  configureServer(input: string): Promise<boolean>
-  pairDevice(code: string, expectedHostFingerprint?: string): Promise<RemoteDevice | undefined>
+  configureServer(input: string, email: string, password: string): Promise<boolean>
   refreshDevices(): Promise<void>
+  trustDevice(device: RemoteDevice): Promise<boolean>
+  forgetDevice(deviceId: string): Promise<boolean>
   connectDevice(device: RemoteDevice): Promise<boolean>
   reconnect(): Promise<void>
   disconnect(): Promise<void>
   openSession(session: RemoteSession): Promise<boolean>
-  createSession(): Promise<RemoteSession | undefined>
   sendMessage(text: string): Promise<boolean>
   stopSession(): Promise<void>
-  respondPermission(requestId: string, decision: PermissionDecision): Promise<void>
-  forgetDevice(deviceId: string): Promise<boolean>
+  respondApproval(itemId: string, outcome: 'allowed-once' | 'rejected'): Promise<void>
+  respondQuestion(itemId: string, selected: Record<string, string[]>): Promise<void>
   resetLocalData(): Promise<void>
   setOffline(): void
   clearError(): void
-  handleRemoteEvent(event: EventPayload): void
+  handleMuxFrame(frame: MuxStreamFrame): void
 }
 
 const disconnected: ConnectionSnapshot = {
@@ -80,9 +81,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   bootPhase: 'loading',
   devices: [],
   connection: disconnected,
+  workspaces: [],
   sessions: [],
   messages: {},
-  pairingPhase: 'idle',
+  authPhase: 'idle',
   refreshing: false,
 
   async bootstrap() {
@@ -96,7 +98,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async configureServer(input) {
+  async configureServer(input, email, password) {
     set({ busyAction: 'server', error: undefined })
     try {
       const baseUrl = normalizeServerUrl(input)
@@ -104,68 +106,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (identity === undefined) throw new Error('The Android device identity is not ready.')
       const publicApi = new RemoteServerApi(baseUrl)
       await publicApi.health()
-      await serverSession.authenticate(baseUrl, identity)
+      const { credentials } = await serverSession.authenticateWithAccount(baseUrl, identity, email, password)
       const config = { baseUrl }
       await saveServerConfig(config)
-      set({ config, busyAction: undefined, devices: [] })
+      set({
+        config,
+        account: credentials.account,
+        busyAction: undefined,
+        devices: [],
+        authPhase: 'complete',
+      })
       await get().refreshDevices()
       return true
     } catch (error) {
       set({ busyAction: undefined, error: friendlyError(error) })
       return false
-    }
-  },
-
-  async pairDevice(input, expectedHostFingerprint) {
-    const { config, identity } = get()
-    if (config === undefined || identity === undefined) return undefined
-    const code = normalizePairingCode(input)
-    if (code.replace('-', '').length !== 8) {
-      set({ pairingPhase: 'error', pairingMessage: 'Enter all 8 characters from the host.' })
-      return undefined
-    }
-
-    set({ pairingPhase: 'claiming', pairingMessage: undefined, error: undefined })
-    try {
-      const { api } = await serverSession.authenticate(config.baseUrl, identity)
-      const claim = await api.claimPairing(code, identity.deviceId)
-      const computedFingerprint = identityFingerprint(claim.host.identityKey)
-      const advertisedFingerprint = claim.host.fingerprint?.trim()
-      if (advertisedFingerprint !== undefined && normalizeFingerprint(advertisedFingerprint) !== computedFingerprint) {
-        throw new Error('The host fingerprint does not match its identity key. Do not approve this pairing.')
-      }
-      if (expectedHostFingerprint !== undefined
-        && normalizeFingerprint(expectedHostFingerprint) !== computedFingerprint) {
-        throw new Error('The host fingerprint does not match the pairing link. Do not approve this pairing.')
-      }
-      const fingerprint = formatFingerprint(computedFingerprint)
-      set({
-        pairingPhase: 'waiting',
-        pairingMessage: `Confirm this phone on the host and verify ${fingerprint}.`,
-      })
-      const status = await waitForConfirmation(api, claim.pairingId, claim.expiresAt)
-      if (status.hostDeviceId !== undefined && status.hostDeviceId !== claim.host.deviceId) {
-        throw new Error('The paired host identity changed. Create a new pairing code.')
-      }
-      const host: RemoteDevice = {
-        ...claim.host,
-        membershipId: status.membershipId,
-        online: true,
-        trusted: true,
-      }
-      if (host.identityKey.length === 0) throw new Error('The host did not provide an encryption key. Create a new pairing code.')
-      await trustHost(host)
-      set(state => ({
-        pairingPhase: 'complete',
-        pairingMessage: 'Device paired securely.',
-        devices: mergeDevices(state.devices, [host]),
-      }))
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-      return host
-    } catch (error) {
-      set({ pairingPhase: 'error', pairingMessage: friendlyError(error) })
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
-      return undefined
     }
   },
 
@@ -184,28 +139,55 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  async trustDevice(device) {
+    if (device.identityKey.length === 0) return false
+    await trustHost(device)
+    set(state => ({
+      devices: state.devices.map(item => item.deviceId === device.deviceId ? { ...item, trusted: true } : item),
+    }))
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    return true
+  },
+
   async connectDevice(device) {
     const { config, identity } = get()
     if (config === undefined || identity === undefined) return false
     set({
       selectedDevice: device,
       connection: { phase: 'connecting', stats: { mode: 'Disconnected', connected: false } },
-      systemInfo: undefined,
-      workspace: undefined,
+      hostDescriptor: undefined,
+      workspaces: [],
       sessions: [],
       error: undefined,
     })
     try {
-      const { credentials } = await serverSession.authenticate(config.baseUrl, identity)
-      await connection.connect(config.baseUrl, identity, device, credentials.accessToken, event => get().handleRemoteEvent(event))
-      const [systemInfo, workspace, sessions] = await Promise.all([
-        connection.systemInfo(), connection.workspace(), connection.sessions(),
+      const { api, credentials } = await serverSession.authenticate(config.baseUrl, identity)
+      await connection.connect(
+        config.baseUrl,
+        identity,
+        device,
+        credentials.accessToken,
+        frame => get().handleMuxFrame(frame),
+        {
+          fetchIceServers: async connectionId => api.turnCredentials(connectionId),
+          onClose: () => {
+            if (get().connection.phase === 'connected' || get().connection.phase === 'reconnecting') {
+              set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: 'The host connection closed.' } })
+            }
+          },
+        },
+      )
+      const proxy = connection.requireProxy()
+      const [hostDescriptor, workspaces, sessions] = await Promise.all([
+        proxy.hostDescribe(),
+        proxy.workspaceList(),
+        proxy.sessionList(),
       ])
       set({
-        systemInfo,
-        workspace,
+        hostDescriptor,
+        workspaces,
         sessions,
-        connection: { phase: 'connected', stats: { mode: 'Relay', connected: true } },
+        connection: { phase: 'connected', stats: connection.getStats() ?? { mode: 'Relay', connected: true } },
       })
       return true
     } catch (error) {
@@ -225,17 +207,28 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async disconnect() {
     await connection.close()
-    set({ connection: disconnected, selectedDevice: undefined, systemInfo: undefined, workspace: undefined, sessions: [], selectedSession: undefined })
+    set({
+      connection: disconnected,
+      selectedDevice: undefined,
+      hostDescriptor: undefined,
+      workspaces: [],
+      sessions: [],
+      selectedSession: undefined,
+    })
   },
 
   async openSession(session) {
-    set({ busyAction: `session:${session.id}`, error: undefined })
+    set({ busyAction: `session:${session.sessionId}`, error: undefined })
     try {
-      const detail = await connection.session(session.id)
-      const items = Array.isArray(detail.messages) ? detail.messages.filter(isChatItem) : []
+      const proxy = connection.requireProxy()
+      const history = await proxy.sessionHistory(session.sessionId)
+      const items = foldHistory(history.events, session.sessionId)
       set(state => ({
-        selectedSession: detail,
-        messages: { ...state.messages, [session.id]: items },
+        selectedSession: session,
+        messages: {
+          ...state.messages,
+          [session.sessionId]: mergeHistoryAndLive(items, state.messages[session.sessionId] ?? []),
+        },
         busyAction: undefined,
       }))
       return true
@@ -245,37 +238,27 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async createSession() {
-    set({ busyAction: 'create-session', error: undefined })
-    try {
-      const session = await connection.createSession(get().workspace?.cwd)
-      set(state => ({ sessions: upsertSession(state.sessions, session), busyAction: undefined }))
-      return session
-    } catch (error) {
-      set({ busyAction: undefined, error: friendlyError(error) })
-      return undefined
-    }
-  },
-
   async sendMessage(input) {
     const session = get().selectedSession
     const text = input.trim()
     if (session === undefined || text.length === 0) return false
+    const requestRpcId = createNativeRpcId()
     const optimistic: ChatItem = {
       kind: 'message',
       id: `local:${Date.now()}`,
-      sessionId: session.id,
+      sessionId: session.sessionId,
       role: 'user',
       text,
       createdAt: Date.now(),
+      requestRpcId,
     }
     set(state => ({
-      messages: { ...state.messages, [session.id]: [...(state.messages[session.id] ?? []), optimistic] },
+      messages: { ...state.messages, [session.sessionId]: [...(state.messages[session.sessionId] ?? []), optimistic] },
       busyAction: 'send-message',
       error: undefined,
     }))
     try {
-      await connection.sendMessage(session.id, text)
+      await connection.requireProxy().sessionPrompt(session.sessionId, text, requestRpcId)
       set({ busyAction: undefined })
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
       return true
@@ -283,7 +266,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set(state => ({
         messages: {
           ...state.messages,
-          [session.id]: (state.messages[session.id] ?? []).filter(item => item.id !== optimistic.id),
+          [session.sessionId]: (state.messages[session.sessionId] ?? []).filter(item => item.id !== optimistic.id),
         },
         busyAction: undefined,
         error: friendlyError(error),
@@ -297,7 +280,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (session === undefined) return
     set({ busyAction: 'stop-session' })
     try {
-      await connection.stop(session.id)
+      await connection.requireProxy().sessionCancel(session.sessionId)
     } catch (error) {
       set({ error: friendlyError(error) })
     } finally {
@@ -305,19 +288,45 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async respondPermission(requestId, decision) {
-    set({ busyAction: `permission:${requestId}`, error: undefined })
+  async respondApproval(itemId, outcome) {
+    set({ busyAction: `approval:${itemId}`, error: undefined })
     try {
-      const sessionId = get().selectedSession?.id
-      if (sessionId === undefined) throw new Error('Open the permission session before responding.')
-      await connection.respondPermission(sessionId, requestId, decision)
+      const proxy = connection.requireProxy()
+      const item = findApproval(get().messages, itemId)
+      if (item === undefined || item.frameRpcId === undefined) {
+        throw new Error('Open the session before answering a host request.')
+      }
+      await proxy.respondApproval(item.frameRpcId, item.sessionId, item.approvalId, outcome)
       set(state => ({
-        messages: mapPermissionDecision(state.messages, requestId, decision),
+        messages: mapApprovalOutcome(state.messages, itemId, outcome),
         busyAction: undefined,
       }))
-      await Haptics.notificationAsync(decision === 'deny'
+      await Haptics.notificationAsync(outcome === 'rejected'
         ? Haptics.NotificationFeedbackType.Warning
         : Haptics.NotificationFeedbackType.Success)
+    } catch (error) {
+      set({ busyAction: undefined, error: friendlyError(error) })
+    }
+  },
+
+  async respondQuestion(itemId, selected) {
+    set({ busyAction: `question:${itemId}`, error: undefined })
+    try {
+      const proxy = connection.requireProxy()
+      const item = findQuestion(get().messages, itemId)
+      if (item === undefined || item.frameRpcId === undefined) {
+        throw new Error('Open the session before answering a host request.')
+      }
+      const answers = item.questions.map(question => ({
+        id: question.id,
+        selected: selected[question.id] ?? [],
+      }))
+      await proxy.respondQuestion(item.frameRpcId, item.sessionId, { answers })
+      set(state => ({
+        messages: mapQuestionAnswered(state.messages, itemId),
+        busyAction: undefined,
+      }))
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
     } catch (error) {
       set({ busyAction: undefined, error: friendlyError(error) })
     }
@@ -328,14 +337,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (config === undefined || identity === undefined) return false
     set({ busyAction: `forget:${deviceId}`, error: undefined })
     try {
-      const { api } = await serverSession.authenticate(config.baseUrl, identity)
-      try {
-        await api.removeDevice(deviceId)
-      } catch (error) {
-        const alreadyRemoved = error instanceof RemoteApiError
-          && ['MEMBERSHIP_REQUIRED', 'DEVICE_NOT_FOUND', 'PAIRING_INVALID'].includes(error.code)
-        if (!alreadyRemoved) throw error
-      }
       if (get().selectedDevice?.deviceId === deviceId) await get().disconnect()
       await forgetHost(deviceId)
       set(state => ({
@@ -366,112 +367,83 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ error: undefined })
   },
 
-  handleRemoteEvent(event: EventPayload) {
-    set(state => reduceEvent(state, event))
+  handleMuxFrame(frame) {
+    set(state => ({
+      messages: applyMuxFrameToMessages(state.messages, frame),
+    }))
   },
 }))
 
-async function waitForConfirmation(
-  api: RemoteServerApi,
-  pairingId: string,
-  expiresAt: number,
-): Promise<import('../types').PairingStatus> {
-  const deadline = Math.min(expiresAt, Date.now() + 10 * 60_000)
-  while (Date.now() < deadline) {
-    const status = await api.pairingStatus(pairingId)
-    if (status.status === 'paired') {
-      if (status.membershipId === undefined || status.hostDeviceId === undefined) {
-        throw new Error('The server returned an incomplete pairing result.')
-      }
-      return status
-    }
-    if (status.status === 'rejected') throw new Error('The host rejected this pairing request.')
-    if (status.status === 'expired') throw new Error('The pairing code has expired.')
-    // The Server default is 30 status requests/minute. Keep a margin below it.
-    await delay(2_500)
+function findApproval(messages: Record<string, ChatItem[]>, itemId: string) {
+  for (const items of Object.values(messages)) {
+    const found = items.find(item => item.kind === 'approval' && item.id === itemId)
+    if (found !== undefined && found.kind === 'approval') return found
   }
-  throw new Error('The host has not confirmed this phone yet. Check the host and try again.')
+  return undefined
 }
 
-function reduceEvent(state: AppState, event: EventPayload): Partial<AppState> {
-  const data = isRecord(event.data) ? event.data : {}
-  if (event.event === 'session.created' || event.event === 'session.updated') {
-    const session = sessionFromEvent(data)
-    return session === undefined ? {} : { sessions: upsertSession(state.sessions, session) }
+function findQuestion(messages: Record<string, ChatItem[]>, itemId: string) {
+  for (const items of Object.values(messages)) {
+    const found = items.find(item => item.kind === 'question' && item.id === itemId)
+    if (found !== undefined && found.kind === 'question') return found
   }
-  const sessionId = typeof data.sessionId === 'string' ? data.sessionId : state.selectedSession?.id
-  if (sessionId === undefined) return {}
-  return { messages: { ...state.messages, [sessionId]: applyRemoteEvent(state.messages[sessionId] ?? [], event) } }
+  return undefined
 }
 
-function sessionFromEvent(data: Record<string, unknown>): RemoteSession | undefined {
-  if (typeof data.id !== 'string' || typeof data.title !== 'string') return undefined
-  return {
-    id: data.id,
-    title: data.title,
-    cwd: typeof data.cwd === 'string' ? data.cwd : undefined,
-    running: data.running === true,
-    updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : Date.now(),
-  }
-}
-
-function upsertSession(sessions: RemoteSession[], session: RemoteSession): RemoteSession[] {
-  return [session, ...sessions.filter(item => item.id !== session.id)]
-    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-}
-
-function mergeDevices(current: RemoteDevice[], next: RemoteDevice[]): RemoteDevice[] {
-  const byId = new Map(current.map(device => [device.deviceId, device]))
-  for (const device of next) byId.set(device.deviceId, device)
-  return [...byId.values()]
-}
-
-function mapPermissionDecision(
+function mapApprovalOutcome(
   messages: Record<string, ChatItem[]>,
-  requestId: string,
-  decision: PermissionDecision,
+  itemId: string,
+  outcome: 'allowed-once' | 'rejected',
 ): Record<string, ChatItem[]> {
-  return Object.fromEntries(Object.entries(messages).map(([sessionId, items]) => [
-    sessionId,
-    items.map(item => item.kind === 'permission' && item.request.requestId === requestId ? { ...item, decision } : item),
-  ]))
+  return mapItems(messages, item => item.kind === 'approval' && item.id === itemId
+    ? { ...item, outcome }
+    : item)
+}
+
+function mapQuestionAnswered(
+  messages: Record<string, ChatItem[]>,
+  itemId: string,
+): Record<string, ChatItem[]> {
+  return mapItems(messages, item => item.kind === 'question' && item.id === itemId
+    ? { ...item, outcome: 'answered' as const }
+    : item)
+}
+
+function mapItems(
+  messages: Record<string, ChatItem[]>,
+  map: (item: ChatItem) => ChatItem,
+): Record<string, ChatItem[]> {
+  return Object.fromEntries(Object.entries(messages).map(([sessionId, items]) => [sessionId, items.map(map)]))
+}
+
+function mergeHistoryAndLive(history: ChatItem[], live: ChatItem[]): ChatItem[] {
+  const liveById = new Map(live.map(item => [item.id, item]))
+  const historyIds = new Set(history.map(item => item.id))
+  return [
+    ...history.map(item => liveById.get(item.id) ?? item),
+    ...live.filter(item => !historyIds.has(item.id)),
+  ]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function isChatItem(value: unknown): value is ChatItem {
-  return isRecord(value) && typeof value.id === 'string' && typeof value.sessionId === 'string'
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function normalizeFingerprint(value: string): string {
-  return value.replace(/[^A-Fa-f0-9]/g, '').toUpperCase()
-}
-
-function formatFingerprint(value: string): string {
-  return value.match(/.{1,4}/g)?.join(' ') ?? value
-}
-
 function initialData(): Pick<AppState,
-  'config' | 'devices' | 'selectedDevice' | 'connection' | 'systemInfo' | 'workspace' | 'sessions' |
-  'selectedSession' | 'messages' | 'pairingPhase' | 'pairingMessage' | 'refreshing' | 'busyAction' | 'error'> {
+  'config' | 'account' | 'devices' | 'selectedDevice' | 'connection' | 'hostDescriptor' | 'workspaces' |
+  'sessions' | 'selectedSession' | 'messages' | 'authPhase' | 'refreshing' | 'busyAction' | 'error'> {
   return {
     config: undefined,
+    account: undefined,
     devices: [],
     selectedDevice: undefined,
     connection: disconnected,
-    systemInfo: undefined,
-    workspace: undefined,
+    hostDescriptor: undefined,
+    workspaces: [],
     sessions: [],
     selectedSession: undefined,
     messages: {},
-    pairingPhase: 'idle',
-    pairingMessage: undefined,
+    authPhase: 'idle',
     refreshing: false,
     busyAction: undefined,
     error: undefined,

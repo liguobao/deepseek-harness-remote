@@ -1,7 +1,8 @@
 # TODO
 
-本清单按 2026-08-15 的 ApiProxy-only Desktop Plugin 方向维护。当前不投入 Android 产品线；
-Server、Remote Web 和 Admin 只在独立 Server 仓库实现。
+本清单按 2026-08-15 的 ApiProxy-only Desktop Plugin 方向维护。Android 产品线已恢复开发，
+与 Plugin 共享同一 Control/Relay 与 ApiProxy contract；Server、Remote Web 和 Admin 只在独立
+Server 仓库实现。
 
 当前发布版暂时只开放 Plugin Host；Desktop Client runtime 与 UI 代码保留，但
 Host/Client 配置切换和侧边栏 Local/Remote 入口均关闭，重新开放前必须完成真实 E2E。
@@ -62,11 +63,22 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [ ] 提供脱敏日志导出和真实设备长连接性能基线
 - [ ] 修复冻结 Android 原型的 Metro exports fallback 警告（仅在恢复 Android 产品线时）
 
-## Android 冻结说明
+## Android 恢复开发
 
-`apps/android` 和旧 Mock Host 暂时保留作历史原型，不与当前 ApiProxy-only Host 保持运行时
-兼容，也不进入第一版验收。若恢复 Android，必须直接实现/消费官方 ApiProxy contract，
-不得在 Plugin Host 恢复 `sessions.*`、`session.send`、`permissions.respond` 或 `sync.from`。
+`apps/android` 已迁移到当前 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key
+固定、Adaptive transport + Noise secure channel、`harness.api.call/respond/stream.open/close`
+tunnel 与 mux frame 聊天。剩余工作：
+
+- [ ] 真机/模拟器与外部 Server + 真实 Host 跑通账号登录、设备列表、连接、会话与聊天 E2E
+- [ ] 验证重连后重新打开 mux stream 并由 `session.history` 重建 baseline
+- [ ] 验证 WebRTC P2P/TURN 路径（react-native-webrtc 与 Host werift 互操作）
+- [ ] 补齐 approval/question 应答的端到端验证（frame rpcId 与 `client-response` 回显）
+- [ ] 更新 Mock Host 或新增 Android smoke client，替换旧 Android Remote RPC 联调工具
+- [ ] 同步协议 conformance fixtures 到 Android 侧校验
+
+`apps/android` 与 Mock Host 曾作为旧 Remote RPC 原型冻结；现在 Android 直接实现/消费官方
+ApiProxy contract，不得在 Plugin Host 恢复 `sessions.*`、`session.send`、
+`permissions.respond` 或 `sync.from`。
 
 ## 不在本仓库实现
 

@@ -5,7 +5,6 @@ import {
   createNoisePrologue,
   fromBase64Url,
   generateKeyPair,
-  identityFingerprint,
   toBase64Url,
 } from '@dsh-remote/crypto'
 import {
@@ -21,24 +20,35 @@ import {
   type DeviceDescriptor,
   type RelayPayload,
   type RemoteMessage,
+  type RpcErrorPayload,
+  type RpcRequestPayload,
   type SecureHandshakePayload,
 } from '@dsh-remote/protocol'
 
 const server = process.env.DSH_REMOTE_SERVER ?? 'ws://127.0.0.1:8080/ws/v1/connect'
 const deviceId = process.env.DSH_REMOTE_DEVICE_ID ?? randomUUID()
+const email = process.env.DSH_REMOTE_ACCOUNT_EMAIL
+const password = process.env.DSH_REMOTE_ACCOUNT_PASSWORD
 const keyPair = generateKeyPair()
 const trustedPeers = new Map<string, string>()
 const connections = new Map<string, {
   clientDeviceId: string
   noise: NoiseIkSession
 }>()
+const streams = new Map<string, { connectionId: string; stream: 'mux' | 'host' }>()
+const respondable = new Map<string, string>()
 const sessions = [
-  { id: 's1', title: 'Fix OAuth issue', cwd: '~/Projects/foo', running: false, updatedAt: Date.now() },
+  {
+    sessionId: 's1',
+    updatedAt: Date.now(),
+    running: false,
+    blank: false,
+    cwd: '~/Projects/foo',
+  },
 ]
 
 const accessToken = process.env.DSH_REMOTE_TOKEN ?? (await registerDevice()).accessToken
 const socket = new WebSocket(server)
-let pairingCreated = false
 
 socket.on('open', () => {
   sendControl('hello', {
@@ -46,8 +56,8 @@ socket.on('open', () => {
     deviceId,
     accessToken,
     protocols: [PROTOCOL_VERSION],
-    clientVersion: '0.1.0',
-    capabilities: ['transport.relay'],
+    clientVersion: '0.3.0',
+    capabilities: ['transport.relay', 'harness.api.v1'],
   })
 })
 
@@ -64,14 +74,11 @@ socket.on('error', error => console.error(`[mock-host] websocket error: ${error.
 async function handleControl(raw: string): Promise<void> {
   const frame = parseControlFrame(JSON.parse(raw))
   if (frame.type === 'hello.ack') {
-    if (pairingCreated) return
-    pairingCreated = true
     console.log(`[mock-host] connected to ${server}`)
-    await createPairing()
     return
   }
   if (frame.type === 'connect.incoming') {
-    acceptConnection(frame.payload)
+    await acceptConnection(frame.payload)
     return
   }
   if (frame.type === 'secure.handshake') {
@@ -89,46 +96,20 @@ async function handleControl(raw: string): Promise<void> {
   }
 }
 
-async function confirmPairing(value: unknown): Promise<void> {
-  const payload = asRecord(value)
-  const pairingId = stringField(payload, 'pairingId')
-  const client = asRecord(payload.client)
-  const clientDeviceId = stringField(client, 'deviceId')
-  const identityKey = stringField(client, 'identityKey')
-  const clientFingerprint = typeof payload.clientFingerprint === 'string'
-    ? payload.clientFingerprint
-    : typeof client.fingerprint === 'string' ? client.fingerprint : identityFingerprint(identityKey)
-  if (normalizeFingerprint(clientFingerprint) !== identityFingerprint(identityKey)) {
-    throw new Error('Pairing claim fingerprint does not match the client identity key')
-  }
-  console.log(`[mock-host] pairing claim from ${clientDeviceId} (${clientFingerprint})`)
-  if (process.env.DSH_REMOTE_AUTO_CONFIRM === 'false') {
-    console.log('[mock-host] auto-confirm is disabled; the pairing remains pending')
-    return
-  }
-  trustedPeers.set(clientDeviceId, identityKey)
-  try {
-    await apiRequest('/api/v1/pairings/confirm', {
-      method: 'POST',
-      body: JSON.stringify({
-        v: PROTOCOL_VERSION,
-        pairingId,
-        decision: 'approve',
-        clientDeviceId,
-        clientFingerprint,
-      }),
-    })
-  } catch (error) {
-    trustedPeers.delete(clientDeviceId)
-    throw error
-  }
-  console.log(`[mock-host] approved client ${clientDeviceId}`)
-}
-
-function acceptConnection(value: unknown): void {
+async function acceptConnection(value: unknown): Promise<void> {
   const payload = value as Partial<ConnectIncomingPayload>
-  if (typeof payload.connectionId !== 'string' || typeof payload.clientDeviceId !== 'string' || typeof payload.clientIdentityKey !== 'string') {
+  if (typeof payload.connectionId !== 'string'
+    || typeof payload.clientDeviceId !== 'string'
+    || typeof payload.clientIdentityKey !== 'string') {
     throw new Error('Invalid connect.incoming payload')
+  }
+  if (payload.authorization !== 'account') {
+    sendControl('connect.rejected', {
+      connectionId: payload.connectionId,
+      code: 'ACCOUNT_AUTH_REQUIRED',
+      message: 'Mock Host only accepts account-authorized connections.',
+    })
+    return
   }
   if (!payload.preferredTransports?.includes('relay')) {
     sendControl('connect.rejected', {
@@ -139,26 +120,47 @@ function acceptConnection(value: unknown): void {
     })
     return
   }
-  const trustedKey = trustedPeers.get(payload.clientDeviceId)
-  if (trustedKey !== payload.clientIdentityKey) {
+  // Cross-check the client descriptor through the same membership-protected
+  // device endpoint the plugin uses, then pin the identity key.
+  const descriptor = await apiRequest<{
+    deviceId?: unknown
+    role?: unknown
+    membershipId?: unknown
+    identityKey?: unknown
+  }>(`/api/v1/devices/${encodeURIComponent(payload.clientDeviceId)}`)
+  if (descriptor.role !== 'client'
+    || descriptor.deviceId !== payload.clientDeviceId
+    || descriptor.identityKey !== payload.clientIdentityKey
+    || typeof descriptor.membershipId !== 'string' || descriptor.membershipId.length === 0) {
     sendControl('connect.rejected', {
       connectionId: payload.connectionId,
       code: 'PEER_IDENTITY_MISMATCH',
-      message: 'Client identity does not match the locally trusted peer.',
+      message: 'Client descriptor does not match the connect event.',
     })
     return
   }
+  const existing = trustedPeers.get(payload.clientDeviceId)
+  if (existing !== undefined && existing !== payload.clientIdentityKey) {
+    sendControl('connect.rejected', {
+      connectionId: payload.connectionId,
+      code: 'PEER_IDENTITY_MISMATCH',
+      message: 'Client identity key changed for a pinned device.',
+    })
+    return
+  }
+  trustedPeers.set(payload.clientDeviceId, payload.clientIdentityKey)
   connections.set(payload.connectionId, {
     clientDeviceId: payload.clientDeviceId,
     noise: new NoiseIkSession({
       role: 'responder',
       localPrivateKey: keyPair.privateKey,
       localPublicKey: keyPair.publicKey,
-      remotePublicKey: trustedKey,
+      remotePublicKey: payload.clientIdentityKey,
       prologue: createNoisePrologue(payload.connectionId, deviceId, payload.clientDeviceId),
     }),
   })
   sendControl('connect.accepted', { connectionId: payload.connectionId })
+  console.log(`[mock-host] accepted client ${payload.clientDeviceId}`)
 }
 
 function handleHandshake(value: unknown): void {
@@ -197,7 +199,7 @@ async function handleRelay(value: unknown): Promise<void> {
   const payload = connection.noise.decrypt(fromBase64Url(relay.ciphertext))
   const message = decodeMessage(payload)
   if (message.type !== 'rpc.request') return
-  const request = message as LegacyRpcRequest
+  const request = message as RemoteMessage<RpcRequestPayload>
   try {
     await handleRpc(request, relay.connectionId)
   } catch (error) {
@@ -205,51 +207,193 @@ async function handleRelay(value: unknown): Promise<void> {
   }
 }
 
-type LegacyRpcRequest = RemoteMessage<{ method: string; params: unknown }>
-
-async function handleRpc(request: LegacyRpcRequest, connectionId: string): Promise<void> {
+async function handleRpc(request: RemoteMessage<RpcRequestPayload>, connectionId: string): Promise<void> {
   const { method, params } = request.payload
-  if (method === 'system.info') return send(request.id, {
-    deviceId,
-    deviceName: 'Mock Harness Host',
-    os: process.platform,
-    hostname: 'mock-host',
-    harnessVersion: 'dev-preview',
-    pluginVersion: '0.1.0',
-    online: true,
-    connectionMode: 'Relay',
-    capabilities: ['sessions.list', 'session.send', 'session.streaming', 'permission.allow-once', 'permission.deny'],
-  }, connectionId)
-  if (method === 'workspace.get') return send(request.id, { cwd: '~/Projects/foo', name: 'foo' }, connectionId)
-  if (method === 'sessions.list') return send(request.id, sessions, connectionId)
-  if (method === 'sessions.get') return send(request.id, { ...sessions[0], messages: [] }, connectionId)
-  if (method === 'sessions.create') {
-    const session = { id: `s${sessions.length + 1}`, title: 'New remote session', cwd: '~/Projects/foo', running: false, updatedAt: Date.now() }
-    sessions.push(session)
-    sendMessage(createMessage('event', { event: 'session.created', data: session }), connectionId)
-    return send(request.id, session, connectionId)
+  if (method === 'harness.api.call') return handleApiCall(request, params, connectionId)
+  if (method === 'harness.api.respond') return handleApiRespond(request, params, connectionId)
+  if (method === 'harness.api.stream.open') return handleStreamOpen(request, params, connectionId)
+  if (method === 'harness.api.stream.close') return handleStreamClose(request, params, connectionId)
+  sendMessage(createRpcError(request.id, 'METHOD_NOT_FOUND', `Unknown method ${method}`), connectionId)
+}
+
+async function handleApiCall(request: RemoteMessage<RpcRequestPayload>, params: unknown, connectionId: string): Promise<void> {
+  const call = asRecord(params)
+  if (typeof call.method !== 'string' || typeof call.rpcId !== 'string') {
+    throw new Error('Invalid harness.api.call payload')
   }
-  if (method === 'session.send') {
-    const { sessionId, text } = params as { sessionId: string; text: string }
-    send(request.id, { accepted: true }, connectionId)
-    sendMessage(createMessage('event', { event: 'message.created', data: { sessionId, role: 'user', text } }), connectionId)
-    for (const delta of ['我先检查相关上下文。', '这是 mock host 的 streaming 输出。']) {
-      await new Promise(resolve => setTimeout(resolve, 350))
-      sendMessage(createMessage('event', { event: 'message.delta', data: { sessionId, messageId: 'm-assistant', delta } }), connectionId)
+  const method = call.method
+  const payload = isRecord(call.payload) ? call.payload : {}
+  let value: unknown
+  switch (method) {
+    case 'session.list': {
+      value = { items: sessions }
+      break
     }
-    sendMessage(createMessage('event', {
-      event: 'permission.requested',
-      data: {
-        requestId: 'perm-1',
-        sessionId,
-        permission: { kind: 'command', command: 'npm test', cwd: '~/Projects/foo' },
-      },
-    }), connectionId)
+    case 'session.history': {
+      value = { events: [], hasMore: false }
+      break
+    }
+    case 'session.prompt': {
+      const text = promptText(payload)
+      value = { accepted: true }
+      await streamPrompt(connectionId, String(payload.sessionId), text, call.rpcId)
+      break
+    }
+    case 'session.cancel': {
+      value = { accepted: true }
+      break
+    }
+    case 'workspace.list': {
+      value = { items: [], archivedSessionIds: [] }
+      break
+    }
+    case 'host.describe': {
+      value = {
+        version: 'dev-preview',
+        cwd: '~/Projects/foo',
+        attachedSessions: sessions.filter(session => session.running).length,
+        canOpenPath: false,
+      }
+      break
+    }
+    default:
+      sendMessage(createRpcError(request.id, 'METHOD_NOT_ALLOWED', `Harness API method ${method} is not available in remote mode.`), connectionId)
+      return
+  }
+  sendMessage(createRpcResponse(request.id, {
+    rpcId: call.rpcId,
+    result: { ok: true, value },
+  }), connectionId)
+}
+
+async function handleApiRespond(request: RemoteMessage<RpcRequestPayload>, params: unknown, connectionId: string): Promise<void> {
+  const respond = asRecord(params)
+  const message = isRecord(respond.message) ? respond.message : {}
+  if (message.type !== 'client-response' || typeof message.rpcId !== 'string') {
+    throw new Error('Invalid harness.api.respond payload')
+  }
+  if (!respondable.has(message.rpcId)) {
+    sendMessage(createRpcError(request.id, 'PERMISSION_NOT_PENDING', 'The response id was not emitted on this connection.'), connectionId)
     return
   }
-  if (method === 'permissions.respond') return send(request.id, { accepted: true, requestId: (params as { requestId?: unknown }).requestId }, connectionId)
-  if (method === 'connection.ping') return send(request.id, { pong: true, now: Date.now() }, connectionId)
-  sendMessage(createRpcError(request.id, 'METHOD_NOT_FOUND', `Unknown method ${method}`), connectionId)
+  respondable.delete(message.rpcId)
+  const outcome = extractApprovalOutcome(message.result)
+  if (outcome !== undefined) {
+    for (const stream of [...streams.entries()]) {
+      publish(stream[0], {
+        type: 'approval/resolved',
+        sessionId: 's1',
+        approvalId: 'approval-1',
+        outcome,
+      })
+    }
+  }
+  sendMessage(createRpcResponse(request.id, { accepted: true }), connectionId)
+}
+
+function handleStreamOpen(request: RemoteMessage<RpcRequestPayload>, params: unknown, connectionId: string): void {
+  const open = asRecord(params)
+  if (typeof open.streamId !== 'string' || (open.stream !== 'mux' && open.stream !== 'host')) {
+    throw new Error('Invalid harness.api.stream.open payload')
+  }
+  if (streams.has(open.streamId)) throw new Error('The Harness event stream is already open.')
+  streams.set(open.streamId, { connectionId, stream: open.stream })
+  // Subscription baseline for the mux stream, mirroring the plugin bridge.
+  for (const session of sessions) {
+    publish(open.streamId, {
+      type: 'session/subscribed',
+      sessionId: session.sessionId,
+      lastSeq: 0,
+    })
+  }
+  sendMessage(createRpcResponse(request.id, { opened: true, streamId: open.streamId }), connectionId)
+}
+
+function handleStreamClose(request: RemoteMessage<RpcRequestPayload>, params: unknown, connectionId: string): void {
+  const close = asRecord(params)
+  if (typeof close.streamId !== 'string') throw new Error('Invalid harness.api.stream.close payload')
+  const active = streams.delete(close.streamId)
+  sendMessage(createRpcResponse(request.id, { closed: active, streamId: close.streamId }), connectionId)
+}
+
+async function streamPrompt(connectionId: string, sessionId: string, text: string, promptRpcId: string): Promise<void> {
+  const stream = [...streams.values()].find(item => item.connectionId === connectionId && item.stream === 'mux')
+  if (stream === undefined) return
+  const streamId = [...streams.entries()].find(([, value]) => value === stream)?.[0]
+  if (streamId === undefined) return
+  const userMessageId = `m-user-${Date.now()}`
+  const assistantMessageId = `m-assistant-${Date.now()}`
+  publish(streamId, {
+    type: 'session/event',
+    sessionId,
+    event: {
+      type: 'user/message',
+      seq: 1,
+      time: Date.now(),
+      data: {
+        message: {
+          id: userMessageId,
+          role: 'user',
+          content: [{ type: 'text', text }],
+          source: { kind: 'user', rpcId: promptRpcId },
+        },
+      },
+    },
+  })
+  const approvalRpcId = `approval-${Date.now()}`
+  respondable.set(approvalRpcId, 'approval')
+  publish(streamId, {
+    type: 'approval/requested',
+    sessionId,
+    approvalId: 'approval-1',
+    toolName: 'bash',
+    reason: 'Run a command outside the sandbox',
+  }, approvalRpcId)
+  await delay(300)
+  publish(streamId, {
+    type: 'session/event',
+    sessionId,
+    event: {
+      type: 'assistant/chunk',
+      seq: 2,
+      time: Date.now(),
+      data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '这是 mock host 的' } },
+    },
+  })
+  await delay(300)
+  publish(streamId, {
+    type: 'session/event',
+    sessionId,
+    event: {
+      type: 'assistant/chunk',
+      seq: 3,
+      time: Date.now(),
+      data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'streaming 输出。' } },
+    },
+  })
+  publish(streamId, {
+    type: 'session/event',
+    sessionId,
+    event: {
+      type: 'assistant/message',
+      seq: 4,
+      time: Date.now(),
+      data: {
+        turn: 1,
+        step: 1,
+        message: { id: assistantMessageId, role: 'assistant', content: [{ type: 'text', text: '这是 mock host 的 streaming 输出。' }] },
+      },
+    },
+  })
+}
+
+function publish(streamId: string, payload: Record<string, unknown>, rpcId = `push-${Date.now()}-${Math.random().toString(36).slice(2)}`): void {
+  const stream = streams.get(streamId)
+  if (stream === undefined) return
+  sendMessage(createMessage('event', {
+    event: 'harness.api.frame',
+    data: { streamId, frame: { rpcId, payload } },
+  }), stream.connectionId)
 }
 
 function send(requestId: string, result: unknown, connectionId: string): void {
@@ -277,8 +421,18 @@ async function registerDevice(): Promise<{ accessToken: string }> {
     role: 'host',
     platform: process.platform,
     identityKey: keyPair.publicKey,
-    clientVersion: '0.1.0',
+    clientVersion: '0.3.0',
     harnessVersion: 'dev-preview',
+  }
+  if (email !== undefined && password !== undefined) {
+    const login = await apiRequest<{ token: string }>('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }, false)
+    return apiRequest('/api/v1/devices/register', {
+      method: 'POST',
+      body: JSON.stringify({ v: PROTOCOL_VERSION, device }),
+    }, false, login.token)
   }
   return apiRequest('/api/v1/devices/register', {
     method: 'POST',
@@ -286,20 +440,13 @@ async function registerDevice(): Promise<{ accessToken: string }> {
   }, false)
 }
 
-async function createPairing(): Promise<void> {
-  const pairing = await apiRequest<{ code: string }>('/api/v1/pairings', {
-    method: 'POST',
-    body: JSON.stringify({ v: PROTOCOL_VERSION, hostDeviceId: deviceId }),
-  })
-  console.log(`[mock-host] pairing code: ${pairing.code}`)
-}
-
-async function apiRequest<TResult>(path: string, init: RequestInit, authenticated = true): Promise<TResult> {
+async function apiRequest<TResult>(path: string, init: RequestInit = {}, authenticated = true, accountToken?: string): Promise<TResult> {
   const response = await fetch(`${httpBaseUrl()}${path}`, {
     ...init,
     headers: {
       'content-type': 'application/json',
-      ...(authenticated ? { authorization: `Bearer ${accessToken}` } : {}),
+      ...(authenticated && accountToken === undefined ? { authorization: `Bearer ${accessToken}` } : {}),
+      ...(accountToken === undefined ? {} : { authorization: `Bearer ${accountToken}` }),
       ...init.headers,
     },
   })
@@ -320,16 +467,28 @@ function httpBaseUrl(): string {
   return url.toString().replace(/\/$/, '')
 }
 
-function normalizeFingerprint(value: string): string {
-  return value.replace(/[^A-Fa-f0-9]/g, '').toUpperCase()
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
 }
 
-function stringField(value: Record<string, unknown>, field: string): string {
-  const result = value[field]
-  if (typeof result !== 'string' || result.length === 0) throw new Error(`Missing ${field}`)
-  return result
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function promptText(payload: Record<string, unknown>): string {
+  const content = Array.isArray(payload.content) ? payload.content : []
+  return content.flatMap(block => isRecord(block) && block.type === 'text' && typeof block.text === 'string'
+    ? [block.text]
+    : []).join('\n')
+}
+
+function extractApprovalOutcome(result: unknown): string | undefined {
+  const value = isRecord(result) && result.ok === true ? isRecord(result.value) ? result.value : undefined : undefined
+  const outcome = value?.outcome
+  if (outcome === 'allowed-once' || outcome === 'rejected') return outcome
+  return undefined
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }

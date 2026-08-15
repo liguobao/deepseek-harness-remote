@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { RemoteServerApi } from '../src/services/api'
-import { ServerSessionManager } from '../src/services/server-session-manager'
+import { AccountRequiredError, ServerSessionManager } from '../src/services/server-session-manager'
 import type { DeviceCredentials, DeviceIdentity } from '../src/types'
 
 const identity: DeviceIdentity = {
@@ -11,18 +11,24 @@ const identity: DeviceIdentity = {
   privateKey: 'B'.repeat(43),
 }
 
+function storedCredentials(overrides: Partial<DeviceCredentials> = {}): DeviceCredentials {
+  return {
+    serverUrl: 'https://remote.example.com',
+    deviceId: identity.deviceId,
+    authorizationMethod: 'account',
+    account: 'user@example.com',
+    accessToken: 'expired-access-token',
+    accessTokenExpiresAt: Date.now() - 1,
+    refreshToken: 'current-refresh-token',
+    refreshTokenExpiresAt: Date.now() + 120_000,
+    ...overrides,
+  }
+}
+
 describe('Server credential session', () => {
   it('single-flights refresh token rotation and atomically saves the replacement', async () => {
-    const oldCredentials: DeviceCredentials = {
-      deviceId: identity.deviceId,
-      serverUrl: 'https://remote.example.com',
-      accessToken: 'expired-access-token',
-      accessTokenExpiresAt: Date.now() - 1,
-      refreshToken: 'current-refresh-token',
-      refreshTokenExpiresAt: Date.now() + 120_000,
-    }
     const save = vi.fn(async (_credentials: DeviceCredentials) => {})
-    const persistence = { load: vi.fn(async () => oldCredentials), save }
+    const persistence = { load: vi.fn(async () => storedCredentials()), save }
     const fetchImplementation = vi.fn<typeof fetch>(async input => {
       expect(String(input)).toContain('/api/v1/auth/refresh')
       await Promise.resolve()
@@ -49,17 +55,30 @@ describe('Server credential session', () => {
     expect(second.credentials).toEqual(first.credentials)
   })
 
-  it('idempotently re-registers when the refresh credential has expired', async () => {
-    const expired: DeviceCredentials = {
-      deviceId: identity.deviceId,
-      serverUrl: 'https://remote.example.com',
-      accessToken: 'expired-access-token',
-      accessTokenExpiresAt: Date.now() - 1,
-      refreshToken: 'expired-refresh-token',
-      refreshTokenExpiresAt: Date.now() - 1,
-    }
+  it('requires a fresh account login when the refresh credential has expired', async () => {
+    const expired = storedCredentials({ refreshTokenExpiresAt: Date.now() - 1 })
+    const manager = new ServerSessionManager(
+      { load: async () => expired, save: async () => {} },
+      (baseUrl, accessToken) => new RemoteServerApi(baseUrl, accessToken),
+    )
+    await expect(manager.authenticate('https://remote.example.com', identity))
+      .rejects.toBeInstanceOf(AccountRequiredError)
+  })
+
+  it('logs in with the account and registers the client device, storing only device tokens', async () => {
+    const save = vi.fn(async (_credentials: DeviceCredentials) => {})
     const fetchImplementation = vi.fn<typeof fetch>(async input => {
-      expect(String(input)).toContain('/api/v1/devices/register')
+      const url = String(input)
+      if (url.endsWith('/api/v1/auth/login')) {
+        return jsonResponse({
+          token: 'account-jwt-token-123456',
+          expiresAt: Date.now() + 60_000,
+          account: 'user@example.com',
+          profile: {},
+          isAdmin: false,
+        })
+      }
+      expect(url).toContain('/api/v1/devices/register')
       return jsonResponse({
         accessToken: 'registered-access-token',
         accessTokenExpiresAt: Date.now() + 60_000,
@@ -68,14 +87,29 @@ describe('Server credential session', () => {
       })
     })
     const manager = new ServerSessionManager(
-      { load: async () => expired, save: async () => {} },
+      { load: async () => undefined, save },
       (baseUrl, accessToken) => new RemoteServerApi(baseUrl, accessToken, fetchImplementation),
     )
-    const result = await manager.authenticate('https://remote.example.com', identity)
-    expect(result.credentials.accessToken).toBe('registered-access-token')
+    const result = await manager.authenticateWithAccount(
+      'https://remote.example.com',
+      identity,
+      'user@example.com',
+      'secret',
+    )
+    expect(result.credentials).toMatchObject({
+      serverUrl: 'https://remote.example.com',
+      deviceId: identity.deviceId,
+      authorizationMethod: 'account',
+      account: 'user@example.com',
+      accessToken: 'registered-access-token',
+    })
+    expect(save).toHaveBeenCalledTimes(1)
+    const saved = save.mock.calls[0]?.[0] as DeviceCredentials
+    expect(saved.account).toBe('user@example.com')
+    expect(saved).not.toHaveProperty('accountToken')
   })
 })
 
-function jsonResponse(body: unknown): Response {
-  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
