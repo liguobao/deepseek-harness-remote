@@ -41,6 +41,9 @@ importers:
       react:
         specifier: '>=18.2.0 <19'
         version: 18.3.1
+      werift:
+        specifier: 0.24.4
+        version: 0.24.4
       zod:
         specifier: ^3.24.1
         version: 3.25.76
