@@ -15,6 +15,8 @@ import type { AuthenticatedPeerChannel } from './types.js'
 export interface HostRemoteStatus {
   configured: boolean
   online: boolean
+  reconnecting: boolean
+  lastActiveAt?: number
   error?: string
   account?: string
   accountRequired: boolean
@@ -85,10 +87,22 @@ export class HostPluginRuntime {
     return {
       configured: this.serverApi !== undefined,
       online: this.serverConnection?.isOnline() ?? false,
+      reconnecting: this.serverConnection?.isReconnecting() ?? false,
+      ...(this.serverConnection?.lastActivity() === undefined
+        ? {}
+        : { lastActiveAt: this.serverConnection.lastActivity() }),
       ...(error === undefined ? {} : { error }),
       ...(authorization?.account === undefined ? {} : { account: authorization.account }),
       accountRequired: error === 'ACCOUNT_AUTH_REQUIRED' || error === 'AUTH_INVALID' || error === 'TOKEN_EXPIRED',
     }
+  }
+
+  reconnectHost(): void {
+    if (this.closed) throw new Error('remote runtime is closed')
+    if (this.serverConnection === undefined) {
+      throw new ServerApiError('SERVER_NOT_CONFIGURED', 'Configure serverUrl before reconnecting.', false)
+    }
+    this.serverConnection.reconnect()
   }
 
   async authorizeHostWithAccount(email: string, password: string): Promise<DeviceAuthorization> {

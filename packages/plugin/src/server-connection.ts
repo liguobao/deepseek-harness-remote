@@ -70,6 +70,8 @@ export class HostServerConnection {
   private retryWake?: () => void
   private readonly tunnels = new Map<string, PendingTunnel>()
   private terminalError?: string
+  private lastActiveAt?: number
+  private reconnectRequested = false
   private resumeQueued = false
   private rtcFactory?: RtcPeerConnectionFactory
 
@@ -107,6 +109,7 @@ export class HostServerConnection {
 
   async stop(): Promise<void> {
     this.stopped = true
+    this.reconnectRequested = false
     this.retryWake?.()
     this.retryWake = undefined
     this.socket?.close(1000, 'plugin stopped')
@@ -117,6 +120,27 @@ export class HostServerConnection {
   isOnline(): boolean { return this.online }
 
   lastError(): string | undefined { return this.terminalError }
+
+  lastActivity(): number | undefined { return this.lastActiveAt }
+
+  isReconnecting(): boolean { return !this.online && !this.stopped && this.running !== undefined }
+
+  reconnect(): void {
+    this.terminalError = undefined
+    this.stopped = false
+    if (this.running === undefined) {
+      this.start()
+      return
+    }
+    this.reconnectRequested = true
+    this.retryWake?.()
+    this.socket?.close(4000, 'manual reconnect')
+    void this.running.finally(() => {
+      if (!this.reconnectRequested || this.stopped) return
+      this.reconnectRequested = false
+      this.start()
+    })
+  }
 
   private async run(): Promise<void> {
     let delayMs = this.config.reconnect.initialDelayMs
@@ -131,7 +155,18 @@ export class HostServerConnection {
         if (TERMINAL_AUTH_ERRORS.has(code) || !this.config.reconnect.enabled) return
       }
       if (this.stopped) return
+      if (this.reconnectRequested) {
+        this.reconnectRequested = false
+        delayMs = this.config.reconnect.initialDelayMs
+        continue
+      }
+      if (!this.config.reconnect.enabled) return
       await this.waitBeforeRetry(delayMs)
+      if (this.reconnectRequested) {
+        this.reconnectRequested = false
+        delayMs = this.config.reconnect.initialDelayMs
+        continue
+      }
       delayMs = Math.min(this.config.reconnect.maxDelayMs, delayMs * 2)
     }
   }
@@ -169,6 +204,7 @@ export class HostServerConnection {
       socket.onmessage = event => {
         messageQueue = messageQueue.then(async () => {
           const frame = decodeControl(event.data)
+          this.lastActiveAt = Date.now()
           if (frame.type === 'hello.ack') {
             const payload = requireHelloAck(frame.payload)
             acknowledged = true
@@ -203,6 +239,7 @@ export class HostServerConnection {
             try { await this.api.refreshCredentials() } catch (error) { finish(asError(error)); return }
           }
           if (event.code === 4004) { finish(new ControlConnectionError('DEVICE_REVOKED', 'The Server revoked this Host device.')); return }
+          if (acknowledged) this.terminalError = closeCode(event.code)
           finish(acknowledged ? undefined : new ControlConnectionError(closeCode(event.code), event.reason || 'Server control connection closed.'))
         }
         void close()

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { HostConnectionHandle } from '../src/client-runtime.js'
+import type { HostAuthorizationControl, HostConnectionHandle } from '../src/client-runtime.js'
 import { resolveConfig, type Config } from '../src/config.js'
 import { PluginControlRuntime } from '../src/control-runtime.js'
 import { serverStorageDirectory } from '../src/identity-store.js'
@@ -17,6 +17,38 @@ afterEach(async () => {
 })
 
 describe('PluginControlRuntime settings setup', () => {
+  it('exposes Host activity and starts a manual reconnect through loopback control', async () => {
+    const reconnectHost = vi.fn()
+    const host = {
+      hostStatus: vi.fn(() => ({
+        configured: true,
+        online: false,
+        reconnecting: true,
+        lastActiveAt: 1_723_456_789_000,
+        error: 'CONNECTION_FAILED',
+        accountRequired: false,
+      })),
+      reconnectHost,
+      authorizeHostWithAccount: vi.fn(),
+      authorizeHostWithCode: vi.fn(),
+    } satisfies HostAuthorizationControl
+    const handler = register(new PluginControlRuntime(
+      resolveConfig({ serverUrl: 'https://dsh.r2049.cn' }), '/unused', undefined, undefined, host,
+    ))
+
+    await expect(handler('host.reconnect', {}, signal())).resolves.toMatchObject({
+      ok: true,
+      value: {
+        host: {
+          reconnecting: true,
+          lastActiveAt: 1_723_456_789_000,
+          error: 'CONNECTION_FAILED',
+        },
+      },
+    })
+    expect(reconnectHost).toHaveBeenCalledOnce()
+  })
+
   it('authorizes a Host before saving its Server and role without persisting the password', async () => {
     const directory = await temporaryDirectory()
     const settings = settingsScope({ serverUrl: 'https://old.example.com', role: 'client' })

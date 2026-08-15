@@ -37,10 +37,13 @@ export interface HostAuthorizationControl {
   hostStatus(): {
     configured: boolean
     online: boolean
+    reconnecting: boolean
+    lastActiveAt?: number
     error?: string
     account?: string
     accountRequired: boolean
   }
+  reconnectHost(): void
   authorizeHostWithAccount(email: string, password: string): Promise<unknown>
   authorizeHostWithCode(code: string): Promise<unknown>
 }

@@ -54,6 +54,23 @@
     thisMachineHost: "This machine as Remote Host",
     connected: "Connected",
     connectedAs: "Connected as {account}",
+    connection: "Connection",
+    checkingConnection: "Checking connection\u2026",
+    connecting: "Connecting",
+    reconnecting: "Reconnecting",
+    lastActive: "Last active: {time}",
+    neverConnected: "No successful connection yet.",
+    reconnect: "Reconnect",
+    reconnectingAction: "Reconnecting\u2026",
+    reconnectStarted: "Reconnect requested.",
+    connectionAuthorizationExpired: "Authorization expired. Sign out and authorize this Host again.",
+    connectionDeviceRevoked: "This Host was revoked on the Server. Sign out and authorize it again.",
+    connectionOwnershipRequired: "The Server no longer recognizes this Host as an owned device.",
+    connectionRateLimited: "The Server is receiving too many requests. Automatic retry will continue.",
+    connectionVersionMismatch: "The Plugin and Server protocol versions are incompatible.",
+    connectionInvalidResponse: "The Server returned an invalid control message.",
+    connectionReachability: "Cannot reach the Server. Check the network and Server address.",
+    connectionUnexpected: "The connection stopped unexpectedly. Automatic retry will continue.",
     hostSignInHint: "Sign in to authorize this Host on the selected Server.",
     checkingHost: "Checking Host registration\u2026",
     hostUnavailable: "Host unavailable: {error}",
@@ -116,6 +133,23 @@
     thisMachineHost: "\u5C06\u6B64\u8BBE\u5907\u4F5C\u4E3A\u8FDC\u7A0B Host",
     connected: "\u5DF2\u8FDE\u63A5",
     connectedAs: "\u5DF2\u4F7F\u7528 {account} \u8FDE\u63A5",
+    connection: "\u8FDE\u63A5\u72B6\u6001",
+    checkingConnection: "\u6B63\u5728\u68C0\u67E5\u8FDE\u63A5\u2026",
+    connecting: "\u6B63\u5728\u8FDE\u63A5",
+    reconnecting: "\u6B63\u5728\u91CD\u8FDE",
+    lastActive: "\u6700\u540E\u6D3B\u8DC3\uFF1A{time}",
+    neverConnected: "\u5C1A\u672A\u6210\u529F\u8FDE\u63A5\u8FC7\u3002",
+    reconnect: "\u624B\u52A8\u91CD\u8FDE",
+    reconnectingAction: "\u6B63\u5728\u91CD\u8FDE\u2026",
+    reconnectStarted: "\u5DF2\u53D1\u8D77\u91CD\u8FDE\u3002",
+    connectionAuthorizationExpired: "\u6388\u6743\u5DF2\u5931\u6548\uFF0C\u8BF7\u9000\u51FA\u6388\u6743\u540E\u91CD\u65B0\u8FDE\u63A5\u6B64 Host\u3002",
+    connectionDeviceRevoked: "\u6B64 Host \u5DF2\u5728 Server \u4E0A\u88AB\u64A4\u9500\uFF0C\u8BF7\u9000\u51FA\u6388\u6743\u540E\u91CD\u65B0\u8FDE\u63A5\u3002",
+    connectionOwnershipRequired: "Server \u5DF2\u4E0D\u518D\u5C06\u6B64 Host \u8BC6\u522B\u4E3A\u5F53\u524D\u8D26\u53F7\u7684\u8BBE\u5907\u3002",
+    connectionRateLimited: "Server \u8BF7\u6C42\u8FC7\u591A\uFF0C\u63D2\u4EF6\u5C06\u7EE7\u7EED\u81EA\u52A8\u91CD\u8BD5\u3002",
+    connectionVersionMismatch: "Plugin \u4E0E Server \u7684\u534F\u8BAE\u7248\u672C\u4E0D\u517C\u5BB9\u3002",
+    connectionInvalidResponse: "Server \u8FD4\u56DE\u4E86\u65E0\u6548\u7684\u63A7\u5236\u6D88\u606F\u3002",
+    connectionReachability: "\u65E0\u6CD5\u8FDE\u63A5 Server\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u548C Server \u5730\u5740\u3002",
+    connectionUnexpected: "\u8FDE\u63A5\u610F\u5916\u4E2D\u65AD\uFF0C\u63D2\u4EF6\u5C06\u7EE7\u7EED\u81EA\u52A8\u91CD\u8BD5\u3002",
     hostSignInHint: "\u767B\u5F55\u540E\u5728\u6240\u9009 Server \u4E0A\u6388\u6743\u6B64 Host\u3002",
     checkingHost: "\u6B63\u5728\u68C0\u67E5 Host \u6CE8\u518C\u72B6\u6001\u2026",
     hostUnavailable: "Host \u4E0D\u53EF\u7528\uFF1A{error}",
@@ -126,20 +160,48 @@
     useRegistrationCode: "\u4F7F\u7528\u8FDE\u63A5\u7801",
     registering: "\u6B63\u5728\u6CE8\u518C\u2026"
   };
+  function formatLocalTime(value) {
+    let date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "\u2014" : date.toLocaleString();
+  }
+  function connectionErrorMessage(code, t) {
+    return t(code === "ACCOUNT_AUTH_REQUIRED" || code === "AUTH_INVALID" || code === "TOKEN_EXPIRED" ? "connectionAuthorizationExpired" : code === "DEVICE_REVOKED" ? "connectionDeviceRevoked" : code === "DEVICE_OWNERSHIP_REQUIRED" ? "connectionOwnershipRequired" : code === "RATE_LIMITED" ? "connectionRateLimited" : code === "UNSUPPORTED_VERSION" ? "connectionVersionMismatch" : code === "INVALID_MESSAGE" ? "connectionInvalidResponse" : code === "CONNECTION_FAILED" || code === "SERVER_NOT_CONFIGURED" ? "connectionReachability" : "connectionUnexpected");
+  }
+  function connectionStatusLabel(status, t) {
+    return status === void 0 ? t("checkingConnection") : status.online ? t("online") : status.reconnecting ? t(status.lastActiveAt === void 0 && status.error === void 0 ? "connecting" : "reconnecting") : t("offline");
+  }
+  function connectionStatusClass(status) {
+    return status?.online ? " isOnline" : status?.reconnecting ? " isReconnecting" : status === void 0 ? "" : " isOffline";
+  }
   window.__ModuleLoader__.load({
     id: clientModuleId,
     factory: (require2) => {
       let module = { exports: {} }, React = require2("react"), inject = ["connection", "slots", "locale"];
       function RemotePluginOptions(props) {
-        let { t } = props, [open, setOpen] = React.useState(!1), [serverUrl, setServerUrl] = React.useState(""), role = "host", [hostEnrollment, setHostEnrollment] = React.useState("account"), [registrationCode, setRegistrationCode] = React.useState(""), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [associations, setAssociations] = React.useState({}), [loaded, setLoaded] = React.useState(!1), [writable, setWritable] = React.useState(!1), [busy, setBusy] = React.useState(!1), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0), [settingsView, setSettingsView] = React.useState(void 0), persistedServerUrl = settingsView?.config.serverUrl ?? "https://dsh.r2049.cn", association = associations.host, draftDirty = settingsView !== void 0 && serverUrl !== persistedServerUrl || (email !== "" || password !== "" || registrationCode !== ""), applyView = (view) => {
+        let { t } = props, [open, setOpen] = React.useState(!1), [serverUrl, setServerUrl] = React.useState(""), role = "host", [hostEnrollment, setHostEnrollment] = React.useState("account"), [registrationCode, setRegistrationCode] = React.useState(""), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [associations, setAssociations] = React.useState({}), [loaded, setLoaded] = React.useState(!1), [writable, setWritable] = React.useState(!1), [busy, setBusy] = React.useState(!1), [reconnectBusy, setReconnectBusy] = React.useState(!1), [hostStatus, setHostStatus] = React.useState(void 0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0), [settingsView, setSettingsView] = React.useState(void 0), persistedServerUrl = settingsView?.config.serverUrl ?? "https://dsh.r2049.cn", association = associations.host, draftDirty = settingsView !== void 0 && serverUrl !== persistedServerUrl || (email !== "" || password !== "" || registrationCode !== ""), applyView = (view) => {
           setSettingsView(view), setServerUrl(view.config.serverUrl ?? "https://dsh.r2049.cn"), setAssociations(view.associations ?? (view.association === void 0 ? {} : { host: view.association })), setWritable(view.writable), setLoaded(!0);
         }, load = async () => {
-          let view = await props.control("settings.get");
-          applyView(view);
+          let [view, status] = await Promise.all([
+            props.control("settings.get"),
+            props.control("status").catch(() => {
+            })
+          ]);
+          applyView(view), setHostStatus(status?.host);
+        }, refreshHostStatus = async () => {
+          setHostStatus((await props.control("status")).host);
         };
         React.useEffect(() => {
           load().catch((reason) => setError(messageOf(reason)));
-        }, []);
+        }, []), React.useEffect(() => {
+          if (association === void 0) return;
+          refreshHostStatus().catch(() => {
+          });
+          let timer = window.setInterval(() => {
+            refreshHostStatus().catch(() => {
+            });
+          }, 3e4);
+          return () => window.clearInterval(timer);
+        }, [association !== void 0]);
         let save = async (event) => {
           if (event?.preventDefault(), !!writable) {
             setBusy(!0), setNotice(void 0), setError(void 0);
@@ -170,6 +232,16 @@
           } finally {
             setBusy(!1);
           }
+        }, reconnectHost = async () => {
+          setReconnectBusy(!0), setError(void 0), setNotice(void 0);
+          try {
+            let status = await props.control("host.reconnect");
+            setHostStatus(status.host), setNotice({ key: "reconnectStarted" });
+          } catch (reason) {
+            setError(messageOf(reason));
+          } finally {
+            setReconnectBusy(!1);
+          }
         }, discard = () => {
           settingsView !== void 0 && applyView(settingsView), setRegistrationCode(""), setEmail(""), setPassword(""), setNotice(void 0), setError(void 0);
         };
@@ -194,7 +266,9 @@
                 React.createElement("strong", null, t("pluginTitle")),
                 React.createElement("span", null, t("pluginDescription"))
               ),
-              draftDirty ? React.createElement("span", { className: "dshRemotePluginCardStatus" }, t("unsaved")) : association === void 0 ? null : React.createElement("span", { className: "dshRemotePluginCardStatus" }, t("associated")),
+              draftDirty ? React.createElement("span", { className: "dshRemotePluginCardStatus" }, t("unsaved")) : association === void 0 ? null : React.createElement("span", {
+                className: `dshRemotePluginCardStatus${connectionStatusClass(hostStatus)}`
+              }, hostStatus === void 0 ? t("associated") : connectionStatusLabel(hostStatus, t)),
               React.createElement("span", { className: "dshRemotePluginCardChevron", "aria-hidden": !0 }, "\u2304")
             )
           ),
@@ -215,6 +289,32 @@
                   React.createElement("p", null, association.account === void 0 ? serverUrl : t("authorizedOn", { role: t(role), serverUrl }))
                 )
               ),
+              React.createElement(
+                "div",
+                { className: "dshRemoteConnection", "aria-live": "polite" },
+                React.createElement(
+                  "div",
+                  { className: "dshRemoteConnectionSummary" },
+                  React.createElement("span", null, t("connection")),
+                  React.createElement(
+                    "strong",
+                    null,
+                    React.createElement("span", {
+                      className: `dshRemoteConnectionDot${connectionStatusClass(hostStatus)}`,
+                      "aria-hidden": !0
+                    }),
+                    connectionStatusLabel(hostStatus, t)
+                  ),
+                  React.createElement("p", null, hostStatus === void 0 ? t("checkingConnection") : hostStatus.lastActiveAt === void 0 ? t("neverConnected") : t("lastActive", { time: formatLocalTime(hostStatus.lastActiveAt) }))
+                ),
+                React.createElement("button", {
+                  type: "button",
+                  className: "dshRemoteReconnect",
+                  disabled: reconnectBusy || hostStatus?.configured === !1,
+                  onClick: () => void reconnectHost()
+                }, t(reconnectBusy ? "reconnectingAction" : "reconnect"))
+              ),
+              hostStatus?.error === void 0 || hostStatus.online ? null : React.createElement("p", { className: "dshRemoteConnectionIssue", role: "status" }, connectionErrorMessage(hostStatus.error, t)),
               writable ? null : React.createElement("p", { className: "dshRemoteError" }, t("readOnly")),
               React.createElement(
                 "div",
@@ -459,7 +559,7 @@
                 "div",
                 { className: "dshRemoteHostAccount" },
                 React.createElement("strong", null, t("thisMachineHost")),
-                React.createElement("p", null, status.host.online ? status.host.account === void 0 ? t("connected") : t("connectedAs", { account: status.host.account }) : status.host.accountRequired ? t("hostSignInHint") : status.host.error === void 0 ? t("checkingHost") : t("hostUnavailable", { error: status.host.error })),
+                React.createElement("p", null, status.host.online ? status.host.account === void 0 ? t("connected") : t("connectedAs", { account: status.host.account }) : status.host.accountRequired ? t("hostSignInHint") : status.host.error === void 0 ? t("checkingHost") : t("hostUnavailable", { error: connectionErrorMessage(status.host.error, t) })),
                 status.host.accountRequired ? React.createElement(
                   "div",
                   { className: "dshRemoteLogin" },
@@ -523,13 +623,14 @@
           ".dshRemotePluginCard{list-style:none;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:12px;transition:border-color .16s,background .16s}",
           ".dshRemotePluginCard:hover{border-color:var(--dsw-alias-label-dimmed)}.dshRemotePluginCard.isOpen{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-label-dimmed)}",
           ".dshRemotePluginCardHeader{display:flex;align-items:center}.dshRemotePluginCardToggle{appearance:none;width:100%;min-width:0;font:inherit;color:inherit;text-align:left;cursor:pointer;background:transparent;border:0;border-radius:12px;display:flex;align-items:center;gap:12px;padding:14px 16px}.dshRemotePluginCardToggle:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}",
-          ".dshRemotePluginCardHeading{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}.dshRemotePluginCardHeading>strong{color:var(--dsw-alias-label-primary);font-size:15px;font-weight:600;line-height:1.4}.dshRemotePluginCardHeading>span{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1.5}.dshRemotePluginCardStatus{white-space:nowrap;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-secondary);border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;line-height:17px}.dshRemotePluginCardChevron{color:var(--dsw-alias-label-tertiary);font-size:18px;line-height:14px;transition:transform .16s}.dshRemotePluginCard.isOpen .dshRemotePluginCardChevron{transform:rotate(180deg)}",
+          ".dshRemotePluginCardHeading{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}.dshRemotePluginCardHeading>strong{color:var(--dsw-alias-label-primary);font-size:15px;font-weight:600;line-height:1.4}.dshRemotePluginCardHeading>span{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1.5}.dshRemotePluginCardStatus{white-space:nowrap;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-secondary);border-radius:999px;padding:1px 8px;font-size:11px;font-weight:500;line-height:17px}.dshRemotePluginCardStatus.isOnline{color:var(--dsw-alias-state-success,#287a3d)}.dshRemotePluginCardStatus.isReconnecting{color:var(--dsw-alias-state-warning,#8a5a00)}.dshRemotePluginCardStatus.isOffline{color:var(--dsw-alias-state-danger,#b42318)}.dshRemotePluginCardChevron{color:var(--dsw-alias-label-tertiary);font-size:18px;line-height:14px;transition:transform .16s}.dshRemotePluginCard.isOpen .dshRemotePluginCardChevron{transform:rotate(180deg)}",
           ".dshRemotePluginCardBody{border-top:1px solid var(--dsw-alias-border-l2);margin:0 16px;padding-bottom:8px}.dshRemoteSettings{display:flex;flex-direction:column;max-width:720px}.dshRemoteSettingsTop{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:12px 0}.dshRemoteSettingsState{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1.5}",
           ".dshRemoteAuthPanel{display:flex;flex-direction:column}.dshRemoteField,.dshRemoteAuthMethod{display:flex;flex-direction:column;gap:6px;padding:12px 0}.dshRemoteField+.dshRemoteField,.dshRemoteField+.dshRemoteAuthMethod,.dshRemoteAuthMethod+.dshRemoteField,.dshRemoteAuthMethod+.dshRemoteAuthPanel>.dshRemoteField:first-child{border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteField label,.dshRemoteFieldLabel{color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}.dshRemoteField input{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);height:34px;font:inherit;color:var(--dsw-alias-label-primary);border-radius:8px;padding:0 12px;font-size:13px;line-height:1.5}.dshRemoteField input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}.dshRemoteField input:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}.dshRemoteField p{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}",
           ".dshRemoteAuthTabs{align-self:flex-start;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:8px;display:flex;padding:2px}.dshRemoteAuthTabs button{appearance:none;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;line-height:28px;padding:0 12px;cursor:pointer}.dshRemoteAuthTabs button:hover:not(:disabled){color:var(--dsw-alias-label-primary)}.dshRemoteAuthTabs button.isActive{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);font-weight:500}.dshRemoteAuthTabs button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:0}.dshRemoteAuthTabs button:disabled{cursor:default;opacity:.45}",
           ".dshRemoteAssociation{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}.dshRemoteAssociation>span{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}.dshRemoteAssociation strong{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:1.5}.dshRemoteAssociation p{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}",
+          ".dshRemoteConnection{border-top:1px solid var(--dsw-alias-border-l2);display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0}.dshRemoteConnectionSummary{min-width:0;display:flex;flex-direction:column;gap:4px}.dshRemoteConnectionSummary>span{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}.dshRemoteConnectionSummary strong{display:flex;align-items:center;gap:7px;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:1.5}.dshRemoteConnectionSummary p,.dshRemoteConnectionIssue{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}.dshRemoteConnectionDot{width:8px;height:8px;flex:0 0 auto;border-radius:999px;background:var(--dsw-alias-label-tertiary)}.dshRemoteConnectionDot.isOnline{background:var(--dsw-alias-state-success,#287a3d)}.dshRemoteConnectionDot.isReconnecting{background:var(--dsw-alias-state-warning,#8a5a00)}.dshRemoteConnectionDot.isOffline{background:var(--dsw-alias-state-danger,#b42318)}.dshRemoteConnectionIssue{color:var(--dsw-alias-state-danger,#b42318);padding:0 0 12px}.dshRemoteReconnect{appearance:none;flex:0 0 auto;font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);min-height:34px;padding:5px 14px;font-size:13px;line-height:1.5}.dshRemoteReconnect:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteReconnect:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}.dshRemoteReconnect:disabled{opacity:.4;cursor:default}",
           ".dshRemoteSettingsFooter{border-top:1px solid var(--dsw-alias-border-l2);display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 0 4px}.dshRemoteSettingsFooter .dshRemoteError,.dshRemoteNotice{min-width:0;flex:1;margin:0;font-size:12px;line-height:1.5}.dshRemoteNotice{color:var(--dsw-alias-label-tertiary)}.dshRemoteDiscard,.dshRemoteSave{appearance:none;font:inherit;cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}.dshRemoteDiscard{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);background:transparent}.dshRemoteDiscard:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}.dshRemoteSave{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3)}.dshRemoteDiscard:disabled,.dshRemoteSave:disabled{opacity:.4;cursor:default}.dshRemoteDiscard:focus-visible,.dshRemoteSave:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}",
-          "@media(max-width:620px){.dshRemotePluginCardStatus{display:none}.dshRemoteSettingsTop{gap:10px}.dshRemoteAuthTabs{align-self:stretch}.dshRemoteAuthTabs button{flex:1;padding:0 8px}}"
+          "@media(max-width:620px){.dshRemotePluginCardStatus{display:none}.dshRemoteSettingsTop{gap:10px}.dshRemoteConnection{align-items:flex-start}.dshRemoteReconnect{min-height:40px}.dshRemoteAuthTabs{align-self:stretch}.dshRemoteAuthTabs button{flex:1;padding:0 8px}}"
         ].join(""), document.head.append(style), () => style.remove();
       }
       function apply(ctx) {

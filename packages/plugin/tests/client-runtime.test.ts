@@ -24,9 +24,11 @@ describe('ClientModeRuntime Host account control', () => {
       hostStatus: vi.fn(() => ({
         configured: true,
         online: false,
+        reconnecting: false,
         error: 'ACCOUNT_AUTH_REQUIRED',
         accountRequired: true,
       })),
+      reconnectHost: vi.fn(),
       authorizeHostWithAccount: vi.fn(async (email: string) => ({ account: email, expiresAt: Date.now() + 60_000, isAdmin: false })),
       authorizeHostWithCode: vi.fn(async () => ({ method: 'host_registration_code' })),
     } satisfies HostAuthorizationControl

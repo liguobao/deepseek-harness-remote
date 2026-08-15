@@ -49,6 +49,11 @@ export class PluginControlRuntime {
       if (endpoint === 'settings.configure') return ok(await this.configure(payload))
       if (endpoint === 'settings.role.set') return ok(await this.setRole(payload))
       if (endpoint === 'settings.logout') return ok(await this.logout())
+      if (endpoint === 'host.reconnect') {
+        if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
+        this.host.reconnectHost()
+        return ok(this.hostOnlyStatus())
+      }
       if (this.client !== undefined) return this.client.handleControl(endpoint, payload, signal)
 
       if (endpoint === 'status') return ok(this.hostOnlyStatus())

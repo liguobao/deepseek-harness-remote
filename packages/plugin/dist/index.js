@@ -13658,6 +13658,11 @@ var PluginControlRuntime = class {
       if (endpoint === "settings.configure") return ok2(await this.configure(payload));
       if (endpoint === "settings.role.set") return ok2(await this.setRole(payload));
       if (endpoint === "settings.logout") return ok2(await this.logout());
+      if (endpoint === "host.reconnect") {
+        if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
+        this.host.reconnectHost();
+        return ok2(this.hostOnlyStatus());
+      }
       if (this.client !== void 0) return this.client.handleControl(endpoint, payload, signal);
       if (endpoint === "status") return ok2(this.hostOnlyStatus());
       if (endpoint === "devices") return ok2([]);
@@ -14044,6 +14049,8 @@ var HostServerConnection = class {
   retryWake;
   tunnels = /* @__PURE__ */ new Map();
   terminalError;
+  lastActiveAt;
+  reconnectRequested = false;
   resumeQueued = false;
   rtcFactory;
   start() {
@@ -14069,6 +14076,7 @@ var HostServerConnection = class {
   }
   async stop() {
     this.stopped = true;
+    this.reconnectRequested = false;
     this.retryWake?.();
     this.retryWake = void 0;
     this.socket?.close(1e3, "plugin stopped");
@@ -14080,6 +14088,28 @@ var HostServerConnection = class {
   }
   lastError() {
     return this.terminalError;
+  }
+  lastActivity() {
+    return this.lastActiveAt;
+  }
+  isReconnecting() {
+    return !this.online && !this.stopped && this.running !== void 0;
+  }
+  reconnect() {
+    this.terminalError = void 0;
+    this.stopped = false;
+    if (this.running === void 0) {
+      this.start();
+      return;
+    }
+    this.reconnectRequested = true;
+    this.retryWake?.();
+    this.socket?.close(4e3, "manual reconnect");
+    void this.running.finally(() => {
+      if (!this.reconnectRequested || this.stopped) return;
+      this.reconnectRequested = false;
+      this.start();
+    });
   }
   async run() {
     let delayMs = this.config.reconnect.initialDelayMs;
@@ -14094,7 +14124,18 @@ var HostServerConnection = class {
         if (TERMINAL_AUTH_ERRORS.has(code) || !this.config.reconnect.enabled) return;
       }
       if (this.stopped) return;
+      if (this.reconnectRequested) {
+        this.reconnectRequested = false;
+        delayMs = this.config.reconnect.initialDelayMs;
+        continue;
+      }
+      if (!this.config.reconnect.enabled) return;
       await this.waitBeforeRetry(delayMs);
+      if (this.reconnectRequested) {
+        this.reconnectRequested = false;
+        delayMs = this.config.reconnect.initialDelayMs;
+        continue;
+      }
       delayMs = Math.min(this.config.reconnect.maxDelayMs, delayMs * 2);
     }
   }
@@ -14129,6 +14170,7 @@ var HostServerConnection = class {
       socket.onmessage = (event) => {
         messageQueue = messageQueue.then(async () => {
           const frame = decodeControl(event.data);
+          this.lastActiveAt = Date.now();
           if (frame.type === "hello.ack") {
             const payload = requireHelloAck(frame.payload);
             acknowledged = true;
@@ -14171,6 +14213,7 @@ var HostServerConnection = class {
             finish(new ControlConnectionError("DEVICE_REVOKED", "The Server revoked this Host device."));
             return;
           }
+          if (acknowledged) this.terminalError = closeCode(event.code);
           finish(acknowledged ? void 0 : new ControlConnectionError(closeCode(event.code), event.reason || "Server control connection closed."));
         };
         void close();
@@ -15019,10 +15062,19 @@ var HostPluginRuntime = class {
     return {
       configured: this.serverApi !== void 0,
       online: this.serverConnection?.isOnline() ?? false,
+      reconnecting: this.serverConnection?.isReconnecting() ?? false,
+      ...this.serverConnection?.lastActivity() === void 0 ? {} : { lastActiveAt: this.serverConnection.lastActivity() },
       ...error === void 0 ? {} : { error },
       ...authorization?.account === void 0 ? {} : { account: authorization.account },
       accountRequired: error === "ACCOUNT_AUTH_REQUIRED" || error === "AUTH_INVALID" || error === "TOKEN_EXPIRED"
     };
+  }
+  reconnectHost() {
+    if (this.closed) throw new Error("remote runtime is closed");
+    if (this.serverConnection === void 0) {
+      throw new ServerApiError("SERVER_NOT_CONFIGURED", "Configure serverUrl before reconnecting.", false);
+    }
+    this.serverConnection.reconnect();
   }
   async authorizeHostWithAccount(email, password) {
     if (this.serverApi === void 0) {

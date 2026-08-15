@@ -189,7 +189,59 @@ describe('HostServerConnection', () => {
     expect(server.lastError()).toBe('ACCOUNT_AUTH_REQUIRED')
     await server.stop()
   })
+
+  it('reconnects immediately on request and retains the last Server activity time', async () => {
+    const keys = generateKeyPair(new Uint8Array(32).fill(14))
+    const sockets = [new FakeWebSocket(), new FakeWebSocket()]
+    let socketIndex = 0
+    const createWebSocket = vi.fn(() => sockets[socketIndex++]!)
+    const api = {
+      baseUrl: 'https://dsh.r2049.cn',
+      authenticate: vi.fn(async () => ({ accessToken: 'access-token-value' })),
+    } as unknown as HostServerApi
+    const server = new HostServerConnection(
+      config(),
+      { schemaVersion: 1, deviceId: 'host-3', name: 'Host', fingerprint: 'HOST', ...keys },
+      { trustedPeer: vi.fn() } as unknown as IdentityStore,
+      api,
+      { close: vi.fn(async () => undefined) } as unknown as ConnectionController,
+      logger(),
+      createWebSocket,
+    )
+
+    server.start()
+    await flush()
+    sockets[0]!.open()
+    sockets[0]!.receive(createControlFrame('hello.ack', helloAck('control-1')))
+    await flush()
+    expect(server.isOnline()).toBe(true)
+    expect(server.lastActivity()).toEqual(expect.any(Number))
+
+    server.reconnect()
+    expect(sockets[0]!.readyState).toBe(3)
+    await flush()
+    expect(createWebSocket).toHaveBeenCalledTimes(2)
+    expect(server.isReconnecting()).toBe(true)
+
+    sockets[1]!.open()
+    sockets[1]!.receive(createControlFrame('hello.ack', helloAck('control-2')))
+    await flush()
+    expect(server.isOnline()).toBe(true)
+    expect(server.lastError()).toBeUndefined()
+    await server.stop()
+  })
 })
+
+function helloAck(connectionSessionId: string) {
+  return {
+    protocol: 1,
+    serverVersion: '0.1.0',
+    connectionSessionId,
+    heartbeatIntervalMs: 25_000,
+    maxControlFrameBytes: 65_536,
+    maxRelayFrameBytes: 1_048_576,
+  }
+}
 
 function config(): ResolvedConfig {
   return {
