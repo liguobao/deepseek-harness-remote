@@ -4565,17 +4565,12 @@ function adaptDataChannel(raw) {
 
 // ../webrtc/dist/rtc-data-channel.js
 var DEFAULT_NEGOTIATE_TIMEOUT_MS = 8e3;
-var DEFAULT_HIGH_WATERMARK_BYTES = 1048576;
-var DEFAULT_LOW_WATERMARK_BYTES = 256 * 1024;
-var DRAIN_POLL_INTERVAL_MS = 20;
 var RtcDataChannelTransport = class {
   pc;
   role;
   onSignal;
   negotiateTimeoutMs;
   channelLabel;
-  highWatermarkBytes;
-  lowWatermarkBytes;
   channel;
   remoteCandidates = [];
   remoteDescriptionSet = false;
@@ -4597,8 +4592,6 @@ var RtcDataChannelTransport = class {
     this.onSignal = options.onSignal;
     this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS;
     this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL;
-    this.highWatermarkBytes = Math.max(options.highWatermarkBytes ?? DEFAULT_HIGH_WATERMARK_BYTES, 64 * 1024);
-    this.lowWatermarkBytes = Math.max(Math.min(options.lowWatermarkBytes ?? DEFAULT_LOW_WATERMARK_BYTES, this.highWatermarkBytes), 16 * 1024);
     this.pc = options.factory.create({ iceServers: options.iceServers });
     this.pc.ondatachannel = (event) => this.adoptChannel(event.channel);
     this.pc.onicecandidate = (event) => {
@@ -4640,7 +4633,6 @@ var RtcDataChannelTransport = class {
   }
   async send(data) {
     const channel = this.requireOpenChannel();
-    await this.drain(channel);
     if (channel.readyState !== "open")
       throw new Error("WebRTC data channel is not open.");
     channel.send(toArrayBuffer(data));
@@ -4855,13 +4847,6 @@ var RtcDataChannelTransport = class {
     }
     return channel;
   }
-  async drain(channel) {
-    if (channel.bufferedAmount < this.highWatermarkBytes)
-      return;
-    while (channel.readyState === "open" && channel.bufferedAmount >= this.lowWatermarkBytes) {
-      await sleep(DRAIN_POLL_INTERVAL_MS);
-    }
-  }
 };
 var RtcConnectError = class extends Error {
   code;
@@ -4906,9 +4891,6 @@ function toArrayBuffer(data) {
 }
 function asError(error) {
   return error instanceof Error ? error : new RtcConnectError("RTC_FAILED", "WebRTC negotiation failed.");
-}
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ../webrtc/dist/adaptive-transport.js
@@ -5164,8 +5146,6 @@ var AdaptiveTransport = class extends BaseTransport {
       iceServers,
       onSignal: (signal) => this.sendRtcSignal(signal),
       negotiateTimeoutMs: this.serverNegotiateTimeoutMs ?? this.options.negotiateTimeoutMs,
-      highWatermarkBytes: this.options.highWatermarkBytes,
-      lowWatermarkBytes: this.options.lowWatermarkBytes,
       label: `client->${this.options.targetDeviceId}`
     });
     this.rtc = rtc;

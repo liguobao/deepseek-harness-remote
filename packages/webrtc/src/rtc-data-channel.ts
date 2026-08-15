@@ -26,16 +26,11 @@ export interface RtcDataChannelTransportOptions {
   onSignal: (signal: RtcSignal) => void
   negotiateTimeoutMs?: number
   channelLabel?: string
-  highWatermarkBytes?: number
-  lowWatermarkBytes?: number
   /** Human-readable diagnostic label; never logged with sensitive content. */
   label?: string
 }
 
 const DEFAULT_NEGOTIATE_TIMEOUT_MS = 8_000
-const DEFAULT_HIGH_WATERMARK_BYTES = 1_048_576
-const DEFAULT_LOW_WATERMARK_BYTES = 256 * 1024
-const DRAIN_POLL_INTERVAL_MS = 20
 
 /**
  * Complete WebRTC DataChannel transport state machine (webrtc plan §6.1).
@@ -52,8 +47,6 @@ export class RtcDataChannelTransport {
   private readonly onSignal: (signal: RtcSignal) => void
   private readonly negotiateTimeoutMs: number
   private readonly channelLabel: string
-  private readonly highWatermarkBytes: number
-  private readonly lowWatermarkBytes: number
 
   private channel?: RtcDataChannel
   private readonly remoteCandidates: RtcIceCandidateInit[] = []
@@ -80,8 +73,6 @@ export class RtcDataChannelTransport {
     this.onSignal = options.onSignal
     this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS
     this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL
-    this.highWatermarkBytes = Math.max(options.highWatermarkBytes ?? DEFAULT_HIGH_WATERMARK_BYTES, 64 * 1024)
-    this.lowWatermarkBytes = Math.max(Math.min(options.lowWatermarkBytes ?? DEFAULT_LOW_WATERMARK_BYTES, this.highWatermarkBytes), 16 * 1024)
 
     this.pc = options.factory.create({ iceServers: options.iceServers })
     this.pc.ondatachannel = event => this.adoptChannel(event.channel)
@@ -121,7 +112,6 @@ export class RtcDataChannelTransport {
 
   async send(data: Uint8Array): Promise<void> {
     const channel = this.requireOpenChannel()
-    await this.drain(channel)
     if (channel.readyState !== 'open') throw new Error('WebRTC data channel is not open.')
     channel.send(toArrayBuffer(data))
     this.bytesSent += data.byteLength
@@ -331,13 +321,6 @@ export class RtcDataChannelTransport {
     }
     return channel
   }
-
-  private async drain(channel: RtcDataChannel): Promise<void> {
-    if (channel.bufferedAmount < this.highWatermarkBytes) return
-    while (channel.readyState === 'open' && channel.bufferedAmount >= this.lowWatermarkBytes) {
-      await sleep(DRAIN_POLL_INTERVAL_MS)
-    }
-  }
 }
 
 export class RtcConnectError extends Error {
@@ -381,8 +364,4 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new RtcConnectError('RTC_FAILED', 'WebRTC negotiation failed.')
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }

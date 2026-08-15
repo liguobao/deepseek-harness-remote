@@ -27,8 +27,6 @@ export interface AdaptiveTransportOptions {
   negotiateTimeoutMs?: number
   rtcFactory?: RtcPeerConnectionFactory
   fetchIceServers?: (connectionId: string) => Promise<RtcIceServer[]>
-  highWatermarkBytes?: number
-  lowWatermarkBytes?: number
 }
 
 const DEFAULT_CAPABILITIES = ['transport.p2p', 'transport.turn', 'transport.relay', 'harness.api.v1']
@@ -304,8 +302,6 @@ export class AdaptiveTransport extends BaseTransport {
       iceServers,
       onSignal: signal => this.sendRtcSignal(signal),
       negotiateTimeoutMs: this.serverNegotiateTimeoutMs ?? this.options.negotiateTimeoutMs,
-      highWatermarkBytes: this.options.highWatermarkBytes,
-      lowWatermarkBytes: this.options.lowWatermarkBytes,
       label: `client->${this.options.targetDeviceId}`,
     })
     this.rtc = rtc
