@@ -6,6 +6,7 @@ import {
 } from '@dsh-remote/crypto'
 import {
   PROTOCOL_VERSION,
+  SecureMessageCodec,
   createControlFrame,
   decodeMessage,
   encodeMessage,
@@ -375,6 +376,8 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
   readonly peerIdentityKey: string
   readonly mode = 'Relay' as const
   private readonly handlers = new Set<(message: RemoteMessage) => void>()
+  private readonly incoming = new SecureMessageCodec()
+  private readonly outgoing = new SecureMessageCodec()
   private closed = false
 
   constructor(
@@ -393,7 +396,9 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
 
   async send(message: RemoteMessage): Promise<void> {
     if (this.closed) throw new Error('secure channel is closed')
-    await this.transmit(this.tunnel.noise.encrypt(encodeMessage(message)))
+    for (const plaintext of this.outgoing.encode(encodeMessage(message))) {
+      await this.transmit(this.tunnel.noise.encrypt(plaintext))
+    }
   }
 
   onMessage(handler: (message: RemoteMessage) => void): () => void {
@@ -407,7 +412,9 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
     if (!Number.isSafeInteger(counter) || counter !== expected) {
       throw new ControlConnectionError('INVALID_MESSAGE', 'Relay counter is duplicated or out of order.')
     }
-    const message = decodeMessage(this.tunnel.noise.decrypt(ciphertext))
+    const plaintext = this.incoming.decode(this.tunnel.noise.decrypt(ciphertext))
+    if (plaintext === undefined) return
+    const message = decodeMessage(plaintext)
     for (const handler of this.handlers) handler(message)
   }
 
@@ -415,6 +422,8 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
     if (this.closed) return
     this.closed = true
     this.handlers.clear()
+    this.incoming.reset()
+    this.outgoing.reset()
     this.tunnel.noise.destroy()
     this.onClose()
   }

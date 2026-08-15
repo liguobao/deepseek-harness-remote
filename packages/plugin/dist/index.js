@@ -4050,6 +4050,12 @@ var NEVER = INVALID;
 
 // ../protocol/dist/index.js
 var PROTOCOL_VERSION = 1;
+var SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024;
+var MAX_SECURE_MESSAGE_BYTES = 4 * 1024 * 1024;
+var SECURE_FRAGMENT_MAGIC = new Uint8Array([68, 83, 72, 70]);
+var SECURE_FRAGMENT_VERSION = 1;
+var SECURE_FRAGMENT_HEADER_BYTES = 17;
+var MAX_IN_FLIGHT_SECURE_MESSAGES = 8;
 var messageTypes = [
   "rpc.request",
   "rpc.response",
@@ -4152,6 +4158,94 @@ function encodeMessage(message) {
 function decodeMessage(data) {
   const text = typeof data === "string" ? data : new TextDecoder().decode(data);
   return parseRemoteMessage(JSON.parse(text));
+}
+var SecureMessageCodec = class {
+  nextMessageId = 1;
+  assemblies = /* @__PURE__ */ new Map();
+  encode(message) {
+    if (message.byteLength > MAX_SECURE_MESSAGE_BYTES) {
+      throw new Error("Secure message exceeds the reassembly limit.");
+    }
+    if (message.byteLength <= SECURE_FRAGMENT_CHUNK_BYTES)
+      return [message];
+    const messageId = this.nextMessageId;
+    this.nextMessageId = messageId === 4294967295 ? 1 : messageId + 1;
+    const total = Math.ceil(message.byteLength / SECURE_FRAGMENT_CHUNK_BYTES);
+    const frames = [];
+    for (let index = 0; index < total; index += 1) {
+      const start = index * SECURE_FRAGMENT_CHUNK_BYTES;
+      const chunk = message.subarray(start, Math.min(message.byteLength, start + SECURE_FRAGMENT_CHUNK_BYTES));
+      const frame = new Uint8Array(SECURE_FRAGMENT_HEADER_BYTES + chunk.byteLength);
+      frame.set(SECURE_FRAGMENT_MAGIC);
+      frame[4] = SECURE_FRAGMENT_VERSION;
+      const view = new DataView(frame.buffer);
+      view.setUint32(5, messageId);
+      view.setUint16(9, index);
+      view.setUint16(11, total);
+      view.setUint32(13, message.byteLength);
+      frame.set(chunk, SECURE_FRAGMENT_HEADER_BYTES);
+      frames.push(frame);
+    }
+    return frames;
+  }
+  decode(frame) {
+    if (!isSecureFragment(frame))
+      return frame;
+    if (frame.byteLength < SECURE_FRAGMENT_HEADER_BYTES || frame[4] !== SECURE_FRAGMENT_VERSION) {
+      throw new Error("Secure fragment header is invalid.");
+    }
+    const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+    const messageId = view.getUint32(5);
+    const index = view.getUint16(9);
+    const total = view.getUint16(11);
+    const totalBytes = view.getUint32(13);
+    if (messageId === 0 || total < 2 || index >= total || totalBytes <= SECURE_FRAGMENT_CHUNK_BYTES || totalBytes > MAX_SECURE_MESSAGE_BYTES || total !== Math.ceil(totalBytes / SECURE_FRAGMENT_CHUNK_BYTES)) {
+      throw new Error("Secure fragment metadata is invalid.");
+    }
+    const expectedChunkBytes = Math.min(SECURE_FRAGMENT_CHUNK_BYTES, totalBytes - index * SECURE_FRAGMENT_CHUNK_BYTES);
+    const chunk = frame.subarray(SECURE_FRAGMENT_HEADER_BYTES);
+    if (chunk.byteLength !== expectedChunkBytes)
+      throw new Error("Secure fragment length is invalid.");
+    let assembly = this.assemblies.get(messageId);
+    if (assembly === void 0) {
+      if (index !== 0 || this.assemblies.size >= MAX_IN_FLIGHT_SECURE_MESSAGES) {
+        throw new Error("Secure fragment sequence is invalid.");
+      }
+      assembly = { total, totalBytes, receivedBytes: 0, chunks: [] };
+      this.assemblies.set(messageId, assembly);
+    }
+    if (assembly.total !== total || assembly.totalBytes !== totalBytes || index !== assembly.chunks.length) {
+      this.assemblies.delete(messageId);
+      throw new Error("Secure fragment sequence is invalid.");
+    }
+    assembly.chunks.push(Uint8Array.from(chunk));
+    assembly.receivedBytes += chunk.byteLength;
+    if (assembly.chunks.length < total)
+      return void 0;
+    this.assemblies.delete(messageId);
+    if (assembly.receivedBytes !== totalBytes)
+      throw new Error("Secure message length is invalid.");
+    const message = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const part of assembly.chunks) {
+      message.set(part, offset);
+      offset += part.byteLength;
+    }
+    return message;
+  }
+  reset() {
+    this.nextMessageId = 1;
+    this.assemblies.clear();
+  }
+};
+function isSecureFragment(frame) {
+  if (frame.byteLength < SECURE_FRAGMENT_MAGIC.byteLength)
+    return false;
+  for (let index = 0; index < SECURE_FRAGMENT_MAGIC.byteLength; index += 1) {
+    if (frame[index] !== SECURE_FRAGMENT_MAGIC[index])
+      return false;
+  }
+  return true;
 }
 function cryptoRandomId() {
   const g = globalThis.crypto;
@@ -11623,9 +11717,13 @@ var ClientSecureTransport = class {
   }
   noise;
   unsubscribeInner;
+  incoming = new SecureMessageCodec();
+  outgoing = new SecureMessageCodec();
   closed = false;
   async connect() {
     this.closed = false;
+    this.incoming.reset();
+    this.outgoing.reset();
     await this.inner.connect();
     const info = this.inner.connectionInfo();
     if (info.localDeviceId !== this.identity.deviceId || info.remoteDeviceId !== this.host.deviceId) {
@@ -11650,7 +11748,9 @@ var ClientSecureTransport = class {
     }
   }
   async send(data) {
-    await this.inner.send(this.requireNoise().encrypt(data));
+    for (const plaintext of this.outgoing.encode(data)) {
+      await this.inner.send(this.requireNoise().encrypt(plaintext));
+    }
   }
   onMessage(handler) {
     this.unsubscribeInner?.();
@@ -11658,7 +11758,8 @@ var ClientSecureTransport = class {
       const noise = this.noise;
       if (noise === void 0 || !noise.complete || this.closed) return;
       try {
-        handler(noise.decrypt(data));
+        const message = this.incoming.decode(noise.decrypt(data));
+        if (message !== void 0) handler(message);
       } catch {
         void this.close();
       }
@@ -11676,6 +11777,8 @@ var ClientSecureTransport = class {
     this.closed = true;
     this.unsubscribeInner?.();
     this.unsubscribeInner = void 0;
+    this.incoming.reset();
+    this.outgoing.reset();
     this.noise?.destroy();
     this.noise = void 0;
     await this.inner.close();
@@ -13467,10 +13570,14 @@ var ServerNoiseChannel = class {
   peerIdentityKey;
   mode = "Relay";
   handlers = /* @__PURE__ */ new Set();
+  incoming = new SecureMessageCodec();
+  outgoing = new SecureMessageCodec();
   closed = false;
   async send(message) {
     if (this.closed) throw new Error("secure channel is closed");
-    await this.transmit(this.tunnel.noise.encrypt(encodeMessage(message)));
+    for (const plaintext of this.outgoing.encode(encodeMessage(message))) {
+      await this.transmit(this.tunnel.noise.encrypt(plaintext));
+    }
   }
   onMessage(handler) {
     this.handlers.add(handler);
@@ -13482,13 +13589,17 @@ var ServerNoiseChannel = class {
     if (!Number.isSafeInteger(counter) || counter !== expected) {
       throw new ControlConnectionError("INVALID_MESSAGE", "Relay counter is duplicated or out of order.");
     }
-    const message = decodeMessage(this.tunnel.noise.decrypt(ciphertext));
+    const plaintext = this.incoming.decode(this.tunnel.noise.decrypt(ciphertext));
+    if (plaintext === void 0) return;
+    const message = decodeMessage(plaintext);
     for (const handler of this.handlers) handler(message);
   }
   async close(_code) {
     if (this.closed) return;
     this.closed = true;
     this.handlers.clear();
+    this.incoming.reset();
+    this.outgoing.reset();
     this.tunnel.noise.destroy();
     this.onClose();
   }

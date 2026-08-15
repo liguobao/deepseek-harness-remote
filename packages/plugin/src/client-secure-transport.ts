@@ -1,4 +1,5 @@
 import { NoiseIkSession, createNoisePrologue } from '@dsh-remote/crypto'
+import { SecureMessageCodec } from '@dsh-remote/protocol'
 import type { RemoteTransport, SecureHandshakeTransport } from '@dsh-remote/webrtc'
 import type { HostIdentity, TrustedPeer } from './identity-store.js'
 
@@ -6,6 +7,8 @@ import type { HostIdentity, TrustedPeer } from './identity-store.js'
 export class ClientSecureTransport implements RemoteTransport {
   private noise?: NoiseIkSession
   private unsubscribeInner?: () => void
+  private readonly incoming = new SecureMessageCodec()
+  private readonly outgoing = new SecureMessageCodec()
   private closed = false
 
   constructor(
@@ -16,6 +19,8 @@ export class ClientSecureTransport implements RemoteTransport {
 
   async connect(): Promise<void> {
     this.closed = false
+    this.incoming.reset()
+    this.outgoing.reset()
     await this.inner.connect()
     const info = this.inner.connectionInfo()
     if (info.localDeviceId !== this.identity.deviceId || info.remoteDeviceId !== this.host.deviceId) {
@@ -41,7 +46,9 @@ export class ClientSecureTransport implements RemoteTransport {
   }
 
   async send(data: Uint8Array): Promise<void> {
-    await this.inner.send(this.requireNoise().encrypt(data))
+    for (const plaintext of this.outgoing.encode(data)) {
+      await this.inner.send(this.requireNoise().encrypt(plaintext))
+    }
   }
 
   onMessage(handler: (data: Uint8Array) => void): () => void {
@@ -50,7 +57,8 @@ export class ClientSecureTransport implements RemoteTransport {
       const noise = this.noise
       if (noise === undefined || !noise.complete || this.closed) return
       try {
-        handler(noise.decrypt(data))
+        const message = this.incoming.decode(noise.decrypt(data))
+        if (message !== undefined) handler(message)
       } catch {
         void this.close()
       }
@@ -70,6 +78,8 @@ export class ClientSecureTransport implements RemoteTransport {
     this.closed = true
     this.unsubscribeInner?.()
     this.unsubscribeInner = undefined
+    this.incoming.reset()
+    this.outgoing.reset()
     this.noise?.destroy()
     this.noise = undefined
     await this.inner.close()

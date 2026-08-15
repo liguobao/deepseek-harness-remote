@@ -432,6 +432,14 @@ Server 只校验 connection ownership、step 上限和 frame size，不解析 No
 
 Noise handshake 完成后，Remote message JSON 作为 Noise transport plaintext。Relay 时 Noise ciphertext 放入 `relay` control frame；WebRTC 时直接发送 binary ciphertext。
 
+Noise transport 单消息最大为 65,535 bytes（包含 AEAD tag）。编码后的 Remote message
+超过 48 KiB 时，发送方必须先切成 DSH secure fragments，再逐片 Noise 加密。fragment
+使用 binary plaintext：`DSHF` magic、1-byte version、32-bit messageId、16-bit index、
+16-bit total、32-bit totalBytes 和最多 48 KiB payload。接收方只在同一 authenticated
+channel 内按 messageId 重组，最多接受 4 MiB 的完整消息和 8 个并行重组；重复、乱序、
+长度不一致或超限必须关闭 secure channel。小消息继续直接使用 Remote message JSON，
+保持兼容和低开销。
+
 每方向维护独立 nonce/counter。重复、过旧、认证失败、超限或连接不匹配 frame 必须关闭 secure channel。达到 Noise 实现建议的消息/字节阈值时 rekey 或重建 connection。
 
 TLS/WSS 保护到 Server 的链路，但不能替代本节 E2EE。
@@ -1107,6 +1115,7 @@ pong 回显 nonce。Heartbeat 不能携带业务数据。
 | Host registration code TTL | 10 min |
 | Control JSON frame | 64 KiB |
 | Relay ciphertext frame | 1 MiB |
+| Reassembled secure message | 4 MiB |
 | RPC text input | 64 KiB |
 | 同连接 pending RPC | 128 |
 | 同 session pending permission | 16 |

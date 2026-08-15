@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { controlFrameTypes, createControlFrame, createEvent, createRpcError, createRpcRequest, decodeMessage, encodeMessage, parseControlFrame, parseRemoteMessage, remoteEvents, rpcMethods } from '../src/index.js'
+import {
+  SECURE_FRAGMENT_CHUNK_BYTES,
+  SecureMessageCodec,
+  controlFrameTypes,
+  createControlFrame,
+  createEvent,
+  createRpcError,
+  createRpcRequest,
+  decodeMessage,
+  encodeMessage,
+  parseControlFrame,
+  parseRemoteMessage,
+  remoteEvents,
+  rpcMethods,
+} from '../src/index.js'
 
 describe('protocol envelope', () => {
   it('contains every Server control frame used by protocol v1', () => {
@@ -43,5 +57,26 @@ describe('protocol envelope', () => {
     })
     expect(parseControlFrame(frame)).toEqual(frame)
     expect(() => parseControlFrame({ ...frame, v: 2 })).toThrow()
+  })
+
+  it('fragments large Noise plaintext and reassembles it with strict ordering', () => {
+    const source = Uint8Array.from(
+      { length: SECURE_FRAGMENT_CHUNK_BYTES * 2 + 37 },
+      (_, index) => index % 251,
+    )
+    const encoder = new SecureMessageCodec()
+    const frames = encoder.encode(source)
+    expect(frames).toHaveLength(3)
+    expect(frames.every(frame => frame.byteLength < 65_519)).toBe(true)
+
+    const decoder = new SecureMessageCodec()
+    expect(decoder.decode(frames[0]!)).toBeUndefined()
+    expect(decoder.decode(frames[1]!)).toBeUndefined()
+    expect(decoder.decode(frames[2]!)).toEqual(source)
+
+    const outOfOrder = new SecureMessageCodec()
+    expect(() => outOfOrder.decode(frames[1]!)).toThrow('Secure fragment sequence is invalid.')
+    const small = new TextEncoder().encode('small message')
+    expect(new SecureMessageCodec().decode(encoder.encode(small)[0]!)).toEqual(small)
   })
 })

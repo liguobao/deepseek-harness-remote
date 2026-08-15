@@ -1,4 +1,5 @@
 import { NoiseIkSession, createNoisePrologue, generateKeyPair } from '@dsh-remote/crypto'
+import { SECURE_FRAGMENT_CHUNK_BYTES, SecureMessageCodec } from '@dsh-remote/protocol'
 import type { SecureHandshakeTransport } from '@dsh-remote/webrtc'
 import { describe, expect, it, vi } from 'vitest'
 import { ClientSecureTransport } from '../src/client-secure-transport.js'
@@ -8,6 +9,8 @@ class HostLoopbackTransport implements SecureHandshakeTransport {
   private messageHandler?: (data: Uint8Array) => void
   private handshakeHandler?: (step: number, data: Uint8Array) => void
   private closeHandler?: () => void
+  private readonly incoming = new SecureMessageCodec()
+  private readonly outgoing = new SecureMessageCodec()
   plaintext?: Uint8Array
   closed = false
 
@@ -15,7 +18,10 @@ class HostLoopbackTransport implements SecureHandshakeTransport {
 
   async connect(): Promise<void> {}
 
-  async send(data: Uint8Array): Promise<void> { this.plaintext = this.hostNoise.decrypt(data) }
+  async send(data: Uint8Array): Promise<void> {
+    const message = this.incoming.decode(this.hostNoise.decrypt(data))
+    if (message !== undefined) this.plaintext = message
+  }
 
   async sendHandshake(step: number, data: Uint8Array): Promise<void> {
     expect(step).toBe(1)
@@ -44,7 +50,9 @@ class HostLoopbackTransport implements SecureHandshakeTransport {
 
   getStats() { return { mode: 'Relay' as const, connected: !this.closed } }
 
-  sendFromHost(data: Uint8Array): void { this.messageHandler?.(this.hostNoise.encrypt(data)) }
+  sendFromHost(data: Uint8Array): void {
+    for (const frame of this.outgoing.encode(data)) this.messageHandler?.(this.hostNoise.encrypt(frame))
+  }
 
   disconnect(): void { this.closeHandler?.() }
 }
@@ -80,14 +88,20 @@ describe('ClientSecureTransport', () => {
     const secure = new ClientSecureTransport(wire, client, host)
     const closed = vi.fn()
     secure.onClose(closed)
-    let received = ''
-    secure.onMessage(data => { received = new TextDecoder().decode(data) })
+    let received = new Uint8Array()
+    secure.onMessage(data => { received = Uint8Array.from(data) })
 
     await secure.connect()
     await secure.send(new TextEncoder().encode('private request'))
     expect(new TextDecoder().decode(wire.plaintext)).toBe('private request')
     wire.sendFromHost(new TextEncoder().encode('private response'))
-    expect(received).toBe('private response')
+    expect(new TextDecoder().decode(received)).toBe('private response')
+
+    const large = new Uint8Array(SECURE_FRAGMENT_CHUNK_BYTES * 2 + 19).fill(7)
+    await secure.send(large)
+    expect(wire.plaintext).toEqual(large)
+    wire.sendFromHost(large)
+    expect(received).toEqual(large)
 
     wire.disconnect()
     expect(closed).toHaveBeenCalledOnce()
