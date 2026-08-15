@@ -35,25 +35,15 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
-
       - name: Validate version tag
         run: |
           node --input-type=module <<'NODE'
           import { readFile } from 'node:fs/promises'
 
           const readJson = async (path) => JSON.parse(await readFile(path, 'utf8'))
+          const root = await readJson('package.json')
           const plugin = await readJson('packages/plugin/package.json')
-          const android = await readJson('apps/android/package.json')
-          const app = await readJson('apps/android/app.json')
-          const versions = new Set([plugin.version, android.version, app.expo.version])
+          const versions = new Set([root.version, plugin.version])
           const expectedTag = `v${plugin.version}`
 
           if (versions.size !== 1) {
@@ -83,30 +73,10 @@ jobs:
           mkdir -p release-assets
           pnpm --dir packages/plugin pack --pack-destination "$GITHUB_WORKSPACE/release-assets"
 
-      - name: Generate Android project
-        run: pnpm --dir apps/android exec expo prebuild --platform android --no-install
-
-      - name: Build release APK
-        env:
-          NODE_ENV: production
-        run: |
-          chmod +x apps/android/android/gradlew
-          apps/android/android/gradlew \
-            -p apps/android/android \
-            :app:assembleRelease \
-            --no-daemon \
-            --build-cache \
-            -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
-
       - name: Stage release assets
         run: |
-          cp apps/android/android/app/build/outputs/apk/release/app-release.apk \
-            "release-assets/dsh-remote-android-${GITHUB_REF_NAME}.apk"
           cd release-assets
-          sha256sum \
-            "dsh-remote-android-${GITHUB_REF_NAME}.apk" \
-            dsh-remote-plugin-*.tgz \
-            > SHA256SUMS.txt
+          sha256sum dsh-remote-plugin-*.tgz > SHA256SUMS.txt
 
       - name: Publish GitHub Release
         env:
@@ -116,6 +86,6 @@ jobs:
             release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "DSH Remote ${GITHUB_REF_NAME}" \
-            --notes "The Android APK is a development-preview build signed with the generated CI debug key." \
+            --title "DeepSeek 远程连接 ${GITHUB_REF_NAME}" \
+            --notes "Plugin-only release. The frozen Android prototype is not included." \
             --generate-notes
