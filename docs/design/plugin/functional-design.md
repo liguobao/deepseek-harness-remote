@@ -63,7 +63,7 @@ export function apply(ctx, config) {
 1. 顶层 Bundle entry 立即完成激活，不把远端插件依赖变成 Harness 主服务的启动条件。
 2. 在隔离的依赖 scope 中等待 `settings`、`apiProxy` 和 `connection`；缺失时仅停用远端功能。
 3. 校验配置并按规范化 Server origin 选择隔离的身份目录。
-4. 读取 Host `apiProxy`，创建 allowlist bridge。
+4. 读取 Host `apiProxy`，为每条认证 Client connection 创建隔离的 allowlist bridge。
 5. 创建 Host runtime；按角色选择是否创建 Desktop Client runtime。
 6. 在 `ctx.effect()` 中启动出站 Server 连接，退出时关闭原生流、secure channel 和控制连接。
 
@@ -90,8 +90,10 @@ Workspace、Skill、Agent Preset、Goal、Host 描述和只读 LLM 目录等原�
 - attachment、download；
 - 任意 Cordis service、Harness tool 或反射调用。
 
-每条连接最多打开两个原生流。连接替换、撤销、断开或 Plugin 卸载时，必须 abort
-全部 mux/host iterator。
+Host 可同时服务来自不同 `clientDeviceId` 的连接；RPC pending、stream namespace 和 stream
+上限均按 `connectionId` 隔离。每条连接最多打开两个原生流。同一 Client 设备重连只替换
+它自己的旧连接；连接替换、撤销或断开时，只 abort 该连接的 mux/host iterator。Plugin
+卸载时才关闭全部连接和流。
 
 ## 5. Client ApiProxy
 
@@ -122,7 +124,8 @@ Approval 和 Question 使用 ApiProxy 原生 mux `ServerRequest`，Client 通过
 `ClientResponse` 回答。Plugin 不创造第二套 permission id、decision enum 或超时状态机。
 
 Host ApiProxy/Harness 仍是唯一权限裁决者。Plugin 只允许回答当前原生流实际发出的
-rpcId；晚到、重复或格式错误的回答由 Host ApiProxy 拒绝。连接断开会关闭原生流，
+rpcId，并按 `connectionId` 分别记录可回答集合；晚到、重复或格式错误的回答由 Host
+ApiProxy 拒绝。连接断开会关闭原生流，
 不能继续提交旧回答。
 
 ## 8. 核心测试

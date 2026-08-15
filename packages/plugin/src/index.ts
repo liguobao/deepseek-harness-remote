@@ -101,6 +101,7 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
 export type { ResolvedConfig } from './config.js'
 export { resolveConfig } from './config.js'
 export { ConnectionController, ConnectionRejectedError } from './connection-controller.js'
+export type { PeerConnectionContext, RpcRouterFactory } from './connection-controller.js'
 export { fingerprint, IdentityInvalidError, IdentityStore } from './identity-store.js'
 export { serverStorageDirectory } from './identity-store.js'
 export type { HostIdentity, RemoteDeviceRole, TrustedPeer } from './identity-store.js'

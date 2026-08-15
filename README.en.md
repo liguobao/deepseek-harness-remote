@@ -39,6 +39,7 @@ Configuration is stored in the `dsh-remote` namespace of `$DSH_HOME/settings.yam
 - Noise IK authenticates and encrypts business messages; the Server handles only account authorization, membership, presence, and Relay.
 - The Client can access only explicitly allowed `ApiProxy` capabilities. It does not expose Shell, arbitrary files, remote desktop, or general Harness tool RPCs.
 - Both sides pin the peer key from a membership-protected device detail; Server membership and local trusted-peer state are both required.
+- A Host can serve distinct Client devices, such as phone and desktop Web clients, concurrently; RPC and native event-stream state is isolated per connection.
 
 The frozen Android prototype is not compatible with the current ApiProxy-only data plane.
 

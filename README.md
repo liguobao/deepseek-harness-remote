@@ -39,6 +39,7 @@ dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.2.12"
 - 业务消息使用 Noise IK 认证加密；Server 仅负责账号授权、membership、在线状态和 Relay。
 - Client 只能访问明确允许的 `ApiProxy` 能力，不提供 Shell、任意文件访问、远程桌面或通用 Harness tool RPC。
 - Client/Host 都会通过受 membership 保护的设备详情固定对端公钥；Server membership 与本地 trusted peer 必须同时成立。
+- 同一 Host 支持手机 Web、电脑 Web 等不同 Client 设备同时连接；每条连接的 RPC 与原生事件流独立管理。
 
 Android 原型已冻结，尚不兼容当前 ApiProxy-only 数据面。
 

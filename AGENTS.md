@@ -51,7 +51,7 @@ docs/
 
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
-| Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK 与 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
+| Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
 | Plugin Client Mode | 实现保留；当前发布入口与 runtime 暂时关闭，不展示 Host/Client 或 Local/Remote 切换 | 重新开放前完成真实 dsh-desktop 安装/E2E、断线重连 |
 | Android | 旧 Remote RPC 原型已冻结，与当前 ApiProxy-only Host 不兼容 | 若恢复该产品线，先迁移到 ApiProxy contract |
 | Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 清理冻结 Android 的旧类型、完整 Zod schema、limits、golden vectors |
@@ -93,10 +93,10 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 
 ## Validation Baseline
 
-截至 2026-08-15：
+截至 2026-08-16：
 
 - workspace check 与 DSH bundle 校验通过
-- workspace test 通过：24 个测试文件、52 个测试（Plugin 13 个文件、27 个测试）
+- workspace test 通过：27 个测试文件、85 个测试（Plugin 14 个文件、40 个测试）
 - workspace build 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 

@@ -13881,12 +13881,18 @@ function redact(value, key = "") {
 
 // src/connection-controller.ts
 var ConnectionController = class {
-  constructor(identities, router) {
+  constructor(identities, createRouter) {
     this.identities = identities;
-    this.router = router;
+    this.createRouter = createRouter;
   }
-  active;
-  async accept(channel) {
+  active = /* @__PURE__ */ new Map();
+  acceptQueue = Promise.resolve();
+  accept(channel) {
+    const operation = this.acceptQueue.then(() => this.acceptOne(channel));
+    this.acceptQueue = operation.catch(() => void 0);
+    return operation;
+  }
+  async acceptOne(channel) {
     if (channel.security?.protocol !== "Noise_IK_25519_ChaChaPoly_SHA256" || channel.security.connectionId === "" || channel.security.membershipId === "") {
       await channel.close("SECURE_CHANNEL_FAILED");
       throw new ConnectionRejectedError("SECURE_CHANNEL_FAILED", "The channel is missing its authenticated Noise or membership context.");
@@ -13895,61 +13901,96 @@ var ConnectionController = class {
       await channel.close("PEER_IDENTITY_MISMATCH");
       throw new ConnectionRejectedError("PEER_IDENTITY_MISMATCH", "The peer identity does not match local trust.");
     }
-    const previous = this.active;
-    if (previous !== void 0) {
-      previous.unsubscribe();
-      await previous.channel.close("CONNECTION_REPLACED");
-      await this.router.closePeerStreams();
+    const connectionId = channel.security.connectionId;
+    const connectionConflict = this.active.get(connectionId);
+    if (connectionConflict !== void 0 && connectionConflict.channel.peerDeviceId !== channel.peerDeviceId) {
+      await channel.close("SECURE_CHANNEL_FAILED");
+      throw new ConnectionRejectedError("SECURE_CHANNEL_FAILED", "The connection id is already bound to another peer.");
     }
+    const replaced = [...this.active.values()].filter((connection2) => connection2.channel.peerDeviceId === channel.peerDeviceId || connection2.channel.security.connectionId === connectionId);
+    await Promise.all(replaced.map((connection2) => this.disconnect(connection2, "CONNECTION_REPLACED")));
+    const router = this.createRouter(
+      { connectionId, peerDeviceId: channel.peerDeviceId },
+      (message) => this.sendTo(connectionId, channel, message)
+    );
     const connection = {
       channel,
+      router,
       unsubscribe: () => void 0
     };
-    connection.unsubscribe = channel.onMessage((message) => {
-      void this.handle(connection, message);
-    });
-    this.active = connection;
-  }
-  isOnline() {
-    return this.active !== void 0;
-  }
-  peerDeviceId() {
-    return this.active?.channel.peerDeviceId;
-  }
-  connectionMode() {
-    return this.active?.channel.mode ?? (this.active === void 0 ? "Disconnected" : "Relay");
-  }
-  async send(message) {
-    const active = this.active;
-    if (active === void 0) return;
+    this.active.set(connectionId, connection);
     try {
-      await active.channel.send(message);
-    } catch {
-      await this.disconnect(active);
+      connection.unsubscribe = channel.onMessage((message) => {
+        void this.handle(connection, message);
+      });
+    } catch (error) {
+      await this.disconnect(connection);
+      throw error;
     }
   }
+  isOnline() {
+    return this.active.size > 0;
+  }
+  connectionCount() {
+    return this.active.size;
+  }
+  peerDeviceIds() {
+    return [...new Set([...this.active.values()].map((connection) => connection.channel.peerDeviceId))];
+  }
+  peerDeviceId() {
+    const peers = this.peerDeviceIds();
+    return peers.length === 1 ? peers[0] : void 0;
+  }
+  connectionMode() {
+    const connection = this.active.values().next().value;
+    return connection?.channel.mode ?? (connection === void 0 ? "Disconnected" : "Relay");
+  }
+  async send(message) {
+    await Promise.all([...this.active.values()].map((connection) => this.sendConnection(connection, message)));
+  }
   async revoke(deviceId) {
-    if (this.active?.channel.peerDeviceId === deviceId) await this.disconnect(this.active, "DEVICE_REVOKED");
+    const revoked = [...this.active.values()].filter((connection) => connection.channel.peerDeviceId === deviceId);
+    await Promise.all(revoked.map((connection) => this.disconnect(connection, "DEVICE_REVOKED")));
   }
   async close() {
-    if (this.active !== void 0) await this.disconnect(this.active);
+    await this.acceptQueue;
+    await Promise.all([...this.active.values()].map((connection) => this.disconnect(connection)));
   }
   async handle(connection, message) {
-    if (this.active !== connection) return;
+    if (!this.isActive(connection)) return;
     try {
-      const response = await this.router.handle(message);
-      if (this.active !== connection) return;
+      const response = await connection.router.handle(message);
+      if (!this.isActive(connection)) return;
       await connection.channel.send(response);
     } catch {
       await this.disconnect(connection);
     }
   }
+  async sendTo(connectionId, channel, message) {
+    const connection = this.active.get(connectionId);
+    if (connection === void 0 || connection.channel !== channel) return;
+    await this.sendConnection(connection, message);
+  }
+  async sendConnection(connection, message) {
+    if (!this.isActive(connection)) return;
+    try {
+      await connection.channel.send(message);
+    } catch {
+      await this.disconnect(connection);
+    }
+  }
   async disconnect(connection, code) {
-    if (this.active !== connection) return;
-    this.active = void 0;
+    if (!this.isActive(connection)) return;
+    this.active.delete(connection.channel.security.connectionId);
     connection.unsubscribe();
-    await this.router.closePeerStreams();
-    await connection.channel.close(code);
+    try {
+      await connection.router.closePeerStreams();
+    } finally {
+      await connection.channel.close(code);
+    }
+  }
+  isActive(connection) {
+    return this.active.get(connection.channel.security.connectionId) === connection;
   }
 };
 var ConnectionRejectedError = class extends Error {
@@ -14735,6 +14776,7 @@ var HarnessApiBridge = class {
   }
   methods;
   streams = /* @__PURE__ */ new Map();
+  respondable = /* @__PURE__ */ new Map();
   mux;
   host;
   answer;
@@ -14747,7 +14789,12 @@ var HarnessApiBridge = class {
   }
   async respond(input) {
     const params = respondSchema.parse(input);
-    return this.answer(params.message);
+    if (!this.respondable.has(params.message.rpcId)) {
+      throw new RpcError("PERMISSION_NOT_PENDING", "The response id was not emitted on this peer connection.");
+    }
+    const receipt = await this.answer(params.message);
+    if (receipt.accepted || receipt.reason === "not-pending") this.respondable.delete(params.message.rpcId);
+    return receipt;
   }
   openStream(input) {
     const params = streamOpenSchema.parse(input);
@@ -14769,6 +14816,7 @@ var HarnessApiBridge = class {
   async closeAll(reason = "peer-disconnected") {
     const streams = [...this.streams.values()];
     this.streams.clear();
+    this.respondable.clear();
     for (const stream of streams) stream.controller.abort(reason);
   }
   async pump(streamId, stream, signal) {
@@ -14776,6 +14824,7 @@ var HarnessApiBridge = class {
     try {
       for await (const frame of stream) {
         if (signal.aborted) break;
+        this.trackRespondable(frame);
         await this.publish("harness.api.frame", { streamId, frame });
       }
       if (signal.aborted) reason = "cancelled";
@@ -14784,6 +14833,29 @@ var HarnessApiBridge = class {
     } finally {
       this.streams.delete(streamId);
       await this.publish("harness.api.stream.closed", { streamId, reason }).catch(() => void 0);
+    }
+  }
+  trackRespondable(frame) {
+    const payload = frame.payload;
+    if (payload.type === "approval/requested") {
+      this.respondable.set(String(frame.rpcId), `approval:${String(payload.approvalId)}`);
+      return;
+    }
+    if (payload.type === "question/requested") {
+      this.respondable.set(String(frame.rpcId), `question:${String(frame.rpcId)}`);
+      return;
+    }
+    if (payload.type === "approval/resolved") {
+      this.deleteRespondable(`approval:${String(payload.approvalId)}`);
+      return;
+    }
+    if (payload.type === "question/resolved") {
+      this.respondable.delete(String(payload.questionRpcId));
+    }
+  }
+  deleteRespondable(value) {
+    for (const [rpcId, correlation] of this.respondable) {
+      if (correlation === value) this.respondable.delete(rpcId);
     }
   }
 };
@@ -15010,17 +15082,17 @@ var HostPluginRuntime = class {
     this.config = config;
     this.identities = identities;
     this.logger = logger;
-    const harnessApi = new HarnessApiBridge(
-      apiProxy,
-      (event, data) => this.publishHarnessEvent(event, data)
-    );
-    this.router = new RpcRouter(harnessApi);
-    this.connections = new ConnectionController(this.identities, this.router);
+    this.connections = new ConnectionController(this.identities, (_context, send) => {
+      const harnessApi = new HarnessApiBridge(
+        apiProxy,
+        (event, data) => send(createEvent(event, data))
+      );
+      return new RpcRouter(harnessApi);
+    });
     if (config.serverUrl !== void 0) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory));
     }
   }
-  router;
   connections;
   identity;
   serverApi;
@@ -15116,12 +15188,11 @@ var HostPluginRuntime = class {
       serverOnline: this.serverConnection?.isOnline() ?? false,
       serverError: this.serverConnection?.lastError(),
       online: this.connections.isOnline(),
+      activeConnections: this.connections.connectionCount(),
       peerDeviceId: this.connections.peerDeviceId() === void 0 ? void 0 : shortId3(this.connections.peerDeviceId()),
+      peerDeviceIds: this.connections.peerDeviceIds().map(shortId3),
       trustedPeers: this.identities.listTrustedPeers().length
     };
-  }
-  publishHarnessEvent(event, data) {
-    return this.connections.send(createEvent(event, data));
   }
 };
 function shortId3(value) {

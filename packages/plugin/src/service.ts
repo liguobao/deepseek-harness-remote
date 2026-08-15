@@ -1,5 +1,5 @@
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { createEvent, type RemoteEventName } from '@dsh-remote/protocol'
+import { createEvent } from '@dsh-remote/protocol'
 import { ConnectionController } from './connection-controller.js'
 import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore } from './identity-store.js'
@@ -23,7 +23,6 @@ export interface HostRemoteStatus {
 }
 
 export class HostPluginRuntime {
-  readonly router: RpcRouter
   readonly connections: ConnectionController
   private identity?: HostIdentity
   private readonly serverApi?: HostServerApi
@@ -36,12 +35,13 @@ export class HostPluginRuntime {
     apiProxy: ApiProxy,
     private readonly logger: SafeLogger,
   ) {
-    const harnessApi = new HarnessApiBridge(
-      apiProxy,
-      (event, data) => this.publishHarnessEvent(event, data),
-    )
-    this.router = new RpcRouter(harnessApi)
-    this.connections = new ConnectionController(this.identities, this.router)
+    this.connections = new ConnectionController(this.identities, (_context, send) => {
+      const harnessApi = new HarnessApiBridge(
+        apiProxy,
+        (event, data) => send(createEvent(event, data)),
+      )
+      return new RpcRouter(harnessApi)
+    })
     if (config.serverUrl !== undefined) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory))
     }
@@ -148,13 +148,11 @@ export class HostPluginRuntime {
       serverOnline: this.serverConnection?.isOnline() ?? false,
       serverError: this.serverConnection?.lastError(),
       online: this.connections.isOnline(),
+      activeConnections: this.connections.connectionCount(),
       peerDeviceId: this.connections.peerDeviceId() === undefined ? undefined : shortId(this.connections.peerDeviceId()!),
+      peerDeviceIds: this.connections.peerDeviceIds().map(shortId),
       trustedPeers: this.identities.listTrustedPeers().length,
     }
-  }
-
-  private publishHarnessEvent(event: RemoteEventName, data: unknown): Promise<void> {
-    return this.connections.send(createEvent(event, data))
   }
 }
 

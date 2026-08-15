@@ -392,6 +392,11 @@ Host 必须要求 `authorization` 为 `account`，校验 identityKey 格式，�
 验证通过后写入/更新本机 pinned peer，并把该 key 与 `connectionId` 绑定，才可返回
 `connect.accepted`。安全握手期间不允许替换远端 key。
 
+同一 Host 必须允许不同 `clientDeviceId` 各自建立并保持独立的 active connection，例如手机
+Web 与电脑 Web 可同时连接。RPC pending 数、stream namespace、stream 上限与断开清理均按
+`connectionId` 隔离。仅同一个 `clientDeviceId` 的新连接替换该设备的旧连接，不得关闭其他
+Client 的 connection 或原生流。
+
 ## 12. Secure Channel
 
 ### 12.1 算法
@@ -881,7 +886,7 @@ Result 是 Harness `ApiProxy` 的原生 `RpcResponse`，必须回显内层 `rpcI
 
 #### `harness.api.respond`
 
-Params：`{ "message": ClientResponse }`。只用于回答由 Harness 原生事件流发出的 approval/question ServerRequest；`rpcId` 必须来自该请求，Client 不能自行创造可回答的 Host request。
+Params：`{ "message": ClientResponse }`。只用于回答由 Harness 原生事件流发出的 approval/question ServerRequest；`rpcId` 必须由同一 `connectionId` 的 mux stream 实际发出，Client 不能自行创造可回答的 Host request，也不能回答只发送给其他 connection 的请求。
 
 #### `harness.api.stream.open` / `harness.api.stream.close`
 
@@ -896,7 +901,7 @@ Open Params：
 }
 ```
 
-`stream` 仅允许 `mux | host`，每条 peer connection 最多同时打开两个原生流。Close Params：`{ "streamId": "client-stream-id" }`。连接替换、撤销或断开时 Host 必须取消全部流。
+`stream` 仅允许 `mux | host`，每条 peer connection 最多同时打开两个原生流。Close Params：`{ "streamId": "client-stream-id" }`。`streamId` namespace、上限和生命周期都属于发起它的 `connectionId`；不同 Client 可使用相同 `streamId`，不得互相关闭或接收对方的 tunnel event。连接替换、撤销或断开时 Host 只取消该 connection 的全部流。
 
 ## 20. Events
 

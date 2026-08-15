@@ -98,6 +98,7 @@ interface ActiveStream {
 export class HarnessApiBridge {
   private readonly methods: ReadonlyMap<string, NativeMethod>
   private readonly streams = new Map<string, ActiveStream>()
+  private readonly respondable = new Map<string, string>()
   private readonly mux: ApiProxy['events']['mux']
   private readonly host: ApiProxy['events']['host']
   private readonly answer: ApiProxy['respond']
@@ -123,7 +124,12 @@ export class HarnessApiBridge {
 
   async respond(input: unknown): Promise<unknown> {
     const params = respondSchema.parse(input) as HarnessApiRespondParams
-    return this.answer(params.message as ClientResponse)
+    if (!this.respondable.has(params.message.rpcId)) {
+      throw new RpcError('PERMISSION_NOT_PENDING', 'The response id was not emitted on this peer connection.')
+    }
+    const receipt = await this.answer(params.message as ClientResponse)
+    if (receipt.accepted || receipt.reason === 'not-pending') this.respondable.delete(params.message.rpcId)
+    return receipt
   }
 
   openStream(input: unknown): { opened: true; streamId: string } {
@@ -150,6 +156,7 @@ export class HarnessApiBridge {
   async closeAll(reason: HarnessApiStreamClosedData['reason'] = 'peer-disconnected'): Promise<void> {
     const streams = [...this.streams.values()]
     this.streams.clear()
+    this.respondable.clear()
     for (const stream of streams) stream.controller.abort(reason)
     // A native ApiProxy stream may not observe AbortSignal until its next
     // frame. Waiting for every pump here would block a replacement peer from
@@ -163,6 +170,7 @@ export class HarnessApiBridge {
     try {
       for await (const frame of stream) {
         if (signal.aborted) break
+        this.trackRespondable(frame)
         await this.publish('harness.api.frame', { streamId, frame } satisfies HarnessApiFrameData)
       }
       if (signal.aborted) reason = 'cancelled'
@@ -171,6 +179,31 @@ export class HarnessApiBridge {
     } finally {
       this.streams.delete(streamId)
       await this.publish('harness.api.stream.closed', { streamId, reason } satisfies HarnessApiStreamClosedData).catch(() => undefined)
+    }
+  }
+
+  private trackRespondable(frame: RpcRequest<MuxFrame | HostFrame>): void {
+    const payload = frame.payload
+    if (payload.type === 'approval/requested') {
+      this.respondable.set(String(frame.rpcId), `approval:${String(payload.approvalId)}`)
+      return
+    }
+    if (payload.type === 'question/requested') {
+      this.respondable.set(String(frame.rpcId), `question:${String(frame.rpcId)}`)
+      return
+    }
+    if (payload.type === 'approval/resolved') {
+      this.deleteRespondable(`approval:${String(payload.approvalId)}`)
+      return
+    }
+    if (payload.type === 'question/resolved') {
+      this.respondable.delete(String(payload.questionRpcId))
+    }
+  }
+
+  private deleteRespondable(value: string): void {
+    for (const [rpcId, correlation] of this.respondable) {
+      if (correlation === value) this.respondable.delete(rpcId)
     }
   }
 }

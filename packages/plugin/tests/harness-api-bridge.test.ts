@@ -76,6 +76,46 @@ describe('HarnessApiBridge', () => {
       streamId: 'replacement-stream',
     })
   })
+
+  it('allows responses only for answerable requests emitted on the same peer bridge', async () => {
+    const respond = vi.fn(async () => ({ accepted: true as const }))
+    const streamApi = api({
+      events: {
+        mux: async function* () {
+          yield {
+            rpcId: 'approval-rpc-1',
+            payload: {
+              type: 'approval/requested',
+              sessionId: 'session-1',
+              approvalId: 'approval-1',
+              toolName: 'test-tool',
+            },
+          }
+        },
+        host: async function* () { return },
+      },
+      respond,
+    })
+    const publish = vi.fn(async () => undefined)
+    const subscribed = new HarnessApiBridge(streamApi, publish)
+    const otherPeer = new HarnessApiBridge(streamApi, vi.fn(async () => undefined))
+    subscribed.openStream({ streamId: 'mux-1', stream: 'mux', rpcId: 'open-1', payload: {} })
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledWith(
+      'harness.api.frame',
+      expect.objectContaining({ streamId: 'mux-1' }),
+    ))
+
+    const response = {
+      message: {
+        type: 'client-response',
+        rpcId: 'approval-rpc-1',
+        result: { ok: true, value: { outcome: 'allowed-once' } },
+      },
+    }
+    await expect(otherPeer.respond(response)).rejects.toMatchObject({ code: 'PERMISSION_NOT_PENDING' })
+    await expect(subscribed.respond(response)).resolves.toEqual({ accepted: true })
+    expect(respond).toHaveBeenCalledOnce()
+  })
 })
 
 function api(overrides: Record<string, unknown>): ApiProxy {

@@ -17,6 +17,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [x] Relay control、标准 Noise IK、counter/replay 拒绝与 opaque ciphertext
 - [x] Desktop Plugin Host runtime、Settings 配置和 GitHub/npm Bundle 入口
 - [x] Host ApiProxy allowlist bridge 与 mux/host stream；Client Local/Remote switch 实现保留但入口暂时关闭
+- [x] 不同 Web Client 同时连接一个 Host；RPC、stream 与断开清理按 connectionId 隔离
 - [x] 删除自定义 Session/Agent/Workspace/Permission adapters、event replay 和旧 Host RPC 路由
 
 ## P0：Plugin 可用链路
@@ -24,6 +25,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [ ] 在真实 dsh-desktop 中验证 GitHub 安装、重启、Host/Client 配置和 Bundle 入口
 - [ ] 用两台真实 Harness + 外部 Server 跑通同账号授权、选择 Remote、创建/继续会话
 - [ ] 验证原生 mux/host stream、approval/question respond 与断线关闭行为
+- [ ] 用手机 Web 与电脑 Web 同时连接一个真实 Host，验证并发操作、同设备重连和流隔离
 - [ ] 验证 allowlist 覆盖官方 UI 的必需方法，并保持 credentials/settings/native path/目录写入/文件内容/附件/download 禁止
 - [ ] 完善账号过期、`DEVICE_OWNERSHIP_REQUIRED` 和 legacy owner 的显式恢复体验
 - [ ] 增加 transport 关闭后 pending unary/stream 的确定错误与可诊断状态

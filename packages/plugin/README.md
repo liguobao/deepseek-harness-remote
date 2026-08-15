@@ -25,6 +25,9 @@ streams are tunneled through an explicit allowlist;
 read-only directory metadata is available to the remote Workspace picker, while
 credentials, settings writes, directory mutation, file-content access, native
 open/picker actions, attachments, and downloads remain local/disabled.
+Distinct Client devices can connect to the same Host concurrently. Each secure
+connection owns a separate ApiProxy router and stream registry; reconnecting one
+Client device replaces only that device's prior connection.
 
 The bundle entry activates without blocking Harness startup. Its remote runtime
 starts in an isolated Cordis dependency scope after `settings`, `apiProxy`, and
