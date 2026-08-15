@@ -12164,7 +12164,7 @@ function resolveConfig(input = {}, env = process.env) {
   }
   return {
     enabled: parsed.enabled ?? true,
-    role: parsed.role ?? "both",
+    role: parsed.role ?? "host",
     ...serverUrl === void 0 ? {} : { serverUrl },
     deviceName: parsed.deviceName ?? hostname(),
     forceRelay: parsed.forceRelay ?? false,
@@ -12833,23 +12833,35 @@ var PluginControlRuntime = class {
   }
   async settingsView() {
     const config = this.settings === void 0 ? editableConfig(this.config) : editableConfig(resolveConfig(this.settings.get()));
-    const association = await this.association(config);
+    const associations = await this.associations(config);
+    const role = config.role === "client" ? "client" : "host";
+    const association = associations[role];
     return {
       config,
       deviceName: hostname2(),
       writable: this.settings !== void 0,
       applies: "restart",
+      associations,
       ...association === void 0 ? {} : { association }
     };
   }
-  async association(config) {
-    if (config.serverUrl === void 0) return void 0;
-    const role = config.role === "client" ? "client" : "host";
+  async associations(config) {
+    if (config.serverUrl === void 0) return {};
+    const [host, client] = await Promise.all([
+      this.association(config.serverUrl, "host"),
+      this.association(config.serverUrl, "client")
+    ]);
+    return {
+      ...host === void 0 ? {} : { host },
+      ...client === void 0 ? {} : { client }
+    };
+  }
+  async association(serverUrl, role) {
     const identities = new IdentityStore({
-      directory: serverStorageDirectory(this.identityDirectory, config.serverUrl, role)
+      directory: serverStorageDirectory(this.identityDirectory, serverUrl, role)
     });
     const identity = await identities.loadOrCreate(hostname2());
-    const credentials = await new ServerCredentialStore(identities.directory).load(config.serverUrl, identity.deviceId);
+    const credentials = await new ServerCredentialStore(identities.directory).load(serverUrl, identity.deviceId);
     if (credentials === void 0) return void 0;
     return {
       method: credentials.authorizationMethod,

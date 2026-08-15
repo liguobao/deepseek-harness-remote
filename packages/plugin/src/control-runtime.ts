@@ -18,10 +18,13 @@ export interface PluginSettingsView {
   deviceName: string
   writable: boolean
   applies: 'restart'
-  association?: {
-    method: 'account' | 'host_registration_code'
-    account?: string
-  }
+  association?: PluginAssociation
+  associations: Partial<Record<'host' | 'client', PluginAssociation>>
+}
+
+export interface PluginAssociation {
+  method: 'account' | 'host_registration_code'
+  account?: string
 }
 
 /** Loopback-only control plane shared by Local/Remote switching and plugin setup. */
@@ -140,24 +143,37 @@ export class PluginControlRuntime {
 
   private async settingsView(): Promise<PluginSettingsView> {
     const config = this.settings === undefined ? editableConfig(this.config) : editableConfig(resolveConfig(this.settings.get()))
-    const association = await this.association(config)
+    const associations = await this.associations(config)
+    const role = config.role === 'client' ? 'client' : 'host'
+    const association = associations[role]
     return {
       config,
       deviceName: hostname(),
       writable: this.settings !== undefined,
       applies: 'restart',
+      associations,
       ...(association === undefined ? {} : { association }),
     }
   }
 
-  private async association(config: Config): Promise<PluginSettingsView['association']> {
-    if (config.serverUrl === undefined) return undefined
-    const role = config.role === 'client' ? 'client' : 'host'
+  private async associations(config: Config): Promise<PluginSettingsView['associations']> {
+    if (config.serverUrl === undefined) return {}
+    const [host, client] = await Promise.all([
+      this.association(config.serverUrl, 'host'),
+      this.association(config.serverUrl, 'client'),
+    ])
+    return {
+      ...(host === undefined ? {} : { host }),
+      ...(client === undefined ? {} : { client }),
+    }
+  }
+
+  private async association(serverUrl: string, role: 'host' | 'client'): Promise<PluginAssociation | undefined> {
     const identities = new IdentityStore({
-      directory: serverStorageDirectory(this.identityDirectory, config.serverUrl, role),
+      directory: serverStorageDirectory(this.identityDirectory, serverUrl, role),
     })
     const identity = await identities.loadOrCreate(hostname())
-    const credentials = await new ServerCredentialStore(identities.directory).load(config.serverUrl, identity.deviceId)
+    const credentials = await new ServerCredentialStore(identities.directory).load(serverUrl, identity.deviceId)
     if (credentials === undefined) return undefined
     return {
       method: credentials.authorizationMethod,

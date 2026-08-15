@@ -5,7 +5,7 @@ describe('plugin config', () => {
   it('applies safe defaults', () => {
     expect(resolveConfig({}, {})).toMatchObject({
       enabled: true,
-      role: 'both',
+      role: 'host',
       forceRelay: false,
       reconnect: { enabled: true, initialDelayMs: 1_000, maxDelayMs: 30_000, jitter: 0.2 },
     })

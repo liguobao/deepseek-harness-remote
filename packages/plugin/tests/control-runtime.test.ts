@@ -61,17 +61,23 @@ describe('PluginControlRuntime settings setup', () => {
 
     await expect(handler('settings.role.set', { role: 'client' }, signal())).resolves.toMatchObject({
       ok: true,
-      value: { config: { role: 'client' } },
+      value: {
+        config: { role: 'client' },
+        associations: { host: { method: 'account', account: 'host@example.com' } },
+      },
     })
+    expect(calls).toHaveLength(2)
+    const hostDirectory = serverStorageDirectory(directory, 'https://dsh.r2049.cn', 'host')
+    await expect(readFile(join(hostDirectory, 'server-credentials.json'), 'utf8')).resolves.toContain('host@example.com')
     await expect(handler('settings.role.set', { role: 'host' }, signal())).resolves.toMatchObject({
       ok: true,
       value: { association: { account: 'host@example.com' } },
     })
+    expect(calls).toHaveLength(2)
     await expect(handler('settings.logout', {}, signal())).resolves.toMatchObject({
       ok: true,
       value: { config: { role: 'host' } },
     })
-    const hostDirectory = serverStorageDirectory(directory, 'https://dsh.r2049.cn', 'host')
     await expect(readFile(join(hostDirectory, 'server-credentials.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 

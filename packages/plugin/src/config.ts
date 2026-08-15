@@ -80,7 +80,7 @@ export function resolveConfig(input: Config = {}, env: NodeJS.ProcessEnv = proce
   }
   return {
     enabled: parsed.enabled ?? true,
-    role: parsed.role ?? 'both',
+    role: parsed.role ?? 'host',
     ...(serverUrl === undefined ? {} : { serverUrl }),
     deviceName: parsed.deviceName ?? hostname(),
     forceRelay: parsed.forceRelay ?? false,
