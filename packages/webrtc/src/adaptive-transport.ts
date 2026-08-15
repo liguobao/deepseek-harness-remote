@@ -291,7 +291,13 @@ export class AdaptiveTransport extends BaseTransport {
     if (factory === undefined) {
       throw new RtcConnectError('RTC_UNAVAILABLE', 'No RTC backend is available in this environment.')
     }
-    const iceServers = await (this.options.fetchIceServers?.(connectionId) ?? [])
+    let iceServers: RtcIceServer[] = []
+    try {
+      iceServers = await (this.options.fetchIceServers?.(connectionId) ?? [])
+    } catch {
+      // TURN/STUN unavailable: still attempt direct P2P with host candidates.
+      iceServers = []
+    }
     const rtc = new RtcDataChannelTransport({
       role: 'initiator',
       factory,
