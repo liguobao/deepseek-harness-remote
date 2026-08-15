@@ -39,7 +39,13 @@ const streamOpenSchema = z.object({
   streamId: z.string().min(1).max(128),
   stream: z.enum(['mux', 'host']),
   rpcId: z.string().min(1).max(128),
-  payload: z.unknown(),
+  payload: z.object({
+    // Optional focus for a mux stream: only frames belonging to this session
+    // are forwarded. The Remote Web selects one session at a time, so without
+    // this every active session's events (potentially megabytes) would be
+    // pushed over the tunnel and stall the WebRTC data channel.
+    sessionId: z.string().min(1).max(128).optional(),
+  }).strict(),
 }).strict()
 
 const streamCloseSchema = z.object({ streamId: z.string().min(1).max(128) }).strict()
@@ -94,6 +100,8 @@ export type AllowedHarnessApiMethod = typeof HARNESS_API_ALLOWLIST[number]
 interface ActiveStream {
   controller: AbortController
   task: Promise<void>
+  /** For a mux stream: only forward frames for this session (undefined = all). */
+  focusSessionId?: string
 }
 
 /**
@@ -179,9 +187,14 @@ export class HarnessApiBridge {
     const stream = params.stream === 'mux'
       ? this.mux(request as never, controller.signal)
       : this.host(request as never, controller.signal)
-    const task = this.pump(params.streamId, stream, controller.signal)
-    this.streams.set(params.streamId, { controller, task })
-    this.logger?.debug('harness api stream open', { stream: params.stream, streamId: shortId(params.streamId) })
+    const focusSessionId = params.stream === 'mux' ? params.payload.sessionId : undefined
+    const task = this.pump(params.streamId, stream, controller.signal, focusSessionId)
+    this.streams.set(params.streamId, { controller, task, ...(focusSessionId === undefined ? {} : { focusSessionId }) })
+    this.logger?.debug('harness api stream open', {
+      stream: params.stream,
+      streamId: shortId(params.streamId),
+      ...(focusSessionId === undefined ? {} : { focusSessionId: shortId(focusSessionId) }),
+    })
     return { opened: true, streamId: params.streamId }
   }
 
@@ -205,11 +218,22 @@ export class HarnessApiBridge {
     // without holding up the authenticated connection handoff.
   }
 
-  private async pump(streamId: string, stream: HarnessStream, signal: AbortSignal): Promise<void> {
+  private async pump(
+    streamId: string,
+    stream: HarnessStream,
+    signal: AbortSignal,
+    focusSessionId?: string,
+  ): Promise<void> {
     let reason: HarnessApiStreamClosedData['reason'] = 'completed'
     try {
       for await (const frame of stream) {
         if (signal.aborted) break
+        if (focusSessionId !== undefined && frameSessionId(frame) !== undefined && frameSessionId(frame) !== focusSessionId) {
+          // Keep pushing to the native stream (the peer's upstream may still
+          // emit approvals for the focused session through the same pump) but
+          // do not forward other sessions' traffic over the tunnel.
+          continue
+        }
         this.trackRespondable(frame)
         await this.publish('harness.api.frame', { streamId, frame } satisfies HarnessApiFrameData)
       }
@@ -277,6 +301,12 @@ function deniedMethod(method: string): RpcError {
 function diagnosticReason(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   return message.replace(/[\r\n]+/g, ' ').slice(0, 160) || 'Unknown Harness API failure.'
+}
+
+/** Session id of a mux frame, or undefined for frames without one (e.g. stream/error). */
+function frameSessionId(frame: RpcRequest<MuxFrame | HostFrame>): string | undefined {
+  const payload = frame.payload as { sessionId?: unknown }
+  return typeof payload.sessionId === 'string' && payload.sessionId.length > 0 ? payload.sessionId : undefined
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {

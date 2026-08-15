@@ -14816,7 +14816,13 @@ var streamOpenSchema = external_exports.object({
   streamId: external_exports.string().min(1).max(128),
   stream: external_exports.enum(["mux", "host"]),
   rpcId: external_exports.string().min(1).max(128),
-  payload: external_exports.unknown()
+  payload: external_exports.object({
+    // Optional focus for a mux stream: only frames belonging to this session
+    // are forwarded. The Remote Web selects one session at a time, so without
+    // this every active session's events (potentially megabytes) would be
+    // pushed over the tunnel and stall the WebRTC data channel.
+    sessionId: external_exports.string().min(1).max(128).optional()
+  }).strict()
 }).strict();
 var streamCloseSchema = external_exports.object({ streamId: external_exports.string().min(1).max(128) }).strict();
 var HARNESS_API_ALLOWLIST = [
@@ -14921,9 +14927,14 @@ var HarnessApiBridge = class {
     const controller = new AbortController();
     const request = { rpcId: params.rpcId, payload: params.payload };
     const stream = params.stream === "mux" ? this.mux(request, controller.signal) : this.host(request, controller.signal);
-    const task = this.pump(params.streamId, stream, controller.signal);
-    this.streams.set(params.streamId, { controller, task });
-    this.logger?.debug("harness api stream open", { stream: params.stream, streamId: shortId4(params.streamId) });
+    const focusSessionId = params.stream === "mux" ? params.payload.sessionId : void 0;
+    const task = this.pump(params.streamId, stream, controller.signal, focusSessionId);
+    this.streams.set(params.streamId, { controller, task, ...focusSessionId === void 0 ? {} : { focusSessionId } });
+    this.logger?.debug("harness api stream open", {
+      stream: params.stream,
+      streamId: shortId4(params.streamId),
+      ...focusSessionId === void 0 ? {} : { focusSessionId: shortId4(focusSessionId) }
+    });
     return { opened: true, streamId: params.streamId };
   }
   closeStream(input) {
@@ -14939,11 +14950,14 @@ var HarnessApiBridge = class {
     this.respondable.clear();
     for (const stream of streams) stream.controller.abort(reason);
   }
-  async pump(streamId, stream, signal) {
+  async pump(streamId, stream, signal, focusSessionId) {
     let reason = "completed";
     try {
       for await (const frame of stream) {
         if (signal.aborted) break;
+        if (focusSessionId !== void 0 && frameSessionId(frame) !== void 0 && frameSessionId(frame) !== focusSessionId) {
+          continue;
+        }
         this.trackRespondable(frame);
         await this.publish("harness.api.frame", { streamId, frame });
       }
@@ -15005,6 +15019,10 @@ function deniedMethod(method) {
 function diagnosticReason4(error) {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/[\r\n]+/g, " ").slice(0, 160) || "Unknown Harness API failure.";
+}
+function frameSessionId(frame) {
+  const payload = frame.payload;
+  return typeof payload.sessionId === "string" && payload.sessionId.length > 0 ? payload.sessionId : void 0;
 }
 function withTimeout(promise, ms, message) {
   return new Promise((resolve, reject) => {

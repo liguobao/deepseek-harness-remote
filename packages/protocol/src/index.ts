@@ -264,7 +264,10 @@ export interface HarnessApiStreamOpenParams {
   streamId: string
   stream: 'mux' | 'host'
   rpcId: string
-  payload: unknown
+  payload: {
+    /** Optional mux focus: only forward frames for this session. */
+    sessionId?: string
+  }
 }
 
 export interface HarnessApiStreamCloseParams {
