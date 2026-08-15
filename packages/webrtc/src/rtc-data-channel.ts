@@ -67,6 +67,7 @@ export class RtcDataChannelTransport {
   private bytesSent = 0
   private bytesReceived = 0
   private selected?: RtcSelectedTransport
+  private sendChain: Promise<void> = Promise.resolve()
 
   constructor(options: RtcDataChannelTransportOptions) {
     this.role = options.role
@@ -111,10 +112,21 @@ export class RtcDataChannelTransport {
   }
 
   async send(data: Uint8Array): Promise<void> {
-    const channel = this.requireOpenChannel()
-    if (channel.readyState !== 'open') throw new Error('WebRTC data channel is not open.')
-    channel.send(toArrayBuffer(data))
-    this.bytesSent += data.byteLength
+    const previous = this.sendChain
+    const next = previous.then(async () => {
+      const channel = this.requireOpenChannel()
+      if (channel.readyState !== 'open') throw new Error('WebRTC data channel is not open.')
+      channel.send(toArrayBuffer(data))
+      // werift flushes asynchronously and can reorder/drop ordered frames when
+      // sends race. Serialize sends and wait for the queue to drain before the
+      // next frame, so ordered DataChannel frames are never sent concurrently.
+      while (channel.readyState === 'open' && channel.bufferedAmount > 0) {
+        await sleep(1)
+      }
+      this.bytesSent += data.byteLength
+    })
+    this.sendChain = next.catch(() => undefined)
+    return next
   }
 
   onMessage(handler: (data: Uint8Array) => void): () => void {
@@ -364,4 +376,8 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new RtcConnectError('RTC_FAILED', 'WebRTC negotiation failed.')
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }

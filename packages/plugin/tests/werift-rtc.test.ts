@@ -50,4 +50,35 @@ describe('werift RTC backend', () => {
     expect(initiator.getStats().connected).toBe(false)
     expect(responder.getStats().connected).toBe(false)
   }, 20_000)
+
+  it('delivers many concurrent ordered frames without loss or reordering', async () => {
+    const factory = await loadWeriftFactory()
+    expect(factory).toBeDefined()
+
+    const received: string[] = []
+    const initiator = new RtcDataChannelTransport({
+      role: 'initiator',
+      factory: factory!,
+      onSignal: signal => responder.handleSignal(signal),
+      negotiateTimeoutMs: 8_000,
+    })
+    const responder = new RtcDataChannelTransport({
+      role: 'responder',
+      factory: factory!,
+      onSignal: signal => initiator.handleSignal(signal),
+      negotiateTimeoutMs: 8_000,
+    })
+    responder.onMessage(data => received.push(new TextDecoder().decode(data)))
+
+    await Promise.all([initiator.connect(), responder.connect()])
+    // Fire many sends without awaiting each, exercising the send-chain path.
+    const pending = Array.from({ length: 60 }, (_, index) =>
+      initiator.send(new TextEncoder().encode(`frame-${index}`)))
+    await Promise.all(pending)
+    await waitFor(() => received.length === 60, 'all frames received', 15_000)
+
+    expect(received).toEqual(Array.from({ length: 60 }, (_, index) => `frame-${index}`))
+    await initiator.close()
+    await responder.close()
+  }, 30_000)
 })

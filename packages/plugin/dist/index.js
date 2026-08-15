@@ -4587,6 +4587,7 @@ var RtcDataChannelTransport = class {
   bytesSent = 0;
   bytesReceived = 0;
   selected;
+  sendChain = Promise.resolve();
   constructor(options) {
     this.role = options.role;
     this.onSignal = options.onSignal;
@@ -4632,11 +4633,19 @@ var RtcDataChannelTransport = class {
       void this.handleIce(signal.candidate);
   }
   async send(data) {
-    const channel = this.requireOpenChannel();
-    if (channel.readyState !== "open")
-      throw new Error("WebRTC data channel is not open.");
-    channel.send(toArrayBuffer(data));
-    this.bytesSent += data.byteLength;
+    const previous = this.sendChain;
+    const next = previous.then(async () => {
+      const channel = this.requireOpenChannel();
+      if (channel.readyState !== "open")
+        throw new Error("WebRTC data channel is not open.");
+      channel.send(toArrayBuffer(data));
+      while (channel.readyState === "open" && channel.bufferedAmount > 0) {
+        await sleep(1);
+      }
+      this.bytesSent += data.byteLength;
+    });
+    this.sendChain = next.catch(() => void 0);
+    return next;
   }
   onMessage(handler) {
     this.messageHandlers.add(handler);
@@ -4891,6 +4900,9 @@ function toArrayBuffer(data) {
 }
 function asError(error) {
   return error instanceof Error ? error : new RtcConnectError("RTC_FAILED", "WebRTC negotiation failed.");
+}
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ../webrtc/dist/adaptive-transport.js
