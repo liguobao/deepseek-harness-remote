@@ -12632,7 +12632,7 @@ var HostServerApi = class {
       role: this.role,
       platform: platform(),
       identityKey: identity.publicKey,
-      clientVersion: "0.2.8",
+      clientVersion: "0.2.9",
       ...this.role === "host" ? { harnessVersion: "0.1.0-rc.6" } : {}
     };
   }
