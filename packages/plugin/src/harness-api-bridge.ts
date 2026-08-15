@@ -201,7 +201,15 @@ export class HarnessApiBridge {
   closeStream(input: unknown): { closed: boolean; streamId: string } {
     const params = streamCloseSchema.parse(input)
     const active = this.streams.get(params.streamId)
-    active?.controller.abort()
+    if (active !== undefined) {
+      // Free the slot synchronously. A native ApiProxy stream may not observe
+      // the abort until its next frame, so a session-focused mux stream on an
+      // idle session could otherwise hold its slot forever and block the
+      // client's documented close-then-reopen session switch with
+      // RATE_LIMITED. The pump's finally performs a no-op delete later.
+      this.streams.delete(params.streamId)
+      active.controller.abort()
+    }
     this.logger?.debug('harness api stream close', { streamId: shortId(params.streamId), closed: active !== undefined })
     return { closed: active !== undefined, streamId: params.streamId }
   }

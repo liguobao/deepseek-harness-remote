@@ -14940,7 +14940,10 @@ var HarnessApiBridge = class {
   closeStream(input) {
     const params = streamCloseSchema.parse(input);
     const active = this.streams.get(params.streamId);
-    active?.controller.abort();
+    if (active !== void 0) {
+      this.streams.delete(params.streamId);
+      active.controller.abort();
+    }
     this.logger?.debug("harness api stream close", { streamId: shortId4(params.streamId), closed: active !== void 0 });
     return { closed: active !== void 0, streamId: params.streamId };
   }

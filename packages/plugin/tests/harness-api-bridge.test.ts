@@ -77,6 +77,33 @@ describe('HarnessApiBridge', () => {
     })
   })
 
+  it('frees the stream slot synchronously on close even when the native stream stalls', () => {
+    const stalled = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<never>>(() => undefined),
+      }),
+    }
+    const bridge = new HarnessApiBridge(api({
+      events: {
+        mux: (_request: unknown, signal: AbortSignal) => {
+          signal.addEventListener('abort', () => undefined)
+          return stalled
+        },
+        host: async function* () { return },
+      },
+    }), vi.fn(async () => undefined), 2)
+
+    bridge.openStream({ streamId: 'mux-a', stream: 'mux', rpcId: 'open-1', payload: { sessionId: 'session-a' } })
+    bridge.openStream({ streamId: 'host-b', stream: 'host', rpcId: 'open-2', payload: {} })
+    bridge.closeStream({ streamId: 'mux-a' })
+    // The client's close-then-reopen session switch must not hit RATE_LIMITED
+    // even though the aborted native stream has not yielded its slot yet.
+    expect(bridge.openStream({ streamId: 'mux-c', stream: 'mux', rpcId: 'open-3', payload: { sessionId: 'session-b' } })).toEqual({
+      opened: true,
+      streamId: 'mux-c',
+    })
+  })
+
   it('allows responses only for answerable requests emitted on the same peer bridge', async () => {
     const respond = vi.fn(async () => ({ accepted: true as const }))
     const streamApi = api({
