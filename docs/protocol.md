@@ -871,13 +871,13 @@ Result 是 Harness `ApiProxy` 的原生 `RpcResponse`，必须回显内层 `rpcI
 
 - session list/search/create/history/models/selectModel/rename/fork/prompt/updateQueue/cancel
 - subagent list/history/prompt/interrupt
-- `host.describe`
+- `host.describe`、`host.listDirectory`（只读目录元数据，用于远程 Workspace 选择器）
 - workspace list/create/rename/delete/reorder/attach/archive
 - skill list、agent preset list/select/read
 - goal create/edit/pause/resume/complete/clear
 - LLM provider/model list
 
-明确禁止 credentials、settings 写入、model endpoint discovery、native path open/picker、目录枚举/创建、attachment、download 以及任何未列出方法。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
+明确禁止 credentials、settings 写入、model endpoint discovery、native path open/picker、目录创建、文件内容读取、attachment、download 以及任何未列出方法。`host.listDirectory` 只允许通过官方 ApiProxy browse capability 返回单层目录元数据，不得扩展为文件内容读取或通用文件系统 RPC。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
 
 #### `harness.api.respond`
 

@@ -14702,6 +14702,7 @@ var HARNESS_API_ALLOWLIST = [
   "subagent.prompt",
   "subagent.interrupt",
   "host.describe",
+  "host.listDirectory",
   "workspace.list",
   "workspace.create",
   "workspace.rename",

@@ -45,8 +45,9 @@ const streamCloseSchema = z.object({ streamId: z.string().min(1).max(128) }).str
 
 /**
  * Harness API methods that are safe to expose to an authenticated remote UI.
- * Settings, credentials, native open/picker calls, arbitrary directory reads,
- * downloads, and attachment upload intentionally remain outside this bridge.
+ * Settings, credentials, native open/picker calls, directory mutation, file
+ * contents, downloads, and attachment upload intentionally remain outside
+ * this bridge. Directory listing exposes metadata only for workspace picking.
  */
 export const HARNESS_API_ALLOWLIST = [
   'session.list',
@@ -65,6 +66,7 @@ export const HARNESS_API_ALLOWLIST = [
   'subagent.prompt',
   'subagent.interrupt',
   'host.describe',
+  'host.listDirectory',
   'workspace.list',
   'workspace.create',
   'workspace.rename',

@@ -24,7 +24,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [ ] 在真实 dsh-desktop 中验证 GitHub 安装、重启、Host/Client 配置和 Bundle 入口
 - [ ] 用两台真实 Harness + 外部 Server 跑通同账号授权、选择 Remote、创建/继续会话
 - [ ] 验证原生 mux/host stream、approval/question respond 与断线关闭行为
-- [ ] 验证 allowlist 覆盖官方 UI 的必需方法，并保持 credentials/settings/native path/目录/附件/download 禁止
+- [ ] 验证 allowlist 覆盖官方 UI 的必需方法，并保持 credentials/settings/native path/目录写入/文件内容/附件/download 禁止
 - [ ] 完善账号过期、`DEVICE_OWNERSHIP_REQUIRED` 和 legacy owner 的显式恢复体验
 - [ ] 增加 transport 关闭后 pending unary/stream 的确定错误与可诊断状态
 

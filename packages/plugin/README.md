@@ -22,8 +22,9 @@ The Client implementation pins the Host identity key from
 the membership-protected device detail; the Host performs the symmetric check
 for every incoming Client before Noise IK. Native Harness calls and mux/host
 streams are tunneled through an explicit allowlist;
-credentials, settings writes, arbitrary directory operations, native open
-actions, attachments, and downloads remain local/disabled.
+read-only directory metadata is available to the remote Workspace picker, while
+credentials, settings writes, directory mutation, file-content access, native
+open/picker actions, attachments, and downloads remain local/disabled.
 
 The bundle entry activates without blocking Harness startup. Its remote runtime
 starts in an isolated Cordis dependency scope after `settings`, `apiProxy`, and

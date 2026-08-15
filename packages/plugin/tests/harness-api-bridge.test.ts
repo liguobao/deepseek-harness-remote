@@ -4,18 +4,33 @@ import { HarnessApiBridge } from '../src/harness-api-bridge.js'
 import { RpcError } from '../src/rpc-router.js'
 
 describe('HarnessApiBridge', () => {
-  it('forwards allowlisted native methods while denying credential and filesystem methods', async () => {
+  it('forwards allowlisted native methods and read-only directory browsing while denying privileged methods', async () => {
     const list = vi.fn(async (request: { rpcId: string }) => ({ rpcId: request.rpcId, result: { ok: true, value: [] } }))
-    const bridge = new HarnessApiBridge(api({ sessions: { list } }), vi.fn(async () => undefined))
+    const listDirectory = vi.fn(async (request: { rpcId: string }) => ({
+      rpcId: request.rpcId,
+      result: {
+        ok: true,
+        value: { path: '/home/user', home: '/home/user', crumbs: [], entries: [], truncated: false },
+      },
+    }))
+    const bridge = new HarnessApiBridge(api({ sessions: { list }, host: { listDirectory } }), vi.fn(async () => undefined))
 
     await expect(bridge.call({ method: 'session.list', rpcId: 'native-1', payload: {} })).resolves.toMatchObject({
       rpcId: 'native-1',
       result: { ok: true },
     })
-    await expect(bridge.call({ method: 'credentials.describe', rpcId: 'native-2', payload: {} })).rejects.toMatchObject({
+    await expect(bridge.call({ method: 'host.listDirectory', rpcId: 'native-2', payload: {} })).resolves.toMatchObject({
+      rpcId: 'native-2',
+      result: { ok: true, value: { path: '/home/user' } },
+    })
+    expect(listDirectory).toHaveBeenCalledWith(
+      { rpcId: 'native-2', payload: {} },
+      expect.any(AbortSignal),
+    )
+    await expect(bridge.call({ method: 'credentials.describe', rpcId: 'native-3', payload: {} })).rejects.toMatchObject({
       code: 'METHOD_NOT_ALLOWED',
     })
-    await expect(bridge.call({ method: 'host.listDirectory', rpcId: 'native-3', payload: {} })).rejects.toBeInstanceOf(RpcError)
+    await expect(bridge.call({ method: 'host.createDirectory', rpcId: 'native-4', payload: {} })).rejects.toBeInstanceOf(RpcError)
   })
 
   it('publishes native stream frames and an explicit terminal event', async () => {
