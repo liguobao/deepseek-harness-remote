@@ -61,7 +61,7 @@ interface PluginSettingsView {
 }
 
 interface PluginAssociation {
-  method: 'account' | 'host_registration_code'
+  method: 'account' | 'host_registration_code' | 'owned_device'
   account?: string
 }
 
@@ -89,6 +89,7 @@ const en = {
   authorization: 'Authorization',
   account: 'Account',
   hostRegistrationCode: 'Host registration code',
+  ownedDeviceAuthorization: 'Owned device',
   authorizedOn: '{role} is authorized on {serverUrl}.',
   readOnly: 'This DSH profile does not provide writable user settings.',
   discard: 'Discard',
@@ -108,6 +109,7 @@ const en = {
   passwordHint: 'Used only for this HTTPS authorization request and never saved.',
   modeSavedNeedsAuthorization: 'Mode saved. Authorize {role} before connecting. Existing registrations were kept.',
   modeSavedReused: 'Mode saved. Existing registration reused. Restart Harness to apply.',
+  modeSavedOwnedRole: 'Mode saved. This owned device was authorized automatically. Restart Harness to apply.',
   enterRegistrationCode: 'Enter a Host registration code.',
   enterAccountPassword: 'Enter the Server account and password.',
   associationSaved: 'Associated. Restart Harness to apply.',
@@ -151,6 +153,7 @@ const zh: Record<keyof typeof en, string> = {
   authorization: '授权',
   account: '账号',
   hostRegistrationCode: 'Host 注册码',
+  ownedDeviceAuthorization: '自有设备',
   authorizedOn: '{role} 已在 {serverUrl} 完成授权。',
   readOnly: '此 DSH profile 不提供可写的用户设置。',
   discard: '放弃修改',
@@ -170,6 +173,7 @@ const zh: Record<keyof typeof en, string> = {
   passwordHint: '仅用于本次 HTTPS 授权请求，不会保存。',
   modeSavedNeedsAuthorization: '模式已保存。连接前请先授权 {role}；已有注册信息已保留。',
   modeSavedReused: '模式已保存并复用已有注册信息。重启 Harness 后生效。',
+  modeSavedOwnedRole: '模式已保存，并已自动授权此自有设备。重启 Harness 后生效。',
   enterRegistrationCode: '请输入 Host 注册码。',
   enterAccountPassword: '请输入 Server 账号和密码。',
   associationSaved: '关联成功。重启 Harness 后生效。',
@@ -275,7 +279,9 @@ window.__ModuleLoader__.load({
           if (roleDirty && !serverDirty && association === undefined && !authorizationDirty) {
             const view = await props.control<PluginSettingsView>('settings.role.set', { role })
             applyView(view)
-            setNotice({ key: 'modeSavedNeedsAuthorization', params: { role: t(role) } })
+            setNotice(view.associations?.[role] === undefined
+              ? { key: 'modeSavedNeedsAuthorization', params: { role: t(role) } }
+              : { key: 'modeSavedOwnedRole' })
             return
           }
           if (roleDirty && !serverDirty && association !== undefined) {
@@ -385,7 +391,8 @@ window.__ModuleLoader__.load({
         React.createElement('div', { className: 'dshRemoteSettingsTop' },
           React.createElement('div', { className: 'dshRemoteAssociation' },
             React.createElement('span', null, t(association.account === undefined ? 'authorization' : 'account')),
-            React.createElement('strong', null, association.account ?? t('hostRegistrationCode')),
+            React.createElement('strong', null, association.account
+              ?? t(association.method === 'owned_device' ? 'ownedDeviceAuthorization' : 'hostRegistrationCode')),
             React.createElement('p', null, t('authorizedOn', { role: t(role), serverUrl }))),
           modeSwitch),
         !writable ? React.createElement('p', { className: 'dshRemoteError' }, t('readOnly')) : null,

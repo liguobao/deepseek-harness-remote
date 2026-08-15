@@ -12431,6 +12431,21 @@ var HostServerApi = class {
     });
     return { method: "host_registration_code" };
   }
+  async authorizeOwnedRole(identity, authorizingAccessToken, account) {
+    this.bindIdentity(identity);
+    const tokens = await this.publicRequest("/api/v1/devices/register-owned-role", {
+      method: "POST",
+      body: JSON.stringify({ v: 1, device: this.deviceDescriptor(identity) })
+    }, authorizingAccessToken);
+    this.credentials = await this.saveTokens(identity, validateTokens(tokens), {
+      authorizationMethod: "owned_device",
+      ...account === void 0 ? {} : { account }
+    });
+    return {
+      method: "owned_device",
+      ...account === void 0 ? {} : { account }
+    };
+  }
   async authenticate(identity = this.requireIdentity()) {
     this.bindIdentity(identity);
     if (this.credentials !== void 0 && this.credentials.accessTokenExpiresAt > Date.now() + 3e4) {
@@ -12668,7 +12683,7 @@ var credentialSchema = external_exports.object({
   schemaVersion: external_exports.literal(1),
   serverUrl: external_exports.string().url(),
   deviceId: external_exports.string().min(1),
-  authorizationMethod: external_exports.enum(["account", "host_registration_code"]),
+  authorizationMethod: external_exports.enum(["account", "host_registration_code", "owned_device"]),
   account: external_exports.string().min(1).max(254).optional(),
   accessToken: external_exports.string().min(16),
   accessTokenExpiresAt: external_exports.number().int().positive(),
@@ -12816,8 +12831,24 @@ var PluginControlRuntime = class {
       throw new ClientModeError("INVALID_MESSAGE", "Role must be Host or Client.");
     }
     const current = editableConfig(resolveConfig(this.settings.get()));
+    const currentRole = current.role === "client" ? "client" : "host";
+    if (role !== currentRole && current.serverUrl !== void 0 && await this.association(current.serverUrl, role) === void 0) {
+      await this.authorizeOwnedRole(current.serverUrl, currentRole, role);
+    }
     await this.settings.replace({ ...current, role });
     return this.settingsView();
+  }
+  async authorizeOwnedRole(serverUrl, sourceRole, targetRole) {
+    const sourceDirectory = serverStorageDirectory(this.identityDirectory, serverUrl, sourceRole);
+    const sourceIdentity = await new IdentityStore({ directory: sourceDirectory }).loadOrCreate(hostname2());
+    const sourceStore = new ServerCredentialStore(sourceDirectory);
+    if (await sourceStore.load(serverUrl, sourceIdentity.deviceId) === void 0) return;
+    const sourceApi = sourceRole === "host" ? new HostServerApi(serverUrl, sourceStore) : new ClientServerApi(serverUrl, sourceStore);
+    const sourceCredentials = await sourceApi.authenticate(sourceIdentity);
+    const targetDirectory = serverStorageDirectory(this.identityDirectory, serverUrl, targetRole);
+    const targetIdentity = await new IdentityStore({ directory: targetDirectory }).loadOrCreate(hostname2());
+    const targetApi = targetRole === "host" ? new HostServerApi(serverUrl, new ServerCredentialStore(targetDirectory)) : new ClientServerApi(serverUrl, new ServerCredentialStore(targetDirectory));
+    await targetApi.authorizeOwnedRole(targetIdentity, sourceCredentials.accessToken, sourceCredentials.account);
   }
   async logout() {
     if (this.settings === void 0) {

@@ -23,7 +23,7 @@ export interface PluginSettingsView {
 }
 
 export interface PluginAssociation {
-  method: 'account' | 'host_registration_code'
+  method: 'account' | 'host_registration_code' | 'owned_device'
   account?: string
 }
 
@@ -124,8 +124,35 @@ export class PluginControlRuntime {
       throw new ClientModeError('INVALID_MESSAGE', 'Role must be Host or Client.')
     }
     const current = editableConfig(resolveConfig(this.settings.get()))
+    const currentRole = current.role === 'client' ? 'client' : 'host'
+    if (role !== currentRole && current.serverUrl !== undefined
+      && await this.association(current.serverUrl, role) === undefined) {
+      await this.authorizeOwnedRole(current.serverUrl, currentRole, role)
+    }
     await this.settings.replace({ ...current, role })
     return this.settingsView()
+  }
+
+  private async authorizeOwnedRole(
+    serverUrl: string,
+    sourceRole: 'host' | 'client',
+    targetRole: 'host' | 'client',
+  ): Promise<void> {
+    const sourceDirectory = serverStorageDirectory(this.identityDirectory, serverUrl, sourceRole)
+    const sourceIdentity = await new IdentityStore({ directory: sourceDirectory }).loadOrCreate(hostname())
+    const sourceStore = new ServerCredentialStore(sourceDirectory)
+    if (await sourceStore.load(serverUrl, sourceIdentity.deviceId) === undefined) return
+    const sourceApi = sourceRole === 'host'
+      ? new HostServerApi(serverUrl, sourceStore)
+      : new ClientServerApi(serverUrl, sourceStore)
+    const sourceCredentials = await sourceApi.authenticate(sourceIdentity)
+
+    const targetDirectory = serverStorageDirectory(this.identityDirectory, serverUrl, targetRole)
+    const targetIdentity = await new IdentityStore({ directory: targetDirectory }).loadOrCreate(hostname())
+    const targetApi = targetRole === 'host'
+      ? new HostServerApi(serverUrl, new ServerCredentialStore(targetDirectory))
+      : new ClientServerApi(serverUrl, new ServerCredentialStore(targetDirectory))
+    await targetApi.authorizeOwnedRole(targetIdentity, sourceCredentials.accessToken, sourceCredentials.account)
   }
 
   private async logout(): Promise<PluginSettingsView> {

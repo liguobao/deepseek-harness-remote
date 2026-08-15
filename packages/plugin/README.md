@@ -18,7 +18,10 @@ Host/Client role.
 
 The same package installs Host and Client browser capabilities. A single
 Host/Client switch in the plugin options card selects the active role, while the
-device display name is read from the machine hostname. The sidebar target
+first switch on an already owned installation registers the opposite role from
+the current device authorization without asking for the account password again.
+Each role keeps a separate device identity and credential. The device display
+name is read from the machine hostname. The sidebar target
 control lists same-account Hosts and switches the official Harness UI between
 Local and an authorized Remote Host. The Client pins the Host identity key from
 the membership-protected device detail; the Host performs the symmetric check

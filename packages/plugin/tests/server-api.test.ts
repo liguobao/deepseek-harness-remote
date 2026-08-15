@@ -93,6 +93,32 @@ describe('HostServerApi', () => {
     })
   })
 
+  it('authorizes the opposite role from an already owned device credential', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-server-owned-role-'))
+    directories.push(directory)
+    const fetchMock = vi.fn(async () => json(tokens())) as unknown as typeof fetch
+    const store = new ServerCredentialStore(directory)
+    const api = new ClientServerApi('https://dsh.r2049.cn', store, fetchMock)
+    const identity = hostIdentity()
+
+    await expect(api.authorizeOwnedRole(identity, 'authorizing-device-token', 'owner@example.com')).resolves.toEqual({
+      method: 'owned_device',
+      account: 'owner@example.com',
+    })
+
+    expect(String(vi.mocked(fetchMock).mock.calls[0]?.[0])).toBe('https://dsh.r2049.cn/api/v1/devices/register-owned-role')
+    expect(vi.mocked(fetchMock).mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: 'Bearer authorizing-device-token',
+    })
+    expect(JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]?.[1]?.body))).toMatchObject({
+      device: { deviceId: identity.deviceId, role: 'client' },
+    })
+    await expect(store.load('https://dsh.r2049.cn', identity.deviceId)).resolves.toMatchObject({
+      authorizationMethod: 'owned_device',
+      account: 'owner@example.com',
+    })
+  })
+
   it('reports account authorization when a fresh Host cannot register anonymously', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-server-account-required-'))
     directories.push(directory)

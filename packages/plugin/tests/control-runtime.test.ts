@@ -32,6 +32,10 @@ describe('PluginControlRuntime settings setup', () => {
         isAdmin: false,
       })
       if (url.endsWith('/devices/register')) return json(tokens())
+      if (url.endsWith('/devices/register-owned-role')) return json(tokens({
+        accessToken: 'client-access-token-value',
+        refreshToken: 'client-refresh-token-value',
+      }))
       throw new Error(`unexpected request: ${url}`)
     }))
     const handler = register(new PluginControlRuntime(
@@ -63,17 +67,26 @@ describe('PluginControlRuntime settings setup', () => {
       ok: true,
       value: {
         config: { role: 'client' },
-        associations: { host: { method: 'account', account: 'host@example.com' } },
+        association: { method: 'owned_device', account: 'host@example.com' },
+        associations: {
+          host: { method: 'account', account: 'host@example.com' },
+          client: { method: 'owned_device', account: 'host@example.com' },
+        },
       },
     })
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(3)
+    expect(calls[2]?.url).toBe('https://dsh.r2049.cn/api/v1/devices/register-owned-role')
+    expect(calls[2]?.init?.headers).toMatchObject({ Authorization: 'Bearer access-token-value' })
+    expect(JSON.parse(String(calls[2]?.init?.body))).toMatchObject({ device: { role: 'client' } })
     const hostDirectory = serverStorageDirectory(directory, 'https://dsh.r2049.cn', 'host')
+    const clientDirectory = serverStorageDirectory(directory, 'https://dsh.r2049.cn', 'client')
     await expect(readFile(join(hostDirectory, 'server-credentials.json'), 'utf8')).resolves.toContain('host@example.com')
+    await expect(readFile(join(clientDirectory, 'server-credentials.json'), 'utf8')).resolves.toContain('owned_device')
     await expect(handler('settings.role.set', { role: 'host' }, signal())).resolves.toMatchObject({
       ok: true,
       value: { association: { account: 'host@example.com' } },
     })
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(3)
     await expect(handler('settings.logout', {}, signal())).resolves.toMatchObject({
       ok: true,
       value: { config: { role: 'host' } },
@@ -156,6 +169,19 @@ describe('PluginControlRuntime settings setup', () => {
       code: 'ABCD-EFGH',
       device: { name: hostname(), role: 'host' },
     })
+
+    await expect(handler('settings.role.set', { role: 'client' }, signal())).resolves.toMatchObject({
+      ok: true,
+      value: {
+        config: { role: 'client' },
+        association: { method: 'owned_device' },
+      },
+    })
+    expect(calls[1]?.url).toBe('https://dsh.r2049.cn/api/v1/devices/register-owned-role')
+    expect(calls[1]?.init?.headers).toMatchObject({ Authorization: 'Bearer access-token-value' })
+    expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({
+      device: { name: hostname(), role: 'client' },
+    })
   })
 })
 
@@ -185,7 +211,11 @@ function settingsScope(initial: Config): SettingsScope<Config> {
 
 function signal(): AbortSignal { return new AbortController().signal }
 
-function tokens() {
+function tokens(overrides: Partial<ReturnType<typeof baseTokens>> = {}) {
+  return { ...baseTokens(), ...overrides }
+}
+
+function baseTokens() {
   return {
     accessToken: 'access-token-value',
     accessTokenExpiresAt: Date.now() + 600_000,

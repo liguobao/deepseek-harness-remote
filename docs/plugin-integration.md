@@ -220,6 +220,22 @@ Desktop Client 使用 §3.1 的账号密码取得临时 `accountToken`，再调�
 及 membership；Client 随后逐个调用 `GET /api/v1/devices/{hostDeviceId}` 获取 identity
 key，并在本机固定该 key。相同 Host deviceId 的 key 发生变化时必须拒绝覆盖和连接。
 
+### 5.4 同一安装直接切换 Host / Client
+
+同一 Plugin 安装只需首次完成任一角色的账号归属。切换到尚未注册的相反角色时，插件
+使用当前角色的有效 device access token 调用：
+
+```http
+POST /api/v1/devices/register-owned-role
+Authorization: Bearer <currentDeviceAccessToken>
+Content-Type: application/json
+```
+
+body 使用 §5.3 相同的注册 envelope，但新角色必须拥有独立 deviceId 和 identity key。
+Server 继承当前设备的 `owner_account` 并返回新角色自己的 token pair。之后 Host/Client
+切换只读取各自保存的凭据，不再注册。该接口不得接受相同 role、相同 deviceId、无账号
+owner 的设备或其他 Server 签发的 token。
+
 ## 6. 凭证保存和刷新
 
 建议按以下结构保存，字段名仅供参考：

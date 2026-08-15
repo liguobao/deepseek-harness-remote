@@ -52,7 +52,7 @@ docs/
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
 | Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK 与 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
-| Plugin Client Mode | 账号接入、同账号 Host 发现与 key pinning、Local/Remote ApiProxy switch、Settings 与 Web 入口已实现 | 真实 dsh-desktop 安装/E2E、断线重连 |
+| Plugin Client Mode | 账号接入、自有设备 Host/Client 直接切换、同账号 Host 发现与 key pinning、Local/Remote ApiProxy switch、Settings 与 Web 入口已实现 | 真实 dsh-desktop 安装/E2E、断线重连 |
 | Android | 旧 Remote RPC 原型已冻结，与当前 ApiProxy-only Host 不兼容 | 若恢复该产品线，先迁移到 ApiProxy contract |
 | Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 清理冻结 Android 的旧类型、完整 Zod schema、limits、golden vectors |
 | Crypto | 基础原语与标准 Noise IK 已实现 | 第三方实现审查、rekey、跨端 conformance |

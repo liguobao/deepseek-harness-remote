@@ -134,13 +134,17 @@ device Bearer 与普通 web 账号均不能访问 Admin API。
 
 ## 7. 设备注册
 
-Host 与 Client 都必须携带站点账号 token 注册随机身份并获取 Server credential。
+Host 与 Client 的首次账号归属必须携带站点账号 token 注册随机身份并获取 Server credential。
 Host 还可用账号网页生成的一次性主机匹配码接入。注册行为按 IP/账号限速；重复
 deviceId 不允许覆盖已有 public key、role 或 owner。
 
 Server credential 使用短 access token + 可旋转 refresh token。数据库仅保存 refresh token hash；检测旧 token 重用时撤销整个 token family。
 
 Host/Client private key 始终留在设备本地。
+
+同一 Plugin 安装在任一角色已经归属账号后，可用该角色 device credential 注册本机的
+相反角色。Server 只继承 owner，仍要求两个角色使用不同 deviceId、identity key 和
+token pair。
 
 ## 8. 账号授权设计
 
@@ -164,6 +168,7 @@ Host/Client private key 始终留在设备本地。
 | Method | Path | Auth | 说明 |
 | --- | --- | --- | --- |
 | `POST` | `/api/v1/devices/register` | Account | 注册账号拥有的 Host 或 Client，并同步授权边 |
+| `POST` | `/api/v1/devices/register-owned-role` | Device | 为同一安装注册账号拥有的相反角色 |
 | `POST` | `/api/v1/account/host-registration-codes` | Account | 生成一次性主机匹配码 |
 | `POST` | `/api/v1/devices/register-with-code` | rate limited | 使用主机匹配码注册 Host |
 | `GET` | `/api/v1/account/devices` | Account | 返回账号拥有的 Host 及当前在线状态 |

@@ -18,7 +18,7 @@ github:liguobao/deepseek-harness-remote#<tag-or-commit>
 重启 Harness，前往 **设置 → 插件 → 插件配置 → DeepSeek 远程连接**：
 
 1. 远端机器选择 **Host**，使用站点账号密码，或输入登录 Server 网页后生成的一次性主机匹配码；密码和匹配码都只用于本次 HTTPS 接入。
-2. 本地机器选择 **Client**，填写相同的 Server 和同一站点账号密码。
+2. 本地机器选择 **Client**，填写相同的 Server 和同一站点账号密码。若这台安装已注册过另一角色，直接切换即可，Server 会继承自有设备的账号归属并为新角色签发独立凭据。
 3. 分别重启两端 Harness；Server 会为同账号 Host/Client 自动建立 membership。
 4. 从本地侧边栏选择 Remote Host；选择 `This machine (Local)` 可切回本机。
 

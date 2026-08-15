@@ -25,7 +25,7 @@ interface WebLoginResponse {
 }
 
 export interface DeviceAuthorization {
-  method: 'account' | 'host_registration_code'
+  method: 'account' | 'host_registration_code' | 'owned_device'
   account?: string
   expiresAt?: number
   isAdmin?: boolean
@@ -112,6 +112,26 @@ export class HostServerApi {
       authorizationMethod: 'host_registration_code',
     })
     return { method: 'host_registration_code' }
+  }
+
+  async authorizeOwnedRole(
+    identity: HostIdentity,
+    authorizingAccessToken: string,
+    account?: string,
+  ): Promise<DeviceAuthorization> {
+    this.bindIdentity(identity)
+    const tokens = await this.publicRequest<TokenPair>('/api/v1/devices/register-owned-role', {
+      method: 'POST',
+      body: JSON.stringify({ v: 1, device: this.deviceDescriptor(identity) }),
+    }, authorizingAccessToken)
+    this.credentials = await this.saveTokens(identity, validateTokens(tokens), {
+      authorizationMethod: 'owned_device',
+      ...(account === undefined ? {} : { account }),
+    })
+    return {
+      method: 'owned_device',
+      ...(account === undefined ? {} : { account }),
+    }
   }
 
   async authenticate(identity = this.requireIdentity()): Promise<ServerCredentials> {

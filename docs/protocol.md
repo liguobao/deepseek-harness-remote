@@ -176,7 +176,8 @@ REST/Control JSON 中的 key、nonce、handshake 和 ciphertext 使用无 paddin
 
 `POST /api/v1/devices/register`
 
-Host 和 Client 注册都必须携带由同一 Server 签发的站点账号 Bearer token。插件默认连接
+Host 和 Client 的首次账号归属必须携带由同一 Server 签发的站点账号 Bearer token；
+同一安装的相反角色可按 §8.1.2 从已有 device credential 继承 owner。插件默认连接
 `https://dsh.r2049.cn`，也可以由用户配置自定义 Server；登录、注册、refresh、
 WebSocket 不得跨域混用。注册成功后，Server 为同一账号下的 Host 与 Client 自动
 建立或恢复 membership。
@@ -238,6 +239,21 @@ POST /api/v1/devices/register-with-code
 请求包含 `{ "v": 1, "code": "ABCD-EFGH", "device": <Host Device Descriptor> }`，
 成功响应与 §8.1 相同。主机匹配码 10 分钟过期、单次消费、只允许 `role=host`，
 Server 使用独立用途的 keyed hash 落库。
+
+### 8.1.2 自有设备角色切换
+
+同一 Plugin 安装已持有有效 Host 或 Client device credential 时，可以用该设备 access
+token 为本机注册相反角色，无需再次登录账号或输入主机匹配码：
+
+```http
+POST /api/v1/devices/register-owned-role
+Authorization: Bearer <currentDeviceAccessToken>
+```
+
+请求 body 与 §8.1 相同，但 descriptor 必须使用新的 deviceId、独立 identity key 和与
+当前设备相反的 role。Server 从当前设备继承 `owner_account`，拒绝无 owner、相同
+deviceId 或相同 role，并为新角色签发独立 token pair、同步同账号 membership。
+角色切换只复用账号归属，不得复用 Host/Client 私钥或 device token。
 
 ### 8.2 Refresh
 
@@ -1115,9 +1131,9 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 8. 当前 Harness v1 只允许 Remote `allow_once`/`deny`，不得伪造 session grant。
 9. Device revoke 使 token、membership 和现有 connection 失效。
 10. 重放/乱序/身份不匹配的 secure frame 必须拒绝。
-11. Host/Client 注册必须由同一 Server 的账号授权；Host 也可使用该账号生成的一次性
-    主机匹配码。account token 与 device token 不可互换，切换 Server 不得复用旧
-    origin 的身份、凭证或授权状态。
+11. Host/Client 首次账号归属必须由同一 Server 的账号授权；Host 也可使用该账号生成的
+    一次性主机匹配码。同一安装仅可用 device token 注册独立的相反角色；device token
+    仍不可调用账号接口，切换 Server 不得复用旧 origin 的身份、凭证或授权状态。
 12. 日志禁止记录 token、code 明文、key、prompt、source、workspace 和 tool output。
 13. Admin 无法从数据库或 API 获取 E2EE conversation。
 14. 未协商 capability 的功能不得调用或展示为可用。

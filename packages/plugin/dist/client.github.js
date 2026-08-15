@@ -16,6 +16,7 @@
     authorization: "Authorization",
     account: "Account",
     hostRegistrationCode: "Host registration code",
+    ownedDeviceAuthorization: "Owned device",
     authorizedOn: "{role} is authorized on {serverUrl}.",
     readOnly: "This DSH profile does not provide writable user settings.",
     discard: "Discard",
@@ -35,6 +36,7 @@
     passwordHint: "Used only for this HTTPS authorization request and never saved.",
     modeSavedNeedsAuthorization: "Mode saved. Authorize {role} before connecting. Existing registrations were kept.",
     modeSavedReused: "Mode saved. Existing registration reused. Restart Harness to apply.",
+    modeSavedOwnedRole: "Mode saved. This owned device was authorized automatically. Restart Harness to apply.",
     enterRegistrationCode: "Enter a Host registration code.",
     enterAccountPassword: "Enter the Server account and password.",
     associationSaved: "Associated. Restart Harness to apply.",
@@ -76,6 +78,7 @@
     authorization: "\u6388\u6743",
     account: "\u8D26\u53F7",
     hostRegistrationCode: "Host \u6CE8\u518C\u7801",
+    ownedDeviceAuthorization: "\u81EA\u6709\u8BBE\u5907",
     authorizedOn: "{role} \u5DF2\u5728 {serverUrl} \u5B8C\u6210\u6388\u6743\u3002",
     readOnly: "\u6B64 DSH profile \u4E0D\u63D0\u4F9B\u53EF\u5199\u7684\u7528\u6237\u8BBE\u7F6E\u3002",
     discard: "\u653E\u5F03\u4FEE\u6539",
@@ -95,6 +98,7 @@
     passwordHint: "\u4EC5\u7528\u4E8E\u672C\u6B21 HTTPS \u6388\u6743\u8BF7\u6C42\uFF0C\u4E0D\u4F1A\u4FDD\u5B58\u3002",
     modeSavedNeedsAuthorization: "\u6A21\u5F0F\u5DF2\u4FDD\u5B58\u3002\u8FDE\u63A5\u524D\u8BF7\u5148\u6388\u6743 {role}\uFF1B\u5DF2\u6709\u6CE8\u518C\u4FE1\u606F\u5DF2\u4FDD\u7559\u3002",
     modeSavedReused: "\u6A21\u5F0F\u5DF2\u4FDD\u5B58\u5E76\u590D\u7528\u5DF2\u6709\u6CE8\u518C\u4FE1\u606F\u3002\u91CD\u542F Harness \u540E\u751F\u6548\u3002",
+    modeSavedOwnedRole: "\u6A21\u5F0F\u5DF2\u4FDD\u5B58\uFF0C\u5E76\u5DF2\u81EA\u52A8\u6388\u6743\u6B64\u81EA\u6709\u8BBE\u5907\u3002\u91CD\u542F Harness \u540E\u751F\u6548\u3002",
     enterRegistrationCode: "\u8BF7\u8F93\u5165 Host \u6CE8\u518C\u7801\u3002",
     enterAccountPassword: "\u8BF7\u8F93\u5165 Server \u8D26\u53F7\u548C\u5BC6\u7801\u3002",
     associationSaved: "\u5173\u8054\u6210\u529F\u3002\u91CD\u542F Harness \u540E\u751F\u6548\u3002",
@@ -143,7 +147,7 @@
             try {
               if (roleDirty && !serverDirty && association === void 0 && !authorizationDirty) {
                 let view = await props.control("settings.role.set", { role });
-                applyView(view), setNotice({ key: "modeSavedNeedsAuthorization", params: { role: t(role) } });
+                applyView(view), setNotice(view.associations?.[role] === void 0 ? { key: "modeSavedNeedsAuthorization", params: { role: t(role) } } : { key: "modeSavedOwnedRole" });
                 return;
               }
               if (roleDirty && !serverDirty && association !== void 0) {
@@ -242,7 +246,7 @@
                   "div",
                   { className: "dshRemoteAssociation" },
                   React.createElement("span", null, t(association.account === void 0 ? "authorization" : "account")),
-                  React.createElement("strong", null, association.account ?? t("hostRegistrationCode")),
+                  React.createElement("strong", null, association.account ?? t(association.method === "owned_device" ? "ownedDeviceAuthorization" : "hostRegistrationCode")),
                   React.createElement("p", null, t("authorizedOn", { role: t(role), serverUrl }))
                 ),
                 modeSwitch
