@@ -10,6 +10,7 @@ import {
   type RtcStats,
   type RtcStatsEntry,
 } from './rtc-adapter.js'
+import { RtcChunkCodec, RTC_CHUNK_MAX_MESSAGE_BYTES } from './rtc-chunking.js'
 
 export type RtcRole = 'initiator' | 'responder'
 export type RtcSelectedTransport = 'p2p' | 'turn'
@@ -26,11 +27,14 @@ export interface RtcDataChannelTransportOptions {
   onSignal: (signal: RtcSignal) => void
   negotiateTimeoutMs?: number
   channelLabel?: string
+  /** Send watchdog: if a frame stays queued longer than this, the transport is failed. */
+  sendTimeoutMs?: number
   /** Human-readable diagnostic label; never logged with sensitive content. */
   label?: string
 }
 
 const DEFAULT_NEGOTIATE_TIMEOUT_MS = 8_000
+const DEFAULT_SEND_TIMEOUT_MS = 5_000
 
 /**
  * Complete WebRTC DataChannel transport state machine (webrtc plan §6.1).
@@ -47,6 +51,7 @@ export class RtcDataChannelTransport {
   private readonly onSignal: (signal: RtcSignal) => void
   private readonly negotiateTimeoutMs: number
   private readonly channelLabel: string
+  private readonly sendTimeoutMs: number
 
   private channel?: RtcDataChannel
   private readonly remoteCandidates: RtcIceCandidateInit[] = []
@@ -63,17 +68,21 @@ export class RtcDataChannelTransport {
   private openReject?: (error: Error) => void
   private negotiateTimer?: ReturnType<typeof setTimeout>
   private removeAbort?: () => void
+  private watchdogTimer?: ReturnType<typeof setTimeout>
 
+  private readonly outgoing = new RtcChunkCodec()
+  private readonly incoming = new RtcChunkCodec()
   private bytesSent = 0
   private bytesReceived = 0
   private selected?: RtcSelectedTransport
-  private sendChain: Promise<void> = Promise.resolve()
+  private lastBufferedAmount = 0
 
   constructor(options: RtcDataChannelTransportOptions) {
     this.role = options.role
     this.onSignal = options.onSignal
     this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS
     this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL
+    this.sendTimeoutMs = options.sendTimeoutMs ?? DEFAULT_SEND_TIMEOUT_MS
 
     this.pc = options.factory.create({ iceServers: options.iceServers })
     this.pc.ondatachannel = event => this.adoptChannel(event.channel)
@@ -112,26 +121,18 @@ export class RtcDataChannelTransport {
   }
 
   async send(data: Uint8Array): Promise<void> {
-    const previous = this.sendChain
-    const next = previous.then(async () => {
-      const channel = this.requireOpenChannel()
-      if (channel.readyState !== 'open') throw new Error('WebRTC data channel is not open.')
+    const channel = this.requireOpenChannel()
+    if (channel.readyState !== 'open') throw new Error('WebRTC data channel is not open.')
+    for (const frame of this.outgoing.encode(data)) {
       try {
-        channel.send(toArrayBuffer(data))
+        channel.send(toArrayBuffer(frame))
       } catch (error) {
-        console.error('[rtc-send-error] bytes=' + data.byteLength, error instanceof Error ? error.message : error)
+        console.error('[rtc-send-error] bytes=' + frame.byteLength, error instanceof Error ? error.message : error)
         throw error
       }
-      // werift flushes asynchronously and can reorder/drop ordered frames when
-      // sends race. Serialize sends and wait for the queue to drain before the
-      // next frame, so ordered DataChannel frames are never sent concurrently.
-      while (channel.readyState === 'open' && channel.bufferedAmount > 0) {
-        await sleep(1)
-      }
-      this.bytesSent += data.byteLength
-    })
-    this.sendChain = next.catch(() => undefined)
-    return next
+    }
+    this.bytesSent += data.byteLength
+    this.armWatchdog(channel)
   }
 
   onMessage(handler: (data: Uint8Array) => void): () => void {
@@ -168,6 +169,7 @@ export class RtcDataChannelTransport {
     if (this.closed) return
     this.closed = true
     this.clearNegotiation()
+    this.clearWatchdog()
     const channel = this.channel
     this.channel = undefined
     if (channel !== undefined) {
@@ -277,9 +279,15 @@ export class RtcDataChannelTransport {
     channel.onmessage = event => {
       if (this.closed || !this.opened) return
       const data = event.data
-      const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data)
-      this.bytesReceived += bytes.byteLength
-      for (const handler of this.messageHandlers) handler(bytes)
+      const frame = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data)
+      this.bytesReceived += frame.byteLength
+      try {
+        const message = this.incoming.decode(frame)
+        if (message === undefined) return
+        for (const handler of this.messageHandlers) handler(message)
+      } catch {
+        void this.close()
+      }
     }
     channel.onclose = () => {
       if (this.closed) return
@@ -337,6 +345,35 @@ export class RtcDataChannelTransport {
       throw new Error('WebRTC data channel is not open.')
     }
     return channel
+  }
+
+  private armWatchdog(channel: RtcDataChannel): void {
+    if (this.watchdogTimer !== undefined || this.closed) return
+    const baseline = channel.bufferedAmount
+    if (baseline <= 0) return
+    this.lastBufferedAmount = baseline
+    this.watchdogTimer = setTimeout(() => {
+      this.watchdogTimer = undefined
+      if (this.closed || this.channel !== channel || channel.readyState !== 'open') return
+      const current = channel.bufferedAmount
+      if (current > 0 && current >= this.lastBufferedAmount) {
+        // The outbound queue has not drained since the last check: the peer is
+        // not ACKing. Treat the transport as unhealthy so the owner can fall
+        // back instead of leaving the RPC sender queue blocked forever.
+        const error = new RtcConnectError('RTC_SEND_TIMEOUT', 'DataChannel send stalled.')
+        for (const handler of this.errorHandlers) handler(error)
+        void this.close()
+        return
+      }
+      this.lastBufferedAmount = current
+      if (current > 0) this.armWatchdog(channel)
+    }, this.sendTimeoutMs)
+  }
+
+  private clearWatchdog(): void {
+    if (this.watchdogTimer !== undefined) clearTimeout(this.watchdogTimer)
+    this.watchdogTimer = undefined
+    this.lastBufferedAmount = 0
   }
 }
 

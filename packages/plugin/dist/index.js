@@ -4563,14 +4563,121 @@ function adaptDataChannel(raw) {
   };
 }
 
+// ../webrtc/dist/rtc-chunking.js
+var RTC_CHUNK_MAGIC = new Uint8Array([82, 84, 67, 72]);
+var RTC_CHUNK_HEADER_BYTES = 12;
+var RTC_CHUNK_PAYLOAD_BYTES = 8 * 1024;
+var RTC_CHUNK_MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
+var MAX_IN_FLIGHT_MESSAGES = 8;
+var MAX_ASSEMBLY_AGE_MS = 3e4;
+var RtcChunkCodec = class {
+  nextMessageId = 1;
+  assemblies = /* @__PURE__ */ new Map();
+  encode(data) {
+    if (data.byteLength <= RTC_CHUNK_PAYLOAD_BYTES)
+      return [data];
+    if (data.byteLength > RTC_CHUNK_MAX_MESSAGE_BYTES) {
+      throw new Error("WebRTC transport message exceeds the reassembly limit.");
+    }
+    const messageId = this.nextMessageId;
+    this.nextMessageId = messageId === 4294967295 ? 1 : messageId + 1;
+    const total = Math.ceil(data.byteLength / RTC_CHUNK_PAYLOAD_BYTES);
+    const frames = [];
+    for (let index = 0; index < total; index += 1) {
+      const start = index * RTC_CHUNK_PAYLOAD_BYTES;
+      const chunk = data.subarray(start, Math.min(data.byteLength, start + RTC_CHUNK_PAYLOAD_BYTES));
+      const frame = new Uint8Array(RTC_CHUNK_HEADER_BYTES + chunk.byteLength);
+      frame.set(RTC_CHUNK_MAGIC);
+      const view = new DataView(frame.buffer);
+      view.setUint32(4, messageId);
+      view.setUint16(8, index);
+      view.setUint16(10, total);
+      frame.set(chunk, RTC_CHUNK_HEADER_BYTES);
+      frames.push(frame);
+    }
+    return frames;
+  }
+  decode(frame) {
+    if (!isChunk(frame))
+      return frame;
+    if (frame.byteLength < RTC_CHUNK_HEADER_BYTES)
+      throw new Error("WebRTC transport chunk header is invalid.");
+    const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+    const messageId = view.getUint32(4);
+    const index = view.getUint16(8);
+    const total = view.getUint16(10);
+    if (messageId === 0 || total < 2 || index >= total) {
+      throw new Error("WebRTC transport chunk metadata is invalid.");
+    }
+    const expectedChunkBytes = Math.min(RTC_CHUNK_PAYLOAD_BYTES, RTC_CHUNK_MAX_MESSAGE_BYTES - index * RTC_CHUNK_PAYLOAD_BYTES);
+    const chunk = frame.subarray(RTC_CHUNK_HEADER_BYTES);
+    if (chunk.byteLength !== Math.max(1, Math.min(RTC_CHUNK_PAYLOAD_BYTES, expectedChunkBytes))) {
+      if (index < total - 1 && chunk.byteLength !== RTC_CHUNK_PAYLOAD_BYTES) {
+        throw new Error("WebRTC transport chunk length is invalid.");
+      }
+      if (index === total - 1 && chunk.byteLength === 0) {
+        throw new Error("WebRTC transport chunk is empty.");
+      }
+    }
+    this.pruneStale();
+    let assembly = this.assemblies.get(messageId);
+    if (assembly === void 0) {
+      if (index !== 0 || this.assemblies.size >= MAX_IN_FLIGHT_MESSAGES) {
+        throw new Error("WebRTC transport chunk sequence is invalid.");
+      }
+      assembly = { messageId, total, receivedBytes: 0, chunks: [], updatedAt: Date.now() };
+      this.assemblies.set(messageId, assembly);
+    }
+    if (assembly.total !== total || index !== assembly.chunks.length) {
+      this.assemblies.delete(messageId);
+      throw new Error("WebRTC transport chunk sequence is invalid.");
+    }
+    assembly.chunks.push(Uint8Array.from(chunk));
+    assembly.receivedBytes += chunk.byteLength;
+    assembly.updatedAt = Date.now();
+    if (assembly.chunks.length < total)
+      return void 0;
+    this.assemblies.delete(messageId);
+    const message = new Uint8Array(assembly.receivedBytes);
+    let offset = 0;
+    for (const part of assembly.chunks) {
+      message.set(part, offset);
+      offset += part.byteLength;
+    }
+    return message;
+  }
+  reset() {
+    this.nextMessageId = 1;
+    this.assemblies.clear();
+  }
+  pruneStale() {
+    const now = Date.now();
+    for (const [messageId, assembly] of this.assemblies) {
+      if (now - assembly.updatedAt > MAX_ASSEMBLY_AGE_MS)
+        this.assemblies.delete(messageId);
+    }
+  }
+};
+function isChunk(frame) {
+  if (frame.byteLength < RTC_CHUNK_MAGIC.byteLength)
+    return false;
+  for (let index = 0; index < RTC_CHUNK_MAGIC.byteLength; index += 1) {
+    if (frame[index] !== RTC_CHUNK_MAGIC[index])
+      return false;
+  }
+  return true;
+}
+
 // ../webrtc/dist/rtc-data-channel.js
 var DEFAULT_NEGOTIATE_TIMEOUT_MS = 8e3;
+var DEFAULT_SEND_TIMEOUT_MS = 5e3;
 var RtcDataChannelTransport = class {
   pc;
   role;
   onSignal;
   negotiateTimeoutMs;
   channelLabel;
+  sendTimeoutMs;
   channel;
   remoteCandidates = [];
   remoteDescriptionSet = false;
@@ -4584,15 +4691,19 @@ var RtcDataChannelTransport = class {
   openReject;
   negotiateTimer;
   removeAbort;
+  watchdogTimer;
+  outgoing = new RtcChunkCodec();
+  incoming = new RtcChunkCodec();
   bytesSent = 0;
   bytesReceived = 0;
   selected;
-  sendChain = Promise.resolve();
+  lastBufferedAmount = 0;
   constructor(options) {
     this.role = options.role;
     this.onSignal = options.onSignal;
     this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS;
     this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL;
+    this.sendTimeoutMs = options.sendTimeoutMs ?? DEFAULT_SEND_TIMEOUT_MS;
     this.pc = options.factory.create({ iceServers: options.iceServers });
     this.pc.ondatachannel = (event) => this.adoptChannel(event.channel);
     this.pc.onicecandidate = (event) => {
@@ -4633,24 +4744,19 @@ var RtcDataChannelTransport = class {
       void this.handleIce(signal.candidate);
   }
   async send(data) {
-    const previous = this.sendChain;
-    const next = previous.then(async () => {
-      const channel = this.requireOpenChannel();
-      if (channel.readyState !== "open")
-        throw new Error("WebRTC data channel is not open.");
+    const channel = this.requireOpenChannel();
+    if (channel.readyState !== "open")
+      throw new Error("WebRTC data channel is not open.");
+    for (const frame of this.outgoing.encode(data)) {
       try {
-        channel.send(toArrayBuffer(data));
+        channel.send(toArrayBuffer(frame));
       } catch (error) {
-        console.error("[rtc-send-error] bytes=" + data.byteLength, error instanceof Error ? error.message : error);
+        console.error("[rtc-send-error] bytes=" + frame.byteLength, error instanceof Error ? error.message : error);
         throw error;
       }
-      while (channel.readyState === "open" && channel.bufferedAmount > 0) {
-        await sleep(1);
-      }
-      this.bytesSent += data.byteLength;
-    });
-    this.sendChain = next.catch(() => void 0);
-    return next;
+    }
+    this.bytesSent += data.byteLength;
+    this.armWatchdog(channel);
   }
   onMessage(handler) {
     this.messageHandlers.add(handler);
@@ -4682,6 +4788,7 @@ var RtcDataChannelTransport = class {
       return;
     this.closed = true;
     this.clearNegotiation();
+    this.clearWatchdog();
     const channel = this.channel;
     this.channel = void 0;
     if (channel !== void 0) {
@@ -4799,10 +4906,17 @@ var RtcDataChannelTransport = class {
       if (this.closed || !this.opened)
         return;
       const data = event.data;
-      const bytes = typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data);
-      this.bytesReceived += bytes.byteLength;
-      for (const handler of this.messageHandlers)
-        handler(bytes);
+      const frame = typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data);
+      this.bytesReceived += frame.byteLength;
+      try {
+        const message = this.incoming.decode(frame);
+        if (message === void 0)
+          return;
+        for (const handler of this.messageHandlers)
+          handler(message);
+      } catch {
+        void this.close();
+      }
     };
     channel.onclose = () => {
       if (this.closed)
@@ -4861,6 +4975,36 @@ var RtcDataChannelTransport = class {
     }
     return channel;
   }
+  armWatchdog(channel) {
+    if (this.watchdogTimer !== void 0 || this.closed)
+      return;
+    const baseline = channel.bufferedAmount;
+    if (baseline <= 0)
+      return;
+    this.lastBufferedAmount = baseline;
+    this.watchdogTimer = setTimeout(() => {
+      this.watchdogTimer = void 0;
+      if (this.closed || this.channel !== channel || channel.readyState !== "open")
+        return;
+      const current = channel.bufferedAmount;
+      if (current > 0 && current >= this.lastBufferedAmount) {
+        const error = new RtcConnectError("RTC_SEND_TIMEOUT", "DataChannel send stalled.");
+        for (const handler of this.errorHandlers)
+          handler(error);
+        void this.close();
+        return;
+      }
+      this.lastBufferedAmount = current;
+      if (current > 0)
+        this.armWatchdog(channel);
+    }, this.sendTimeoutMs);
+  }
+  clearWatchdog() {
+    if (this.watchdogTimer !== void 0)
+      clearTimeout(this.watchdogTimer);
+    this.watchdogTimer = void 0;
+    this.lastBufferedAmount = 0;
+  }
 };
 var RtcConnectError = class extends Error {
   code;
@@ -4905,9 +5049,6 @@ function toArrayBuffer(data) {
 }
 function asError(error) {
   return error instanceof Error ? error : new RtcConnectError("RTC_FAILED", "WebRTC negotiation failed.");
-}
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ../webrtc/dist/adaptive-transport.js
@@ -13793,9 +13934,7 @@ var ConnectionController = class {
     try {
       const response = await this.router.handle(message);
       if (this.active !== connection) return;
-      console.error("[stream-debug] sending response", message.payload?.method);
       await connection.channel.send(response);
-      console.error("[stream-debug] response sent", message.payload?.method);
     } catch {
       await this.disconnect(connection);
     }
@@ -13848,12 +13987,9 @@ var RpcRouter = class {
     }
     this.active += 1;
     try {
-      console.error("[stream-debug] invoke start", request.payload.method);
       const result = await this.invoke(request.payload.method, request.payload.params);
-      console.error("[stream-debug] invoke done", request.payload.method);
       return createRpcResponse(request.id, result);
     } catch (error) {
-      console.error("[stream-debug] invoke error", request.payload.method, error?.message);
       return errorResponse(request.id, error);
     } finally {
       this.active -= 1;
@@ -14575,9 +14711,7 @@ var HarnessApiBridge = class {
     if (this.streams.size >= this.maxStreams) throw new RpcError("RATE_LIMITED", "Too many Harness event streams are open.", void 0, true);
     const controller = new AbortController();
     const request = { rpcId: params.rpcId, payload: params.payload };
-    console.error("[stream-debug] calling native events", params.stream);
     const stream = params.stream === "mux" ? this.mux(request, controller.signal) : this.host(request, controller.signal);
-    console.error("[stream-debug] native events returned", params.stream, typeof stream, typeof stream?.[Symbol.asyncIterator]);
     const task = this.pump(params.streamId, stream, controller.signal);
     this.streams.set(params.streamId, { controller, task });
     return { opened: true, streamId: params.streamId };
@@ -14634,6 +14768,7 @@ function deniedMethod(method) {
 }
 
 // src/werift-rtc.ts
+import { networkInterfaces } from "node:os";
 var cachedFactory;
 async function loadWeriftFactory() {
   if (cachedFactory !== void 0) return cachedFactory;
@@ -14648,8 +14783,12 @@ async function loadWeriftFactory() {
 function buildWeriftFactory(werift) {
   return {
     create(configuration) {
+      const hostIpv4 = detectHostIpv4();
       const raw = new werift.RTCPeerConnection({
-        iceServers: configuration.iceServers ?? []
+        iceServers: configuration.iceServers ?? [],
+        iceUseIpv6: false,
+        iceUseLinkLocalAddress: false,
+        ...hostIpv4 === void 0 ? {} : { iceInterfaceAddresses: { udp4: hostIpv4 } }
       });
       let onIceCandidate = null;
       let onDataChannel = null;
@@ -14790,6 +14929,35 @@ function adaptDataChannel2(raw) {
 function toArrayBuffer2(data) {
   if (typeof data === "string") return data;
   return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+}
+function detectHostIpv4() {
+  const preferred = [];
+  const fallback = [];
+  for (const [name2, addresses] of Object.entries(networkInterfaces())) {
+    if (isVirtualInterface(name2)) continue;
+    for (const address of addresses ?? []) {
+      if (address.internal || address.family !== "IPv4") continue;
+      const ip = address.address;
+      if (ip.startsWith("127.") || ip.startsWith("169.254.") || isCgnat(ip)) continue;
+      if (isPrivate(ip)) preferred.push(ip);
+      else fallback.push(ip);
+    }
+  }
+  return preferred[0] ?? fallback[0];
+}
+function isVirtualInterface(name2) {
+  return /^(utun|ppp|bridge|awdl|llw|gif|stf|anpi|ap\d|en[1-9]\d*$)/i.test(name2);
+}
+function isCgnat(ip) {
+  const parts = ip.split(".").map(Number);
+  return parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
+}
+function isPrivate(ip) {
+  const parts = ip.split(".").map(Number);
+  if (parts.length !== 4) return false;
+  if (parts[0] === 10) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  return parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31;
 }
 
 // src/service.ts

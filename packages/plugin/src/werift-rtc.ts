@@ -8,6 +8,7 @@
  * a WebRTC offer (or run with `forceRelay`).
  */
 
+import { networkInterfaces } from 'node:os'
 import type {
   RtcDataChannel,
   RtcIceCandidateInit,
@@ -18,9 +19,14 @@ import type {
 } from '@dsh-remote/webrtc'
 
 interface WeriftModule {
-  RTCPeerConnection: new (config?: {
-    iceServers?: Array<{ urls: string | string[]; username?: string; credential?: string }>
-  }) => WeriftPeerConnection
+  RTCPeerConnection: new (config?: WeriftConfig) => WeriftPeerConnection
+}
+
+interface WeriftConfig {
+  iceServers?: Array<{ urls: string | string[]; username?: string; credential?: string }>
+  iceUseIpv6?: boolean
+  iceUseLinkLocalAddress?: boolean
+  iceInterfaceAddresses?: { udp4?: string; udp6?: string }
 }
 
 interface WeriftPeerConnection {
@@ -74,8 +80,12 @@ export async function loadWeriftFactory(): Promise<RtcPeerConnectionFactory | un
 export function buildWeriftFactory(werift: WeriftModule): RtcPeerConnectionFactory {
   return {
     create(configuration) {
+      const hostIpv4 = detectHostIpv4()
       const raw = new werift.RTCPeerConnection({
         iceServers: (configuration.iceServers ?? []) as RtcIceServer[],
+        iceUseIpv6: false,
+        iceUseLinkLocalAddress: false,
+        ...(hostIpv4 === undefined ? {} : { iceInterfaceAddresses: { udp4: hostIpv4 } }),
       })
 
       let onIceCandidate: ((event: { candidate: RtcIceCandidateInit | null }) => void) | null = null
@@ -157,4 +167,47 @@ function toArrayBuffer(data: string | Uint8Array): ArrayBuffer | string {
   // *view* over the pooled 8 KiB receive buffer, so slicing the underlying
   // ArrayBuffer by byte offset/length is required to extract just the message.
   return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+}
+
+/**
+ * Pick the single best IPv4 host address for ICE gathering.
+ *
+ * On macOS a host exposes many interfaces (WiFi `en0`, Thunderbolt `en1-4`,
+ * `bridge*`, Apple Wireless Direct Link `awdl0`/`llw0`, and several VPN `utun*`
+ * tunnels whose small MTUs drop large SCTP packets). Gathering a candidate for
+ * every interface lets ICE select a bad path. Restrict werift to one real
+ * interface and disable IPv6/link-local so the DataChannel rides the same
+ * interface as the Server control connection.
+ */
+function detectHostIpv4(): string | undefined {
+  const preferred: string[] = []
+  const fallback: string[] = []
+  for (const [name, addresses] of Object.entries(networkInterfaces())) {
+    if (isVirtualInterface(name)) continue
+    for (const address of addresses ?? []) {
+      if (address.internal || address.family !== 'IPv4') continue
+      const ip = address.address
+      if (ip.startsWith('127.') || ip.startsWith('169.254.') || isCgnat(ip)) continue
+      if (isPrivate(ip)) preferred.push(ip)
+      else fallback.push(ip)
+    }
+  }
+  return preferred[0] ?? fallback[0]
+}
+
+function isVirtualInterface(name: string): boolean {
+  return /^(utun|ppp|bridge|awdl|llw|gif|stf|anpi|ap\d|en[1-9]\d*$)/i.test(name)
+}
+
+function isCgnat(ip: string): boolean {
+  const parts = ip.split('.').map(Number)
+  return parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127
+}
+
+function isPrivate(ip: string): boolean {
+  const parts = ip.split('.').map(Number)
+  if (parts.length !== 4) return false
+  if (parts[0] === 10) return true
+  if (parts[0] === 192 && parts[1] === 168) return true
+  return parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31
 }

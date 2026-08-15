@@ -13,6 +13,7 @@ import { fromBase64Url, socketText, toBase64Url } from './util.js'
 
 export * from './transport.js'
 export * from './rtc-adapter.js'
+export * from './rtc-chunking.js'
 export * from './rtc-data-channel.js'
 export * from './adaptive-transport.js'
 
