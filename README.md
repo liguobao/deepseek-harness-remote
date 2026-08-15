@@ -12,16 +12,16 @@ DeepSeek 远程连接（DSH Remote）是 [DeepSeek Harness](https://github.com/d
 在 DSH Desktop 的 **扩展 → 管理插件…** 中安装固定版本：
 
 ```text
-github:liguobao/deepseek-harness-remote#v0.2.11
+github:liguobao/deepseek-harness-remote#v0.2.12
 ```
 
 也可以使用命令行为 `web` profile 安装：
 
 ```sh
-dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.2.11"
+dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.2.12"
 ```
 
-需要安装其他版本时，将 `v0.2.11` 替换为对应的 tag 或 commit；使用自定义 profile 时，将 `web` 替换为对应的 profile 名称。
+需要安装其他版本时，将 `v0.2.12` 替换为对应的 tag 或 commit；使用自定义 profile 时，将 `web` 替换为对应的 profile 名称。
 
 重启 Harness，前往 **设置 → 插件 → 插件配置 → DeepSeek 远程连接**：
 
