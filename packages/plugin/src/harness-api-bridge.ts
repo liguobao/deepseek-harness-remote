@@ -130,9 +130,11 @@ export class HarnessApiBridge {
     if (this.streams.size >= this.maxStreams) throw new RpcError('RATE_LIMITED', 'Too many Harness event streams are open.', undefined, true)
     const controller = new AbortController()
     const request = { rpcId: params.rpcId as never, payload: params.payload }
+    console.error('[stream-debug] calling native events', params.stream)
     const stream = params.stream === 'mux'
       ? this.mux(request as never, controller.signal)
       : this.host(request as never, controller.signal)
+    console.error('[stream-debug] native events returned', params.stream, typeof stream, typeof (stream as AsyncIterable<unknown>)?.[Symbol.asyncIterator])
     const task = this.pump(params.streamId, stream, controller.signal)
     this.streams.set(params.streamId, { controller, task })
     return { opened: true, streamId: params.streamId }

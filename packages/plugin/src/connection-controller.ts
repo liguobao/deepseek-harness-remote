@@ -72,7 +72,9 @@ export class ConnectionController {
     try {
       const response = await this.router.handle(message)
       if (this.active !== connection) return
+      console.error('[stream-debug] sending response', (message.payload as { method?: string })?.method)
       await connection.channel.send(response)
+      console.error('[stream-debug] response sent', (message.payload as { method?: string })?.method)
     } catch {
       await this.disconnect(connection)
     }

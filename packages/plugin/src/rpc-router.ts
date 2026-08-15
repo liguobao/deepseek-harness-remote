@@ -42,9 +42,12 @@ export class RpcRouter {
     }
     this.active += 1
     try {
+      console.error('[stream-debug] invoke start', request.payload.method)
       const result = await this.invoke(request.payload.method, request.payload.params)
+      console.error('[stream-debug] invoke done', request.payload.method)
       return createRpcResponse(request.id, result)
     } catch (error: unknown) {
+      console.error('[stream-debug] invoke error', request.payload.method, (error as Error)?.message)
       return errorResponse(request.id, error)
     } finally {
       this.active -= 1
