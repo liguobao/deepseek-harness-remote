@@ -293,6 +293,7 @@ wss://dsh.r2049.cn/ws/v1/connect
     "deviceId": "0198...",
     "accessToken": "device-access-jwt",
     "protocols": [1],
+    "clientVersion": "0.2.9",
     "capabilities": ["transport.relay", "transport.webrtc"]
   }
 }

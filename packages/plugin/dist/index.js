@@ -13101,6 +13101,11 @@ function safeErrorMessage(error) {
 
 // src/server-api.ts
 import { platform } from "node:os";
+
+// src/version.ts
+var PLUGIN_VERSION = "0.2.9";
+
+// src/server-api.ts
 var HostServerApi = class {
   constructor(serverUrl, store, fetchImplementation = fetch, role = "host") {
     this.store = store;
@@ -13267,7 +13272,7 @@ var HostServerApi = class {
       role: this.role,
       platform: platform(),
       identityKey: identity.publicKey,
-      clientVersion: "0.2.9",
+      clientVersion: PLUGIN_VERSION,
       ...this.role === "host" ? { harnessVersion: "0.1.0-rc.6" } : {}
     };
   }
@@ -13981,6 +13986,7 @@ var HostServerConnection = class {
           deviceId: this.identity.deviceId,
           accessToken: credentials.accessToken,
           protocols: [PROTOCOL_VERSION],
+          clientVersion: PLUGIN_VERSION,
           capabilities: this.rtcFactoryProvider === void 0 || this.config.forceRelay ? ["transport.relay", "harness.api.v1"] : ["transport.p2p", "transport.turn", "transport.relay", "harness.api.v1"]
         });
       };

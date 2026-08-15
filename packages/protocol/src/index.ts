@@ -76,6 +76,8 @@ export interface HelloPayload {
   accessToken: string
   protocols: number[]
   capabilities: string[]
+  /** Version of the Client/Plugin software reporting in; symmetric to ``HelloAckPayload.serverVersion``. */
+  clientVersion: string
 }
 
 export interface HelloAckPayload {

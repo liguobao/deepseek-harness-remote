@@ -36,6 +36,7 @@ import type { SafeLogger } from './logging.js'
 import type { AuthorizedPeerDevice, HostServerApi } from './server-api.js'
 import { ServerApiError } from './server-api.js'
 import type { AuthenticatedPeerChannel } from './types.js'
+import { PLUGIN_VERSION } from './version.js'
 
 interface WebSocketLike {
   readonly readyState: number
@@ -159,6 +160,7 @@ export class HostServerConnection {
           deviceId: this.identity.deviceId,
           accessToken: credentials.accessToken,
           protocols: [PROTOCOL_VERSION],
+          clientVersion: PLUGIN_VERSION,
           capabilities: this.rtcFactoryProvider === undefined || this.config.forceRelay
             ? ['transport.relay', 'harness.api.v1']
             : ['transport.p2p', 'transport.turn', 'transport.relay', 'harness.api.v1'],

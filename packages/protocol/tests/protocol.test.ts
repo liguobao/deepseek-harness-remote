@@ -53,6 +53,7 @@ describe('protocol envelope', () => {
       deviceId: 'client-1',
       accessToken: 'secret',
       protocols: [1],
+      clientVersion: '0.2.9',
       capabilities: ['transport.relay'],
     })
     expect(parseControlFrame(frame)).toEqual(frame)

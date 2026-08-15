@@ -46,6 +46,7 @@ socket.on('open', () => {
     deviceId,
     accessToken,
     protocols: [PROTOCOL_VERSION],
+    clientVersion: '0.1.0',
     capabilities: ['transport.relay'],
   })
 })

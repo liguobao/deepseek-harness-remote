@@ -4,6 +4,7 @@ import type { RtcIceServer } from '@dsh-remote/webrtc'
 import type { HostIdentity } from './identity-store.js'
 import type { ServerCredentialStore, ServerCredentials } from './server-credentials.js'
 import { normalizeServerUrl } from './config.js'
+import { PLUGIN_VERSION } from './version.js'
 
 interface TokenPair {
   accessToken: string
@@ -239,7 +240,7 @@ export class HostServerApi {
       role: this.role,
       platform: platform(),
       identityKey: identity.publicKey,
-      clientVersion: '0.2.9',
+      clientVersion: PLUGIN_VERSION,
       ...(this.role === 'host' ? { harnessVersion: '0.1.0-rc.6' } : {}),
     }
   }

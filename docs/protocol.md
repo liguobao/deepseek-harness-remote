@@ -321,10 +321,15 @@ Control frame 是 Server 可读 JSON，不得放置 Remote 业务明文。
     "deviceId": "01KCLIENT...",
     "accessToken": "...",
     "protocols": [1],
+    "clientVersion": "0.2.9",
     "capabilities": ["transport.relay", "transport.webrtc"]
   }
 }
 ```
+
+`clientVersion` 是插件/Client 软件的版本，与 Device Descriptor §7 的 `clientVersion` 同源，用于
+Server 展示设备版本和诊断；与 `hello.ack` 的 `serverVersion` 对称。插件建立连接时必须上报自己的
+版本；对 Server 而言这是 v1 新增的 optional 字段，不能因为缺失或未知版本而拒绝连接。
 
 ack：
 
