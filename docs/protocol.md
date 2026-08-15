@@ -25,7 +25,8 @@
 DSH Remote Protocol 定义 Host Plugin、DSH Remote Server 和 Remote Client 之间的互操作边界，包括：
 
 - 设备注册和 Server credential
-- 设备码配对和 Host 确认
+- 账号授权与 Host/Client membership
+- Host 账号密码或一次性主机匹配码接入
 - WebSocket authentication
 - WebRTC signaling 与 Relay routing
 - Host/Client 端到端安全通道
@@ -42,9 +43,9 @@ Admin API 不属于 E2EE Remote Protocol。它是同站点的独立 HTTPS API，
 
 - **Host**：运行 DeepSeek Harness 与 `@dsh-remote/plugin` 的设备。
 - **Client**：当前指安装同一 Plugin 发布物的 Desktop Harness；Android 旧原型不符合当前业务协议。
-- **Server**：负责配对、presence、signaling 和 opaque Relay 的协调服务。
+- **Server**：负责账号授权、presence、signaling 和 opaque Relay 的协调服务。
 - **Device**：具有随机 deviceId 和本地 identity key 的 Host 或 Client。
-- **Membership**：一个 Host 与一个 Client 的已确认信任关系。
+- **Membership**：Server 根据相同账号归属自动派生的 Host/Client 授权边。
 - **Connection**：一个已授权 Host/Client pair 的临时通信实例。
 - **Control frame**：Server 可读的 WebSocket signaling/routing JSON。
 - **Remote message**：安全通道内的 RPC/Event 业务消息，Server 不可读。
@@ -54,7 +55,7 @@ Admin API 不属于 E2EE Remote Protocol。它是同站点的独立 HTTPS API，
 
 ```text
 HTTPS REST
-  device registration / pairing / token / device metadata / TURN
+  account login / device registration / token / device metadata / TURN
 
 WSS Control Channel
   hello / connect / signaling / secure handshake relay / opaque relay
@@ -86,7 +87,7 @@ REST、Control frame 和解密后的 Remote message 使用 UTF-8 JSON。发送�
 
 ### 4.2 标识符
 
-- `deviceId`, `pairingId`, `membershipId`, `connectionId`, `message.id`：UUIDv7 或 ULID 字符串。
+- `deviceId`, `membershipId`, `connectionId`, `message.id`：UUIDv7 或 ULID 字符串。
 - `sessionId`：Harness 原生 SessionId，不由 Server 改写。
 - `requestId`：引用发起 RPC 的 Remote message `id`。
 - 内层 `rpcId`：Harness ApiProxy 原生 request/response correlation id，Plugin 不改写。
@@ -124,8 +125,8 @@ REST/Control JSON 中的 key、nonce、handshake 和 ciphertext 使用无 paddin
 ```json
 {
   "error": {
-    "code": "PAIRING_EXPIRED",
-    "message": "The pairing code has expired.",
+    "code": "HOST_REGISTRATION_CODE_EXPIRED",
+    "message": "The host registration code has expired.",
     "requestId": "01K...",
     "retryable": false,
     "details": {}
@@ -168,17 +169,17 @@ REST/Control JSON 中的 key、nonce、handshake 和 ciphertext 使用无 paddin
 
 ## 8. 设备注册与 Token
 
-面向 Plugin 实现的端到端接入步骤、错误处理和本地存储要求另见
-[Host Plugin 接入指南](plugin-integration.md)。
+面向插件实现的端到端接入步骤、错误处理和本地存储要求另见
+[Host 插件接入指南](plugin-integration.md)。
 
 ### 8.1 注册
 
 `POST /api/v1/devices/register`
 
-Host 注册必须携带由同一 Server 签发的站点账号 Bearer token。官方服务默认使用
-`https://dsh.r2049.cn`，自部署时使用对应的 `REMOTE_PUBLIC_URL`；账号登录、Host
-注册、device token refresh 与 WebSocket 连接不得跨 Server origin 混用。Client
-设备可以匿名注册，随后通过 pairing 获得访问具体 Host 的 membership。
+Host 和 Client 注册都必须携带由同一 Server 签发的站点账号 Bearer token。插件默认连接
+`https://dsh.r2049.cn`，也可以由用户配置自定义 Server；登录、注册、refresh、
+WebSocket 不得跨域混用。注册成功后，Server 为同一账号下的 Host 与 Client 自动
+建立或恢复 membership。
 
 请求：
 
@@ -207,17 +208,36 @@ Host 注册必须携带由同一 Server 签发的站点账号 Bearer token。官
 }
 ```
 
-Client 注册是匿名 bootstrap；Host 注册是账号授权的 bootstrap。注册只授权该
-device 进入控制面，不建立 membership，也不授予访问任何其他 Host 的权限。
+注册是账号授权的 bootstrap。Client 注册完成后可列出并连接同账号的 Host；不同
+账号之间不建立 membership，也不能读取设备详情或 presence。
 
-Host 重复注册时，Server 必须同时校验 `deviceId`、`identityKey`、`role` 和账号归属：
+### 8.1.1 主机匹配码注册
 
-- 缺少有效站点账号 token：`401 ACCOUNT_AUTH_REQUIRED`；
-- Host 已属于其他账号：`403 DEVICE_OWNERSHIP_REQUIRED`；
-- 历史 Host 没有 owner：`409 DEVICE_OWNERSHIP_REQUIRED`，不得仅凭公开的
-  `deviceId` / `identityKey` 自动认领；
-- 同一账号、`deviceId` 和 `identityKey` 可以幂等重新注册；role 或 identity key
-  变化必须拒绝。
+除账号 Bearer token 外，Host 插件也可以使用账号网页生成的一次性主机匹配码。
+该码只用于授权一个 Host 加入账号，不参与 Host/Client 连接。
+
+账号生成匹配码：
+
+```http
+POST /api/v1/account/host-registration-codes
+Authorization: Bearer <web-account-token>
+```
+
+响应：
+
+```json
+{ "registrationId": "01K...", "code": "ABCD-EFGH", "expiresAt": 1786000000000 }
+```
+
+插件注册 Host：
+
+```http
+POST /api/v1/devices/register-with-code
+```
+
+请求包含 `{ "v": 1, "code": "ABCD-EFGH", "device": <Host Device Descriptor> }`，
+成功响应与 §8.1 相同。主机匹配码 10 分钟过期、单次消费、只允许 `role=host`，
+Server 使用独立用途的 keyed hash 落库。
 
 ### 8.2 Refresh
 
@@ -232,148 +252,23 @@ Host 重复注册时，Server 必须同时校验 `deviceId`、`identityKey`、`r
 
 Server 必须轮换 refresh token。旧 token 重用触发 token family revoke。Client 必须原子替换本地 token；不能在日志或 URL 中传 token。
 
-站点账号 token 只用于 Host 注册和账号接口，不得用于 WebSocket；Host 注册后使用
-独立 device access/refresh token。账号 token 当前没有 refresh 接口，过期后需要
-重新登录；有效的 device refresh token 不依赖账号 token。
+## 9. 账号授权协议
 
-### 8.3 账号拥有的 Host
+账号归属是访问边界。每次 Host 或 Client 注册时，Server 为该设备与同账号下所有
+未撤销的异角色设备建立 membership；后注册的 Host 或 Client 必须得到相同结果。
+已撤销授权边在同账号设备重新注册时恢复，因为账号状态是权威来源。
 
-`GET /api/v1/account/devices`，使用站点账号 Bearer token，返回该账号拥有的 Host。
-该接口只用于登录后的设备恢复或展示，不能替代本机 X25519 私钥；本机没有对应
-private key 时不得冒充、恢复或自动认领 Server 返回的 Host。
+规范要求：
 
-## 9. 配对协议
-
-### 9.1 Host 创建 pairing
-
-`POST /api/v1/pairings`，Host access token。
-
-请求：
-
-```json
-{
-  "v": 1,
-  "hostDeviceId": "01KHOST..."
-}
-```
-
-响应：
-
-```json
-{
-  "pairingId": "01KPAIR...",
-  "code": "82KF-7QMP",
-  "expiresAt": 1786000000000,
-  "pairUri": "dshremote://pair?v=1&server=https%3A%2F%2Fremote.example.com&code=82KF7QMP&hostFp=F4A2992C13AB"
-}
-```
-
-Host 必须只在本机显示明文 code。Server 数据库保存 keyed hash，不将 code 写日志。
-
-### 9.2 Client claim
-
-`POST /api/v1/pairings/claim`，Client access token。
-
-```json
-{
-  "v": 1,
-  "code": "82KF7QMP",
-  "clientDeviceId": "01KCLIENT..."
-}
-```
-
-响应：
-
-```json
-{
-  "pairingId": "01KPAIR...",
-  "status": "waiting_host",
-  "host": {
-    "deviceId": "01KHOST...",
-    "name": "Workstation",
-    "platform": "linux",
-    "identityKey": "...",
-    "fingerprint": "F4A2 992C 13AB"
-  },
-  "expiresAt": 1786000000000
-}
-```
-
-Server 同时向 Host Control Channel 发送 `pairing.claimed`，包含 Client descriptor/fingerprint。Client identityKey 在 claim 后不可更换。
-
-```json
-{
-  "v": 1,
-  "id": "01K...",
-  "type": "pairing.claimed",
-  "timestamp": 1786000000000,
-  "payload": {
-    "pairingId": "01KPAIR...",
-    "client": {
-      "deviceId": "01KCLIENT...",
-      "name": "Pixel",
-      "role": "client",
-      "platform": "android",
-      "identityKey": "...",
-      "clientVersion": "0.1.0"
-    },
-    "clientFingerprint": "3C91 A812 D0EF"
-  }
-}
-```
-
-Host 必须自行从 `client.identityKey` 计算 fingerprint 并与 `clientFingerprint` 比较，不能信任 Server 提供的显示值。
-
-### 9.3 Host confirmation
-
-Host 本机 UI/CLI 展示 Client fingerprint。用户确认后 Plugin 先将 Client key 写入 pending local trust transaction，再调用：
-
-`POST /api/v1/pairings/confirm`
-
-```json
-{
-  "v": 1,
-  "pairingId": "01KPAIR...",
-  "decision": "approve",
-  "clientDeviceId": "01KCLIENT...",
-  "clientFingerprint": "3C91A812D0EF"
-}
-```
-
-`decision` 仅为 `approve` 或 `deny`。Server 必须校验 Host 身份、pairing owner、claim Client 与 fingerprint。
-
-approve 响应：
-
-```json
-{
-  "status": "paired",
-  "membershipId": "01KMEMBER..."
-}
-```
-
-Server membership 不足以授权 Remote RPC。Host Plugin 必须同时持有匹配 Client identityKey 的本机 trusted peer 记录。
-
-### 9.4 Client status
-
-`GET /api/v1/pairings/{pairingId}/status`
-
-```json
-{
-  "status": "paired",
-  "membershipId": "01KMEMBER...",
-  "hostDeviceId": "01KHOST..."
-}
-```
-
-状态 enum：`waiting_host`, `paired`, `rejected`, `expired`。MVP 可以短轮询此 endpoint；Host/Client 已有 WSS 时应该通过 control event 即时通知。
-
-### 9.5 配对安全说明
-
-- 设备码是短期发现 secret，不是长期认证凭据。
-- Host 本机确认是必要步骤。
-- QR 中的 `hostFp` 或人工 fingerprint 比对用于检测错误 Server/MITM。
-- 在未确认 peer identity 前禁止发送 Harness 业务数据。
-- Server 在 pairing 期间被完全控制且用户跳过 fingerprint 核对时，不能保证首次信任不被 MITM；完成 fingerprint/SAS 核对后，后续连接由 Noise static identity 保护。
+- Host 与 Client 的 `owner_account` 必须非空且完全一致。
+- 不允许匿名 Client 注册，也没有设备码创建、领取、确认或轮询接口。
+- `GET /api/v1/devices` 只返回当前 Client 通过同账号授权边可访问的 Host。
+- 设备详情、presence、TURN 和连接请求继续校验 membership，防止 IDOR。
+- Server 发出 `connect.incoming` 前再次校验双方账号一致，历史跨账号授权边无效。
+- Host 只接受 `authorization: "account"` 的连接事件，并使用自己的 device token
+  调用 `GET /api/v1/devices/{clientDeviceId}`；只有返回的 membership、role 和
+  `identityKey` 与事件完全一致，且不冲突于本机 pinned key，才把该 key 绑定到连接。
+- 注销账号会清除 Client 设备 token；重新登录同账号可重新注册设备并恢复访问。
 
 ## 10. Control Channel
 
@@ -453,7 +348,7 @@ Client control frame：
 }
 ```
 
-Server 校验 membership 与 Host online 后创建 `connectionId`，向 Host 发送：
+Server 校验 membership、双方账号归属一致且 Host online 后创建 `connectionId`，向 Host 发送：
 
 ```json
 {
@@ -465,36 +360,22 @@ Server 校验 membership 与 Host online 后创建 `connectionId`，向 Host 发
     "connectionId": "01KCONN...",
     "clientDeviceId": "01KCLIENT...",
     "clientIdentityKey": "...",
+    "authorization": "account",
     "preferredTransports": ["lan", "p2p", "turn", "relay"]
   }
 }
 ```
 
-Host 必须在本机 trusted peer store 中找到完全匹配的 identityKey，才返回 `connect.accepted`。Server membership 与本机 trust 任一缺失都必须拒绝。
-
-Host 接受后发送：
-
-```json
-{
-  "v": 1,
-  "id": "01K...",
-  "type": "connect.accepted",
-  "timestamp": 1786000000000,
-  "payload": {
-    "connectionId": "01KCONN...",
-    "targetDeviceId": "01KCLIENT...",
-    "transport": "relay"
-  }
-}
-```
-
-`transport` 仅为 `lan`、`p2p`、`turn` 或 `relay`。拒绝时发送 `connect.rejected`，payload 至少包含 `connectionId`、`targetDeviceId`、稳定 `code` 和安全 `message`。Server 只可将结果转发给该 connection 的 Client。
+Host 必须要求 `authorization` 为 `account`，校验 identityKey 格式，并通过受 membership
+保护的设备详情接口确认 Client descriptor。本机已有相同 deviceId 但公钥不同则必须拒绝；
+验证通过后写入/更新本机 pinned peer，并把该 key 与 `connectionId` 绑定，才可返回
+`connect.accepted`。安全握手期间不允许替换远端 key。
 
 ## 12. Secure Channel
 
 ### 12.1 算法
 
-已配对连接使用成熟 Noise 实现：
+账号授权连接使用成熟 Noise 实现：
 
 ```text
 Noise_IK_25519_ChaChaPoly_SHA256
@@ -502,12 +383,13 @@ Noise_IK_25519_ChaChaPoly_SHA256
 
 - Initiator：Client。
 - Responder：Host。
-- 双方 static X25519 key 在配对后已知并受信。
-- Prologue 绑定：`DSH-REMOTE`, protocol v1, connectionId, Host deviceId, Client deviceId。v1 的规范 UTF-8 编码为
-  `DSH-REMOTE\0v=1\0connection=<connectionId>\0host=<hostDeviceId>\0client=<clientDeviceId>`。
+- 双方 static X25519 key 来自账号授权的设备注册与 `connect.incoming` 事件。
+- Prologue 绑定：`DSH-REMOTE`, protocol v1, connectionId, Host deviceId, Client deviceId。
 - 禁止自行实现 Noise state machine 或修改算法组合。
 
-首次 pairing 可增加 Noise XX/SAS 流程；在该流程标准化前，MVP 必须要求 Host 本机确认和 Client 校验 Host fingerprint。
+Client 从同账号设备详情获取 Host identity key；Host 将账号授权的连接事件与同一设备
+详情交叉校验后获取 Client identity key。双方必须把这些 key 固定到本机 trust store，
+并绑定到 Noise 握手和 connectionId。
 
 ### 12.2 Handshake relay
 
@@ -1171,15 +1053,9 @@ pong 回显 nonce。Heartbeat 不能携带业务数据。
 - `DEVICE_OWNERSHIP_REQUIRED`
 - `MEMBERSHIP_REQUIRED`
 - `PEER_IDENTITY_MISMATCH`
-
-### Pairing
-
-- `PAIRING_NOT_FOUND`
-- `PAIRING_EXPIRED`
-- `PAIRING_ALREADY_CLAIMED`
-- `PAIRING_ALREADY_CONSUMED`
-- `PAIRING_REJECTED`
-- `PAIRING_FINGERPRINT_MISMATCH`
+- `HOST_REGISTRATION_CODE_NOT_FOUND`
+- `HOST_REGISTRATION_CODE_EXPIRED`
+- `HOST_REGISTRATION_CODE_CONSUMED`
 
 ### Connection / Transport
 
@@ -1212,7 +1088,7 @@ pong 回显 nonce。Heartbeat 不能携带业务数据。
 | 项 | 默认限制 |
 | --- | --- |
 | Hello timeout | 5 s |
-| Pairing TTL | 10 min |
+| Host registration code TTL | 10 min |
 | Control JSON frame | 64 KiB |
 | Relay ciphertext frame | 1 MiB |
 | RPC text input | 64 KiB |
@@ -1229,8 +1105,8 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 
 所有 conforming 实现必须满足：
 
-1. Server credential 不等于 Host Remote authority。
-2. Membership 与 Host 本机 trusted peer 必须同时成立。
+1. 账号归属是 Host/Client 访问边界，device token 只能代表其所属账号内的设备。
+2. Membership、双方账号一致性、Host/Client 本机 pinned peer 和 connection identity key 绑定必须同时成立。
 3. Remote RPC/Event 不以明文经过或落盘到 Server。
 4. TLS/WSS 不能替代 Noise secure channel。
 5. Client 不能请求通用 shell/filesystem RPC 绕过 Harness。
@@ -1239,8 +1115,9 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 8. 当前 Harness v1 只允许 Remote `allow_once`/`deny`，不得伪造 session grant。
 9. Device revoke 使 token、membership 和现有 connection 失效。
 10. 重放/乱序/身份不匹配的 secure frame 必须拒绝。
-11. Host 注册必须由同一 Server 的 web account token 授权；account token 与 device
-    token 不可互换，切换 Server 不得复用旧 origin 的身份、凭证或配对状态。
+11. Host/Client 注册必须由同一 Server 的账号授权；Host 也可使用该账号生成的一次性
+    主机匹配码。account token 与 device token 不可互换，切换 Server 不得复用旧
+    origin 的身份、凭证或授权状态。
 12. 日志禁止记录 token、code 明文、key、prompt、source、workspace 和 tool output。
 13. Admin 无法从数据库或 API 获取 E2EE conversation。
 14. 未协商 capability 的功能不得调用或展示为可用。
@@ -1252,8 +1129,8 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 - JSON/envelope/schema/version vectors
 - RPC correlation、timeout、late response 和 idempotency
 - event seq、duplicate、gap、replay 和 full resync
-- Host account authorization、owner mismatch、legacy owner 缺失与 Client 匿名注册
-- pairing expire/single-use/fingerprint mismatch
+- Host/Client account authorization、owner mismatch 与跨账号访问拒绝
+- Host registration code expire/single-use
 - Noise IK handshake、peer mismatch、tamper、replay 和 rekey
 - signaling/relay membership authorization
 - Relay capture 无法解密业务 payload
@@ -1272,5 +1149,5 @@ UI 排版、静态说明和 Admin 普通筛选不属于协议 conformance。
 - 每个 schema 都有正反测试 vector。
 - Noise library 和握手 transcript 已固定。
 - Server 只解析 control envelope，不解析 relay plaintext。
-- Host adapter capability 与真实 Harness API 一致。
+- Host ApiProxy bridge allowlist 与真实 Harness API 一致。
 - Web/Host/Mock Host 至少两两互操作。

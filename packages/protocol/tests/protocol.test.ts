@@ -3,7 +3,8 @@ import { controlFrameTypes, createControlFrame, createEvent, createRpcError, cre
 
 describe('protocol envelope', () => {
   it('contains every Server control frame used by protocol v1', () => {
-    expect(controlFrameTypes).toContain('pairing.resolved')
+    expect(controlFrameTypes).toContain('connect.incoming')
+    expect(controlFrameTypes).not.toContain('pairing.resolved')
   })
 
   it('round-trips RPC messages', () => {

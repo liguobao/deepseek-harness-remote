@@ -28,10 +28,10 @@ Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Clie
 
 ## MVP 主路径
 
-1. Plugin Host 启动并向 Server 建立出站连接；本地 Plugin Client 也注册独立 Client identity。
-2. Plugin 生成 10 分钟有效的设备码。
-3. 用户在本地 Harness Plugin Client 输入设备码，Host 明确确认新设备。
-4. 用户在本地 Harness 侧边栏选择 Remote Host。
+1. Plugin Host 用账号密码或网页生成的一次性主机匹配码接入账号，并向 Server 建立出站连接。
+2. 本地 Plugin Client 用同一账号注册独立 Client identity，Server 自动建立 membership。
+3. 双端通过受 membership 保护的设备详情固定对端 identity key。
+4. 用户在本地 Harness 侧边栏选择同账号 Remote Host。
 5. 官方 UI 的 ApiProxy unary 与 mux/host stream 通过 Noise/Relay 到达 Host。
 6. Host allowlist bridge 调用远端 Harness 的官方 ApiProxy。
 7. Approval/Question 通过原生 `ClientResponse` 回到 Harness 权限系统。
@@ -45,7 +45,7 @@ Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Clie
 - Server 不存储源码、提示词、会话明文、工具输出或 shell 历史。
 - Relay 业务载荷必须端到端加密；TLS 不是唯一安全边界。
 - Control/Relay 能力通过 handshake 协商；ApiProxy contract 随同一 Plugin 发布物升级。
-- 非核心功能不单独编写测试；测试预算优先保障协议、加密、配对、鉴权、RPC 关联、权限和断线恢复。
+- 非核心功能不单独编写测试；测试预算优先保障协议、加密、账号授权、鉴权、RPC 关联、权限和断线恢复。
 
 ## 文档判定规则
 

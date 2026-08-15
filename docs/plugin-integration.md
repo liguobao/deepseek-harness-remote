@@ -1,6 +1,6 @@
-# Host Plugin 接入指南
+# Host 插件接入指南
 
-状态：最新 Server 契约；Plugin 已实现邮箱登录、Host 授权注册、device token 隔离和按 Server origin 分区的本地状态。
+状态：最新 Server 账号授权契约；Plugin 已实现账号密码、主机匹配码、device token 隔离与账号派生 membership。
 
 本文面向 DeepSeek Harness Host 插件开发者，描述插件如何登录账号、注册本机、保存凭证并连接 Remote Server。
 
@@ -12,6 +12,13 @@ Host 接入分为两层认证：
 - **设备认证**：Host 注册完成后获得独立的设备 access/refresh token，用于后台常驻连接。
 
 账号 token 只用于注册 Host 和账号接口，不用于 WebSocket；设备 token 不可调用账号接口。Server 不保存设备私钥，也不执行 Harness 任务。
+
+插件必须同时提供两种接入方式：
+
+1. **账号密码接入**：插件登录账号后直接注册 Host；
+2. **主机匹配码接入**：用户在已登录网页生成一次性匹配码，再把它输入插件。
+
+两种方式最终得到相同的设备 token，后续刷新和 WebSocket 行为完全一致。主机匹配码只负责把一个 Host 接入账号；Host 与 Web/其他 Client 之间不再有单独的授权流程，同账号归属就是连接授权依据。
 
 ## 2. Server 地址
 
@@ -34,7 +41,7 @@ REST:      {serverUrl}/api/v1/...
 WebSocket: wss://{serverHost}/ws/v1/connect
 ```
 
-切换 Server 时，不得把旧 Server 的账号 token、设备 token、deviceId 或配对关系发送给新 Server。建议按规范化后的 `serverUrl` 隔离本地凭证和设备身份。
+切换 Server 时，不得把旧 Server 的账号 token、设备 token、deviceId 或账号授权状态发送给新 Server。建议按规范化后的 `serverUrl` 隔离本地凭证和设备身份。
 
 ## 3. 账号登录
 
@@ -103,7 +110,9 @@ GET /api/v1/auth/oauth/status
 
 ## 5. 注册 Host
 
-注册 Host 必须使用账号 token：
+### 5.1 方式一：账号密码直接接入
+
+插件先按 §3.1 使用账号密码取得 `accountToken`，再注册 Host：
 
 ```http
 POST /api/v1/devices/register
@@ -139,11 +148,77 @@ Content-Type: application/json
 
 - 缺少账号登录：`401 ACCOUNT_AUTH_REQUIRED`；
 - 已有 Host 属于其他账号：`403 DEVICE_OWNERSHIP_REQUIRED`；
-- 历史 Host 没有 owner：`409 DEVICE_OWNERSHIP_REQUIRED`，需要轮换 device identity 或由管理员迁移；
+- 已有 deviceId 没有账号 owner：`403 DEVICE_OWNERSHIP_REQUIRED`，不允许继续使用，必须创建新的 device identity；
 - 相同账号、deviceId 和 identityKey 可以重新注册；
 - 相同 deviceId 不允许更换 role 或 identityKey。
 
 注册成功后，`accountToken` 不应继续作为后台连接凭证。插件应安全保存设备 token pair。
+
+### 5.2 方式二：主机匹配码接入
+
+用户登录同一个 Server 的网页，在控制台“工作电脑”页面生成主机匹配码。网页实际调用：
+
+```http
+POST /api/v1/account/host-registration-codes
+Authorization: Bearer <accountToken>
+Content-Type: application/json
+
+{}
+```
+
+响应：
+
+```json
+{
+  "registrationId": "0198...",
+  "code": "ABCD-EFGH",
+  "expiresAt": 1786000000000
+}
+```
+
+插件让用户输入该码，然后连同本机 Host descriptor 一次提交：
+
+```http
+POST /api/v1/devices/register-with-code
+Content-Type: application/json
+
+{
+  "v": 1,
+  "code": "ABCD-EFGH",
+  "device": {
+    "deviceId": "0198...",
+    "name": "My Workstation",
+    "role": "host",
+    "platform": "darwin",
+    "identityKey": "base64url-x25519-public-key",
+    "clientVersion": "0.1.0",
+    "harnessVersion": "0.1.0-rc.6"
+  }
+}
+```
+
+成功响应与 §5.1 相同，直接返回设备 access/refresh token。匹配码具备以下约束：
+
+- 8 位、10 分钟有效、只能成功使用一次；
+- 同一账号只保留一个有效匹配码，重新生成会立即作废旧码；
+- Server 只保存独立域的 keyed hash，不保存明文；
+- 只允许注册 `role=host`；
+- 按账号限制生成频率，按来源 IP 限制尝试频率；
+- `HOST_REGISTRATION_CODE_NOT_FOUND`：码不存在或格式无效；
+- `HOST_REGISTRATION_CODE_EXPIRED`：码已过期；
+- `HOST_REGISTRATION_CODE_CONSUMED`：码已被使用。
+
+匹配码消费与 Host owner 写入在同一数据库事务中完成。插件收到超时或网络错误时，应先检查请求结果，不能盲目用同一码并发重试；明确收到未消费类网络错误时可串行重试一次。
+
+### 5.3 Desktop Client 账号接入
+
+Desktop Client 使用 §3.1 的账号密码取得临时 `accountToken`，再调用
+`POST /api/v1/devices/register`，descriptor 使用 `role=client` 且不携带
+`harnessVersion`。Client 不允许使用主机匹配码，也没有 Host 生成、领取或确认的设备码。
+
+注册成功后只保存 Client 自己的 device token。`GET /api/v1/devices` 返回同账号 Host
+及 membership；Client 随后逐个调用 `GET /api/v1/devices/{hostDeviceId}` 获取 identity
+key，并在本机固定该 key。相同 Host deviceId 的 key 发生变化时必须拒绝覆盖和连接。
 
 ## 6. 凭证保存和刷新
 
@@ -152,6 +227,7 @@ Content-Type: application/json
 ```json
 {
   "serverUrl": "https://dsh.r2049.cn",
+  "authorizationMethod": "account",
   "account": "user@example.com",
   "deviceId": "0198...",
   "deviceAccessToken": "...",
@@ -160,6 +236,9 @@ Content-Type: application/json
   "deviceRefreshTokenExpiresAt": 1789000000000
 }
 ```
+
+使用主机匹配码接入时，`authorizationMethod` 为 `host_registration_code`，响应不返回
+账号名，因此本地 `account` 可以省略。该字段只用于展示接入状态，不参与 Server 鉴权。
 
 刷新设备 token：
 
@@ -226,25 +305,31 @@ Server 会发送 `ping`，插件必须及时返回相同 nonce 的 `pong`。同�
 
 断线重连建议使用带 jitter 的指数退避。认证失败时先刷新设备 access token；设备被撤销时停止重连。
 
-## 8. 配对与连接事件
+## 8. 账号授权与连接事件
 
-Host 在线后可使用设备 access token 创建 pairing：
+Web 或其他客户端使用同一个账号登录并注册 `role=client` 后，Server 会自动为它与该账号下的 Host 建立授权边。没有创建、领取或确认设备码的接口。
 
-```http
-POST /api/v1/pairings
-Authorization: Bearer <deviceAccessToken>
+Client 发起 `connect.request` 且 Host 在线时，Host WebSocket 收到：
 
-{ "v": 1, "hostDeviceId": "0198..." }
+```json
+{
+  "v": 1,
+  "id": "0198...",
+  "type": "connect.incoming",
+  "timestamp": 1786000000000,
+  "payload": {
+    "connectionId": "0198...",
+    "clientDeviceId": "0198...",
+    "clientIdentityKey": "base64url-x25519-public-key",
+    "authorization": "account",
+    "preferredTransports": ["p2p", "turn", "relay"]
+  }
+}
 ```
 
-Client claim 后，Host WebSocket 收到 `pairing.claimed`。插件必须在本机展示 Client fingerprint，由用户确认后调用 `/api/v1/pairings/confirm`。批准前应先把 Client identity key 写入 pending local trust transaction。
+插件只接受 `authorization: "account"`，并校验 `clientDeviceId`、`clientIdentityKey` 与字段格式。随后使用 Host device token 调用 `GET /api/v1/devices/{clientDeviceId}`，确认返回的 role、membership 和 identity key 与事件完全一致；本机已有相同 deviceId 但 key 不同则 fail closed。验证通过后把 descriptor 写入本机 pinned trust，无需弹出人工确认窗口，即可进入安全握手。
 
-后续收到 `connect.incoming` 时，插件必须同时验证：
-
-1. Server 已建立 membership；
-2. `clientDeviceId + clientIdentityKey` 与本机 trusted peer 完全一致。
-
-只有两项都满足才能发送 `connect.accepted`。Server membership 不能替代本机 trust store。
+`clientIdentityKey` 是本次端到端安全握手的远端静态公钥。插件必须把它绑定到该 `connectionId`，握手期间或连接建立后都不得被替换。Client 同样通过 `GET /api/v1/devices/{hostDeviceId}` 获取并固定 Host 的 `identityKey`。Server 只路由密文，不能替代端到端密钥校验。
 
 ## 9. 账号设备查询
 
@@ -255,14 +340,20 @@ GET /api/v1/account/devices
 Authorization: Bearer <accountToken>
 ```
 
-该接口用于插件登录后的设备恢复/展示，不替代本机私钥。若 Server 返回某个 Host，但本机没有对应私钥，插件不能冒充或自动认领该设备，应创建新的 device identity。
+响应中的每个 Host 都包含 `deviceId`、名称、平台、版本、`lastSeenAt` 与
+`online`。`online` 表示当前是否有该 Host 的 WebSocket 连接，可直接用于网页或
+插件的主机状态展示。
+
+该接口用于插件登录后的设备恢复/展示，不替代本机私钥。若 Server 返回某个 Host，
+但本机没有对应私钥，插件不能冒充或自动认领该设备，应创建新的 device identity。
 
 ## 10. 最小状态机
 
 ```text
 NO_SERVER
-  → ACCOUNT_LOGIN_REQUIRED
-  → ACCOUNT_AUTHENTICATED
+  → CHOOSE_ENROLLMENT
+      ├─ PASSWORD_LOGIN → ACCOUNT_AUTHENTICATED
+      └─ ENTER_HOST_CODE → CODE_READY
   → DEVICE_REGISTERED
   → DEVICE_TOKEN_READY
   → WS_CONNECTING
@@ -281,7 +372,7 @@ server changed       → NO_SERVER（切换到该 Server 独立的本地状态�
 - 账号密码、账号 token；
 - device access/refresh token；
 - X25519 private key；
-- pairing code；
+- 尚未使用的主机匹配码；
 - Noise handshake secret 或解密后的业务 payload。
 
 可以记录经过截断或哈希处理的 deviceId、connectionId、错误码和连接阶段。生产环境必须校验证书，不允许“忽略 TLS 错误”。

@@ -2,8 +2,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ApiProxy, RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { generateKeyPair } from '@dsh-remote/crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ClientModeRuntime, type HostConnectionHandle, type HostPairingControl } from '../src/client-runtime.js'
+import { ClientModeRuntime, type HostAuthorizationControl, type HostConnectionHandle } from '../src/client-runtime.js'
 import type { ResolvedConfig } from '../src/config.js'
 import { IdentityStore } from '../src/identity-store.js'
 import type { SafeLogger } from '../src/logging.js'
@@ -20,17 +21,15 @@ describe('ClientModeRuntime Host account control', () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-client-runtime-'))
     directories.push(directory)
     const host = {
-      createPairing: vi.fn(),
-      pendingPairings: vi.fn(() => []),
-      confirmPairing: vi.fn(),
       hostStatus: vi.fn(() => ({
         configured: true,
         online: false,
         error: 'ACCOUNT_AUTH_REQUIRED',
         accountRequired: true,
       })),
-      authorizeHost: vi.fn(async (email: string) => ({ account: email, expiresAt: Date.now() + 60_000, isAdmin: false })),
-    } satisfies HostPairingControl
+      authorizeHostWithAccount: vi.fn(async (email: string) => ({ account: email, expiresAt: Date.now() + 60_000, isAdmin: false })),
+      authorizeHostWithCode: vi.fn(async () => ({ method: 'host_registration_code' })),
+    } satisfies HostAuthorizationControl
     const runtime = new ClientModeRuntime(
       config(),
       new IdentityStore({ directory }),
@@ -60,9 +59,50 @@ describe('ClientModeRuntime Host account control', () => {
     await expect(handler?.('host.account.login', {
       email: 'host@example.com', password: 'correct horse battery staple',
     }, signal)).resolves.toMatchObject({ ok: true, value: { account: 'host@example.com' } })
-    expect(host.authorizeHost).toHaveBeenCalledWith('host@example.com', 'correct horse battery staple')
+    expect(host.authorizeHostWithAccount).toHaveBeenCalledWith('host@example.com', 'correct horse battery staple')
 
     await dispose()
+    await runtime.close()
+  })
+
+  it('pins Host identity from an account-authorized device detail and rejects key replacement', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-client-trust-'))
+    directories.push(directory)
+    const identities = new IdentityStore({ directory })
+    const first = generateKeyPair(new Uint8Array(32).fill(21))
+    const replacement = generateKeyPair(new Uint8Array(32).fill(22))
+    let identityKey = first.publicKey
+    const server = {
+      baseUrl: 'https://dsh.r2049.cn',
+      bindIdentity: vi.fn(),
+      listDevices: vi.fn(async () => [{
+        deviceId: 'host-device-1',
+        name: 'Workstation',
+        platform: 'linux',
+        membershipId: 'membership-1',
+      }]),
+      deviceFor: vi.fn(async () => ({
+        deviceId: 'host-device-1',
+        name: 'Workstation',
+        role: 'host' as const,
+        platform: 'linux',
+        identityKey,
+        membershipId: 'membership-1',
+      })),
+      presenceFor: vi.fn(async () => ({ online: true })),
+    } as unknown as ClientServerApi
+    const runtime = new ClientModeRuntime(config(), identities, server, apiProxy(), logger())
+    await runtime.start()
+
+    await expect(runtime.devices()).resolves.toMatchObject([{ deviceId: 'host-device-1', online: true }])
+    expect(identities.trustedPeer('host-device-1')).toMatchObject({
+      publicKey: first.publicKey,
+      membershipId: 'membership-1',
+    })
+
+    identityKey = replacement.publicKey
+    await expect(runtime.devices()).rejects.toMatchObject({ code: 'PEER_IDENTITY_MISMATCH' })
+    expect(identities.trustedPeer('host-device-1')?.publicKey).toBe(first.publicKey)
     await runtime.close()
   })
 })

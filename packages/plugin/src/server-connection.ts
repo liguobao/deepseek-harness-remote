@@ -13,7 +13,6 @@ import {
   type ConnectIncomingPayload,
   type ControlErrorPayload,
   type HelloAckPayload,
-  type PairingClaimedPayload,
   type RelayPayload,
   type RemoteMessage,
   type SecureHandshakePayload,
@@ -22,9 +21,7 @@ import type { ConnectionController } from './connection-controller.js'
 import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
 import type { SafeLogger } from './logging.js'
-import type { PairingController } from './pairing-controller.js'
-import { PairingError } from './pairing-controller.js'
-import type { HostServerApi } from './server-api.js'
+import type { AuthorizedPeerDevice, HostServerApi } from './server-api.js'
 import { ServerApiError } from './server-api.js'
 import type { AuthenticatedPeerChannel } from './types.js'
 
@@ -63,7 +60,6 @@ export class HostServerConnection {
     private readonly identity: HostIdentity,
     private readonly identities: IdentityStore,
     private readonly api: HostServerApi,
-    private readonly pairings: PairingController,
     private readonly connections: ConnectionController,
     private readonly logger: SafeLogger,
     private readonly createWebSocket: WebSocketFactory = url => new WebSocket(url) as unknown as WebSocketLike,
@@ -195,19 +191,6 @@ export class HostServerConnection {
       return
     }
     if (frame.type === 'pong') return
-    if (frame.type === 'pairing.claimed') {
-      try {
-        this.pairings.receiveClaim(requirePairingClaim(frame.payload))
-        this.logger.info('pairing claim awaiting local confirmation', {
-          pairingId: shortId(objectValue(frame.payload, 'pairingId') as string),
-          clientDeviceId: shortId((objectValue(frame.payload, 'client') as { deviceId: string }).deviceId),
-        })
-      } catch (error) {
-        if (!(error instanceof PairingError)) throw error
-        this.logger.warn('pairing claim rejected locally', { code: error.code })
-      }
-      return
-    }
     if (frame.type === 'connect.incoming') {
       await this.handleConnectIncoming(requireConnectIncoming(frame.payload))
       return
@@ -234,18 +217,45 @@ export class HostServerConnection {
   }
 
   private async handleConnectIncoming(payload: ConnectIncomingPayload): Promise<void> {
-    const peer = this.identities.trustedPeer(payload.clientDeviceId)
-    if (peer === undefined || peer.publicKey !== payload.clientIdentityKey) {
+    let descriptor: AuthorizedPeerDevice
+    try {
+      descriptor = await this.api.deviceFor(payload.clientDeviceId)
+    } catch (error) {
       this.sendControl('connect.rejected', { connectionId: payload.connectionId })
-      this.logger.warn('connection rejected by local trust', { clientDeviceId: shortId(payload.clientDeviceId) })
+      this.logger.warn('connection rejected by account authorization', {
+        clientDeviceId: shortId(payload.clientDeviceId),
+        code: errorCode(error),
+      })
       return
     }
-    let membershipId = peer.membershipId
-    membershipId ??= await this.api.membershipFor(peer.deviceId)
-    if (membershipId === undefined) {
+    if (descriptor.role !== 'client' || descriptor.deviceId !== payload.clientDeviceId
+      || descriptor.identityKey !== payload.clientIdentityKey) {
       this.sendControl('connect.rejected', { connectionId: payload.connectionId })
+      this.logger.warn('connection rejected by peer identity validation', {
+        clientDeviceId: shortId(payload.clientDeviceId),
+      })
       return
     }
+    const existing = this.identities.trustedPeer(descriptor.deviceId)
+    if (existing !== undefined && existing.publicKey !== descriptor.identityKey) {
+      this.sendControl('connect.rejected', { connectionId: payload.connectionId })
+      this.logger.warn('connection rejected by pinned peer identity', {
+        clientDeviceId: shortId(payload.clientDeviceId),
+      })
+      return
+    }
+    const peer = existing !== undefined
+      && existing.membershipId === descriptor.membershipId
+      && existing.name === descriptor.name
+      && existing.platform === descriptor.platform
+      ? existing
+      : await this.identities.trustPeer({
+          deviceId: descriptor.deviceId,
+          name: descriptor.name,
+          platform: descriptor.platform,
+          publicKey: descriptor.identityKey,
+          membershipId: descriptor.membershipId,
+        })
     const previous = this.tunnels.get(payload.connectionId)
     previous?.noise.destroy()
     const noise = new NoiseIkSession({
@@ -255,7 +265,12 @@ export class HostServerConnection {
       remotePublicKey: peer.publicKey,
       prologue: createNoisePrologue(payload.connectionId, this.identity.deviceId, peer.deviceId),
     })
-    this.tunnels.set(payload.connectionId, { connectionId: payload.connectionId, membershipId, peer, noise })
+    this.tunnels.set(payload.connectionId, {
+      connectionId: payload.connectionId,
+      membershipId: descriptor.membershipId,
+      peer,
+      noise,
+    })
     this.sendControl('connect.accepted', { connectionId: payload.connectionId })
   }
 
@@ -420,19 +435,11 @@ function requireHelloAck(value: unknown): HelloAckPayload {
   return payload as unknown as HelloAckPayload
 }
 
-function requirePairingClaim(value: unknown): PairingClaimedPayload {
-  const payload = requireObject(value)
-  const client = requireObject(payload.client)
-  for (const item of [payload.pairingId, client.deviceId, client.name, client.platform, client.identityKey, client.fingerprint]) {
-    if (typeof item !== 'string' || item.length === 0) throw new ControlConnectionError('INVALID_MESSAGE', 'pairing.claimed payload is invalid.')
-  }
-  return payload as unknown as PairingClaimedPayload
-}
-
 function requireConnectIncoming(value: unknown): ConnectIncomingPayload {
   const payload = requireObject(value)
   if (typeof payload.connectionId !== 'string' || typeof payload.clientDeviceId !== 'string'
-    || typeof payload.clientIdentityKey !== 'string' || !Array.isArray(payload.preferredTransports)) {
+    || typeof payload.clientIdentityKey !== 'string' || payload.authorization !== 'account'
+    || !Array.isArray(payload.preferredTransports)) {
     throw new ControlConnectionError('INVALID_MESSAGE', 'connect.incoming payload is invalid.')
   }
   return payload as unknown as ConnectIncomingPayload

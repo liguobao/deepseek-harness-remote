@@ -10,6 +10,5 @@ export function doctor(runtime: HostPluginRuntime): string {
     ...(state.serverError === undefined ? [] : [`Server error: ${state.serverError}`]),
     `Peer channel: ${state.online ? 'online' : 'offline'}`,
     `Trusted devices: ${state.trustedPeers}`,
-    `Pending pairings: ${state.pendingPairings}`,
   ].join('\n')
 }

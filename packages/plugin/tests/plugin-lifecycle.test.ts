@@ -47,7 +47,7 @@ describe('Cordis plugin lifecycle', () => {
 
     await vi.waitFor(() => {
       expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis test host' })
-      expect(ctx.dshRemote.diagnostics()).toMatchObject({ loaded: true, pendingPairings: 0 })
+      expect(ctx.dshRemote.diagnostics()).toMatchObject({ loaded: true })
     })
     expect(identityReadyWhenControlRegistered).toBe(false)
 

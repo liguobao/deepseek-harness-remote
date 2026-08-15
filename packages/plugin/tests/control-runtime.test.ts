@@ -3,12 +3,11 @@ import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
-import { generateKeyPair } from '@dsh-remote/crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { HostConnectionHandle } from '../src/client-runtime.js'
 import { resolveConfig, type Config } from '../src/config.js'
-import { PluginControlRuntime, type PluginSettingsView } from '../src/control-runtime.js'
-import { fingerprint, serverStorageDirectory } from '../src/identity-store.js'
+import { PluginControlRuntime } from '../src/control-runtime.js'
+import { serverStorageDirectory } from '../src/identity-store.js'
 
 const directories: string[] = []
 
@@ -76,31 +75,21 @@ describe('PluginControlRuntime settings setup', () => {
     await expect(readFile(join(hostDirectory, 'server-credentials.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  it('claims a Client authorization code and persists Host trust after approval', async () => {
+  it('authorizes a Client with its site account and persists only device credentials', async () => {
     const directory = await temporaryDirectory()
     const settings = settingsScope({})
-    const hostKeys = generateKeyPair(new Uint8Array(32).fill(7))
     const calls: Array<{ url: string; init?: RequestInit }> = []
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
       calls.push({ url, init })
+      if (url.endsWith('/auth/login')) return json({
+        token: 'web-account-token-value',
+        expiresAt: Date.now() + 600_000,
+        account: 'client@example.com',
+        profile: {},
+        isAdmin: false,
+      })
       if (url.endsWith('/devices/register')) return json(tokens())
-      if (url.endsWith('/pairings/claim')) return json({
-        pairingId: 'pairing-1',
-        expiresAt: Date.now() + 60_000,
-        host: {
-          deviceId: 'host-device-1',
-          name: 'Remote Host',
-          platform: 'linux',
-          identityKey: hostKeys.publicKey,
-          fingerprint: fingerprint(hostKeys.publicKey),
-        },
-      })
-      if (url.endsWith('/pairings/pairing-1/status')) return json({
-        status: 'paired',
-        membershipId: 'membership-1',
-        hostDeviceId: 'host-device-1',
-      })
       throw new Error(`unexpected request: ${url}`)
     }))
     const handler = register(new PluginControlRuntime(
@@ -110,32 +99,57 @@ describe('PluginControlRuntime settings setup', () => {
     const configured = await handler('settings.configure', {
       role: 'client',
       serverUrl: 'https://dsh.r2049.cn',
-      authorizationCode: 'ABCD-EFGH',
+      email: 'client@example.com',
+      password: 'correct horse battery staple',
     }, signal())
     expect(configured).toMatchObject({
       ok: true,
-      value: { status: 'waiting_host', settings: { pendingPairing: { pairingId: 'pairing-1' } } },
-    })
-    expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({ device: { name: hostname(), role: 'client' } })
-    expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ code: 'ABCDEFGH' })
-
-    const paired = await handler('settings.pairing.status', { pairingId: 'pairing-1' }, signal())
-    expect(paired).toMatchObject({
-      ok: true,
       value: {
-        status: 'paired',
-        settings: {
-          association: {
-            method: 'authorization_code',
-            host: { deviceId: 'host-device-1', name: 'Remote Host' },
-          },
-        },
+        status: 'authorized',
+        role: 'client',
+        account: 'client@example.com',
+        settings: { association: { method: 'account', account: 'client@example.com' } },
       },
     })
-    if (!paired.ok) throw new Error(paired.error.message)
-    expect((paired.value as { settings: PluginSettingsView }).settings).not.toHaveProperty('pendingPairing')
+    expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ device: { name: hostname(), role: 'client' } })
     const clientDirectory = serverStorageDirectory(directory, 'https://dsh.r2049.cn', 'client')
-    await expect(readFile(join(clientDirectory, 'trusted-peers.json'), 'utf8')).resolves.toContain('membership-1')
+    const stored = await readFile(join(clientDirectory, 'server-credentials.json'), 'utf8')
+    expect(stored).toContain('client@example.com')
+    expect(stored).not.toContain('correct horse battery staple')
+    expect(stored).not.toContain('web-account-token-value')
+  })
+
+  it('authorizes a Host with a website-generated one-time registration code', async () => {
+    const directory = await temporaryDirectory()
+    const settings = settingsScope({})
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(input), init })
+      return json(tokens())
+    }))
+    const handler = register(new PluginControlRuntime(
+      resolveConfig(settings.get()), directory, settings, undefined, undefined,
+    ))
+
+    const configured = await handler('settings.configure', {
+      role: 'host',
+      serverUrl: 'https://dsh.r2049.cn',
+      registrationCode: 'ABCD-EFGH',
+    }, signal())
+
+    expect(configured).toMatchObject({
+      ok: true,
+      value: {
+        status: 'authorized',
+        role: 'host',
+        settings: { association: { method: 'host_registration_code' } },
+      },
+    })
+    expect(calls[0]?.url).toBe('https://dsh.r2049.cn/api/v1/devices/register-with-code')
+    expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({
+      code: 'ABCD-EFGH',
+      device: { name: hostname(), role: 'host' },
+    })
   })
 })
 

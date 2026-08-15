@@ -3,14 +3,14 @@
 本清单按 2026-08-15 的 ApiProxy-only Desktop Plugin 方向维护。当前不投入 Android 产品线；
 Server、Remote Web 和 Admin 只在独立 Server 仓库实现。
 
-测试预算只用于协议、安全、配对、认证连接、ApiProxy allowlist/stream 生命周期和核心
+测试预算只用于协议、安全、账号授权、认证连接、ApiProxy allowlist/stream 生命周期和核心
 transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 
 ## 已完成基线
 
 - [x] pnpm monorepo、共享 Protocol/Crypto/Transport/Client Core
-- [x] Host 账号授权注册、device token rotation 与按 Server/角色隔离的身份状态
-- [x] 一次性配对码、Host 本机 fingerprint 确认、membership + local trust 双重授权
+- [x] Host 账号密码/主机匹配码接入、Client 账号接入、device token rotation 与按 Server/角色隔离的身份状态
+- [x] 同账号 membership、受保护 peer descriptor 与本地 pinned trust 双重授权
 - [x] Relay control、标准 Noise IK、counter/replay 拒绝与 opaque ciphertext
 - [x] Desktop Plugin Host/Client 双角色、Settings 配置和 GitHub/npm Bundle 入口
 - [x] 官方 ApiProxy Local/Remote switch、Host allowlist bridge、mux/host stream 与断线回落
@@ -19,7 +19,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 ## P0：Plugin 可用链路
 
 - [ ] 在真实 dsh-desktop 中验证 GitHub 安装、重启、Host/Client 配置和 Bundle 入口
-- [ ] 用两台真实 Harness + 外部 Server 跑通授权、配对、选择 Remote、创建/继续会话
+- [ ] 用两台真实 Harness + 外部 Server 跑通同账号授权、选择 Remote、创建/继续会话
 - [ ] 验证原生 mux/host stream、approval/question respond 与断线关闭行为
 - [ ] 验证 allowlist 覆盖官方 UI 的必需方法，并保持 credentials/settings/native path/目录/附件/download 禁止
 - [ ] 完善账号过期、`DEVICE_OWNERSHIP_REQUIRED` 和 legacy owner 的显式恢复体验
@@ -27,7 +27,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 
 ## P0：协议与安全
 
-- [ ] 将 `packages/protocol` 与 `docs/protocol.md` 的 Control、Pairing、Connect、Relay、ApiProxy tunnel、Error 和 Limits schema 逐项对齐
+- [ ] 将 `packages/protocol` 与 `docs/protocol.md` 的 Control、Account Authorization、Connect、Relay、ApiProxy tunnel、Error 和 Limits schema 逐项对齐
 - [ ] 清理仅供冻结 Android 原型使用的旧 Session/Event 类型
 - [ ] 固定 hello/hello.ack 版本拒绝、能力与最大消息限制
 - [ ] 完成 Noise 实现独立安全审查、长期连接 rekey 与断线密钥清理策略
@@ -47,12 +47,12 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [ ] 持续同步 `server.md`、`protocol.md` 与 Host Plugin 接入契约
 - [ ] 冻结 REST、Control WebSocket、Relay 和 Signaling 合约
 - [ ] 在两仓 CI 使用同一组 conformance fixtures
-- [ ] 验证 Server 无法解密 ApiProxy payload，且 pairing/token/membership/IDOR 防护成立
+- [ ] 验证 Server 无法解密 ApiProxy payload，且 host registration code/token/membership/IDOR 防护成立
 
 ## P2：工程与发布
 
 - [ ] 使用系统 Keychain/Secret Service 保存身份私钥和 refresh token
-- [ ] 完成多窗口、休眠/唤醒、代理网络和 deep link 配对
+- [ ] 完成多窗口、休眠/唤醒、代理网络和系统浏览器账号授权
 - [ ] 明确版本、License、发布策略与兼容矩阵
 - [ ] 提供脱敏日志导出和真实设备长连接性能基线
 - [ ] 修复冻结 Android 原型的 Metro exports fallback 警告（仅在恢复 Android 产品线时）
@@ -73,7 +73,8 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 
 - [ ] 双角色 Plugin 可安装到真实 DeepSeek Harness 并主动连接外部 Server
 - [x] Host 账号授权注册后只使用独立 device credential 常驻
-- [ ] Desktop Client 完成 Host 二次确认并在原生 UI 切换 Local/Remote
+- [x] Desktop Client 使用同账号注册并从授权设备详情固定 Host identity key
+- [ ] Desktop Client 在真实原生 UI 切换 Local/Remote
 - [ ] 原生会话、stream、tool、approval/question 通过 ApiProxy tunnel 正常工作
 - [ ] 连接断开后旧 stream/answer 失效并安全回落 Local
 - [ ] Relay capture 无法解密 payload，篡改、重放和 identity mismatch 被拒绝

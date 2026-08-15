@@ -33,14 +33,13 @@ packages/plugin/src/
   server-credentials.ts       device credential
   server-api.ts               Server REST client
   server-connection.ts        Host control/relay/Noise 连接
-  pairing-controller.ts       配对确认
   connection-controller.ts    单一认证 peer 与业务通道
   rpc-router.ts               仅接受 ApiProxy tunnel RPC
   harness-api-bridge.ts       Host ApiProxy allowlist 与原生流
   remote-api-proxy.ts         Client 侧 ApiProxy 实现
   api-proxy-switch.ts         Local/Remote 目标切换
   client-runtime.ts           Desktop Client runtime
-  control-runtime.ts          loopback-only 设置与配对控制面
+  control-runtime.ts          loopback-only 设置与账号授权控制面
   client-secure-transport.ts  Client Noise IK
   client.ts                   Desktop Web client face
   logging.ts                  脱敏日志
@@ -111,7 +110,7 @@ proxy；连接意外关闭时立即回落 Local 并结束旧流。
 业务桥只在以下条件全部成立后可见：
 
 - Server active membership 与目标连接一致；
-- Client deviceId/public key 与 Host 本地 trusted peer 完全一致；
+- 双方账号授权的 peer descriptor 与本地 pinned key 完全一致；
 - Noise IK transcript 成功绑定 connectionId、Host 和 Client；
 - relay counter 连续且密文认证成功。
 
@@ -134,6 +133,6 @@ rpcId；晚到、重复或格式错误的回答由 Host ApiProxy 拒绝。连接
 - 未认证、错误 identity/membership、篡改和重放 fail closed。
 - peer 替换或断开时关闭全部原生流。
 - Local/Remote switch 可逆，远端断开回落 Local。
-- Host account token 与 device token 隔离，refresh single-flight。
+- Host/Client account token 与 device token 隔离，主机匹配码单次消费，refresh single-flight。
 
 Android 目前不在这条实现线上；其旧自定义 Remote RPC 代码不构成 Plugin 兼容要求。

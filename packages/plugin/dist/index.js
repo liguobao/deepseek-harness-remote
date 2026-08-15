@@ -4063,8 +4063,6 @@ var controlFrameTypes = [
   "connect.incoming",
   "connect.accepted",
   "connect.rejected",
-  "pairing.claimed",
-  "pairing.resolved",
   "secure.handshake",
   "relay",
   "signal.offer",
@@ -11721,12 +11719,6 @@ async function waitForResponder(inner, noise) {
   });
 }
 
-// src/identity-store.ts
-import { createHash } from "node:crypto";
-import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-
 // src/ids.ts
 import { randomBytes as randomBytes6 } from "node:crypto";
 function uuidV7(now = Date.now()) {
@@ -11743,171 +11735,6 @@ function uuidV7(now = Date.now()) {
   bytes[8] = 128 | bytes[8] & 63;
   const hex = bytes.toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-// src/identity-store.ts
-var identitySchema = external_exports.object({
-  schemaVersion: external_exports.literal(1),
-  deviceId: external_exports.string().uuid(),
-  name: external_exports.string().min(1).max(80),
-  publicKey: external_exports.string().min(1)
-}).strict();
-var trustedPeerSchema = external_exports.object({
-  deviceId: external_exports.string().min(1),
-  name: external_exports.string().min(1).max(80),
-  platform: external_exports.string().min(1).max(40),
-  publicKey: external_exports.string().min(1),
-  fingerprint: external_exports.string().min(1),
-  trustedAt: external_exports.number().int().nonnegative(),
-  membershipId: external_exports.string().min(1).optional()
-}).strict();
-var trustedPeersSchema = external_exports.object({
-  schemaVersion: external_exports.literal(1),
-  peers: external_exports.array(trustedPeerSchema)
-}).strict();
-var IdentityInvalidError = class extends Error {
-  code = "IDENTITY_INVALID";
-};
-var IdentityStore = class {
-  directory;
-  identity;
-  peers = /* @__PURE__ */ new Map();
-  constructor(options = {}) {
-    const env = options.env ?? process.env;
-    const dshHome = env.DSH_HOME || join(options.homeDirectory ?? homedir(), ".dsh");
-    this.directory = options.directory ?? join(dshHome, "remote");
-  }
-  async loadOrCreate(deviceName) {
-    await mkdir(this.directory, { recursive: true, mode: 448 });
-    await chmod(this.directory, 448);
-    const devicePath = join(this.directory, "device.json");
-    const keyPath = join(this.directory, "device.key");
-    const [hasDevice, hasKey] = await Promise.all([exists(devicePath), exists(keyPath)]);
-    if (hasDevice !== hasKey) {
-      throw new IdentityInvalidError("device identity is incomplete; repair it explicitly before reconnecting");
-    }
-    if (!hasDevice) {
-      const keys = generateKeyPair();
-      const record3 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
-      await atomicJsonWrite(devicePath, record3, 384);
-      await atomicTextWrite(keyPath, `${keys.privateKey}
-`, 384);
-    }
-    await assertPrivateMode(keyPath);
-    try {
-      let record3 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
-      const privateKey = (await readFile(keyPath, "utf8")).trim();
-      const regenerated = generateKeyPair(fromBase64Url2(privateKey));
-      if (regenerated.publicKey !== record3.publicKey) {
-        throw new IdentityInvalidError("device public and private keys do not match");
-      }
-      if (record3.name !== deviceName) {
-        record3 = { ...record3, name: deviceName };
-        await atomicJsonWrite(devicePath, record3, 384);
-      }
-      this.identity = { ...record3, privateKey, fingerprint: fingerprint(record3.publicKey) };
-      await this.loadPeers();
-      return this.identity;
-    } catch (error) {
-      if (error instanceof IdentityInvalidError) throw error;
-      throw new IdentityInvalidError(`device identity is invalid: ${safeErrorMessage(error)}`);
-    }
-  }
-  current() {
-    if (this.identity === void 0) throw new Error("identity store has not been loaded");
-    return this.identity;
-  }
-  listTrustedPeers() {
-    return [...this.peers.values()].map((peer) => ({ ...peer }));
-  }
-  trustedPeer(deviceId) {
-    const peer = this.peers.get(deviceId);
-    return peer === void 0 ? void 0 : { ...peer };
-  }
-  isTrusted(deviceId, publicKey) {
-    return this.peers.get(deviceId)?.publicKey === publicKey;
-  }
-  async trustPeer(input) {
-    this.current();
-    const peer = {
-      ...input,
-      fingerprint: fingerprint(input.publicKey),
-      trustedAt: Date.now()
-    };
-    this.peers.set(peer.deviceId, peer);
-    await this.savePeers();
-    return { ...peer };
-  }
-  async revokePeer(deviceId) {
-    const removed = this.peers.delete(deviceId);
-    if (removed) await this.savePeers();
-    return removed;
-  }
-  async loadPeers() {
-    const path = join(this.directory, "trusted-peers.json");
-    if (!await exists(path)) {
-      await atomicJsonWrite(path, { schemaVersion: 1, peers: [] }, 384);
-    }
-    const parsed = trustedPeersSchema.parse(JSON.parse(await readFile(path, "utf8")));
-    const peers = /* @__PURE__ */ new Map();
-    for (const peer of parsed.peers) {
-      if (peer.fingerprint !== fingerprint(peer.publicKey)) {
-        throw new IdentityInvalidError(`trusted peer ${peer.deviceId} has an invalid fingerprint`);
-      }
-      if (peers.has(peer.deviceId)) throw new IdentityInvalidError(`trusted peer ${peer.deviceId} is duplicated`);
-      peers.set(peer.deviceId, peer);
-    }
-    this.peers = peers;
-  }
-  async savePeers() {
-    await atomicJsonWrite(join(this.directory, "trusted-peers.json"), {
-      schemaVersion: 1,
-      peers: [...this.peers.values()]
-    }, 384);
-  }
-};
-function serverStorageDirectory(root, serverUrl, role) {
-  const origin = new URL(serverUrl).origin;
-  const scope = createHash("sha256").update(origin).digest("hex").slice(0, 24);
-  return join(root, "servers", scope, role);
-}
-function fingerprint(publicKey) {
-  const compact = createHash("sha256").update(fromBase64Url2(publicKey)).digest("hex").slice(0, 12).toUpperCase();
-  return compact.match(/.{1,4}/g).join(" ");
-}
-async function assertPrivateMode(path) {
-  if (process.platform === "win32") return;
-  const mode = (await stat(path)).mode & 511;
-  if ((mode & 63) !== 0) {
-    throw new IdentityInvalidError(`private key permissions must be 0600, got ${mode.toString(8).padStart(3, "0")}`);
-  }
-}
-async function atomicJsonWrite(path, value, mode) {
-  await atomicTextWrite(path, `${JSON.stringify(value, null, 2)}
-`, mode);
-}
-async function atomicTextWrite(path, value, mode) {
-  await mkdir(dirname(path), { recursive: true, mode: 448 });
-  const temporary = `${path}.${process.pid}.${uuidV7()}.tmp`;
-  await writeFile(temporary, value, { encoding: "utf8", mode, flag: "wx" });
-  await chmod(temporary, mode);
-  await rename(temporary, path);
-  await chmod(path, mode);
-}
-async function exists(path) {
-  try {
-    await stat(path);
-    return true;
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") return false;
-    throw error;
-  }
-}
-function isNodeError(error) {
-  return error instanceof Error && "code" in error;
-}
-function safeErrorMessage(error) {
-  return error instanceof Error ? error.message : "invalid identity data";
 }
 
 // src/remote-api-proxy.ts
@@ -12086,7 +11913,6 @@ var ClientModeRuntime = class {
   }
   identity;
   connected;
-  pendingPairings = /* @__PURE__ */ new Map();
   proxySwitch;
   closed = false;
   async start() {
@@ -12113,52 +11939,18 @@ var ClientModeRuntime = class {
       ...this.proxySwitch.status(),
       connected: this.connected !== void 0,
       transport: this.connected?.client.getStats().mode ?? "Disconnected",
-      hostPairingAvailable: this.host !== void 0,
+      hostAuthorizationAvailable: this.host !== void 0,
       ...this.host === void 0 ? {} : { host: this.host.hostStatus() }
     };
   }
   async devices() {
     this.requireIdentity();
     const serverDevices = await this.server.listDevices();
-    const trusted = new Map(this.identities.listTrustedPeers().map((peer) => [peer.deviceId, peer]));
-    const visible = serverDevices.filter((device) => {
-      const peer = trusted.get(device.deviceId);
-      return peer !== void 0 && peer.membershipId === device.membershipId;
-    });
-    return Promise.all(visible.map(async (device) => {
+    return Promise.all(serverDevices.map(async (device) => {
+      await this.authorizeHostPeer(device);
       const presence = await this.server.presenceFor(device.deviceId).catch(() => ({ online: false }));
       return { ...device, ...presence };
     }));
-  }
-  async claimPairing(code) {
-    const identity = this.requireIdentity();
-    const claim = await this.server.claimPairing(code, identity.deviceId);
-    if (claim.host.fingerprint !== fingerprint(claim.host.identityKey)) {
-      throw new ClientModeError("PEER_IDENTITY_MISMATCH", "The pairing Host fingerprint is invalid.");
-    }
-    this.pendingPairings.set(claim.pairingId, { claim });
-    return claim;
-  }
-  async refreshPairing(pairingId) {
-    const pending = this.pendingPairings.get(pairingId);
-    if (pending === void 0) throw new ClientModeError("PAIRING_INVALID", "The pairing claim is not pending on this device.");
-    const status = await this.server.pairingStatus(pairingId);
-    if (status.status === "paired") {
-      if (status.membershipId === void 0 || status.hostDeviceId !== pending.claim.host.deviceId) {
-        throw new ClientModeError("INVALID_MESSAGE", "The paired membership does not match the claimed Host.");
-      }
-      await this.identities.trustPeer({
-        deviceId: pending.claim.host.deviceId,
-        name: pending.claim.host.name,
-        platform: pending.claim.host.platform,
-        publicKey: pending.claim.host.identityKey,
-        membershipId: status.membershipId
-      });
-      this.pendingPairings.delete(pairingId);
-    } else if (status.status === "rejected" || status.status === "expired") {
-      this.pendingPairings.delete(pairingId);
-    }
-    return status;
   }
   async setMode(mode, targetDeviceId, signal) {
     if (mode === "local") {
@@ -12192,12 +11984,11 @@ var ClientModeRuntime = class {
   async connect(targetDeviceId, signal) {
     signal?.throwIfAborted();
     const identity = this.requireIdentity();
-    const target = this.identities.trustedPeer(targetDeviceId);
-    if (target === void 0 || target.membershipId === void 0) {
-      throw new ClientModeError("PEER_IDENTITY_MISMATCH", "The selected Host is not paired with this client.");
-    }
     const serverDevice = (await this.server.listDevices()).find((device) => device.deviceId === targetDeviceId);
-    assertMembership(target, serverDevice);
+    if (serverDevice === void 0) {
+      throw new ClientModeError("MEMBERSHIP_REQUIRED", "The selected Host is not authorized for this account.");
+    }
+    const target = await this.authorizeHostPeer(serverDevice);
     const presence = await this.server.presenceFor(targetDeviceId);
     if (!presence.online) throw new ClientModeError("HOST_OFFLINE", "The selected Host is offline.", true);
     const credentials = await this.server.authenticate(identity);
@@ -12232,36 +12023,21 @@ var ClientModeRuntime = class {
     try {
       if (endpoint === "status") return ok(this.status());
       if (endpoint === "devices") return ok(await this.devices());
-      if (endpoint === "pairing.claim") {
-        const value = record(payload);
-        if (typeof value.code !== "string") throw new ClientModeError("INVALID_MESSAGE", "A pairing code is required.");
-        return ok(await this.claimPairing(value.code));
-      }
-      if (endpoint === "pairing.status") {
-        const value = record(payload);
-        if (typeof value.pairingId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A pairingId is required.");
-        return ok(await this.refreshPairing(value.pairingId));
-      }
-      if (endpoint === "host.pairing.create") {
-        if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        return ok(await this.host.createPairing());
-      }
       if (endpoint === "host.account.login") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
         const value = record(payload);
         if (typeof value.email !== "string" || typeof value.password !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
         }
-        return ok(await this.host.authorizeHost(value.email, value.password));
+        return ok(await this.host.authorizeHostWithAccount(value.email, value.password));
       }
-      if (endpoint === "host.pairings") return ok(this.host?.pendingPairings() ?? []);
-      if (endpoint === "host.pairing.confirm") {
+      if (endpoint === "host.registration-code.submit") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
         const value = record(payload);
-        if (typeof value.pairingId !== "string" || value.decision !== "approve" && value.decision !== "deny") {
-          throw new ClientModeError("INVALID_MESSAGE", "A pairingId and approve/deny decision are required.");
+        if (typeof value.code !== "string" || value.code.trim() === "") {
+          throw new ClientModeError("INVALID_MESSAGE", "A Host registration code is required.");
         }
-        return ok(await this.host.confirmPairing(value.pairingId, value.decision));
+        return ok(await this.host.authorizeHostWithCode(value.code));
       }
       if (endpoint === "mode.set") {
         const value = record(payload);
@@ -12277,6 +12053,24 @@ var ClientModeRuntime = class {
     if (this.identity === void 0) throw new ClientModeError("IDENTITY_INVALID", "The client identity is not ready.");
     return this.identity;
   }
+  async authorizeHostPeer(serverDevice) {
+    const descriptor = await this.server.deviceFor(serverDevice.deviceId);
+    assertAuthorizedHost(serverDevice, descriptor);
+    const existing = this.identities.trustedPeer(descriptor.deviceId);
+    if (existing !== void 0 && existing.publicKey !== descriptor.identityKey) {
+      throw new ClientModeError("PEER_IDENTITY_MISMATCH", "The authorized Host identity key changed unexpectedly.");
+    }
+    if (existing !== void 0 && existing.membershipId === descriptor.membershipId && existing.name === descriptor.name && existing.platform === descriptor.platform) {
+      return existing;
+    }
+    return this.identities.trustPeer({
+      deviceId: descriptor.deviceId,
+      name: descriptor.name,
+      platform: descriptor.platform,
+      publicKey: descriptor.identityKey,
+      membershipId: descriptor.membershipId
+    });
+  }
 };
 var ClientModeError = class extends Error {
   constructor(code, message, retryable = false) {
@@ -12285,9 +12079,9 @@ var ClientModeError = class extends Error {
     this.retryable = retryable;
   }
 };
-function assertMembership(peer, server) {
-  if (server === void 0 || server.membershipId !== peer.membershipId) {
-    throw new ClientModeError("PEER_IDENTITY_MISMATCH", "Server membership no longer matches local Host trust.");
+function assertAuthorizedHost(listed, descriptor) {
+  if (descriptor.role !== "host" || descriptor.deviceId !== listed.deviceId || descriptor.membershipId !== listed.membershipId) {
+    throw new ClientModeError("PEER_IDENTITY_MISMATCH", "Server Host details do not match the authorized device list.");
   }
 }
 function websocketUrl(baseUrl) {
@@ -12405,6 +12199,175 @@ function normalizeServerUrl(value) {
 import { rm } from "node:fs/promises";
 import { hostname as hostname2 } from "node:os";
 
+// src/identity-store.ts
+import { createHash } from "node:crypto";
+import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+var identitySchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  deviceId: external_exports.string().uuid(),
+  name: external_exports.string().min(1).max(80),
+  publicKey: external_exports.string().min(1)
+}).strict();
+var trustedPeerSchema = external_exports.object({
+  deviceId: external_exports.string().min(1),
+  name: external_exports.string().min(1).max(80),
+  platform: external_exports.string().min(1).max(40),
+  publicKey: external_exports.string().min(1),
+  fingerprint: external_exports.string().min(1),
+  trustedAt: external_exports.number().int().nonnegative(),
+  membershipId: external_exports.string().min(1).optional()
+}).strict();
+var trustedPeersSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  peers: external_exports.array(trustedPeerSchema)
+}).strict();
+var IdentityInvalidError = class extends Error {
+  code = "IDENTITY_INVALID";
+};
+var IdentityStore = class {
+  directory;
+  identity;
+  peers = /* @__PURE__ */ new Map();
+  constructor(options = {}) {
+    const env = options.env ?? process.env;
+    const dshHome = env.DSH_HOME || join(options.homeDirectory ?? homedir(), ".dsh");
+    this.directory = options.directory ?? join(dshHome, "remote");
+  }
+  async loadOrCreate(deviceName) {
+    await mkdir(this.directory, { recursive: true, mode: 448 });
+    await chmod(this.directory, 448);
+    const devicePath = join(this.directory, "device.json");
+    const keyPath = join(this.directory, "device.key");
+    const [hasDevice, hasKey] = await Promise.all([exists(devicePath), exists(keyPath)]);
+    if (hasDevice !== hasKey) {
+      throw new IdentityInvalidError("device identity is incomplete; repair it explicitly before reconnecting");
+    }
+    if (!hasDevice) {
+      const keys = generateKeyPair();
+      const record3 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
+      await atomicJsonWrite(devicePath, record3, 384);
+      await atomicTextWrite(keyPath, `${keys.privateKey}
+`, 384);
+    }
+    await assertPrivateMode(keyPath);
+    try {
+      let record3 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
+      const privateKey = (await readFile(keyPath, "utf8")).trim();
+      const regenerated = generateKeyPair(fromBase64Url2(privateKey));
+      if (regenerated.publicKey !== record3.publicKey) {
+        throw new IdentityInvalidError("device public and private keys do not match");
+      }
+      if (record3.name !== deviceName) {
+        record3 = { ...record3, name: deviceName };
+        await atomicJsonWrite(devicePath, record3, 384);
+      }
+      this.identity = { ...record3, privateKey, fingerprint: fingerprint(record3.publicKey) };
+      await this.loadPeers();
+      return this.identity;
+    } catch (error) {
+      if (error instanceof IdentityInvalidError) throw error;
+      throw new IdentityInvalidError(`device identity is invalid: ${safeErrorMessage(error)}`);
+    }
+  }
+  current() {
+    if (this.identity === void 0) throw new Error("identity store has not been loaded");
+    return this.identity;
+  }
+  listTrustedPeers() {
+    return [...this.peers.values()].map((peer) => ({ ...peer }));
+  }
+  trustedPeer(deviceId) {
+    const peer = this.peers.get(deviceId);
+    return peer === void 0 ? void 0 : { ...peer };
+  }
+  isTrusted(deviceId, publicKey) {
+    return this.peers.get(deviceId)?.publicKey === publicKey;
+  }
+  async trustPeer(input) {
+    this.current();
+    const peer = {
+      ...input,
+      fingerprint: fingerprint(input.publicKey),
+      trustedAt: Date.now()
+    };
+    this.peers.set(peer.deviceId, peer);
+    await this.savePeers();
+    return { ...peer };
+  }
+  async revokePeer(deviceId) {
+    const removed = this.peers.delete(deviceId);
+    if (removed) await this.savePeers();
+    return removed;
+  }
+  async loadPeers() {
+    const path = join(this.directory, "trusted-peers.json");
+    if (!await exists(path)) {
+      await atomicJsonWrite(path, { schemaVersion: 1, peers: [] }, 384);
+    }
+    const parsed = trustedPeersSchema.parse(JSON.parse(await readFile(path, "utf8")));
+    const peers = /* @__PURE__ */ new Map();
+    for (const peer of parsed.peers) {
+      if (peer.fingerprint !== fingerprint(peer.publicKey)) {
+        throw new IdentityInvalidError(`trusted peer ${peer.deviceId} has an invalid fingerprint`);
+      }
+      if (peers.has(peer.deviceId)) throw new IdentityInvalidError(`trusted peer ${peer.deviceId} is duplicated`);
+      peers.set(peer.deviceId, peer);
+    }
+    this.peers = peers;
+  }
+  async savePeers() {
+    await atomicJsonWrite(join(this.directory, "trusted-peers.json"), {
+      schemaVersion: 1,
+      peers: [...this.peers.values()]
+    }, 384);
+  }
+};
+function serverStorageDirectory(root, serverUrl, role) {
+  const origin = new URL(serverUrl).origin;
+  const scope = createHash("sha256").update(origin).digest("hex").slice(0, 24);
+  return join(root, "servers", scope, role);
+}
+function fingerprint(publicKey) {
+  const compact = createHash("sha256").update(fromBase64Url2(publicKey)).digest("hex").slice(0, 12).toUpperCase();
+  return compact.match(/.{1,4}/g).join(" ");
+}
+async function assertPrivateMode(path) {
+  if (process.platform === "win32") return;
+  const mode = (await stat(path)).mode & 511;
+  if ((mode & 63) !== 0) {
+    throw new IdentityInvalidError(`private key permissions must be 0600, got ${mode.toString(8).padStart(3, "0")}`);
+  }
+}
+async function atomicJsonWrite(path, value, mode) {
+  await atomicTextWrite(path, `${JSON.stringify(value, null, 2)}
+`, mode);
+}
+async function atomicTextWrite(path, value, mode) {
+  await mkdir(dirname(path), { recursive: true, mode: 448 });
+  const temporary = `${path}.${process.pid}.${uuidV7()}.tmp`;
+  await writeFile(temporary, value, { encoding: "utf8", mode, flag: "wx" });
+  await chmod(temporary, mode);
+  await rename(temporary, path);
+  await chmod(path, mode);
+}
+async function exists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+function isNodeError(error) {
+  return error instanceof Error && "code" in error;
+}
+function safeErrorMessage(error) {
+  return error instanceof Error ? error.message : "invalid identity data";
+}
+
 // src/server-api.ts
 import { platform } from "node:os";
 var HostServerApi = class {
@@ -12421,11 +12384,14 @@ var HostServerApi = class {
   bindIdentity(identity) {
     this.identity = identity;
   }
-  currentAccount() {
-    return this.credentials?.account;
+  currentAuthorization() {
+    if (this.credentials === void 0) return void 0;
+    return {
+      method: this.credentials.authorizationMethod,
+      ...this.credentials.account === void 0 ? {} : { account: this.credentials.account }
+    };
   }
-  async authorizeHost(identity, email, password) {
-    if (this.role !== "host") throw new ServerApiError("METHOD_NOT_ALLOWED", "Only a Host device can use account authorization.", false);
+  async authorizeWithAccount(identity, email, password) {
     this.bindIdentity(identity);
     const account = email.trim();
     if (account.length === 0 || password.length === 0) {
@@ -12435,8 +12401,35 @@ var HostServerApi = class {
       method: "POST",
       body: JSON.stringify({ email: account, password })
     }));
-    await this.register(identity, login.token, login.account);
-    return { account: login.account, expiresAt: login.expiresAt, isAdmin: login.isAdmin };
+    await this.register(identity, {
+      accountToken: login.token,
+      account: login.account,
+      authorizationMethod: "account"
+    });
+    return {
+      method: "account",
+      account: login.account,
+      expiresAt: login.expiresAt,
+      isAdmin: login.isAdmin
+    };
+  }
+  async authorizeHostWithCode(identity, code) {
+    if (this.role !== "host") {
+      throw new ServerApiError("METHOD_NOT_ALLOWED", "Host registration codes can only authorize a Host device.", false);
+    }
+    const registrationCode = code.trim().toUpperCase();
+    if (registrationCode.length === 0) {
+      throw new ServerApiError("INVALID_MESSAGE", "A Host registration code is required.", false);
+    }
+    this.bindIdentity(identity);
+    const tokens = await this.publicRequest("/api/v1/devices/register-with-code", {
+      method: "POST",
+      body: JSON.stringify({ v: 1, code: registrationCode, device: this.deviceDescriptor(identity) })
+    });
+    this.credentials = await this.saveTokens(identity, validateTokens(tokens), {
+      authorizationMethod: "host_registration_code"
+    });
+    return { method: "host_registration_code" };
   }
   async authenticate(identity = this.requireIdentity()) {
     this.bindIdentity(identity);
@@ -12460,32 +12453,20 @@ var HostServerApi = class {
     this.credentials = await this.store.save({
       serverUrl: this.baseUrl,
       deviceId: identity.deviceId,
+      authorizationMethod: stored.authorizationMethod,
       ...stored.account === void 0 ? {} : { account: stored.account },
       ...validateTokens(tokens)
     });
     return this.credentials;
   }
-  async create(identity) {
-    this.bindIdentity(identity);
-    return this.request(
-      "/api/v1/pairings",
-      { method: "POST", body: JSON.stringify({ v: 1, hostDeviceId: identity.deviceId }) }
-    );
-  }
-  confirm(input) {
-    return this.request("/api/v1/pairings/confirm", {
-      method: "POST",
-      body: JSON.stringify({ v: 1, ...input })
-    });
-  }
-  async membershipFor(peerDeviceId) {
-    const result = await this.request(`/api/v1/devices/${encodeURIComponent(peerDeviceId)}`);
-    return typeof result.membershipId === "string" && result.membershipId.length > 0 ? result.membershipId : void 0;
-  }
   async listDevices() {
     const result = await this.request("/api/v1/devices");
     if (!Array.isArray(result.items)) throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid device list.", false);
     return result.items.map(parseHostDevice);
+  }
+  async deviceFor(peerDeviceId) {
+    const result = await this.request(`/api/v1/devices/${encodeURIComponent(peerDeviceId)}`);
+    return parseAuthorizedPeer(result);
   }
   async presenceFor(deviceId) {
     const result = await this.request(`/api/v1/devices/${encodeURIComponent(deviceId)}/presence`);
@@ -12493,17 +12474,6 @@ var HostServerApi = class {
       throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid device presence.", false);
     }
     return { online: result.online, ...typeof result.lastSeenAt === "number" ? { lastSeenAt: result.lastSeenAt } : {} };
-  }
-  async claimPairing(code, clientDeviceId) {
-    const result = await this.request("/api/v1/pairings/claim", {
-      method: "POST",
-      body: JSON.stringify({ v: 1, code: code.replace("-", ""), clientDeviceId })
-    });
-    return parseClientPairingClaim(result);
-  }
-  async pairingStatus(pairingId) {
-    const result = await this.request(`/api/v1/pairings/${encodeURIComponent(pairingId)}/status`);
-    return parseClientPairingStatus(result);
   }
   async loadOrIssue(identity) {
     const stored = await this.store.load(this.baseUrl, identity.deviceId);
@@ -12518,33 +12488,44 @@ var HostServerApi = class {
     return this.store.save({
       serverUrl: this.baseUrl,
       deviceId: identity.deviceId,
+      authorizationMethod: stored.authorizationMethod,
       ...stored.account === void 0 ? {} : { account: stored.account },
       ...validateTokens(tokens)
     });
   }
-  async register(identity, accountToken, account) {
+  async register(identity, authorization) {
     const tokens = await this.publicRequest("/api/v1/devices/register", {
       method: "POST",
       body: JSON.stringify({
         v: 1,
-        device: {
-          deviceId: identity.deviceId,
-          name: identity.name,
-          role: this.role,
-          platform: platform(),
-          identityKey: identity.publicKey,
-          clientVersion: "0.2.6",
-          harnessVersion: "0.1.0-rc.6"
-        }
+        device: this.deviceDescriptor(identity)
       })
-    }, accountToken);
-    this.credentials = await this.store.save({
-      serverUrl: this.baseUrl,
-      deviceId: identity.deviceId,
-      ...account === void 0 ? {} : { account },
-      ...validateTokens(tokens)
+    }, authorization?.accountToken);
+    this.credentials = await this.saveTokens(identity, validateTokens(tokens), {
+      authorizationMethod: authorization?.authorizationMethod ?? "account",
+      ...authorization?.account === void 0 ? {} : { account: authorization.account }
     });
     return this.credentials;
+  }
+  deviceDescriptor(identity) {
+    return {
+      deviceId: identity.deviceId,
+      name: identity.name,
+      role: this.role,
+      platform: platform(),
+      identityKey: identity.publicKey,
+      clientVersion: "0.2.7",
+      ...this.role === "host" ? { harnessVersion: "0.1.0-rc.6" } : {}
+    };
+  }
+  saveTokens(identity, tokens, authorization) {
+    return this.store.save({
+      serverUrl: this.baseUrl,
+      deviceId: identity.deviceId,
+      authorizationMethod: authorization.authorizationMethod,
+      ...authorization.account === void 0 ? {} : { account: authorization.account },
+      ...tokens
+    });
   }
   async request(path, init = {}) {
     const credentials = await this.authenticate();
@@ -12649,35 +12630,29 @@ function parseHostDevice(value) {
     ...typeof item.lastSeenAt === "number" && Number.isSafeInteger(item.lastSeenAt) ? { lastSeenAt: item.lastSeenAt } : {}
   };
 }
-function parseClientPairingClaim(value) {
-  const item = requireRecord(value, "pairing claim");
-  const host = requireRecord(item.host, "pairing Host");
-  if (typeof item.pairingId !== "string" || !Number.isSafeInteger(item.expiresAt) || typeof host.deviceId !== "string" || typeof host.name !== "string" || typeof host.platform !== "string" || typeof host.identityKey !== "string" || typeof host.fingerprint !== "string") {
-    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid pairing data.", false);
+function parseAuthorizedPeer(value) {
+  const item = requireRecord(value, "authorized peer");
+  if (item.role !== "host" && item.role !== "client" || typeof item.deviceId !== "string" || item.deviceId.length === 0 || typeof item.name !== "string" || item.name.length === 0 || typeof item.platform !== "string" || item.platform.length === 0 || typeof item.identityKey !== "string" || !isIdentityKey(item.identityKey) || typeof item.membershipId !== "string" || item.membershipId.length === 0) {
+    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid authorized peer data.", false);
   }
   return {
-    pairingId: item.pairingId,
-    expiresAt: item.expiresAt,
-    host: {
-      deviceId: host.deviceId,
-      name: host.name,
-      platform: host.platform,
-      identityKey: host.identityKey,
-      fingerprint: host.fingerprint
-    }
+    deviceId: item.deviceId,
+    name: item.name,
+    role: item.role,
+    platform: item.platform,
+    identityKey: item.identityKey,
+    membershipId: item.membershipId,
+    ...typeof item.online === "boolean" ? { online: item.online } : {},
+    ...typeof item.lastSeenAt === "number" && Number.isSafeInteger(item.lastSeenAt) ? { lastSeenAt: item.lastSeenAt } : {}
   };
 }
-function parseClientPairingStatus(value) {
-  const item = requireRecord(value, "pairing status");
-  if (!["waiting_host", "paired", "rejected", "expired"].includes(String(item.status)) || item.membershipId !== void 0 && item.membershipId !== null && typeof item.membershipId !== "string" || item.hostDeviceId !== void 0 && item.hostDeviceId !== null && typeof item.hostDeviceId !== "string" || item.expiresAt !== void 0 && item.expiresAt !== null && !Number.isSafeInteger(item.expiresAt)) {
-    throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid pairing status.", false);
+function isIdentityKey(value) {
+  try {
+    const decoded = fromBase64Url2(value);
+    return decoded.length === 32 && toBase64Url2(decoded) === value;
+  } catch {
+    return false;
   }
-  return {
-    status: item.status,
-    ...typeof item.membershipId === "string" ? { membershipId: item.membershipId } : {},
-    ...typeof item.hostDeviceId === "string" ? { hostDeviceId: item.hostDeviceId } : {},
-    ...typeof item.expiresAt === "number" ? { expiresAt: item.expiresAt } : {}
-  };
 }
 function requireRecord(value, name2) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -12693,6 +12668,7 @@ var credentialSchema = external_exports.object({
   schemaVersion: external_exports.literal(1),
   serverUrl: external_exports.string().url(),
   deviceId: external_exports.string().min(1),
+  authorizationMethod: external_exports.enum(["account", "host_registration_code"]),
   account: external_exports.string().min(1).max(254).optional(),
   accessToken: external_exports.string().min(16),
   accessTokenExpiresAt: external_exports.number().int().positive(),
@@ -12760,7 +12736,6 @@ var PluginControlRuntime = class {
     this.client = client;
     this.host = host;
   }
-  pendingPairing;
   register(connection) {
     return connection.rpc.handle("/remote", (endpoint, payload, signal) => this.handle(endpoint, payload, signal), {
       authority: "loopback"
@@ -12770,32 +12745,26 @@ var PluginControlRuntime = class {
     try {
       if (endpoint === "settings.get") return ok2(await this.settingsView());
       if (endpoint === "settings.configure") return ok2(await this.configure(payload));
-      if (endpoint === "settings.pairing.status") return ok2(await this.pairingStatus(payload));
       if (endpoint === "settings.role.set") return ok2(await this.setRole(payload));
       if (endpoint === "settings.logout") return ok2(await this.logout());
       if (this.client !== void 0) return this.client.handleControl(endpoint, payload, signal);
       if (endpoint === "status") return ok2(this.hostOnlyStatus());
       if (endpoint === "devices") return ok2([]);
-      if (endpoint === "host.pairing.create") {
-        if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        return ok2(await this.host.createPairing());
-      }
       if (endpoint === "host.account.login") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
         const value = record2(payload);
         if (typeof value.email !== "string" || typeof value.password !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
         }
-        return ok2(await this.host.authorizeHost(value.email, value.password));
+        return ok2(await this.host.authorizeHostWithAccount(value.email, value.password));
       }
-      if (endpoint === "host.pairings") return ok2(this.host?.pendingPairings() ?? []);
-      if (endpoint === "host.pairing.confirm") {
+      if (endpoint === "host.registration-code.submit") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
         const value = record2(payload);
-        if (typeof value.pairingId !== "string" || value.decision !== "approve" && value.decision !== "deny") {
-          throw new ClientModeError("INVALID_MESSAGE", "A pairingId and approve/deny decision are required.");
+        if (typeof value.code !== "string" || value.code.trim() === "") {
+          throw new ClientModeError("INVALID_MESSAGE", "A Host registration code is required.");
         }
-        return ok2(await this.host.confirmPairing(value.pairingId, value.decision));
+        return ok2(await this.host.authorizeHostWithCode(value.code));
       }
       if (endpoint === "mode.set" && record2(payload).mode === "local") return ok2(this.hostOnlyStatus());
       throw new ClientModeError("METHOD_NOT_ALLOWED", "Remote Client mode is disabled by the plugin role.");
@@ -12816,60 +12785,27 @@ var PluginControlRuntime = class {
     }
     const current = editableConfig(resolveConfig(this.settings.get()));
     const next = resolveConfig({ ...current, role: value.role, serverUrl: value.serverUrl });
-    if (value.role === "host") {
-      if (typeof value.email !== "string" || typeof value.password !== "string") {
-        throw new ClientModeError("INVALID_MESSAGE", "Email and password are required for a Host.");
-      }
-      const identities2 = new IdentityStore({
-        directory: serverStorageDirectory(this.identityDirectory, next.serverUrl, "host")
-      });
-      const identity2 = await identities2.loadOrCreate(hostname2());
-      const api2 = new HostServerApi(next.serverUrl, new ServerCredentialStore(identities2.directory));
-      const authorization = await api2.authorizeHost(identity2, value.email, value.password);
-      await this.settings.replace(editableConfig(next));
-      this.pendingPairing = void 0;
-      return { status: "authorized", role: "host", account: authorization.account, settings: await this.settingsView() };
-    }
-    if (typeof value.authorizationCode !== "string" || value.authorizationCode.trim() === "") {
-      throw new ClientModeError("INVALID_MESSAGE", "Authorization code is required for a Client.");
-    }
     const identities = new IdentityStore({
-      directory: serverStorageDirectory(this.identityDirectory, next.serverUrl, "client")
+      directory: serverStorageDirectory(this.identityDirectory, next.serverUrl, value.role)
     });
     const identity = await identities.loadOrCreate(hostname2());
-    const api = new ClientServerApi(next.serverUrl, new ServerCredentialStore(identities.directory));
-    api.bindIdentity(identity);
-    const claim = await api.claimPairing(value.authorizationCode, identity.deviceId);
-    if (claim.host.fingerprint !== fingerprint(claim.host.identityKey)) {
-      throw new ClientModeError("PEER_IDENTITY_MISMATCH", "The pairing Host fingerprint is invalid.");
-    }
-    this.pendingPairing = { api, identities, identity, claim };
-    await this.settings.replace(editableConfig(next));
-    return { status: "waiting_host", role: "client", settings: await this.settingsView() };
-  }
-  async pairingStatus(payload) {
-    const value = record2(payload);
-    const pending = this.pendingPairing;
-    if (pending === void 0 || value.pairingId !== pending.claim.pairingId) {
-      throw new ClientModeError("PAIRING_INVALID", "The pairing request is not pending on this device.");
-    }
-    const status = await pending.api.pairingStatus(pending.claim.pairingId);
-    if (status.status === "paired") {
-      if (status.membershipId === void 0 || status.hostDeviceId !== pending.claim.host.deviceId) {
-        throw new ClientModeError("INVALID_MESSAGE", "The paired membership does not match the authorized Host.");
+    const api = value.role === "host" ? new HostServerApi(next.serverUrl, new ServerCredentialStore(identities.directory)) : new ClientServerApi(next.serverUrl, new ServerCredentialStore(identities.directory));
+    let authorization;
+    if (value.role === "host" && typeof value.registrationCode === "string" && value.registrationCode.trim() !== "") {
+      authorization = await api.authorizeHostWithCode(identity, value.registrationCode);
+    } else {
+      if (typeof value.email !== "string" || typeof value.password !== "string") {
+        throw new ClientModeError("INVALID_MESSAGE", "Email and password are required for account authorization.");
       }
-      await pending.identities.trustPeer({
-        deviceId: pending.claim.host.deviceId,
-        name: pending.claim.host.name,
-        platform: pending.claim.host.platform,
-        publicKey: pending.claim.host.identityKey,
-        membershipId: status.membershipId
-      });
-      this.pendingPairing = void 0;
-    } else if (status.status === "rejected" || status.status === "expired") {
-      this.pendingPairing = void 0;
+      authorization = await api.authorizeWithAccount(identity, value.email, value.password);
     }
-    return { ...status, settings: await this.settingsView() };
+    await this.settings.replace(editableConfig(next));
+    return {
+      status: "authorized",
+      role: value.role,
+      ...authorization.account === void 0 ? {} : { account: authorization.account },
+      settings: await this.settingsView()
+    };
   }
   async setRole(payload) {
     if (this.settings === void 0) {
@@ -12881,7 +12817,6 @@ var PluginControlRuntime = class {
     }
     const current = editableConfig(resolveConfig(this.settings.get()));
     await this.settings.replace({ ...current, role });
-    this.pendingPairing = void 0;
     return this.settingsView();
   }
   async logout() {
@@ -12894,26 +12829,17 @@ var PluginControlRuntime = class {
       const directory = serverStorageDirectory(this.identityDirectory, config.serverUrl, role);
       await rm(directory, { recursive: true, force: true });
     }
-    this.pendingPairing = void 0;
     return this.settingsView();
   }
   async settingsView() {
     const config = this.settings === void 0 ? editableConfig(this.config) : editableConfig(resolveConfig(this.settings.get()));
-    const pending = this.pendingPairing?.claim;
     const association = await this.association(config);
     return {
       config,
       deviceName: hostname2(),
       writable: this.settings !== void 0,
       applies: "restart",
-      ...association === void 0 ? {} : { association },
-      ...pending === void 0 ? {} : {
-        pendingPairing: {
-          pairingId: pending.pairingId,
-          expiresAt: pending.expiresAt,
-          host: { name: pending.host.name, fingerprint: pending.host.fingerprint }
-        }
-      }
+      ...association === void 0 ? {} : { association }
     };
   }
   async association(config) {
@@ -12925,17 +12851,16 @@ var PluginControlRuntime = class {
     const identity = await identities.loadOrCreate(hostname2());
     const credentials = await new ServerCredentialStore(identities.directory).load(config.serverUrl, identity.deviceId);
     if (credentials === void 0) return void 0;
-    if (role === "host") {
-      return credentials.account === void 0 ? void 0 : { method: "account", account: credentials.account };
-    }
-    const host = identities.listTrustedPeers().find((peer) => peer.membershipId !== void 0);
-    return host === void 0 ? void 0 : { method: "authorization_code", host: { deviceId: host.deviceId, name: host.name } };
+    return {
+      method: credentials.authorizationMethod,
+      ...credentials.account === void 0 ? {} : { account: credentials.account }
+    };
   }
   hostOnlyStatus() {
     return {
       mode: "local",
       available: false,
-      hostPairingAvailable: this.host !== void 0,
+      hostAuthorizationAvailable: this.host !== void 0,
       ...this.host === void 0 ? {} : { host: this.host.hostStatus() }
     };
   }
@@ -12979,7 +12904,7 @@ function fail2(error) {
 
 // src/logging.ts
 var levels = ["debug", "info", "warn", "error"];
-var secretKey = /authorization|cookie|token|secret|private|shared|ciphertext|payload|prompt|source|workspace|output|pairingCode|deviceCode/i;
+var secretKey = /authorization|cookie|token|secret|private|shared|ciphertext|payload|prompt|source|workspace|output|registrationCode|deviceCode/i;
 var SafeLogger = class {
   constructor(sink, threshold = "info") {
     this.sink = sink;
@@ -13090,72 +13015,6 @@ var ConnectionRejectedError = class extends Error {
   }
 };
 
-// src/pairing-controller.ts
-var PairingController = class {
-  constructor(identities, server) {
-    this.identities = identities;
-    this.server = server;
-  }
-  claims = /* @__PURE__ */ new Map();
-  offers = /* @__PURE__ */ new Map();
-  async create() {
-    const created = await this.server.create(this.identities.current());
-    this.offers.set(created.pairingId, created.expiresAt);
-    return created;
-  }
-  receiveClaim(claim) {
-    const expiresAt = claim.expiresAt ?? this.offers.get(claim.pairingId);
-    if (expiresAt === void 0) throw new PairingError("PAIRING_NOT_FOUND", "The pairing request was not created by this Host process.");
-    const normalized = { ...claim, expiresAt };
-    if (normalized.expiresAt <= Date.now()) throw new PairingError("PAIRING_EXPIRED", "The pairing request has expired.");
-    if (normalizeFingerprint(fingerprint(normalized.client.identityKey)) !== normalizeFingerprint(normalized.client.fingerprint)) {
-      throw new PairingError("PAIRING_FINGERPRINT_MISMATCH", "The client fingerprint does not match its identity key.");
-    }
-    this.claims.set(normalized.pairingId, structuredClone(normalized));
-  }
-  pending() {
-    const now = Date.now();
-    for (const [id, claim] of this.claims) if (claim.expiresAt <= now) this.claims.delete(id);
-    return [...this.claims.values()].map((claim) => structuredClone(claim));
-  }
-  async confirm(pairingId, decision) {
-    const claim = this.claims.get(pairingId);
-    if (claim === void 0) throw new PairingError("PAIRING_NOT_FOUND", "The pairing request is not pending.");
-    if (claim.expiresAt <= Date.now()) {
-      this.claims.delete(pairingId);
-      throw new PairingError("PAIRING_EXPIRED", "The pairing request has expired.");
-    }
-    const result = await this.server.confirm({
-      pairingId,
-      decision,
-      clientDeviceId: claim.client.deviceId,
-      clientFingerprint: normalizeFingerprint(claim.client.fingerprint)
-    });
-    this.claims.delete(pairingId);
-    this.offers.delete(pairingId);
-    if (decision === "deny") return void 0;
-    if (result.membershipId === void 0 || result.membershipId.length === 0) {
-      throw new PairingError("INVALID_MESSAGE", "The Server did not return a membership for an approved pairing.");
-    }
-    return this.identities.trustPeer({
-      deviceId: claim.client.deviceId,
-      name: claim.client.name,
-      platform: claim.client.platform,
-      publicKey: claim.client.identityKey,
-      membershipId: result.membershipId
-    });
-  }
-};
-var PairingError = class extends Error {
-  constructor(code, message) {
-    super(message);
-    this.code = code;
-  }
-};
-function normalizeFingerprint(value) {
-  return value.replaceAll(/\s/g, "").toUpperCase();
-}
-
 // src/rpc-router.ts
 var wireRequestSchema = external_exports.object({ method: external_exports.string().min(1), params: external_exports.unknown() }).strict();
 var apiMethods = /* @__PURE__ */ new Set([
@@ -13228,12 +13087,11 @@ function errorResponse(requestId, error) {
 
 // src/server-connection.ts
 var HostServerConnection = class {
-  constructor(config, identity, identities, api, pairings, connections, logger, createWebSocket = (url) => new WebSocket(url)) {
+  constructor(config, identity, identities, api, connections, logger, createWebSocket = (url) => new WebSocket(url)) {
     this.config = config;
     this.identity = identity;
     this.identities = identities;
     this.api = api;
-    this.pairings = pairings;
     this.connections = connections;
     this.logger = logger;
     this.createWebSocket = createWebSocket;
@@ -13379,19 +13237,6 @@ var HostServerConnection = class {
       return;
     }
     if (frame.type === "pong") return;
-    if (frame.type === "pairing.claimed") {
-      try {
-        this.pairings.receiveClaim(requirePairingClaim(frame.payload));
-        this.logger.info("pairing claim awaiting local confirmation", {
-          pairingId: shortId2(objectValue(frame.payload, "pairingId")),
-          clientDeviceId: shortId2(objectValue(frame.payload, "client").deviceId)
-        });
-      } catch (error) {
-        if (!(error instanceof PairingError)) throw error;
-        this.logger.warn("pairing claim rejected locally", { code: error.code });
-      }
-      return;
-    }
     if (frame.type === "connect.incoming") {
       await this.handleConnectIncoming(requireConnectIncoming(frame.payload));
       return;
@@ -13417,18 +13262,39 @@ var HostServerConnection = class {
     throw new ControlConnectionError("INVALID_MESSAGE", `Unexpected Server control frame: ${frame.type}`);
   }
   async handleConnectIncoming(payload) {
-    const peer = this.identities.trustedPeer(payload.clientDeviceId);
-    if (peer === void 0 || peer.publicKey !== payload.clientIdentityKey) {
+    let descriptor;
+    try {
+      descriptor = await this.api.deviceFor(payload.clientDeviceId);
+    } catch (error) {
       this.sendControl("connect.rejected", { connectionId: payload.connectionId });
-      this.logger.warn("connection rejected by local trust", { clientDeviceId: shortId2(payload.clientDeviceId) });
+      this.logger.warn("connection rejected by account authorization", {
+        clientDeviceId: shortId2(payload.clientDeviceId),
+        code: errorCode(error)
+      });
       return;
     }
-    let membershipId = peer.membershipId;
-    membershipId ??= await this.api.membershipFor(peer.deviceId);
-    if (membershipId === void 0) {
+    if (descriptor.role !== "client" || descriptor.deviceId !== payload.clientDeviceId || descriptor.identityKey !== payload.clientIdentityKey) {
       this.sendControl("connect.rejected", { connectionId: payload.connectionId });
+      this.logger.warn("connection rejected by peer identity validation", {
+        clientDeviceId: shortId2(payload.clientDeviceId)
+      });
       return;
     }
+    const existing = this.identities.trustedPeer(descriptor.deviceId);
+    if (existing !== void 0 && existing.publicKey !== descriptor.identityKey) {
+      this.sendControl("connect.rejected", { connectionId: payload.connectionId });
+      this.logger.warn("connection rejected by pinned peer identity", {
+        clientDeviceId: shortId2(payload.clientDeviceId)
+      });
+      return;
+    }
+    const peer = existing !== void 0 && existing.membershipId === descriptor.membershipId && existing.name === descriptor.name && existing.platform === descriptor.platform ? existing : await this.identities.trustPeer({
+      deviceId: descriptor.deviceId,
+      name: descriptor.name,
+      platform: descriptor.platform,
+      publicKey: descriptor.identityKey,
+      membershipId: descriptor.membershipId
+    });
     const previous = this.tunnels.get(payload.connectionId);
     previous?.noise.destroy();
     const noise = new NoiseIkSession({
@@ -13438,7 +13304,12 @@ var HostServerConnection = class {
       remotePublicKey: peer.publicKey,
       prologue: createNoisePrologue(payload.connectionId, this.identity.deviceId, peer.deviceId)
     });
-    this.tunnels.set(payload.connectionId, { connectionId: payload.connectionId, membershipId, peer, noise });
+    this.tunnels.set(payload.connectionId, {
+      connectionId: payload.connectionId,
+      membershipId: descriptor.membershipId,
+      peer,
+      noise
+    });
     this.sendControl("connect.accepted", { connectionId: payload.connectionId });
   }
   async handleHandshake(payload) {
@@ -13595,17 +13466,9 @@ function requireHelloAck(value) {
   }
   return payload;
 }
-function requirePairingClaim(value) {
-  const payload = requireObject(value);
-  const client = requireObject(payload.client);
-  for (const item of [payload.pairingId, client.deviceId, client.name, client.platform, client.identityKey, client.fingerprint]) {
-    if (typeof item !== "string" || item.length === 0) throw new ControlConnectionError("INVALID_MESSAGE", "pairing.claimed payload is invalid.");
-  }
-  return payload;
-}
 function requireConnectIncoming(value) {
   const payload = requireObject(value);
-  if (typeof payload.connectionId !== "string" || typeof payload.clientDeviceId !== "string" || typeof payload.clientIdentityKey !== "string" || !Array.isArray(payload.preferredTransports)) {
+  if (typeof payload.connectionId !== "string" || typeof payload.clientDeviceId !== "string" || typeof payload.clientIdentityKey !== "string" || payload.authorization !== "account" || !Array.isArray(payload.preferredTransports)) {
     throw new ControlConnectionError("INVALID_MESSAGE", "connect.incoming payload is invalid.");
   }
   return payload;
@@ -13819,12 +13682,10 @@ var HostPluginRuntime = class {
     this.connections = new ConnectionController(this.identities, this.router);
     if (config.serverUrl !== void 0) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory));
-      this.pairings = new PairingController(identities, this.serverApi);
     }
   }
   router;
   connections;
-  pairings;
   identity;
   serverApi;
   serverConnection;
@@ -13837,14 +13698,13 @@ var HostPluginRuntime = class {
       fingerprint: this.identity.fingerprint,
       server: this.config.serverUrl ?? "not configured"
     });
-    if (this.serverApi !== void 0 && this.pairings !== void 0) {
+    if (this.serverApi !== void 0) {
       this.serverApi.bindIdentity(this.identity);
       this.serverConnection = new HostServerConnection(
         this.config,
         this.identity,
         this.identities,
         this.serverApi,
-        this.pairings,
         this.connections,
         this.logger
       );
@@ -13859,41 +13719,34 @@ var HostPluginRuntime = class {
     this.currentIdentity();
     return this.connections.accept(channel);
   }
-  async createPairing() {
-    if (this.pairings === void 0 || this.serverConnection === void 0) {
-      throw new PairingError("SERVER_NOT_CONFIGURED", "Configure serverUrl before creating a pairing.");
-    }
-    if (!this.serverConnection.isOnline()) {
-      throw new PairingError("HOST_OFFLINE", "The Host control connection is not online yet.");
-    }
-    return this.pairings.create();
-  }
-  pendingPairings() {
-    return this.pairings?.pending() ?? [];
-  }
   hostStatus() {
     const error = this.serverConnection?.lastError();
-    const account = this.serverApi?.currentAccount();
+    const authorization = this.serverApi?.currentAuthorization();
     return {
       configured: this.serverApi !== void 0,
       online: this.serverConnection?.isOnline() ?? false,
       ...error === void 0 ? {} : { error },
-      ...account === void 0 ? {} : { account },
+      ...authorization?.account === void 0 ? {} : { account: authorization.account },
       accountRequired: error === "ACCOUNT_AUTH_REQUIRED" || error === "AUTH_INVALID" || error === "TOKEN_EXPIRED"
     };
   }
-  async authorizeHost(email, password) {
+  async authorizeHostWithAccount(email, password) {
     if (this.serverApi === void 0) {
       throw new ServerApiError("SERVER_NOT_CONFIGURED", "Configure serverUrl before signing in.", false);
     }
-    const result = await this.serverApi.authorizeHost(this.currentIdentity(), email, password);
+    const result = await this.serverApi.authorizeWithAccount(this.currentIdentity(), email, password);
     this.serverConnection?.resume();
     this.logger.info("Host account authorized");
     return result;
   }
-  confirmPairing(pairingId, decision) {
-    if (this.pairings === void 0) throw new PairingError("SERVER_NOT_CONFIGURED", "Configure serverUrl before confirming a pairing.");
-    return this.pairings.confirm(pairingId, decision);
+  async authorizeHostWithCode(code) {
+    if (this.serverApi === void 0) {
+      throw new ServerApiError("SERVER_NOT_CONFIGURED", "Configure serverUrl before entering a Host registration code.", false);
+    }
+    const result = await this.serverApi.authorizeHostWithCode(this.currentIdentity(), code);
+    this.serverConnection?.resume();
+    this.logger.info("Host registration code authorized");
+    return result;
   }
   async revokePeer(deviceId) {
     const revoked = await this.identities.revokePeer(deviceId);
@@ -13917,8 +13770,7 @@ var HostPluginRuntime = class {
       serverError: this.serverConnection?.lastError(),
       online: this.connections.isOnline(),
       peerDeviceId: this.connections.peerDeviceId() === void 0 ? void 0 : shortId3(this.connections.peerDeviceId()),
-      trustedPeers: this.identities.listTrustedPeers().length,
-      pendingPairings: this.pairings?.pending().length ?? 0
+      trustedPeers: this.identities.listTrustedPeers().length
     };
   }
   publishHarnessEvent(event, data) {
@@ -14015,8 +13867,6 @@ export {
   HostServerConnection,
   IdentityInvalidError,
   IdentityStore,
-  PairingController,
-  PairingError,
   PluginControlRuntime,
   RemoteHarnessApiProxy,
   RpcError,

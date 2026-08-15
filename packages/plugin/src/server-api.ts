@@ -1,6 +1,6 @@
 import { platform } from 'node:os'
+import { fromBase64Url, toBase64Url } from '@dsh-remote/crypto'
 import type { HostIdentity } from './identity-store.js'
-import type { PairingServer } from './pairing-controller.js'
 import type { ServerCredentialStore, ServerCredentials } from './server-credentials.js'
 import { normalizeServerUrl } from './config.js'
 
@@ -24,10 +24,11 @@ interface WebLoginResponse {
   isAdmin: boolean
 }
 
-export interface HostAccountAuthorization {
-  account: string
-  expiresAt: number
-  isAdmin: boolean
+export interface DeviceAuthorization {
+  method: 'account' | 'host_registration_code'
+  account?: string
+  expiresAt?: number
+  isAdmin?: boolean
 }
 
 export type FetchImplementation = typeof fetch
@@ -41,26 +42,12 @@ export interface ServerHostDevice {
   lastSeenAt?: number
 }
 
-export interface ClientPairingClaim {
-  pairingId: string
-  expiresAt: number
-  host: {
-    deviceId: string
-    name: string
-    platform: string
-    identityKey: string
-    fingerprint: string
-  }
+export interface AuthorizedPeerDevice extends ServerHostDevice {
+  role: 'host' | 'client'
+  identityKey: string
 }
 
-export interface ClientPairingStatus {
-  status: 'waiting_host' | 'paired' | 'rejected' | 'expired'
-  membershipId?: string
-  hostDeviceId?: string
-  expiresAt?: number
-}
-
-export class HostServerApi implements PairingServer {
+export class HostServerApi {
   readonly baseUrl: string
   private identity?: HostIdentity
   private credentials?: ServerCredentials
@@ -77,10 +64,15 @@ export class HostServerApi implements PairingServer {
 
   bindIdentity(identity: HostIdentity): void { this.identity = identity }
 
-  currentAccount(): string | undefined { return this.credentials?.account }
+  currentAuthorization(): DeviceAuthorization | undefined {
+    if (this.credentials === undefined) return undefined
+    return {
+      method: this.credentials.authorizationMethod,
+      ...(this.credentials.account === undefined ? {} : { account: this.credentials.account }),
+    }
+  }
 
-  async authorizeHost(identity: HostIdentity, email: string, password: string): Promise<HostAccountAuthorization> {
-    if (this.role !== 'host') throw new ServerApiError('METHOD_NOT_ALLOWED', 'Only a Host device can use account authorization.', false)
+  async authorizeWithAccount(identity: HostIdentity, email: string, password: string): Promise<DeviceAuthorization> {
     this.bindIdentity(identity)
     const account = email.trim()
     if (account.length === 0 || password.length === 0) {
@@ -90,8 +82,36 @@ export class HostServerApi implements PairingServer {
       method: 'POST',
       body: JSON.stringify({ email: account, password }),
     }))
-    await this.register(identity, login.token, login.account)
-    return { account: login.account, expiresAt: login.expiresAt, isAdmin: login.isAdmin }
+    await this.register(identity, {
+      accountToken: login.token,
+      account: login.account,
+      authorizationMethod: 'account',
+    })
+    return {
+      method: 'account',
+      account: login.account,
+      expiresAt: login.expiresAt,
+      isAdmin: login.isAdmin,
+    }
+  }
+
+  async authorizeHostWithCode(identity: HostIdentity, code: string): Promise<DeviceAuthorization> {
+    if (this.role !== 'host') {
+      throw new ServerApiError('METHOD_NOT_ALLOWED', 'Host registration codes can only authorize a Host device.', false)
+    }
+    const registrationCode = code.trim().toUpperCase()
+    if (registrationCode.length === 0) {
+      throw new ServerApiError('INVALID_MESSAGE', 'A Host registration code is required.', false)
+    }
+    this.bindIdentity(identity)
+    const tokens = await this.publicRequest<TokenPair>('/api/v1/devices/register-with-code', {
+      method: 'POST',
+      body: JSON.stringify({ v: 1, code: registrationCode, device: this.deviceDescriptor(identity) }),
+    })
+    this.credentials = await this.saveTokens(identity, validateTokens(tokens), {
+      authorizationMethod: 'host_registration_code',
+    })
+    return { method: 'host_registration_code' }
   }
 
   async authenticate(identity = this.requireIdentity()): Promise<ServerCredentials> {
@@ -115,36 +135,22 @@ export class HostServerApi implements PairingServer {
     this.credentials = await this.store.save({
       serverUrl: this.baseUrl,
       deviceId: identity.deviceId,
+      authorizationMethod: stored.authorizationMethod,
       ...(stored.account === undefined ? {} : { account: stored.account }),
       ...validateTokens(tokens),
     })
     return this.credentials
   }
 
-  async create(identity: HostIdentity) {
-    this.bindIdentity(identity)
-    return this.request<{ pairingId: string; code: string; expiresAt: number; pairUri: string }>(
-      '/api/v1/pairings',
-      { method: 'POST', body: JSON.stringify({ v: 1, hostDeviceId: identity.deviceId }) },
-    )
-  }
-
-  confirm(input: { pairingId: string; decision: 'approve' | 'deny'; clientDeviceId: string; clientFingerprint: string }) {
-    return this.request<{ status: string; membershipId?: string }>('/api/v1/pairings/confirm', {
-      method: 'POST',
-      body: JSON.stringify({ v: 1, ...input }),
-    })
-  }
-
-  async membershipFor(peerDeviceId: string): Promise<string | undefined> {
-    const result = await this.request<{ membershipId?: unknown }>(`/api/v1/devices/${encodeURIComponent(peerDeviceId)}`)
-    return typeof result.membershipId === 'string' && result.membershipId.length > 0 ? result.membershipId : undefined
-  }
-
   async listDevices(): Promise<ServerHostDevice[]> {
     const result = await this.request<{ items?: unknown }>('/api/v1/devices')
     if (!Array.isArray(result.items)) throw new ServerApiError('INVALID_MESSAGE', 'The Server returned an invalid device list.', false)
     return result.items.map(parseHostDevice)
+  }
+
+  async deviceFor(peerDeviceId: string): Promise<AuthorizedPeerDevice> {
+    const result = await this.request<unknown>(`/api/v1/devices/${encodeURIComponent(peerDeviceId)}`)
+    return parseAuthorizedPeer(result)
   }
 
   async presenceFor(deviceId: string): Promise<{ online: boolean; lastSeenAt?: number }> {
@@ -154,19 +160,6 @@ export class HostServerApi implements PairingServer {
       throw new ServerApiError('INVALID_MESSAGE', 'The Server returned invalid device presence.', false)
     }
     return { online: result.online, ...(typeof result.lastSeenAt === 'number' ? { lastSeenAt: result.lastSeenAt } : {}) }
-  }
-
-  async claimPairing(code: string, clientDeviceId: string): Promise<ClientPairingClaim> {
-    const result = await this.request<unknown>('/api/v1/pairings/claim', {
-      method: 'POST',
-      body: JSON.stringify({ v: 1, code: code.replace('-', ''), clientDeviceId }),
-    })
-    return parseClientPairingClaim(result)
-  }
-
-  async pairingStatus(pairingId: string): Promise<ClientPairingStatus> {
-    const result = await this.request<unknown>(`/api/v1/pairings/${encodeURIComponent(pairingId)}/status`)
-    return parseClientPairingStatus(result)
   }
 
   private async loadOrIssue(identity: HostIdentity): Promise<ServerCredentials> {
@@ -182,34 +175,58 @@ export class HostServerApi implements PairingServer {
     return this.store.save({
       serverUrl: this.baseUrl,
       deviceId: identity.deviceId,
+      authorizationMethod: stored.authorizationMethod,
       ...(stored.account === undefined ? {} : { account: stored.account }),
       ...validateTokens(tokens),
     })
   }
 
-  private async register(identity: HostIdentity, accountToken?: string, account?: string): Promise<ServerCredentials> {
+  private async register(
+    identity: HostIdentity,
+    authorization?: {
+      accountToken: string
+      account: string
+      authorizationMethod: 'account'
+    },
+  ): Promise<ServerCredentials> {
     const tokens = await this.publicRequest<TokenPair>('/api/v1/devices/register', {
       method: 'POST',
       body: JSON.stringify({
         v: 1,
-        device: {
-          deviceId: identity.deviceId,
-          name: identity.name,
-          role: this.role,
-          platform: platform(),
-          identityKey: identity.publicKey,
-          clientVersion: '0.2.6',
-          harnessVersion: '0.1.0-rc.6',
-        },
+        device: this.deviceDescriptor(identity),
       }),
-    }, accountToken)
-    this.credentials = await this.store.save({
-      serverUrl: this.baseUrl,
-      deviceId: identity.deviceId,
-      ...(account === undefined ? {} : { account }),
-      ...validateTokens(tokens),
+    }, authorization?.accountToken)
+    this.credentials = await this.saveTokens(identity, validateTokens(tokens), {
+      authorizationMethod: authorization?.authorizationMethod ?? 'account',
+      ...(authorization?.account === undefined ? {} : { account: authorization.account }),
     })
     return this.credentials
+  }
+
+  private deviceDescriptor(identity: HostIdentity): Record<string, unknown> {
+    return {
+      deviceId: identity.deviceId,
+      name: identity.name,
+      role: this.role,
+      platform: platform(),
+      identityKey: identity.publicKey,
+      clientVersion: '0.2.7',
+      ...(this.role === 'host' ? { harnessVersion: '0.1.0-rc.6' } : {}),
+    }
+  }
+
+  private saveTokens(
+    identity: HostIdentity,
+    tokens: TokenPair,
+    authorization: Pick<ServerCredentials, 'authorizationMethod' | 'account'>,
+  ): Promise<ServerCredentials> {
+    return this.store.save({
+      serverUrl: this.baseUrl,
+      deviceId: identity.deviceId,
+      authorizationMethod: authorization.authorizationMethod,
+      ...(authorization.account === undefined ? {} : { account: authorization.account }),
+      ...tokens,
+    })
   }
 
   private async request<TResult>(path: string, init: RequestInit = {}): Promise<TResult> {
@@ -332,40 +349,34 @@ function parseHostDevice(value: unknown): ServerHostDevice {
   }
 }
 
-function parseClientPairingClaim(value: unknown): ClientPairingClaim {
-  const item = requireRecord(value, 'pairing claim')
-  const host = requireRecord(item.host, 'pairing Host')
-  if (typeof item.pairingId !== 'string' || !Number.isSafeInteger(item.expiresAt)
-    || typeof host.deviceId !== 'string' || typeof host.name !== 'string' || typeof host.platform !== 'string'
-    || typeof host.identityKey !== 'string' || typeof host.fingerprint !== 'string') {
-    throw new ServerApiError('INVALID_MESSAGE', 'The Server returned invalid pairing data.', false)
+function parseAuthorizedPeer(value: unknown): AuthorizedPeerDevice {
+  const item = requireRecord(value, 'authorized peer')
+  if ((item.role !== 'host' && item.role !== 'client')
+    || typeof item.deviceId !== 'string' || item.deviceId.length === 0
+    || typeof item.name !== 'string' || item.name.length === 0
+    || typeof item.platform !== 'string' || item.platform.length === 0
+    || typeof item.identityKey !== 'string' || !isIdentityKey(item.identityKey)
+    || typeof item.membershipId !== 'string' || item.membershipId.length === 0) {
+    throw new ServerApiError('INVALID_MESSAGE', 'The Server returned invalid authorized peer data.', false)
   }
   return {
-    pairingId: item.pairingId,
-    expiresAt: item.expiresAt as number,
-    host: {
-      deviceId: host.deviceId,
-      name: host.name,
-      platform: host.platform,
-      identityKey: host.identityKey,
-      fingerprint: host.fingerprint,
-    },
+    deviceId: item.deviceId,
+    name: item.name,
+    role: item.role,
+    platform: item.platform,
+    identityKey: item.identityKey,
+    membershipId: item.membershipId,
+    ...(typeof item.online === 'boolean' ? { online: item.online } : {}),
+    ...(typeof item.lastSeenAt === 'number' && Number.isSafeInteger(item.lastSeenAt) ? { lastSeenAt: item.lastSeenAt } : {}),
   }
 }
 
-function parseClientPairingStatus(value: unknown): ClientPairingStatus {
-  const item = requireRecord(value, 'pairing status')
-  if (!['waiting_host', 'paired', 'rejected', 'expired'].includes(String(item.status))
-    || (item.membershipId !== undefined && item.membershipId !== null && typeof item.membershipId !== 'string')
-    || (item.hostDeviceId !== undefined && item.hostDeviceId !== null && typeof item.hostDeviceId !== 'string')
-    || (item.expiresAt !== undefined && item.expiresAt !== null && !Number.isSafeInteger(item.expiresAt))) {
-    throw new ServerApiError('INVALID_MESSAGE', 'The Server returned invalid pairing status.', false)
-  }
-  return {
-    status: item.status as ClientPairingStatus['status'],
-    ...(typeof item.membershipId === 'string' ? { membershipId: item.membershipId } : {}),
-    ...(typeof item.hostDeviceId === 'string' ? { hostDeviceId: item.hostDeviceId } : {}),
-    ...(typeof item.expiresAt === 'number' ? { expiresAt: item.expiresAt } : {}),
+function isIdentityKey(value: string): boolean {
+  try {
+    const decoded = fromBase64Url(value)
+    return decoded.length === 32 && toBase64Url(decoded) === value
+  } catch {
+    return false
   }
 }
 

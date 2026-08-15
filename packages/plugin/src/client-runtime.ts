@@ -4,14 +4,10 @@ import { RelayTransport } from '@dsh-remote/webrtc'
 import { ApiProxySwitch, type HarnessMode } from './api-proxy-switch.js'
 import { ClientSecureTransport } from './client-secure-transport.js'
 import type { ResolvedConfig } from './config.js'
-import { fingerprint, type HostIdentity, type IdentityStore, type TrustedPeer } from './identity-store.js'
+import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
 import type { SafeLogger } from './logging.js'
 import { RemoteHarnessApiProxy } from './remote-api-proxy.js'
-import { ClientServerApi, type ClientPairingClaim, type ClientPairingStatus, type ServerHostDevice } from './server-api.js'
-
-interface PendingPairing {
-  claim: ClientPairingClaim
-}
+import { ClientServerApi, type AuthorizedPeerDevice, type ServerHostDevice } from './server-api.js'
 
 interface ConnectedRemote {
   client: RemoteClientCore
@@ -37,10 +33,7 @@ export interface HostConnectionRpc {
 
 export interface HostConnectionHandle { rpc: HostConnectionRpc }
 
-export interface HostPairingControl {
-  createPairing(): Promise<unknown>
-  pendingPairings(): unknown[]
-  confirmPairing(pairingId: string, decision: 'approve' | 'deny'): Promise<unknown>
+export interface HostAuthorizationControl {
   hostStatus(): {
     configured: boolean
     online: boolean
@@ -48,13 +41,13 @@ export interface HostPairingControl {
     account?: string
     accountRequired: boolean
   }
-  authorizeHost(email: string, password: string): Promise<unknown>
+  authorizeHostWithAccount(email: string, password: string): Promise<unknown>
+  authorizeHostWithCode(code: string): Promise<unknown>
 }
 
 export class ClientModeRuntime {
   private identity?: HostIdentity
   private connected?: ConnectedRemote
-  private readonly pendingPairings = new Map<string, PendingPairing>()
   private readonly proxySwitch: ApiProxySwitch
   private closed = false
 
@@ -64,7 +57,7 @@ export class ClientModeRuntime {
     private readonly server: ClientServerApi,
     apiProxy: ApiProxy,
     private readonly logger: SafeLogger,
-    private readonly host?: HostPairingControl,
+    private readonly host?: HostAuthorizationControl,
   ) {
     this.proxySwitch = new ApiProxySwitch(apiProxy)
   }
@@ -95,7 +88,7 @@ export class ClientModeRuntime {
       ...this.proxySwitch.status(),
       connected: this.connected !== undefined,
       transport: this.connected?.client.getStats().mode ?? 'Disconnected',
-      hostPairingAvailable: this.host !== undefined,
+      hostAuthorizationAvailable: this.host !== undefined,
       ...(this.host === undefined ? {} : { host: this.host.hostStatus() }),
     }
   }
@@ -103,47 +96,11 @@ export class ClientModeRuntime {
   async devices(): Promise<RemoteDeviceView[]> {
     this.requireIdentity()
     const serverDevices = await this.server.listDevices()
-    const trusted = new Map(this.identities.listTrustedPeers().map(peer => [peer.deviceId, peer]))
-    const visible = serverDevices.filter(device => {
-      const peer = trusted.get(device.deviceId)
-      return peer !== undefined && peer.membershipId === device.membershipId
-    })
-    return Promise.all(visible.map(async device => {
+    return Promise.all(serverDevices.map(async device => {
+      await this.authorizeHostPeer(device)
       const presence = await this.server.presenceFor(device.deviceId).catch(() => ({ online: false }))
       return { ...device, ...presence }
     }))
-  }
-
-  async claimPairing(code: string): Promise<ClientPairingClaim> {
-    const identity = this.requireIdentity()
-    const claim = await this.server.claimPairing(code, identity.deviceId)
-    if (claim.host.fingerprint !== fingerprint(claim.host.identityKey)) {
-      throw new ClientModeError('PEER_IDENTITY_MISMATCH', 'The pairing Host fingerprint is invalid.')
-    }
-    this.pendingPairings.set(claim.pairingId, { claim })
-    return claim
-  }
-
-  async refreshPairing(pairingId: string): Promise<ClientPairingStatus> {
-    const pending = this.pendingPairings.get(pairingId)
-    if (pending === undefined) throw new ClientModeError('PAIRING_INVALID', 'The pairing claim is not pending on this device.')
-    const status = await this.server.pairingStatus(pairingId)
-    if (status.status === 'paired') {
-      if (status.membershipId === undefined || status.hostDeviceId !== pending.claim.host.deviceId) {
-        throw new ClientModeError('INVALID_MESSAGE', 'The paired membership does not match the claimed Host.')
-      }
-      await this.identities.trustPeer({
-        deviceId: pending.claim.host.deviceId,
-        name: pending.claim.host.name,
-        platform: pending.claim.host.platform,
-        publicKey: pending.claim.host.identityKey,
-        membershipId: status.membershipId,
-      })
-      this.pendingPairings.delete(pairingId)
-    } else if (status.status === 'rejected' || status.status === 'expired') {
-      this.pendingPairings.delete(pairingId)
-    }
-    return status
   }
 
   async setMode(mode: HarnessMode, targetDeviceId?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -180,12 +137,11 @@ export class ClientModeRuntime {
   private async connect(targetDeviceId: string, signal?: AbortSignal): Promise<ConnectedRemote> {
     signal?.throwIfAborted()
     const identity = this.requireIdentity()
-    const target = this.identities.trustedPeer(targetDeviceId)
-    if (target === undefined || target.membershipId === undefined) {
-      throw new ClientModeError('PEER_IDENTITY_MISMATCH', 'The selected Host is not paired with this client.')
-    }
     const serverDevice = (await this.server.listDevices()).find(device => device.deviceId === targetDeviceId)
-    assertMembership(target, serverDevice)
+    if (serverDevice === undefined) {
+      throw new ClientModeError('MEMBERSHIP_REQUIRED', 'The selected Host is not authorized for this account.')
+    }
+    const target = await this.authorizeHostPeer(serverDevice)
     const presence = await this.server.presenceFor(targetDeviceId)
     if (!presence.online) throw new ClientModeError('HOST_OFFLINE', 'The selected Host is offline.', true)
     const credentials = await this.server.authenticate(identity)
@@ -221,36 +177,21 @@ export class ClientModeRuntime {
     try {
       if (endpoint === 'status') return ok(this.status())
       if (endpoint === 'devices') return ok(await this.devices())
-      if (endpoint === 'pairing.claim') {
-        const value = record(payload)
-        if (typeof value.code !== 'string') throw new ClientModeError('INVALID_MESSAGE', 'A pairing code is required.')
-        return ok(await this.claimPairing(value.code))
-      }
-      if (endpoint === 'pairing.status') {
-        const value = record(payload)
-        if (typeof value.pairingId !== 'string') throw new ClientModeError('INVALID_MESSAGE', 'A pairingId is required.')
-        return ok(await this.refreshPairing(value.pairingId))
-      }
-      if (endpoint === 'host.pairing.create') {
-        if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
-        return ok(await this.host.createPairing())
-      }
       if (endpoint === 'host.account.login') {
         if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
         const value = record(payload)
         if (typeof value.email !== 'string' || typeof value.password !== 'string') {
           throw new ClientModeError('INVALID_MESSAGE', 'Email and password are required.')
         }
-        return ok(await this.host.authorizeHost(value.email, value.password))
+        return ok(await this.host.authorizeHostWithAccount(value.email, value.password))
       }
-      if (endpoint === 'host.pairings') return ok(this.host?.pendingPairings() ?? [])
-      if (endpoint === 'host.pairing.confirm') {
+      if (endpoint === 'host.registration-code.submit') {
         if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
         const value = record(payload)
-        if (typeof value.pairingId !== 'string' || (value.decision !== 'approve' && value.decision !== 'deny')) {
-          throw new ClientModeError('INVALID_MESSAGE', 'A pairingId and approve/deny decision are required.')
+        if (typeof value.code !== 'string' || value.code.trim() === '') {
+          throw new ClientModeError('INVALID_MESSAGE', 'A Host registration code is required.')
         }
-        return ok(await this.host.confirmPairing(value.pairingId, value.decision))
+        return ok(await this.host.authorizeHostWithCode(value.code))
       }
       if (endpoint === 'mode.set') {
         const value = record(payload)
@@ -267,15 +208,38 @@ export class ClientModeRuntime {
     if (this.identity === undefined) throw new ClientModeError('IDENTITY_INVALID', 'The client identity is not ready.')
     return this.identity
   }
+
+  private async authorizeHostPeer(serverDevice: ServerHostDevice): Promise<TrustedPeer> {
+    const descriptor = await this.server.deviceFor(serverDevice.deviceId)
+    assertAuthorizedHost(serverDevice, descriptor)
+    const existing = this.identities.trustedPeer(descriptor.deviceId)
+    if (existing !== undefined && existing.publicKey !== descriptor.identityKey) {
+      throw new ClientModeError('PEER_IDENTITY_MISMATCH', 'The authorized Host identity key changed unexpectedly.')
+    }
+    if (existing !== undefined
+      && existing.membershipId === descriptor.membershipId
+      && existing.name === descriptor.name
+      && existing.platform === descriptor.platform) {
+      return existing
+    }
+    return this.identities.trustPeer({
+      deviceId: descriptor.deviceId,
+      name: descriptor.name,
+      platform: descriptor.platform,
+      publicKey: descriptor.identityKey,
+      membershipId: descriptor.membershipId,
+    })
+  }
 }
 
 export class ClientModeError extends Error {
   constructor(readonly code: string, message: string, readonly retryable = false) { super(message) }
 }
 
-function assertMembership(peer: TrustedPeer, server: ServerHostDevice | undefined): void {
-  if (server === undefined || server.membershipId !== peer.membershipId) {
-    throw new ClientModeError('PEER_IDENTITY_MISMATCH', 'Server membership no longer matches local Host trust.')
+function assertAuthorizedHost(listed: ServerHostDevice, descriptor: AuthorizedPeerDevice): void {
+  if (descriptor.role !== 'host' || descriptor.deviceId !== listed.deviceId
+    || descriptor.membershipId !== listed.membershipId) {
+    throw new ClientModeError('PEER_IDENTITY_MISMATCH', 'Server Host details do not match the authorized device list.')
   }
 }
 

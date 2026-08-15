@@ -69,10 +69,6 @@ async function handleControl(raw: string): Promise<void> {
     await createPairing()
     return
   }
-  if (frame.type === 'pairing.claimed') {
-    await confirmPairing(frame.payload)
-    return
-  }
   if (frame.type === 'connect.incoming') {
     acceptConnection(frame.payload)
     return

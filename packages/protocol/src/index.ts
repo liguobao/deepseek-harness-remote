@@ -16,8 +16,6 @@ export const controlFrameTypes = [
   'connect.incoming',
   'connect.accepted',
   'connect.rejected',
-  'pairing.claimed',
-  'pairing.resolved',
   'secure.handshake',
   'relay',
   'signal.offer',
@@ -90,6 +88,7 @@ export interface ConnectIncomingPayload {
   connectionId: string
   clientDeviceId: string
   clientIdentityKey: string
+  authorization: 'account'
   preferredTransports: Array<'lan' | 'p2p' | 'turn' | 'relay'>
 }
 
@@ -101,23 +100,6 @@ export interface ConnectRejectedPayload {
   connectionId: string
   code?: string
   message?: string
-}
-
-export interface PairingClaimedPayload {
-  pairingId: string
-  client: {
-    deviceId: string
-    name: string
-    platform: string
-    identityKey: string
-    fingerprint: string
-  }
-}
-
-export interface PairingResolvedPayload {
-  pairingId: string
-  status: 'paired' | 'rejected'
-  membershipId?: string
 }
 
 export interface SecureHandshakePayload {

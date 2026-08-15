@@ -51,8 +51,8 @@ docs/
 
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
-| Plugin Host | 账号授权、隔离身份/凭证、Pairing、Relay/Noise IK 与 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
-| Plugin Client Mode | Local/Remote ApiProxy switch、配对/设备控制、Settings 与 Web 入口已实现 | 真实 dsh-desktop 安装/E2E、断线重连 |
+| Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK 与 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
+| Plugin Client Mode | 账号接入、同账号 Host 发现与 key pinning、Local/Remote ApiProxy switch、Settings 与 Web 入口已实现 | 真实 dsh-desktop 安装/E2E、断线重连 |
 | Android | 旧 Remote RPC 原型已冻结，与当前 ApiProxy-only Host 不兼容 | 若恢复该产品线，先迁移到 ApiProxy contract |
 | Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 清理冻结 Android 的旧类型、完整 Zod schema、limits、golden vectors |
 | Crypto | 基础原语与标准 Noise IK 已实现 | 第三方实现审查、rekey、跨端 conformance |
@@ -110,7 +110,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 4. Server membership 与 Host 本地 trusted peer 必须同时成立。
 5. v1 permission decision 只允许 `allow_once | deny`，禁止恢复 `allow_session`。
 6. 不提供 Shell、PTY、任意文件读写、远程桌面或通用 Harness tool RPC。
-7. Token、私钥、配对码、prompt、源码和工具输出不得写日志。
+7. Token、私钥、主机匹配码、prompt、源码和工具输出不得写日志。
 8. Harness 业务层只使用官方 `ApiProxy`；禁止恢复 session/agent/workspace/permission adapter 或另一套 wire format。
 9. 不修改用户已有变更，不提交 `node_modules`、Expo cache、Android build 产物或个人 Agent 配置；唯一允许提交的 `dist` 是根 DSH GitHub Bundle 所需的 `packages/plugin/dist/index.js` 与 `client.github.js`，另需保留根 Host 入口 `index.js`。
 
@@ -120,7 +120,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 
 - Protocol 编解码、版本和 schema
 - 身份、加密、篡改和重放
-- Pairing、Control handshake、Relay authorization
+- Account authorization、Host registration code、Control handshake、Relay authorization
 - RPC correlation、权限 fail-closed、事件顺序和恢复
 - Transport fallback/reconnect 等核心状态机
 

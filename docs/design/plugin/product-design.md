@@ -6,26 +6,25 @@
 ## 1. 产品定位
 
 Remote Plugin 同时承担 Host 和 Desktop Client 两个角色。Host 把官方 Harness
-`ApiProxy` 的安全子集接入端到端加密通道；Client 让官方 Harness UI 在 Local 与已配对
+`ApiProxy` 的安全子集接入端到端加密通道；Client 让官方 Harness UI 在 Local 与同账号
 Remote Host 之间切换。
 
 Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新实现 Harness 会话协议。
 
 ## 2. 核心用户路径
 
-1. 远端 Harness 选择 Host，填写 Server 和站点账号完成设备授权。
-2. Host 生成一次性设备码。
-3. 本地 Harness 选择 Client，提交设备码。
-4. Host 在本机核对 Client fingerprint 并批准。
-5. 本地侧边栏选择 Remote Host，官方 Harness UI 通过远端 ApiProxy 工作。
-6. 选择 Local 或远端连接断开时，UI 回到本机 ApiProxy。
+1. 远端 Harness 选择 Host，用站点账号密码或网页生成的主机匹配码完成设备接入。
+2. 本地 Harness 选择 Client，用相同 Server 和相同账号完成设备接入。
+3. Server 自动建立同账号 membership，双端从受保护设备详情固定对端公钥。
+4. 本地侧边栏选择 Remote Host，官方 Harness UI 通过远端 ApiProxy 工作。
+5. 选择 Local 或远端连接断开时，UI 回到本机 ApiProxy。
 
 ## 3. MVP 范围
 
 - Cordis 生命周期与 GitHub/npm Bundle 入口。
-- 站点账号授权 Host 注册；账号 token 与 device token 隔离。
+- 站点账号授权 Host/Client 注册，Host 支持账号密码或主机匹配码；账号 token 与 device token 隔离。
 - 按 Server origin 与 Host/Client 角色隔离身份和 credential。
-- 配对码、Host 本机确认、trusted peer 与撤销。
+- 同账号 membership、双端 pinned peer 与设备撤销。
 - Host 主动建立 WSS，Relay 上运行 Noise IK。
 - ApiProxy 固定 allowlist、unary call、respond、mux/host stream。
 - Desktop Local/Remote switch 和断线回落。
@@ -60,8 +59,8 @@ permission 数据，也不新增授权范围。最终裁决、过期、重复响
 1. npm 子包与 GitHub 根包均可由 DSH Desktop 识别加载。
 2. Host 不监听公网端口，只建立出站连接。
 3. Host 完成账号授权注册后只使用 device credential 常驻。
-4. Host 可生成设备码并确认或拒绝 Client。
-5. 本地 Harness 可选择已配对 Host，通过官方 UI 创建和继续远端会话。
+4. Host/Client 同账号注册后自动获得 membership，并固定对端 identity key。
+5. 本地 Harness 可选择同账号 Host，通过官方 UI 创建和继续远端会话。
 6. Remote unary、mux/host stream 与 approval response 全部经过 ApiProxy allowlist。
 7. 远端连接关闭后 Client 结束旧流并回落 Local。
 8. Relay capture 无法解密 payload；篡改、重放和 identity mismatch 被拒绝。

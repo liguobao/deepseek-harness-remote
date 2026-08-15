@@ -5,7 +5,6 @@ import type { ConnectionController } from '../src/connection-controller.js'
 import type { ResolvedConfig } from '../src/config.js'
 import type { HostIdentity, IdentityStore, TrustedPeer } from '../src/identity-store.js'
 import type { SafeLogger } from '../src/logging.js'
-import type { PairingController } from '../src/pairing-controller.js'
 import { ServerApiError, type HostServerApi } from '../src/server-api.js'
 import { HostServerConnection } from '../src/server-connection.js'
 import type { AuthenticatedPeerChannel } from '../src/types.js'
@@ -54,14 +53,25 @@ describe('HostServerConnection', () => {
       baseUrl: 'https://dsh.r2049.cn',
       authenticate: vi.fn(async () => ({ accessToken: 'access-token-value' })),
       refreshCredentials: vi.fn(),
-      membershipFor: vi.fn(async () => 'membership-1'),
+      deviceFor: vi.fn(async () => ({
+        deviceId: peer.deviceId,
+        name: peer.name,
+        role: 'client',
+        platform: peer.platform,
+        identityKey: peer.publicKey,
+        membershipId: peer.membershipId!,
+      })),
     } as unknown as HostServerApi
+    const trustPeer = vi.fn(async (input: Omit<TrustedPeer, 'fingerprint' | 'trustedAt'>) => ({
+      ...input,
+      fingerprint: 'CLIENT',
+      trustedAt: 1,
+    }))
     const server = new HostServerConnection(
       config(),
       identity,
-      { trustedPeer: vi.fn(() => peer) } as unknown as IdentityStore,
+      { trustedPeer: vi.fn(() => undefined), trustPeer } as unknown as IdentityStore,
       api,
-      { receiveClaim: vi.fn() } as unknown as PairingController,
       connections,
       logger(),
       () => socket,
@@ -82,12 +92,18 @@ describe('HostServerConnection', () => {
       connectionId: 'connection-1',
       clientDeviceId: 'client-1',
       clientIdentityKey: clientKeys.publicKey,
+      authorization: 'account',
       preferredTransports: ['relay'],
     }))
     await flush()
     expect(JSON.parse(socket.sent[1]!)).toEqual(expect.objectContaining({
       type: 'connect.accepted',
       payload: { connectionId: 'connection-1' },
+    }))
+    expect(trustPeer).toHaveBeenCalledWith(expect.objectContaining({
+      deviceId: 'client-1',
+      publicKey: clientKeys.publicKey,
+      membershipId: 'membership-1',
     }))
 
     const clientNoise = new NoiseIkSession({
@@ -145,7 +161,6 @@ describe('HostServerConnection', () => {
       { schemaVersion: 1, deviceId: 'host-2', name: 'Host', fingerprint: 'HOST', ...keys },
       { trustedPeer: vi.fn() } as unknown as IdentityStore,
       api,
-      { receiveClaim: vi.fn() } as unknown as PairingController,
       { close: vi.fn(async () => undefined) } as unknown as ConnectionController,
       logger(),
       () => new FakeWebSocket(),

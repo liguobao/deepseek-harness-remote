@@ -14,7 +14,7 @@ afterEach(async () => {
 })
 
 describe('HostServerApi', () => {
-  it('logs in, authorizes Host registration, persists device credentials, and authenticates pairing calls', async () => {
+  it('logs in, authorizes Host registration, persists device credentials, and authenticates peer lookup', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-server-api-'))
     directories.push(directory)
     const calls: Array<{ url: string; init?: RequestInit }> = []
@@ -29,15 +29,22 @@ describe('HostServerApi', () => {
         isAdmin: false,
       })
       if (url.endsWith('/devices/register')) return json(tokens())
-      if (url.endsWith('/pairings')) return json({ pairingId: 'pair-1', code: 'ABCD-EFGH', expiresAt: Date.now() + 60_000, pairUri: 'dshremote://pair' })
+      if (url.endsWith('/devices/client-1')) return json({
+        deviceId: 'client-1',
+        name: 'Browser',
+        role: 'client',
+        platform: 'web',
+        identityKey: generateKeyPair(new Uint8Array(32).fill(4)).publicKey,
+        membershipId: 'membership-1',
+      })
       throw new Error(`unexpected request: ${url}`)
     }) as unknown as typeof fetch
     const store = new ServerCredentialStore(directory)
     const api = new HostServerApi('https://dsh.r2049.cn/', store, fetchMock)
     const identity = hostIdentity()
 
-    await api.authorizeHost(identity, 'host@example.com', 'correct horse battery staple')
-    await api.create(identity)
+    await api.authorizeWithAccount(identity, 'host@example.com', 'correct horse battery staple')
+    await api.deviceFor('client-1')
 
     expect(calls[0]?.url).toBe('https://dsh.r2049.cn/api/v1/auth/login')
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
@@ -61,7 +68,29 @@ describe('HostServerApi', () => {
     const reloaded = new HostServerApi('https://dsh.r2049.cn', store, fetchMock)
     await reloaded.authenticate(identity)
     expect(fetchMock).toHaveBeenCalledTimes(3)
-    expect(reloaded.currentAccount()).toBe('host@example.com')
+    expect(reloaded.currentAuthorization()).toMatchObject({ method: 'account', account: 'host@example.com' })
+  })
+
+  it('registers a Host with a one-time account enrollment code', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-server-code-'))
+    directories.push(directory)
+    const fetchMock = vi.fn(async () => json(tokens())) as unknown as typeof fetch
+    const store = new ServerCredentialStore(directory)
+    const api = new HostServerApi('https://dsh.r2049.cn', store, fetchMock)
+    const identity = hostIdentity()
+
+    await expect(api.authorizeHostWithCode(identity, 'abcd-efgh')).resolves.toEqual({
+      method: 'host_registration_code',
+    })
+
+    expect(String(vi.mocked(fetchMock).mock.calls[0]?.[0])).toBe('https://dsh.r2049.cn/api/v1/devices/register-with-code')
+    expect(JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]?.[1]?.body))).toMatchObject({
+      code: 'ABCD-EFGH',
+      device: { deviceId: identity.deviceId, role: 'host', identityKey: identity.publicKey },
+    })
+    await expect(store.load('https://dsh.r2049.cn', identity.deviceId)).resolves.toMatchObject({
+      authorizationMethod: 'host_registration_code',
+    })
   })
 
   it('reports account authorization when a fresh Host cannot register anonymously', async () => {
@@ -83,6 +112,7 @@ describe('HostServerApi', () => {
     await store.save({
       serverUrl: 'https://dsh.r2049.cn',
       deviceId: identity.deviceId,
+      authorizationMethod: 'account',
       account: 'host@example.com',
       ...tokens({ accessTokenExpiresAt: Date.now() + 1_000 }),
     })
@@ -100,15 +130,26 @@ describe('HostServerApi', () => {
   it('registers the local remote-mode identity as a client device', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-server-client-'))
     directories.push(directory)
-    const fetchMock = vi.fn(async () => json(tokens())) as unknown as typeof fetch
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.endsWith('/auth/login')) return json({
+        token: 'web-account-token-value',
+        expiresAt: Date.now() + 600_000,
+        account: 'client@example.com',
+        profile: {},
+        isAdmin: false,
+      })
+      return json(tokens())
+    }) as unknown as typeof fetch
     const identity = hostIdentity()
     const api = new ClientServerApi('https://dsh.r2049.cn', new ServerCredentialStore(directory), fetchMock)
 
-    await api.authenticate(identity)
+    await api.authorizeWithAccount(identity, 'client@example.com', 'correct horse battery staple')
 
-    expect(JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]?.[1]?.body))).toMatchObject({
+    expect(JSON.parse(String(vi.mocked(fetchMock).mock.calls[1]?.[1]?.body))).toMatchObject({
       device: { deviceId: identity.deviceId, role: 'client' },
     })
+    expect(vi.mocked(fetchMock).mock.calls[1]?.[1]?.headers).toMatchObject({ Authorization: 'Bearer web-account-token-value' })
   })
 })
 

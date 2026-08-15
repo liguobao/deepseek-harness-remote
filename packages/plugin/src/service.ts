@@ -4,9 +4,8 @@ import { ConnectionController } from './connection-controller.js'
 import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore } from './identity-store.js'
 import type { SafeLogger } from './logging.js'
-import { PairingController, PairingError, type PairingClaim } from './pairing-controller.js'
 import { RpcRouter } from './rpc-router.js'
-import { HostServerApi, ServerApiError, type HostAccountAuthorization } from './server-api.js'
+import { HostServerApi, ServerApiError, type DeviceAuthorization } from './server-api.js'
 import { HostServerConnection } from './server-connection.js'
 import { ServerCredentialStore } from './server-credentials.js'
 import { HarnessApiBridge } from './harness-api-bridge.js'
@@ -23,7 +22,6 @@ export interface HostRemoteStatus {
 export class HostPluginRuntime {
   readonly router: RpcRouter
   readonly connections: ConnectionController
-  readonly pairings?: PairingController
   private identity?: HostIdentity
   private readonly serverApi?: HostServerApi
   private serverConnection?: HostServerConnection
@@ -43,7 +41,6 @@ export class HostPluginRuntime {
     this.connections = new ConnectionController(this.identities, this.router)
     if (config.serverUrl !== undefined) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory))
-      this.pairings = new PairingController(identities, this.serverApi)
     }
   }
 
@@ -55,14 +52,13 @@ export class HostPluginRuntime {
       fingerprint: this.identity.fingerprint,
       server: this.config.serverUrl ?? 'not configured',
     })
-    if (this.serverApi !== undefined && this.pairings !== undefined) {
+    if (this.serverApi !== undefined) {
       this.serverApi.bindIdentity(this.identity)
       this.serverConnection = new HostServerConnection(
         this.config,
         this.identity,
         this.identities,
         this.serverApi,
-        this.pairings,
         this.connections,
         this.logger,
       )
@@ -80,43 +76,36 @@ export class HostPluginRuntime {
     return this.connections.accept(channel)
   }
 
-  async createPairing() {
-    if (this.pairings === undefined || this.serverConnection === undefined) {
-      throw new PairingError('SERVER_NOT_CONFIGURED', 'Configure serverUrl before creating a pairing.')
-    }
-    if (!this.serverConnection.isOnline()) {
-      throw new PairingError('HOST_OFFLINE', 'The Host control connection is not online yet.')
-    }
-    return this.pairings.create()
-  }
-
-  pendingPairings(): PairingClaim[] { return this.pairings?.pending() ?? [] }
-
   hostStatus(): HostRemoteStatus {
     const error = this.serverConnection?.lastError()
-    const account = this.serverApi?.currentAccount()
+    const authorization = this.serverApi?.currentAuthorization()
     return {
       configured: this.serverApi !== undefined,
       online: this.serverConnection?.isOnline() ?? false,
       ...(error === undefined ? {} : { error }),
-      ...(account === undefined ? {} : { account }),
+      ...(authorization?.account === undefined ? {} : { account: authorization.account }),
       accountRequired: error === 'ACCOUNT_AUTH_REQUIRED' || error === 'AUTH_INVALID' || error === 'TOKEN_EXPIRED',
     }
   }
 
-  async authorizeHost(email: string, password: string): Promise<HostAccountAuthorization> {
+  async authorizeHostWithAccount(email: string, password: string): Promise<DeviceAuthorization> {
     if (this.serverApi === undefined) {
       throw new ServerApiError('SERVER_NOT_CONFIGURED', 'Configure serverUrl before signing in.', false)
     }
-    const result = await this.serverApi.authorizeHost(this.currentIdentity(), email, password)
+    const result = await this.serverApi.authorizeWithAccount(this.currentIdentity(), email, password)
     this.serverConnection?.resume()
     this.logger.info('Host account authorized')
     return result
   }
 
-  confirmPairing(pairingId: string, decision: 'approve' | 'deny') {
-    if (this.pairings === undefined) throw new PairingError('SERVER_NOT_CONFIGURED', 'Configure serverUrl before confirming a pairing.')
-    return this.pairings.confirm(pairingId, decision)
+  async authorizeHostWithCode(code: string): Promise<DeviceAuthorization> {
+    if (this.serverApi === undefined) {
+      throw new ServerApiError('SERVER_NOT_CONFIGURED', 'Configure serverUrl before entering a Host registration code.', false)
+    }
+    const result = await this.serverApi.authorizeHostWithCode(this.currentIdentity(), code)
+    this.serverConnection?.resume()
+    this.logger.info('Host registration code authorized')
+    return result
   }
 
   async revokePeer(deviceId: string): Promise<boolean> {
@@ -144,7 +133,6 @@ export class HostPluginRuntime {
       online: this.connections.isOnline(),
       peerDeviceId: this.connections.peerDeviceId() === undefined ? undefined : shortId(this.connections.peerDeviceId()!),
       trustedPeers: this.identities.listTrustedPeers().length,
-      pendingPairings: this.pairings?.pending().length ?? 0,
     }
   }
 

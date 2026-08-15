@@ -16,7 +16,7 @@ Android 源码暂时保留，但在迁移到 ApiProxy 前不属于当前可用�
 | `@dsh-remote/crypto` | 设备密钥、Noise IK、AEAD counter | 设备授权、传输选择 |
 | `@dsh-remote/webrtc` | Relay、LAN、WebRTC/TURN transport 抽象 | ApiProxy、会话状态 |
 | `@dsh-remote/client-core` | 隧道 RPC 关联和事件分发 | Harness 业务 reducer、UI |
-| `@dsh-remote/plugin` | 配对、信任、secure channel、ApiProxy allowlist 和 Local/Remote switch | Server runtime、Harness 业务重建 |
+| `@dsh-remote/plugin` | 账号设备接入、peer pinning、secure channel、ApiProxy allowlist 和 Local/Remote switch | Server runtime、Harness 业务重建 |
 
 ## 3. 端到端边界
 
@@ -32,14 +32,17 @@ Harness Web UI
 
 Server 可以读取路由和连接元数据，但不能解密 ApiProxy payload。
 
-## 4. 身份与配对
+## 4. 身份与账号授权
 
 每个 Host/Client 具有独立 deviceId、显示名、平台和 X25519 identity key。私钥只保存
 在设备本地。身份、device credential 和 trusted peer 按规范化 Server origin 与角色隔离。
 
-设备码使用 8 位无歧义 Base32、10 分钟 TTL、单次消费。Client claim 不是授权；Host
-必须在本机核对 fingerprint 并明确允许。建立业务通道时，Server membership 与 Host
-本地 trusted peer 必须同时成立。
+Host 和 Client 都必须归属站点账号；Server 为同账号异角色设备自动建立 membership。
+Host 可使用账号密码，或使用网页生成的 8 位、10 分钟 TTL、单次消费主机匹配码接入。
+该码只授权 Host 加入账号，不是 Host/Client pairing。建立业务通道前，Client 从受
+membership 保护的详情固定 Host key；Host 对 `connect.incoming.authorization=account`
+再次查询 Client descriptor 后写入本地 pinned trust。Server membership 与本地 trust
+必须同时成立，既有 deviceId 的 key 变化必须 fail closed。
 
 ## 5. 唯一业务协议
 
@@ -78,12 +81,12 @@ Plugin 不维护第二套 seq replay buffer 或 full-resync 机制。
 - 业务 payload 只能进入完成 Noise IK 和 membership/trust 校验的 channel。
 - Host 以固定 allowlist 代理 ApiProxy，禁止 credentials/settings、任意目录、native open、附件和下载。
 - 未知 method、错误 target、重放、counter gap、identity mismatch 全部 fail closed。
-- token、私钥、配对码、prompt、源码、工具输出和 ciphertext 不写日志。
+- token、私钥、主机匹配码、prompt、源码、工具输出和 ciphertext 不写日志。
 
 ## 8. 核心测试
 
 - Control/Relay 编解码、版本和 frame limits。
 - Noise transcript、identity binding、篡改和重放拒绝。
-- pairing 单次消费与 membership/local trust 双重授权。
+- 主机匹配码单次消费、同账号 membership 与 local pinned trust 双重授权。
 - ApiProxy allowlist、RPC 关联、stream open/close、断线清理。
 - transport fallback/reconnect 状态机。

@@ -7,10 +7,10 @@ import {
   ClientModeError,
   type ClientModeRuntime,
   type HostConnectionHandle,
-  type HostPairingControl,
+  type HostAuthorizationControl,
 } from './client-runtime.js'
-import { fingerprint, IdentityStore, serverStorageDirectory, type HostIdentity } from './identity-store.js'
-import { ClientServerApi, HostServerApi, type ClientPairingClaim } from './server-api.js'
+import { IdentityStore, serverStorageDirectory } from './identity-store.js'
+import { ClientServerApi, HostServerApi } from './server-api.js'
 import { ServerCredentialStore } from './server-credentials.js'
 
 export interface PluginSettingsView {
@@ -19,34 +19,19 @@ export interface PluginSettingsView {
   writable: boolean
   applies: 'restart'
   association?: {
-    method: 'account' | 'authorization_code'
+    method: 'account' | 'host_registration_code'
     account?: string
-    host?: { deviceId: string; name: string }
   }
-  pendingPairing?: {
-    pairingId: string
-    expiresAt: number
-    host: { name: string; fingerprint: string }
-  }
-}
-
-interface PendingClientPairing {
-  api: ClientServerApi
-  identities: IdentityStore
-  identity: HostIdentity
-  claim: ClientPairingClaim
 }
 
 /** Loopback-only control plane shared by Local/Remote switching and plugin setup. */
 export class PluginControlRuntime {
-  private pendingPairing?: PendingClientPairing
-
   constructor(
     private readonly config: ResolvedConfig,
     private readonly identityDirectory: string,
     private readonly settings: SettingsScope<Config> | undefined,
     private readonly client: ClientModeRuntime | undefined,
-    private readonly host: HostPairingControl | undefined,
+    private readonly host: HostAuthorizationControl | undefined,
   ) {}
 
   register(connection: HostConnectionHandle): () => Promise<void> {
@@ -59,33 +44,27 @@ export class PluginControlRuntime {
     try {
       if (endpoint === 'settings.get') return ok(await this.settingsView())
       if (endpoint === 'settings.configure') return ok(await this.configure(payload))
-      if (endpoint === 'settings.pairing.status') return ok(await this.pairingStatus(payload))
       if (endpoint === 'settings.role.set') return ok(await this.setRole(payload))
       if (endpoint === 'settings.logout') return ok(await this.logout())
       if (this.client !== undefined) return this.client.handleControl(endpoint, payload, signal)
 
       if (endpoint === 'status') return ok(this.hostOnlyStatus())
       if (endpoint === 'devices') return ok([])
-      if (endpoint === 'host.pairing.create') {
-        if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
-        return ok(await this.host.createPairing())
-      }
       if (endpoint === 'host.account.login') {
         if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
         const value = record(payload)
         if (typeof value.email !== 'string' || typeof value.password !== 'string') {
           throw new ClientModeError('INVALID_MESSAGE', 'Email and password are required.')
         }
-        return ok(await this.host.authorizeHost(value.email, value.password))
+        return ok(await this.host.authorizeHostWithAccount(value.email, value.password))
       }
-      if (endpoint === 'host.pairings') return ok(this.host?.pendingPairings() ?? [])
-      if (endpoint === 'host.pairing.confirm') {
+      if (endpoint === 'host.registration-code.submit') {
         if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
         const value = record(payload)
-        if (typeof value.pairingId !== 'string' || (value.decision !== 'approve' && value.decision !== 'deny')) {
-          throw new ClientModeError('INVALID_MESSAGE', 'A pairingId and approve/deny decision are required.')
+        if (typeof value.code !== 'string' || value.code.trim() === '') {
+          throw new ClientModeError('INVALID_MESSAGE', 'A Host registration code is required.')
         }
-        return ok(await this.host.confirmPairing(value.pairingId, value.decision))
+        return ok(await this.host.authorizeHostWithCode(value.code))
       }
       if (endpoint === 'mode.set' && record(payload).mode === 'local') return ok(this.hostOnlyStatus())
       throw new ClientModeError('METHOD_NOT_ALLOWED', 'Remote Client mode is disabled by the plugin role.')
@@ -108,62 +87,29 @@ export class PluginControlRuntime {
     const current = editableConfig(resolveConfig(this.settings.get()))
     const next = resolveConfig({ ...current, role: value.role, serverUrl: value.serverUrl })
 
-    if (value.role === 'host') {
-      if (typeof value.email !== 'string' || typeof value.password !== 'string') {
-        throw new ClientModeError('INVALID_MESSAGE', 'Email and password are required for a Host.')
-      }
-      const identities = new IdentityStore({
-        directory: serverStorageDirectory(this.identityDirectory, next.serverUrl!, 'host'),
-      })
-      const identity = await identities.loadOrCreate(hostname())
-      const api = new HostServerApi(next.serverUrl!, new ServerCredentialStore(identities.directory))
-      const authorization = await api.authorizeHost(identity, value.email, value.password)
-      await this.settings.replace(editableConfig(next))
-      this.pendingPairing = undefined
-      return { status: 'authorized', role: 'host', account: authorization.account, settings: await this.settingsView() }
-    }
-
-    if (typeof value.authorizationCode !== 'string' || value.authorizationCode.trim() === '') {
-      throw new ClientModeError('INVALID_MESSAGE', 'Authorization code is required for a Client.')
-    }
     const identities = new IdentityStore({
-      directory: serverStorageDirectory(this.identityDirectory, next.serverUrl!, 'client'),
+      directory: serverStorageDirectory(this.identityDirectory, next.serverUrl!, value.role),
     })
     const identity = await identities.loadOrCreate(hostname())
-    const api = new ClientServerApi(next.serverUrl!, new ServerCredentialStore(identities.directory))
-    api.bindIdentity(identity)
-    const claim = await api.claimPairing(value.authorizationCode, identity.deviceId)
-    if (claim.host.fingerprint !== fingerprint(claim.host.identityKey)) {
-      throw new ClientModeError('PEER_IDENTITY_MISMATCH', 'The pairing Host fingerprint is invalid.')
-    }
-    this.pendingPairing = { api, identities, identity, claim }
-    await this.settings.replace(editableConfig(next))
-    return { status: 'waiting_host', role: 'client', settings: await this.settingsView() }
-  }
-
-  private async pairingStatus(payload: unknown): Promise<Record<string, unknown>> {
-    const value = record(payload)
-    const pending = this.pendingPairing
-    if (pending === undefined || value.pairingId !== pending.claim.pairingId) {
-      throw new ClientModeError('PAIRING_INVALID', 'The pairing request is not pending on this device.')
-    }
-    const status = await pending.api.pairingStatus(pending.claim.pairingId)
-    if (status.status === 'paired') {
-      if (status.membershipId === undefined || status.hostDeviceId !== pending.claim.host.deviceId) {
-        throw new ClientModeError('INVALID_MESSAGE', 'The paired membership does not match the authorized Host.')
+    const api = value.role === 'host'
+      ? new HostServerApi(next.serverUrl!, new ServerCredentialStore(identities.directory))
+      : new ClientServerApi(next.serverUrl!, new ServerCredentialStore(identities.directory))
+    let authorization
+    if (value.role === 'host' && typeof value.registrationCode === 'string' && value.registrationCode.trim() !== '') {
+      authorization = await api.authorizeHostWithCode(identity, value.registrationCode)
+    } else {
+      if (typeof value.email !== 'string' || typeof value.password !== 'string') {
+        throw new ClientModeError('INVALID_MESSAGE', 'Email and password are required for account authorization.')
       }
-      await pending.identities.trustPeer({
-        deviceId: pending.claim.host.deviceId,
-        name: pending.claim.host.name,
-        platform: pending.claim.host.platform,
-        publicKey: pending.claim.host.identityKey,
-        membershipId: status.membershipId,
-      })
-      this.pendingPairing = undefined
-    } else if (status.status === 'rejected' || status.status === 'expired') {
-      this.pendingPairing = undefined
+      authorization = await api.authorizeWithAccount(identity, value.email, value.password)
     }
-    return { ...status, settings: await this.settingsView() }
+    await this.settings.replace(editableConfig(next))
+    return {
+      status: 'authorized',
+      role: value.role,
+      ...(authorization.account === undefined ? {} : { account: authorization.account }),
+      settings: await this.settingsView(),
+    }
   }
 
   private async setRole(payload: unknown): Promise<PluginSettingsView> {
@@ -176,7 +122,6 @@ export class PluginControlRuntime {
     }
     const current = editableConfig(resolveConfig(this.settings.get()))
     await this.settings.replace({ ...current, role })
-    this.pendingPairing = undefined
     return this.settingsView()
   }
 
@@ -190,13 +135,11 @@ export class PluginControlRuntime {
       const directory = serverStorageDirectory(this.identityDirectory, config.serverUrl, role)
       await rm(directory, { recursive: true, force: true })
     }
-    this.pendingPairing = undefined
     return this.settingsView()
   }
 
   private async settingsView(): Promise<PluginSettingsView> {
     const config = this.settings === undefined ? editableConfig(this.config) : editableConfig(resolveConfig(this.settings.get()))
-    const pending = this.pendingPairing?.claim
     const association = await this.association(config)
     return {
       config,
@@ -204,13 +147,6 @@ export class PluginControlRuntime {
       writable: this.settings !== undefined,
       applies: 'restart',
       ...(association === undefined ? {} : { association }),
-      ...(pending === undefined ? {} : {
-        pendingPairing: {
-          pairingId: pending.pairingId,
-          expiresAt: pending.expiresAt,
-          host: { name: pending.host.name, fingerprint: pending.host.fingerprint },
-        },
-      }),
     }
   }
 
@@ -223,22 +159,17 @@ export class PluginControlRuntime {
     const identity = await identities.loadOrCreate(hostname())
     const credentials = await new ServerCredentialStore(identities.directory).load(config.serverUrl, identity.deviceId)
     if (credentials === undefined) return undefined
-    if (role === 'host') {
-      return credentials.account === undefined
-        ? undefined
-        : { method: 'account', account: credentials.account }
+    return {
+      method: credentials.authorizationMethod,
+      ...(credentials.account === undefined ? {} : { account: credentials.account }),
     }
-    const host = identities.listTrustedPeers().find(peer => peer.membershipId !== undefined)
-    return host === undefined
-      ? undefined
-      : { method: 'authorization_code', host: { deviceId: host.deviceId, name: host.name } }
   }
 
   private hostOnlyStatus(): Record<string, unknown> {
     return {
       mode: 'local',
       available: false,
-      hostPairingAvailable: this.host !== undefined,
+      hostAuthorizationAvailable: this.host !== undefined,
       ...(this.host === undefined ? {} : { host: this.host.hostStatus() }),
     }
   }
