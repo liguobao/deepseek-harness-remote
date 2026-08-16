@@ -1,11 +1,12 @@
 # TODO
 
-本清单按 2026-08-15 的 ApiProxy-only Desktop Plugin 方向维护。Android 产品线已恢复开发，
+本清单按 2026-08-16 的 ApiProxy-only Desktop Plugin 方向维护。Android 产品线已恢复开发，
 与 Plugin 共享同一 Control/Relay 与 ApiProxy contract；Server、Remote Web 和 Admin 只在独立
 Server 仓库实现。
 
-Desktop Client 已改为独立 Remote 工作区入口：本地选择账号下的 Host 与远端目录，随后复用
-原生 Harness UI。当前实现需要真实 Desktop E2E 验证后才能作为稳定能力发布。
+Desktop 已使用独立 Remote 工作区入口：本地选择账号下的 Host 与远端 Workspace，或通过
+只读目录浏览添加 Workspace，随后复用原生 Harness UI。当前实现需要真实 Desktop E2E 验证
+后才能作为稳定能力发布。
 
 测试预算只用于协议、安全、账号授权、认证连接、ApiProxy allowlist/stream 生命周期和核心
 transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
@@ -17,7 +18,9 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [x] 同账号 membership、受保护 peer descriptor 与本地 pinned trust 双重授权
 - [x] Relay control、标准 Noise IK、counter/replay 拒绝与 opaque ciphertext
 - [x] Desktop Plugin Host runtime、Settings 配置和 GitHub/npm Bundle 入口
-- [x] Host ApiProxy allowlist bridge 与 mux/host stream；Client Local/Remote switch 实现保留但入口暂时关闭
+- [x] Host ApiProxy allowlist bridge、mux/host stream 与后台 Local/Remote ApiProxy switch
+- [x] Remote 模态框、主机自过滤、OS/Harness/Plugin 版本展示、远端 Workspace 与目录选择
+- [x] Remote Header、LAN/P2P/TURN/Relay 链路、端到端加密状态与退出入口
 - [x] 不同 Web Client 同时连接一个 Host；RPC、stream 与断开清理按 connectionId 隔离
 - [x] 删除自定义 Session/Agent/Workspace/Permission adapters、event replay 和旧 Host RPC 路由
 
@@ -28,6 +31,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [ ] 验证原生 mux/host stream、approval/question respond 与断线关闭行为
 - [ ] 用手机 Web 与电脑 Web 同时连接一个真实 Host，验证并发操作、同设备重连和流隔离
 - [ ] 验证 allowlist 覆盖官方 UI 的必需方法，并保持 credentials/settings/native path/目录写入/文件内容/附件/download 禁止
+- [ ] 在 macOS、Windows、Linux 验证 native picker 只读目录兜底、symlink、权限错误和大目录截断
 - [ ] 完善账号过期、`DEVICE_OWNERSHIP_REQUIRED` 和 legacy owner 的显式恢复体验
 - [ ] 增加 transport 关闭后 pending unary/stream 的确定错误与可诊断状态
 
@@ -43,8 +47,8 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 ## P1：Transport 与恢复
 
 - [ ] 实现 control heartbeat、RTT、最后活动时间和错误分类
-- [ ] 完成 WebRTC offer/answer/ICE、STUN/TURN 与短期 credential
-- [ ] 建立 `connecting -> direct -> relay -> reconnecting -> offline` 状态机
+- [x] 完成 WebRTC offer/answer/ICE、STUN/TURN、短期 credential 与 Relay fallback 基础链路
+- [ ] 完善 `connecting -> direct -> relay -> reconnecting -> offline` UI 状态机和网络切换恢复
 - [ ] 定义 direct 超时和 Relay fallback，切换中不得重复已提交的 ApiProxy mutation
 - [ ] 重新连接后重开原生 mux/host stream，并由官方 UI 重新获取 history baseline
 
@@ -91,7 +95,7 @@ ApiProxy contract，不得在 Plugin Host 恢复 `sessions.*`、`session.send`�
 - [ ] 双角色 Plugin 可安装到真实 DeepSeek Harness 并主动连接外部 Server
 - [x] Host 账号授权注册后只使用独立 device credential 常驻
 - [x] Desktop Client 使用同账号注册并从授权设备详情固定 Host identity key
-- [ ] Desktop Client 在真实原生 UI 切换 Local/Remote
+- [ ] Desktop Client 在真实原生 UI 打开 Remote Workspace 并退出回到 Local
 - [ ] 原生会话、stream、tool、approval/question 通过 ApiProxy tunnel 正常工作
 - [ ] 连接断开后旧 stream/answer 失效并安全回落 Local
 - [ ] Relay capture 无法解密 payload，篡改、重放和 identity mismatch 被拒绝

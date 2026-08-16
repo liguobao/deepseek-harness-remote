@@ -6,7 +6,7 @@
 
 当前仓库实现：
 
-- DeepSeek Harness 双角色 Plugin（Remote Host + 本地 Harness Client 模式）
+- DeepSeek Harness Plugin（Remote Host + 本地 Remote 工作区入口；无用户可见的 Client 模式）
 - Android Client（账号授权 + Adaptive transport + ApiProxy tunnel 数据面）
 - Protocol、Crypto、WebRTC、Client Core 等共享能力
 - 依赖外部 Server 的 Mock Host/Smoke Client
@@ -27,7 +27,7 @@ Server、Remote Web 和 Admin 必须由独立 Server 仓库作为同一站点实
 apps/
   android/             React Native / Expo Android Client（账号授权 + ApiProxy tunnel）
 packages/
-  plugin/              双角色 Plugin、原生 API 代理与 Web Client 切换入口
+  plugin/              Host runtime、Remote 工作区入口与原生 API 代理
   protocol/            Remote/Control frame 类型和运行时校验
   crypto/              X25519、HKDF、ChaCha20-Poly1305 与 Noise IK
   webrtc/              Relay、WebRTC、LAN transport 抽象
@@ -52,15 +52,15 @@ docs/
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
 | Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
-| Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；侧边栏 Remote 入口在本地选择自有 Host 与远端目录，随后复用原生 Harness UI | 真实 dsh-desktop 安装/E2E、断线重连、页面级导航接口 |
+| Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；Remote 模态框支持本机过滤、主机/版本信息、已有 Workspace 和远端目录浏览，随后复用原生 Harness UI | 真实 dsh-desktop 跨机 E2E、断线重连、页面级导航接口 |
 | Android | 已迁移到 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、harness.api tunnel 与 mux frame 聊天 | 真机 E2E 与 Server 联调、重连后 mux 重开与 history baseline、WebRTC 走通验证 |
 | Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 完整 Zod schema、limits、golden vectors |
 | Crypto | 基础原语与标准 Noise IK 已实现 | 第三方实现审查、rekey、跨端 conformance |
 | Relay Transport | Protocol v1 control/relay 已实现 | 心跳、限制协商、断线状态传播 |
-| WebRTC | 基础骨架 | signaling、ICE、TURN、自动 fallback |
+| WebRTC | signaling、ICE、TURN、LAN/P2P/Relay 自适应路径基础已实现 | 真实跨网互操作、网络切换恢复和长期稳定性 |
 | Client Core | ApiProxy tunnel RPC/Event 关联基础已实现 | reconnect、pending call/stream 恢复 |
 | Mock Host | 旧 Android Remote RPC 联调工具，当前冻结 | 若恢复 Android 再迁移或替换 |
-| Desktop | Host 设置入口与 Client Remote 工作区选择入口已接入 Harness Web UI | 完成原生窗口安装与跨机 E2E |
+| Desktop | Host 设置、Remote 工作区模态框、远程 Header、连接链路与加密状态已接入 Harness Web UI | 完成原生窗口跨机 E2E |
 | Server/Remote Web/Admin | 本仓库仅保留文档；独立 Server 仓库已有实现 | runtime 变更只在独立 Server 仓库完成，并同步跨仓库契约 |
 
 完整任务和优先级以 `TODO.md` 为准。不得把 TODO 中的目标能力描述成已经完成。
@@ -96,7 +96,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 截至 2026-08-16：
 
 - workspace check 与 DSH bundle 校验通过
-- workspace test 通过：28 个测试文件、105 个测试（Plugin 14 个文件、42 个测试；Android 7 个文件、31 个测试）
+- Plugin test 通过：14 个测试文件、47 个测试；完整 workspace 数量以当前 CI 输出为准
 - workspace build 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 
@@ -109,7 +109,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 3. Remote business message 只能进入已认证的加密 channel；明文、未知 connection、错误 target、重放和 identity mismatch 必须 fail closed。
 4. Server membership 与 Host 本地 trusted peer 必须同时成立。
 5. v1 permission decision 只允许 `allow_once | deny`，禁止恢复 `allow_session`。
-6. 不提供 Shell、PTY、任意文件读写、远程桌面或通用 Harness tool RPC。
+6. 不提供 Shell、PTY、文件内容或目录写入、远程桌面或通用 Harness tool RPC；Remote picker 仅可返回受限的只读目录元数据。
 7. Token、私钥、主机匹配码、prompt、源码和工具输出不得写日志。
 8. Harness 业务层只使用官方 `ApiProxy`；禁止恢复 session/agent/workspace/permission adapter 或另一套 wire format。
 9. 不修改用户已有变更，不提交 `node_modules`、Expo cache、Android build 产物或个人 Agent 配置；唯一允许提交的 `dist` 是根 DSH GitHub Bundle 所需的 `packages/plugin/dist/index.js` 与 `client.github.js`，另需保留根 Host 入口 `index.js`。
@@ -128,7 +128,8 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 
 ## Documentation Rules
 
-- `README.md`：面向用户，写项目介绍、特性、安全边界和 Plugin/Client 使用。
+- `README.md`：面向用户的默认英文入口；写项目介绍、特性、安全边界和 Plugin/Client 使用。
+- `README.zh.md`：与根 README 对应的中文版本；功能和版本信息必须同步。
 - `AGENTS.md`：面向编码 Agent，写仓库结构、进度、命令和实现约束。
 - `TODO.md`：未完成任务与优先级。
 - `docs/server.md`：独立 Server 项目的产品/功能设计。

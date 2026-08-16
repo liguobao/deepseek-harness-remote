@@ -128,13 +128,21 @@ export class RemoteHarnessApiProxy {
     const onAbort = () => queue.close()
     signal.addEventListener('abort', onAbort, { once: true })
     try {
-      await this.client.rpc('harness.api.stream.open', {
-        streamId,
-        stream,
-        rpcId: String(request.rpcId),
-        payload: request.payload,
-      }, signal)
-      for await (const frame of queue) yield frame
+      try {
+        await this.client.rpc('harness.api.stream.open', {
+          streamId,
+          stream,
+          rpcId: String(request.rpcId),
+          payload: request.payload,
+        }, signal)
+        for await (const frame of queue) yield frame
+      } catch (error) {
+        // Native Harness event consumers treat a thrown stream iterator as a
+        // fatal load failure. A remote disconnect is normal lifecycle here:
+        // ClientModeRuntime has already switched ApiProxy back to local mode,
+        // so finish this old iterator cleanly instead of terminating Harness.
+        if (!isRemoteDisconnect(error)) throw error
+      }
     } finally {
       signal.removeEventListener('abort', onAbort)
       unsubscribe()
@@ -143,6 +151,10 @@ export class RemoteHarnessApiProxy {
       await this.client.rpc('harness.api.stream.close', { streamId }).catch(() => undefined)
     }
   }
+}
+
+function isRemoteDisconnect(error: unknown): boolean {
+  return error instanceof Error && (error.message === 'remote transport closed' || error.message === 'remote client closed')
 }
 
 class AsyncFrameQueue<TFrame> implements AsyncIterable<RpcRequest<TFrame>> {

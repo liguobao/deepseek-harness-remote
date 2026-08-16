@@ -220,10 +220,12 @@ Desktop Client 使用 §3.1 的账号密码取得临时 `accountToken`，再调�
 及 membership；Client 随后逐个调用 `GET /api/v1/devices/{hostDeviceId}` 获取 identity
 key，并在本机固定该 key。相同 Host deviceId 的 key 发生变化时必须拒绝覆盖和连接。
 
-### 5.4 同一安装直接切换 Host / Client
+### 5.4 同一安装自动持有 Host / Remote 身份
 
-同一 Plugin 安装只需首次完成任一角色的账号归属。切换到尚未注册的相反角色时，插件
-使用当前角色的有效 device access token 调用：
+Desktop Plugin 没有用户可见的 Client 模式开关。Host runtime 常驻运行；用户首次打开
+Remote 工作区入口时，插件按需准备独立的 Remote（协议角色仍为 `client`）身份。同一安装
+只需首次完成任一角色的账号归属；准备尚未注册的另一角色时，插件使用当前角色的有效
+device access token 调用：
 
 ```http
 POST /api/v1/devices/register-owned-role
@@ -233,8 +235,11 @@ Content-Type: application/json
 
 body 使用 §5.3 相同的注册 envelope，但新角色必须拥有独立 deviceId 和 identity key。
 Server 继承当前设备的 `owner_account` 并返回新角色自己的 token pair。之后 Host/Client
-切换只读取各自保存的凭据，不再注册。该接口不得接受相同 role、相同 deviceId、无账号
+后续启动分别读取各自保存的凭据，不再注册。该接口不得接受相同 role、相同 deviceId、无账号
 owner 的设备或其他 Server 签发的 token。
+
+Host 与 Remote 必须使用不同 deviceId 和 identity key。Remote 主机列表应排除本机 Host
+deviceId，避免用户把当前 Harness 连接回自身。
 
 ## 6. 凭证保存和刷新
 

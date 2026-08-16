@@ -12715,13 +12715,17 @@ var RemoteHarnessApiProxy = class {
     const onAbort = () => queue.close();
     signal.addEventListener("abort", onAbort, { once: true });
     try {
-      await this.client.rpc("harness.api.stream.open", {
-        streamId,
-        stream,
-        rpcId: String(request.rpcId),
-        payload: request.payload
-      }, signal);
-      for await (const frame of queue) yield frame;
+      try {
+        await this.client.rpc("harness.api.stream.open", {
+          streamId,
+          stream,
+          rpcId: String(request.rpcId),
+          payload: request.payload
+        }, signal);
+        for await (const frame of queue) yield frame;
+      } catch (error) {
+        if (!isRemoteDisconnect(error)) throw error;
+      }
     } finally {
       signal.removeEventListener("abort", onAbort);
       unsubscribe();
@@ -12731,6 +12735,9 @@ var RemoteHarnessApiProxy = class {
     }
   }
 };
+function isRemoteDisconnect(error) {
+  return error instanceof Error && (error.message === "remote transport closed" || error.message === "remote client closed");
+}
 var AsyncFrameQueue = class {
   values = [];
   waiters = [];
@@ -13329,7 +13336,7 @@ function safeErrorMessage(error) {
 import { platform } from "node:os";
 
 // src/version.ts
-var PLUGIN_VERSION = "0.2.22";
+var PLUGIN_VERSION = "0.2.23";
 
 // src/server-api.ts
 var HostServerApi = class {

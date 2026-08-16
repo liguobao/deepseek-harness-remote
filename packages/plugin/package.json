@@ -1,6 +1,6 @@
 {
   "name": "@dsh-remote/plugin",
-  "version": "0.2.22",
+  "version": "0.2.23",
   "description": "DeepSeek 远程连接",
   "type": "module",
   "main": "./dist/index.js",

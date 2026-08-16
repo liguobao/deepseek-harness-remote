@@ -6,18 +6,18 @@
 ## 1. 产品定位
 
 Remote Plugin 同时承担 Host 和 Desktop Client 两个角色。Host 把官方 Harness
-`ApiProxy` 的安全子集接入端到端加密通道；Client 让官方 Harness UI 在 Local 与同账号
-Remote Host 之间切换。
+`ApiProxy` 的安全子集接入端到端加密通道；Remote runtime 让官方 Harness UI 使用同账号
+Host 上的工作区。产品不呈现 Client 模式开关。
 
 Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新实现 Harness 会话协议。
 
 ## 2. 核心用户路径
 
-1. 远端 Harness 选择 Host，用网页生成的一次性设备授权码完成设备接入。
-2. 本地 Harness 选择 Client，用相同 Server 和相同账号完成设备接入。
-3. Server 自动建立同账号 membership，双端从受保护设备详情固定对端公钥。
-4. 本地侧边栏选择 Remote Host，官方 Harness UI 通过远端 ApiProxy 工作。
-5. 选择 Local 或远端连接断开时，UI 回到本机 ApiProxy。
+1. 远端 Harness 用网页生成的一次性设备授权码完成 Host 接入。
+2. 本地 Harness 的 Remote 身份使用相同 Server 和账号自动注册或完成一次账号授权。
+3. Server 建立同账号 membership，双端从受保护设备详情固定对端公钥。
+4. 用户从侧边栏 Remote 入口选择 Host，再选择已有工作区或浏览远端目录添加工作区。
+5. 本地官方 Harness UI 通过远端 ApiProxy 工作；退出或断线时回到本机 ApiProxy。
 
 ## 3. MVP 范围
 
@@ -27,16 +27,18 @@ Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新�
 - 同账号 membership、双端 pinned peer 与设备撤销。
 - Host 主动建立 WSS，Relay 上运行 Noise IK。
 - ApiProxy 固定 allowlist、unary call、respond、mux/host stream。
-- Desktop Local/Remote switch 和断线回落。
-- Settings 插件卡片、侧边栏目标入口和脱敏诊断。
+- 后台 Local/Remote ApiProxy switch 和断线回落，不暴露模式开关。
+- Settings 插件卡片、Remote 模态框、远程状态 Header 和脱敏诊断。
+- 主机列表过滤本机，并显示 OS、Harness 版本、Plugin 版本与在线状态。
+- 已有 Workspace 选择与只读远端目录浏览。
 
 ## 4. 非目标
 
-- Android Client 当前不在 MVP 可用链路中。
+- Android Client 复用协议，但其真实设备 E2E 验收独立进行。
 - 不兼容旧 `sessions.* / session.* / permissions.respond / sync.from` 业务协议。
 - 不启动公网监听端口。
-- 不提供 PTY、SSH、远程桌面、文件浏览器或任意 Harness tool RPC。
-- 不代理 credentials、settings、native path、任意目录、附件或下载 API。
+- 不提供 PTY、SSH、远程桌面、文件内容访问或任意 Harness tool RPC。
+- 不代理 credentials、settings、native path open/picker、目录写入、附件或下载 API。
 - 不在本仓库实现 Server、Remote Web 或 Admin runtime。
 
 ## 5. 权限体验
@@ -60,7 +62,7 @@ permission 数据，也不新增授权范围。最终裁决、过期、重复响
 2. Host 不监听公网端口，只建立出站连接。
 3. Host 完成账号授权注册后只使用 device credential 常驻。
 4. Host/Client 同账号注册后自动获得 membership，并固定对端 identity key。
-5. 本地 Harness 可选择同账号 Host，通过官方 UI 创建和继续远端会话。
+5. 本地 Harness 可选择同账号 Host 和工作区，通过官方 UI 创建和继续远端会话。
 6. Remote unary、mux/host stream 与 approval response 全部经过 ApiProxy allowlist。
 7. 远端连接关闭后 Client 结束旧流并回落 Local。
 8. Relay capture 无法解密 payload；篡改、重放和 identity mismatch 被拒绝。

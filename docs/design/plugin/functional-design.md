@@ -36,6 +36,7 @@ packages/plugin/src/
   connection-controller.ts    单一认证 peer 与业务通道
   rpc-router.ts               仅接受 ApiProxy tunnel RPC
   harness-api-bridge.ts       Host ApiProxy allowlist 与原生流
+  remote-directory-browser.ts native picker 场景的只读目录元数据兜底
   remote-api-proxy.ts         Client 侧 ApiProxy 实现
   api-proxy-switch.ts         Local/Remote 目标切换
   client-runtime.ts           Desktop Client runtime
@@ -64,7 +65,7 @@ export function apply(ctx, config) {
 2. 在隔离的依赖 scope 中等待 `settings`、`apiProxy` 和 `connection`；缺失时仅停用远端功能。
 3. 校验配置并按规范化 Server origin 选择隔离的身份目录。
 4. 读取 Host `apiProxy`，为每条认证 Client connection 创建隔离的 allowlist bridge。
-5. 创建 Host runtime；按角色选择是否创建 Desktop Client runtime。
+5. 创建常驻 Host runtime；Server、ApiProxy 和 Web connection 可用时同时创建后台 Remote runtime。
 6. 在 `ctx.effect()` 中启动出站 Server 连接，退出时关闭原生流、secure channel 和控制连接。
 
 Plugin 不订阅 `session/created`、`session/event`、`agent/status` 或
@@ -82,16 +83,20 @@ Remote 业务 RPC 只有：
 `harness.api.call` 的 `method` 必须命中代码内固定 allowlist。当前允许会话、子 Agent、
 Workspace、Skill、Agent Preset、Goal、Host 描述和只读 LLM 目录等原生 UI 所需操作。
 
+`host.listDirectory` 是 Workspace picker 的唯一文件系统相关能力。优先转发 Harness browse
+capability；若桌面 Harness 只提供 native picker，则 bridge 以只读实现返回同形状的单层目录
+元数据。结果有数量上限，不包含文件内容，也不允许目录写入。
+
 明确禁止：
 
 - credentials 和 settings 读写；
 - native path open/picker；
-- 任意目录枚举或创建；
+- 文件内容访问、目录创建/修改/删除或通用文件系统 RPC；
 - attachment、download；
 - 任意 Cordis service、Harness tool 或反射调用。
 
 Host 可同时服务来自不同 `clientDeviceId` 的连接；RPC pending、stream namespace 和 stream
-上限均按 `connectionId` 隔离。每条连接最多打开两个原生流。同一 Client 设备重连只替换
+上限均按 `connectionId` 隔离。每条连接最多打开三个原生流（host、当前 mux、mux 切换缓冲）。同一 Client 设备重连只替换
 它自己的旧连接；连接替换、撤销或断开时，只 abort 该连接的 mux/host iterator。Plugin
 卸载时才关闭全部连接和流。
 
@@ -106,6 +111,13 @@ Host 可同时服务来自不同 `clientDeviceId` 的连接；RPC pending、stre
 
 `ApiProxySwitch` 向官方 Web UI 暴露稳定对象。选择 Remote 后所有新调用解析到远端
 proxy；连接意外关闭时立即回落 Local 并结束旧流。
+
+Desktop UI 不提供 Client 模式切换。侧边栏始终只有一个 Remote 工作区入口：
+
+- 设备列表过滤本机 Host deviceId；
+- 展示规范化系统名称、Harness 版本、Plugin 版本与在线状态；
+- 选择已有 Workspace，或浏览远端目录后调用 `workspace.create`；
+- Remote 激活后显示独立顶部 Header、连接链路、端到端加密说明和退出链接。
 
 ## 6. 安全连接
 
@@ -138,4 +150,4 @@ ApiProxy 拒绝。连接断开会关闭原生流，
 - Local/Remote switch 可逆，远端断开回落 Local。
 - Host/Client account token 与 device token 隔离，主机匹配码单次消费，refresh single-flight。
 
-Android 目前不在这条实现线上；其旧自定义 Remote RPC 代码不构成 Plugin 兼容要求。
+Android 使用相同 ApiProxy-only 数据面；其 UI 和生命周期独立，不构成 Desktop Plugin 的组件兼容要求。
