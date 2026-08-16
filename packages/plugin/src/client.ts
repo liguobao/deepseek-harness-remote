@@ -1102,6 +1102,11 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      React.useEffect(() => {
+        if (status?.mode !== 'remote') return
+        return hideLocalSessionActions()
+      }, [status?.mode])
+
       if (status?.mode !== 'remote') return null
       const exit = async (): Promise<void> => {
         setBusy(true)
@@ -1166,11 +1171,52 @@ window.__ModuleLoader__.load({
         React.createElement('p', null, t('connectionRouteEncrypted')))))
     }
 
+    function hideLocalSessionActions(): () => void {
+      const selector = 'button,a,[role="button"]'
+      const hiddenAttribute = 'data-dsh-remote-hidden-action'
+      const localAction = /(?:open|打开).{0,12}vs\s*code|vs\s*code.{0,12}(?:open|打开)|session\s*logs?|download.{0,12}session\s*logs?|会话日志|下载.{0,8}日志/i
+      const inspect = (root: ParentNode): void => {
+        const candidates = root instanceof Element && root.matches(selector)
+          ? [root, ...Array.from(root.querySelectorAll(selector))]
+          : Array.from(root.querySelectorAll(selector))
+        for (const candidate of candidates) {
+          if (candidate.closest('.dshRemoteSessionHeader') !== null) continue
+          const label = [
+            candidate.getAttribute('aria-label'),
+            candidate.getAttribute('title'),
+            candidate.getAttribute('data-tooltip'),
+            candidate.textContent,
+          ].filter(Boolean).join(' ')
+          if (localAction.test(label)) candidate.setAttribute(hiddenAttribute, '')
+        }
+      }
+      inspect(document.body)
+      const observer = new MutationObserver(records => {
+        for (const record of records) {
+          if (record.type === 'attributes') inspect(record.target as Element)
+          for (const node of Array.from(record.addedNodes)) {
+            if (node instanceof Element) inspect(node)
+          }
+        }
+      })
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['aria-label', 'title', 'data-tooltip'],
+      })
+      return () => {
+        observer.disconnect()
+        document.querySelectorAll(`[${hiddenAttribute}]`).forEach(element => element.removeAttribute(hiddenAttribute))
+      }
+    }
+
     function installStyle(): () => void {
       const style = document.createElement('style')
       style.dataset.pluginCss = 'dsh-remote'
       style.textContent = [
         'html.dshRemoteTargetActive button[aria-label="添加工作区"],html.dshRemoteTargetActive button[aria-label="Add workspace"]{display:none!important}',
+        '[data-dsh-remote-hidden-action]{display:none!important}',
         '.dshRemoteModeButton{min-height:36px;border:0;background:transparent;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px}.dshRemoteModeButton:is(button){cursor:pointer}',
         '.dshRemoteModeButton:is(button):hover{background:var(--dsw-alias-interactive-bg-hover)}',
         '.dshRemoteSidebarEntry{box-sizing:border-box;position:relative;width:100%;height:36px;min-width:0;display:block;overflow:hidden}.dshRemoteSidebarEntry .dshRemoteModeButton{box-sizing:border-box;width:100%;min-width:0;padding-right:48px}.dshRemoteSidebarEntry.isActive .dshRemoteModeButton{color:var(--dsw-alias-label-secondary);background:transparent}.dshRemoteSidebarLabel{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshRemoteExitLink{position:absolute;top:50%;right:10px;transform:translateY(-50%);white-space:nowrap;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:0;font:inherit;font-size:12px;line-height:20px;cursor:pointer}.dshRemoteExitLink:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}.dshRemoteExitLink:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px;border-radius:2px}.dshRemoteExitLink:disabled{opacity:.45;cursor:default;text-decoration:none}',

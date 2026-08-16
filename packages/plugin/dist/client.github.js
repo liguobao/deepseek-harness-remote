@@ -922,7 +922,10 @@
           return () => {
             active = !1, window.clearInterval(timer);
           };
-        }, []), status?.mode !== "remote") return null;
+        }, []), React.useEffect(() => {
+          if (status?.mode === "remote")
+            return hideLocalSessionActions();
+        }, [status?.mode]), status?.mode !== "remote") return null;
         let exit = async () => {
           setBusy(!0);
           try {
@@ -986,10 +989,42 @@
           )) : null
         );
       }
+      function hideLocalSessionActions() {
+        let selector = 'button,a,[role="button"]', hiddenAttribute = "data-dsh-remote-hidden-action", localAction = /(?:open|打开).{0,12}vs\s*code|vs\s*code.{0,12}(?:open|打开)|session\s*logs?|download.{0,12}session\s*logs?|会话日志|下载.{0,8}日志/i, inspect = (root) => {
+          let candidates = root instanceof Element && root.matches(selector) ? [root, ...Array.from(root.querySelectorAll(selector))] : Array.from(root.querySelectorAll(selector));
+          for (let candidate of candidates) {
+            if (candidate.closest(".dshRemoteSessionHeader") !== null) continue;
+            let label = [
+              candidate.getAttribute("aria-label"),
+              candidate.getAttribute("title"),
+              candidate.getAttribute("data-tooltip"),
+              candidate.textContent
+            ].filter(Boolean).join(" ");
+            localAction.test(label) && candidate.setAttribute(hiddenAttribute, "");
+          }
+        };
+        inspect(document.body);
+        let observer = new MutationObserver((records) => {
+          for (let record of records) {
+            record.type === "attributes" && inspect(record.target);
+            for (let node of Array.from(record.addedNodes))
+              node instanceof Element && inspect(node);
+          }
+        });
+        return observer.observe(document.body, {
+          subtree: !0,
+          childList: !0,
+          attributes: !0,
+          attributeFilter: ["aria-label", "title", "data-tooltip"]
+        }), () => {
+          observer.disconnect(), document.querySelectorAll(`[${hiddenAttribute}]`).forEach((element) => element.removeAttribute(hiddenAttribute));
+        };
+      }
       function installStyle() {
         let style = document.createElement("style");
         return style.dataset.pluginCss = "dsh-remote", style.textContent = [
           'html.dshRemoteTargetActive button[aria-label="\u6DFB\u52A0\u5DE5\u4F5C\u533A"],html.dshRemoteTargetActive button[aria-label="Add workspace"]{display:none!important}',
+          "[data-dsh-remote-hidden-action]{display:none!important}",
           ".dshRemoteModeButton{min-height:36px;border:0;background:transparent;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px}.dshRemoteModeButton:is(button){cursor:pointer}",
           ".dshRemoteModeButton:is(button):hover{background:var(--dsw-alias-interactive-bg-hover)}",
           ".dshRemoteSidebarEntry{box-sizing:border-box;position:relative;width:100%;height:36px;min-width:0;display:block;overflow:hidden}.dshRemoteSidebarEntry .dshRemoteModeButton{box-sizing:border-box;width:100%;min-width:0;padding-right:48px}.dshRemoteSidebarEntry.isActive .dshRemoteModeButton{color:var(--dsw-alias-label-secondary);background:transparent}.dshRemoteSidebarLabel{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshRemoteExitLink{position:absolute;top:50%;right:10px;transform:translateY(-50%);white-space:nowrap;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:0;font:inherit;font-size:12px;line-height:20px;cursor:pointer}.dshRemoteExitLink:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}.dshRemoteExitLink:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px;border-radius:2px}.dshRemoteExitLink:disabled{opacity:.45;cursor:default;text-decoration:none}",
