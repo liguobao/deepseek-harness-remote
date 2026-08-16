@@ -10,7 +10,7 @@ Developers who run DeepSeek Harness on more than one workstation or server and w
 
 ## Product Purpose
 
-DSH Remote is a secure remote control surface for DeepSeek Harness. The same Plugin can expose a machine as a Host and let another local Harness switch its native UI between Local and a paired Remote Host. Harness and the workspace remain on the selected Host; sessions are never migrated or merged. Android uses the same secure channel. Success means both the local Harness mode switch and Android can complete one reliable, permission-bounded vertical slice.
+DSH Remote is a secure remote control surface for DeepSeek Harness. The Plugin exposes the current machine as a Host and always adds a Remote workspace entry for controlling other owned Hosts; there is no Client mode switch. The user chooses an owned Host and one of its working directories locally, then continues in the native Harness UI while API calls execute on that Host. Harness and the workspace remain on the selected Host; sessions are never migrated or merged. Android uses the same secure channel.
 
 ## Repository Boundary
 

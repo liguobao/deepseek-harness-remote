@@ -79,7 +79,48 @@
     signInRegisterHost: "Sign in and register Host",
     signingIn: "Signing in\u2026",
     useRegistrationCode: "Use connection code",
-    registering: "Registering\u2026"
+    registering: "Registering\u2026",
+    remoteEntry: "Remote",
+    remoteTitle: "Open a remote workspace",
+    remoteDescription: "Choose one of your Hosts, then select a working directory. The Harness interface stays on this device.",
+    chooseHost: "Host",
+    chooseDirectory: "Working directory",
+    selectHostHint: "Select an online Host to browse its directories.",
+    emptyDirectory: "This directory has no visible subdirectories.",
+    openWorkspace: "Open workspace",
+    openingWorkspace: "Opening\u2026",
+    loadingDirectory: "Loading directories\u2026",
+    backToHosts: "Choose another Host",
+    currentDirectory: "Selected directory",
+    directoryTruncated: "Only part of this directory could be shown.",
+    existingWorkspaces: "Existing workspaces",
+    remotePathPlaceholder: "/home/user/project",
+    remotePathHint: "Enter an absolute directory path on the selected Host.",
+    noRemoteWorkspaces: "No remote workspaces yet. Use + to add one.",
+    activeRemote: "{name}",
+    exitRemote: "Exit",
+    addRemoteWorkspace: "Add remote workspace",
+    remoteModeLabel: "Remote mode \xB7 {name}",
+    remoteNetworkP2p: "P2P",
+    remoteNetworkTurn: "TURN",
+    remoteNetworkRelay: "Relay",
+    remoteNetworkLan: "LAN",
+    remoteNetworkOffline: "Disconnected",
+    remoteLinkEncrypted: "End-to-end encrypted",
+    connectionRouteTitle: "Connection route",
+    connectionRouteFrom: "From",
+    connectionRouteVia: "Via",
+    connectionRouteTo: "To",
+    connectionRouteCurrentDevice: "This device",
+    connectionRouteLan: "Local network",
+    connectionRouteP2p: "Direct internet path",
+    connectionRouteTurn: "TURN relay service",
+    connectionRouteRelay: "Remote Server",
+    connectionRouteHost: "Work computer running Harness",
+    connectionRouteEncrypted: "Application data remains end-to-end encrypted along this route.",
+    openLocalWorkspaces: "Open local workspaces",
+    clientSignInHint: "Sign in to this Server to list your remote Hosts.",
+    signInClient: "Sign in to Remote"
   }, zh = {
     pluginTitle: "DeepSeek \u8FDC\u7A0B\u8FDE\u63A5",
     pluginDescription: "\u4E00\u6B21\u8FDE\u63A5\uFF0C\u968F\u65F6\u53EF\u7528\u3002",
@@ -158,7 +199,48 @@
     signInRegisterHost: "\u767B\u5F55\u5E76\u6CE8\u518C Host",
     signingIn: "\u6B63\u5728\u767B\u5F55\u2026",
     useRegistrationCode: "\u4F7F\u7528\u8FDE\u63A5\u7801",
-    registering: "\u6B63\u5728\u6CE8\u518C\u2026"
+    registering: "\u6B63\u5728\u6CE8\u518C\u2026",
+    remoteEntry: "Remote",
+    remoteTitle: "\u6253\u5F00\u8FDC\u7AEF\u5DE5\u4F5C\u533A",
+    remoteDescription: "\u9009\u62E9\u81EA\u5DF1\u7684\u4E3B\u673A\u548C\u5DE5\u4F5C\u76EE\u5F55\u3002\u4EA4\u4E92\u754C\u9762\u4ECD\u8FD0\u884C\u5728\u5F53\u524D\u8BBE\u5907\u4E0A\u3002",
+    chooseHost: "\u4E3B\u673A",
+    chooseDirectory: "\u5DE5\u4F5C\u76EE\u5F55",
+    selectHostHint: "\u9009\u62E9\u4E00\u53F0\u5728\u7EBF\u4E3B\u673A\u4EE5\u6D4F\u89C8\u5176\u76EE\u5F55\u3002",
+    emptyDirectory: "\u8FD9\u4E2A\u76EE\u5F55\u4E0B\u6CA1\u6709\u53EF\u89C1\u7684\u5B50\u76EE\u5F55\u3002",
+    openWorkspace: "\u6253\u5F00\u5DE5\u4F5C\u533A",
+    openingWorkspace: "\u6B63\u5728\u6253\u5F00\u2026",
+    loadingDirectory: "\u6B63\u5728\u52A0\u8F7D\u76EE\u5F55\u2026",
+    backToHosts: "\u9009\u62E9\u5176\u4ED6\u4E3B\u673A",
+    currentDirectory: "\u5DF2\u9009\u76EE\u5F55",
+    directoryTruncated: "\u76EE\u5F55\u5185\u5BB9\u8F83\u591A\uFF0C\u76EE\u524D\u53EA\u663E\u793A\u4E86\u4E00\u90E8\u5206\u3002",
+    existingWorkspaces: "\u5DF2\u6709\u5DE5\u4F5C\u533A",
+    remotePathPlaceholder: "/home/user/project",
+    remotePathHint: "\u8F93\u5165\u6240\u9009\u4E3B\u673A\u4E0A\u7684\u7EDD\u5BF9\u76EE\u5F55\u8DEF\u5F84\u3002",
+    noRemoteWorkspaces: "\u8FD9\u53F0\u4E3B\u673A\u8FD8\u6CA1\u6709\u5DE5\u4F5C\u533A\uFF0C\u70B9\u51FB + \u6DFB\u52A0\u3002",
+    activeRemote: "{name}",
+    exitRemote: "\u9000\u51FA",
+    addRemoteWorkspace: "\u6DFB\u52A0\u8FDC\u7A0B\u5DE5\u4F5C\u533A",
+    remoteModeLabel: "\u8FDC\u7A0B\u6A21\u5F0F \xB7 {name}",
+    remoteNetworkP2p: "P2P",
+    remoteNetworkTurn: "TURN",
+    remoteNetworkRelay: "\u4E2D\u7EE7",
+    remoteNetworkLan: "\u5C40\u57DF\u7F51",
+    remoteNetworkOffline: "\u5DF2\u65AD\u5F00",
+    remoteLinkEncrypted: "\u7AEF\u5230\u7AEF\u52A0\u5BC6",
+    connectionRouteTitle: "\u8FDE\u63A5\u7EBF\u8DEF",
+    connectionRouteFrom: "\u8D77\u70B9",
+    connectionRouteVia: "\u7ECF\u8FC7",
+    connectionRouteTo: "\u7EC8\u70B9",
+    connectionRouteCurrentDevice: "\u5F53\u524D\u8BBE\u5907",
+    connectionRouteLan: "\u540C\u4E00\u5C40\u57DF\u7F51",
+    connectionRouteP2p: "\u4E92\u8054\u7F51\u76F4\u8FDE",
+    connectionRouteTurn: "TURN \u4E2D\u7EE7\u670D\u52A1",
+    connectionRouteRelay: "Remote Server",
+    connectionRouteHost: "\u8FD0\u884C Harness \u7684\u5DE5\u4F5C\u7535\u8111",
+    connectionRouteEncrypted: "\u7EBF\u8DEF\u4E0A\u7684\u4E1A\u52A1\u6570\u636E\u4FDD\u6301\u7AEF\u5230\u7AEF\u52A0\u5BC6\u3002",
+    openLocalWorkspaces: "\u6253\u5F00\u672C\u5730\u5DE5\u4F5C\u533A",
+    clientSignInHint: "\u767B\u5F55 Server \u540E\u5373\u53EF\u67E5\u770B\u81EA\u5DF1\u7684\u8FDC\u7AEF\u4E3B\u673A\u3002",
+    signInClient: "\u767B\u5F55 Remote"
   };
   function formatLocalTime(value) {
     let date = new Date(value);
@@ -379,6 +461,262 @@
           ) : null
         );
       }
+      function RemoteWorkspaceAction(props) {
+        let { t } = props, [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [selectedHost, setSelectedHost] = React.useState(void 0), [workspaces, setWorkspaces] = React.useState([]), [path, setPath] = React.useState(""), [addingWorkspace, setAddingWorkspace] = React.useState(!1), [busy, setBusy] = React.useState(!1), [needsAuthorization, setNeedsAuthorization] = React.useState(!1), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0);
+        React.useEffect(() => {
+          if (!open) return;
+          let closeOnEscape = (event) => {
+            event.key === "Escape" && setOpen(!1);
+          };
+          return window.addEventListener("keydown", closeOnEscape), () => window.removeEventListener("keydown", closeOnEscape);
+        }, [open]), React.useEffect(() => {
+          props.control("status").then(setStatus).catch(() => {
+          });
+        }, []), React.useEffect(() => {
+          let remoteActive = status?.mode === "remote";
+          return document.documentElement.classList.toggle("dshRemoteTargetActive", remoteActive), () => {
+            remoteActive && document.documentElement.classList.remove("dshRemoteTargetActive");
+          };
+        }, [status?.mode]);
+        let selectHost = async (host) => {
+          setBusy(!0), setError(void 0);
+          try {
+            setWorkspaces(await props.control("workspaces.list", { targetDeviceId: host.deviceId })), setSelectedHost(host), setPath(""), setAddingWorkspace(!1);
+          } catch (reason) {
+            setError(messageOf(reason));
+          } finally {
+            setBusy(!1);
+          }
+        }, show = async () => {
+          setOpen(!0), setBusy(!0), setNotice(void 0), setError(void 0);
+          try {
+            let nextStatus = await props.control("status");
+            if (setStatus(nextStatus), nextStatus.available)
+              try {
+                setDevices(await props.control("devices")), setNeedsAuthorization(!1);
+              } catch {
+                setNeedsAuthorization(!0);
+              }
+          } catch (reason) {
+            setError(messageOf(reason));
+          } finally {
+            setBusy(!1);
+          }
+        }, signInClient = async () => {
+          if (!(email.trim() === "" || password === "")) {
+            setBusy(!0), setError(void 0);
+            try {
+              await props.control("client.account.login", { email: email.trim(), password }), setDevices(await props.control("devices")), setNeedsAuthorization(!1), setPassword("");
+            } catch (reason) {
+              setError(messageOf(reason));
+            } finally {
+              setBusy(!1);
+            }
+          }
+        }, openLocalWorkspaces = async () => {
+          setBusy(!0), setError(void 0);
+          try {
+            await props.control("mode.set", { mode: "local" }), window.location.reload();
+          } catch (reason) {
+            setError(messageOf(reason)), setBusy(!1);
+          }
+        }, openWorkspace = async () => {
+          if (!(selectedHost === void 0 || path.trim() === "")) {
+            setBusy(!0), setError(void 0);
+            try {
+              await props.control("workspace.open", {
+                targetDeviceId: selectedHost.deviceId,
+                path: path.trim()
+              }), window.location.reload();
+            } catch (reason) {
+              setError(messageOf(reason)), setBusy(!1);
+            }
+          }
+        }, remoteLabel = status?.mode === "remote" ? t("activeRemote", { name: status.target?.name ?? t("host") }) : t("remoteEntry");
+        return React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(
+            "div",
+            { className: `dshRemoteSidebarEntry${status?.mode === "remote" ? " isActive" : ""}` },
+            React.createElement(status?.mode === "remote" ? "div" : "button", {
+              ...status?.mode === "remote" ? {} : { type: "button", onClick: () => void show() },
+              className: "dshRemoteModeButton",
+              title: remoteLabel,
+              "aria-label": remoteLabel
+            }, React.createElement(
+              "svg",
+              {
+                className: "dshRemoteComputerIcon",
+                viewBox: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                strokeWidth: 1.7,
+                strokeLinecap: "round",
+                strokeLinejoin: "round",
+                "aria-hidden": !0
+              },
+              React.createElement("rect", { x: 3, y: 4, width: 18, height: 13, rx: 2 }),
+              React.createElement("path", { d: "M8 21h8M12 17v4" })
+            ), props.wide ? React.createElement("span", { className: "dshRemoteSidebarLabel" }, remoteLabel) : null),
+            status?.mode === "remote" && props.wide ? React.createElement("button", {
+              type: "button",
+              className: "dshRemoteExitLink",
+              disabled: busy,
+              onClick: () => void openLocalWorkspaces()
+            }, t("exitRemote")) : null
+          ),
+          open ? React.createElement("div", {
+            className: "dshRemoteBackdrop",
+            role: "presentation",
+            onMouseDown: (event) => {
+              event.target === event.currentTarget && setOpen(!1);
+            }
+          }, React.createElement(
+            "section",
+            { className: "dshRemotePage", role: "dialog", "aria-modal": !0, "aria-label": t("remoteTitle") },
+            React.createElement(
+              "header",
+              { className: "dshRemotePageHeader" },
+              React.createElement(
+                "div",
+                null,
+                React.createElement("strong", null, t("remoteTitle")),
+                React.createElement("p", null, t("remoteDescription"))
+              ),
+              React.createElement("button", { type: "button", onClick: () => setOpen(!1), "aria-label": t("close") }, "\xD7")
+            ),
+            React.createElement(
+              "main",
+              { className: "dshRemotePageBody" },
+              status?.mode === "remote" ? React.createElement("button", {
+                type: "button",
+                className: "dshRemoteLocalLink",
+                disabled: busy,
+                onClick: () => void openLocalWorkspaces()
+              }, t("openLocalWorkspaces")) : null,
+              React.createElement(
+                React.Fragment,
+                null,
+                needsAuthorization ? React.createElement(
+                  "section",
+                  { className: "dshRemoteEnable" },
+                  React.createElement("strong", null, t("signInClient")),
+                  React.createElement("p", null, t("clientSignInHint")),
+                  React.createElement(
+                    "div",
+                    { className: "dshRemoteClientLogin" },
+                    React.createElement("input", {
+                      type: "email",
+                      value: email,
+                      disabled: busy,
+                      autoComplete: "username",
+                      placeholder: t("account"),
+                      "aria-label": t("account"),
+                      onChange: (event) => setEmail(event.target.value)
+                    }),
+                    React.createElement("input", {
+                      type: "password",
+                      value: password,
+                      disabled: busy,
+                      autoComplete: "current-password",
+                      placeholder: t("password"),
+                      "aria-label": t("password"),
+                      onChange: (event) => setPassword(event.target.value)
+                    }),
+                    React.createElement("button", { type: "button", disabled: busy || email.trim() === "" || password === "", onClick: () => void signInClient() }, t(busy ? "signingIn" : "signInClient"))
+                  )
+                ) : null,
+                needsAuthorization ? null : React.createElement(
+                  React.Fragment,
+                  null,
+                  React.createElement(
+                    "section",
+                    { className: "dshRemoteHosts", "aria-label": t("chooseHost") },
+                    React.createElement(
+                      "div",
+                      { className: "dshRemoteSectionHeading" },
+                      React.createElement("strong", null, t("chooseHost")),
+                      selectedHost === void 0 ? null : React.createElement("button", {
+                        type: "button",
+                        onClick: () => {
+                          setSelectedHost(void 0), setWorkspaces([]), setPath(""), setAddingWorkspace(!1), setError(void 0);
+                        }
+                      }, t("backToHosts"))
+                    ),
+                    selectedHost === void 0 ? React.createElement("div", { className: "dshRemoteHostList" }, devices.length === 0 ? React.createElement("p", null, t(busy ? "checkingConnection" : "noRemoteHosts")) : devices.map((device) => React.createElement("button", {
+                      type: "button",
+                      key: device.deviceId,
+                      disabled: busy || !device.online,
+                      onClick: () => void selectHost(device)
+                    }, React.createElement("span", null, device.name), React.createElement("small", null, `${device.platform} \xB7 ${t(device.online ? "online" : "offline")}`)))) : React.createElement(
+                      "div",
+                      { className: "dshRemoteSelectedHost" },
+                      React.createElement("span", null, selectedHost.name),
+                      React.createElement("small", null, `${selectedHost.platform} \xB7 ${t("online")}`)
+                    )
+                  ),
+                  selectedHost === void 0 ? React.createElement("p", { className: "dshRemoteHint" }, t("selectHostHint")) : React.createElement(
+                    "section",
+                    { className: "dshRemoteBrowser", "aria-label": t("chooseDirectory") },
+                    React.createElement(
+                      "div",
+                      { className: "dshRemoteSectionHeading" },
+                      React.createElement("strong", null, t("existingWorkspaces")),
+                      React.createElement("button", {
+                        type: "button",
+                        className: "dshRemoteAddWorkspace",
+                        title: t("addRemoteWorkspace"),
+                        "aria-label": t("addRemoteWorkspace"),
+                        "aria-expanded": addingWorkspace,
+                        onClick: () => {
+                          setAddingWorkspace((current) => !current), setPath("");
+                        }
+                      }, "+")
+                    ),
+                    React.createElement("div", { className: "dshRemoteDirectoryList" }, workspaces.length === 0 ? React.createElement("p", null, t("noRemoteWorkspaces")) : workspaces.map((workspace) => React.createElement(
+                      "button",
+                      {
+                        type: "button",
+                        key: workspace.workspaceId,
+                        disabled: busy,
+                        className: !addingWorkspace && path === workspace.path ? "isSelected" : "",
+                        "aria-pressed": !addingWorkspace && path === workspace.path,
+                        onClick: () => {
+                          setAddingWorkspace(!1), setPath(workspace.path);
+                        }
+                      },
+                      React.createElement("span", { "aria-hidden": !0 }, "\u25B1"),
+                      React.createElement("span", null, workspace.title),
+                      React.createElement("small", null, workspace.path)
+                    ))),
+                    addingWorkspace ? React.createElement(
+                      "label",
+                      { className: "dshRemotePathField" },
+                      React.createElement("span", null, t("chooseDirectory")),
+                      React.createElement("input", {
+                        value: path,
+                        disabled: busy,
+                        placeholder: t("remotePathPlaceholder"),
+                        onChange: (event) => setPath(event.target.value)
+                      }),
+                      React.createElement("small", null, t("remotePathHint"))
+                    ) : null,
+                    React.createElement(
+                      "footer",
+                      { className: "dshRemoteOpenBar" },
+                      React.createElement("div", null, React.createElement("span", null, t("currentDirectory")), React.createElement("strong", null, path || "\u2014")),
+                      React.createElement("button", { type: "button", disabled: busy || path.trim() === "", onClick: () => void openWorkspace() }, t(busy ? "openingWorkspace" : "openWorkspace"))
+                    )
+                  )
+                )
+              ),
+              notice === void 0 ? null : React.createElement("p", { className: "dshRemoteNotice", role: "status" }, notice),
+              error === void 0 ? null : React.createElement("p", { className: "dshRemoteError", role: "alert" }, error)
+            )
+          )) : null
+        );
+      }
       function RemoteModeAction(props) {
         let { t } = props, [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [hostRegistrationCode, setHostRegistrationCode] = React.useState(""), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [busy, setBusy] = React.useState(!1), [error, setError] = React.useState(void 0), [supported, setSupported] = React.useState(!0), refresh = async () => {
           let [nextStatus, nextDevices] = await Promise.all([
@@ -520,11 +858,109 @@
           ) : null
         ) : null;
       }
+      function RemoteSessionHeaderAction(props) {
+        let { t } = props, [status, setStatus] = React.useState(void 0), [busy, setBusy] = React.useState(!1), [routeOpen, setRouteOpen] = React.useState(!1);
+        if (React.useEffect(() => {
+          let active = !0, refresh = () => {
+            props.control("status").then((next) => {
+              active && setStatus(next);
+            }).catch(() => {
+            });
+          };
+          refresh();
+          let timer = window.setInterval(refresh, 1500);
+          return () => {
+            active = !1, window.clearInterval(timer);
+          };
+        }, []), status?.mode !== "remote") return null;
+        let exit = async () => {
+          setBusy(!0);
+          try {
+            await props.control("mode.set", { mode: "local" }), window.location.reload();
+          } finally {
+            setBusy(!1);
+          }
+        }, transport = status.transport ?? "Disconnected", networkLabel = t(transport === "P2P" ? "remoteNetworkP2p" : transport === "TURN" ? "remoteNetworkTurn" : transport === "Relay" ? "remoteNetworkRelay" : transport === "LAN" ? "remoteNetworkLan" : "remoteNetworkOffline"), networkOnline = status.connected === !0 && transport !== "Disconnected", routeVia = t(transport === "P2P" ? "connectionRouteP2p" : transport === "TURN" ? "connectionRouteTurn" : transport === "Relay" ? "connectionRouteRelay" : "connectionRouteLan");
+        return React.createElement(
+          "div",
+          { className: "dshRemoteSessionHeader", role: "status" },
+          React.createElement("svg", {
+            viewBox: "0 0 24 24",
+            fill: "none",
+            stroke: "currentColor",
+            strokeWidth: 1.7,
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+            "aria-hidden": !0
+          }, React.createElement("rect", { x: 3, y: 4, width: 18, height: 13, rx: 2 }), React.createElement("path", { d: "M8 21h8M12 17v4" })),
+          React.createElement("span", null, t("remoteModeLabel", { name: status.target?.name ?? t("host") })),
+          React.createElement("button", {
+            type: "button",
+            className: `dshRemoteNetwork${networkOnline ? " isOnline" : " isOffline"}`,
+            title: networkLabel,
+            disabled: !networkOnline,
+            "aria-haspopup": "dialog",
+            "aria-expanded": routeOpen,
+            onClick: () => setRouteOpen((value) => !value)
+          }, React.createElement("i", { "aria-hidden": !0 }), networkLabel),
+          networkOnline ? React.createElement("span", { className: "dshRemoteEncrypted" }, t("remoteLinkEncrypted")) : null,
+          React.createElement("button", { type: "button", className: "dshRemoteHeaderExitLink", disabled: busy, onClick: () => void exit() }, t("exitRemote")),
+          routeOpen ? React.createElement("div", {
+            className: "dshRemoteRouteBackdrop",
+            role: "presentation",
+            onMouseDown: (event) => {
+              event.target === event.currentTarget && setRouteOpen(!1);
+            }
+          }, React.createElement(
+            "section",
+            {
+              className: "dshRemoteRoutePanel",
+              role: "dialog",
+              "aria-modal": !0,
+              "aria-label": t("connectionRouteTitle")
+            },
+            React.createElement(
+              "header",
+              null,
+              React.createElement("strong", null, t("connectionRouteTitle")),
+              React.createElement("button", { type: "button", "aria-label": t("close"), onClick: () => setRouteOpen(!1) }, "\xD7")
+            ),
+            React.createElement(
+              "ol",
+              null,
+              React.createElement("li", null, React.createElement("small", null, t("connectionRouteFrom")), React.createElement("strong", null, t("connectionRouteCurrentDevice"))),
+              React.createElement("li", null, React.createElement("small", null, t("connectionRouteVia")), React.createElement("strong", null, routeVia)),
+              React.createElement("li", null, React.createElement("small", null, t("connectionRouteTo")), React.createElement("strong", null, status.target?.name ?? t("host")), React.createElement("span", null, t("connectionRouteHost")))
+            ),
+            React.createElement("p", null, t("connectionRouteEncrypted"))
+          )) : null
+        );
+      }
       function installStyle() {
         let style = document.createElement("style");
         return style.dataset.pluginCss = "dsh-remote", style.textContent = [
-          ".dshRemoteModeButton{min-height:36px;border:0;background:transparent;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px;cursor:pointer}",
-          ".dshRemoteModeButton:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+          'html.dshRemoteTargetActive button[aria-label="\u6DFB\u52A0\u5DE5\u4F5C\u533A"],html.dshRemoteTargetActive button[aria-label="Add workspace"]{display:none!important}',
+          ".dshRemoteModeButton{min-height:36px;border:0;background:transparent;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px}.dshRemoteModeButton:is(button){cursor:pointer}",
+          ".dshRemoteModeButton:is(button):hover{background:var(--dsw-alias-interactive-bg-hover)}",
+          ".dshRemoteSidebarEntry{box-sizing:border-box;position:relative;width:100%;height:36px;min-width:0;display:block;overflow:hidden}.dshRemoteSidebarEntry .dshRemoteModeButton{box-sizing:border-box;width:100%;min-width:0;padding-right:48px}.dshRemoteSidebarEntry.isActive .dshRemoteModeButton{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteSidebarLabel{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshRemoteExitLink{position:absolute;top:50%;right:4px;transform:translateY(-50%);white-space:nowrap;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:4px 6px;border-radius:6px;font:inherit;font-size:12px;line-height:20px;cursor:pointer}.dshRemoteExitLink:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}",
+          ".dshRemoteComputerIcon{width:18px;height:18px;flex:0 0 auto;color:var(--dsw-alias-label-secondary)}",
+          '.dshRemoteSessionHeader{position:fixed;z-index:25;top:12px;right:84px;height:28px;display:inline-flex;align-items:center;gap:7px;color:var(--dsw-alias-label-secondary);font-size:12px;white-space:nowrap}.dshRemoteSessionHeader>svg{width:15px;height:15px;flex:0 0 auto}.dshRemoteSessionHeader>span{max-width:260px;overflow:hidden;text-overflow:ellipsis}.dshRemoteNetwork{border:0;background:transparent;color:inherit;font:inherit;padding:3px 2px;display:inline-flex;align-items:center;gap:5px;cursor:pointer}.dshRemoteNetwork:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}.dshRemoteNetwork:disabled{cursor:default}.dshRemoteNetwork>i{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}.dshRemoteNetwork.isOnline>i{background:var(--dsw-alias-state-success-primary,#287a3d)}.dshRemoteNetwork.isOffline{color:var(--dsw-alias-state-error-primary,#b42318)}.dshRemoteNetwork.isOffline>i{background:currentColor}.dshRemoteEncrypted{color:var(--dsw-alias-label-tertiary)}.dshRemoteHeaderExitLink{border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:3px 2px;font:inherit;text-decoration:none;cursor:pointer}.dshRemoteHeaderExitLink:hover{text-decoration:underline;color:var(--dsw-alias-label-primary)}.dshRemoteHeaderExitLink:disabled{opacity:.45;cursor:default;text-decoration:none}.dshRemoteRouteBackdrop{position:fixed;inset:0;z-index:26}.dshRemoteRoutePanel{position:absolute;top:48px;right:28px;width:min(460px,calc(100vw - 32px));color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;box-shadow:var(--dsw-shadow-lv2);padding:16px;white-space:normal}.dshRemoteRoutePanel>header{display:flex;align-items:center;justify-content:space-between}.dshRemoteRoutePanel>header strong{font-size:14px}.dshRemoteRoutePanel>header button{width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:inherit;font-size:20px;cursor:pointer}.dshRemoteRoutePanel>header button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteRoutePanel ol{display:flex;align-items:stretch;margin:16px 0;padding:0;list-style:none}.dshRemoteRoutePanel li{position:relative;min-width:0;flex:1;display:flex;flex-direction:column;gap:4px;padding-right:20px}.dshRemoteRoutePanel li:not(:last-child)::after{content:"\u2192";position:absolute;right:7px;top:21px;color:var(--dsw-alias-label-tertiary)}.dshRemoteRoutePanel li small{color:var(--dsw-alias-label-tertiary)}.dshRemoteRoutePanel li strong,.dshRemoteRoutePanel li span{overflow:hidden;text-overflow:ellipsis}.dshRemoteRoutePanel li strong{font-size:13px}.dshRemoteRoutePanel li span{color:var(--dsw-alias-label-secondary);font-size:11px}.dshRemoteRoutePanel>p{margin:14px 0 0;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5}@media(max-width:620px){.dshRemoteSessionHeader{top:8px;right:52px}.dshRemoteSessionHeader>svg{display:none}.dshRemoteSessionHeader>span{max-width:130px}.dshRemoteEncrypted{display:none}.dshRemoteRoutePanel{top:42px;right:12px}.dshRemoteRoutePanel ol{flex-direction:column;gap:18px}.dshRemoteRoutePanel li:not(:last-child)::after{content:"\u2193";top:auto;right:auto;bottom:-16px;left:3px}}',
+          ".dshRemoteModeButton:focus-visible,.dshRemotePage button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}",
+          ".dshRemotePage{width:min(720px,100%);max-height:min(760px,calc(100vh - 40px));display:flex;flex-direction:column;background:var(--dsw-alias-bg-primary,#fff);color:var(--dsw-alias-label-primary);border-radius:14px;overflow:hidden;animation:dshRemotePageIn .18s cubic-bezier(.25,1,.5,1)}",
+          ".dshRemotePageHeader{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshRemotePageHeader>div{min-width:0}.dshRemotePageHeader strong{display:block;font-size:18px;line-height:1.4}.dshRemotePageHeader p{max-width:70ch;margin:3px 0 0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5}.dshRemotePageHeader>button{width:40px;height:40px;border:0;border-radius:8px;background:transparent;color:inherit;font-size:24px;cursor:pointer}.dshRemotePageHeader>button:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+          ".dshRemotePageBody{padding:24px;overflow:auto;display:flex;flex-direction:column;gap:24px}.dshRemotePageBody button{font:inherit;color:inherit}",
+          ".dshRemoteSectionHeading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.dshRemoteSectionHeading>strong{font-size:14px}.dshRemoteSectionHeading>button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:6px 0}",
+          ".dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
+          ".dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary)}",
+          ".dshRemoteSelectedHost{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}",
+          '.dshRemoteBrowser{display:flex;flex-direction:column}.dshRemoteCrumbs{display:flex;align-items:center;gap:4px;overflow:auto;padding:2px 0 10px}.dshRemoteCrumbs>button{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 7px;border-radius:6px;cursor:pointer}.dshRemoteCrumbs>button:not(:last-child)::after{content:" /";color:var(--dsw-alias-label-tertiary)}.dshRemoteCrumbs>button:disabled{color:var(--dsw-alias-label-primary);font-weight:600}',
+          ".dshRemoteDirectoryList{min-height:72px;display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteDirectoryList>button{min-height:52px;display:grid;grid-template-columns:auto 1fr;column-gap:10px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:8px 4px;cursor:pointer}.dshRemoteDirectoryList>button:hover,.dshRemoteDirectoryList>button.isSelected{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteDirectoryList>button.isSelected{color:var(--dsw-alias-label-primary)}.dshRemoteDirectoryList>button>span:first-child{grid-row:1/3}.dshRemoteDirectoryList>button>small{grid-column:2;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis}.dshRemoteDirectoryList>p,.dshRemoteHint{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}",
+          ".dshRemotePathField{display:flex;flex-direction:column;gap:6px;margin-top:20px}.dshRemotePathField>span{font-size:13px;font-weight:600}.dshRemotePathField>input{min-height:40px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:0 12px;font:inherit}.dshRemotePathField>small{color:var(--dsw-alias-label-secondary)}",
+          ".dshRemoteOpenBar{position:sticky;bottom:-96px;display:flex;align-items:center;justify-content:space-between;gap:20px;margin-top:20px;padding:14px 0;background:var(--dsw-alias-bg-primary,#fff);border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteOpenBar>div{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteOpenBar span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteOpenBar strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.dshRemoteOpenBar>button,.dshRemoteEnable>button{min-height:40px;flex:0 0 auto;border:0;border-radius:8px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-primary,#fff);padding:8px 16px;cursor:pointer}.dshRemoteOpenBar>button:disabled,.dshRemoteEnable>button:disabled{opacity:.5;cursor:default}",
+          ".dshRemoteEnable{max-width:600px;display:flex;flex-direction:column;align-items:flex-start;gap:10px}.dshRemoteEnable p{margin:0;color:var(--dsw-alias-label-secondary);line-height:1.5}",
+          ".dshRemoteClientLogin{width:min(440px,100%);display:flex;flex-direction:column;gap:8px}.dshRemoteClientLogin input{min-height:40px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:0 12px;font:inherit}.dshRemoteClientLogin button{align-self:flex-start;min-height:40px;border:0;border-radius:8px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-primary,#fff);padding:8px 16px;cursor:pointer}",
+          ".dshRemoteLocalLink{align-self:flex-start;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:4px 0;cursor:pointer}.dshRemoteLocalLink:hover{color:var(--dsw-alias-label-primary)}",
+          "@keyframes dshRemotePageIn{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.dshRemotePage{animation:none}}@media(max-width:620px){.dshRemoteBackdrop{padding:12px}.dshRemotePage{max-height:calc(100vh - 24px)}.dshRemotePageHeader{padding:12px 16px}.dshRemotePageBody{padding:20px 16px}.dshRemoteOpenBar{align-items:flex-end}.dshRemoteOpenBar>button{min-height:48px}}",
           ".dshRemoteBackdrop{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.42);display:grid;place-items:center;padding:20px}",
           ".dshRemoteDialog{width:min(460px,100%);max-height:80vh;overflow:auto;background:var(--dsw-alias-bg-primary,#fff);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:18px;display:grid;gap:12px;box-shadow:0 18px 60px rgba(0,0,0,.28)}",
           ".dshRemoteDialog button,.dshRemoteDialog input{font:inherit;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:9px 10px;background:transparent;color:inherit}",
@@ -560,7 +996,19 @@
           if (!result.ok) throw new Error(result.error?.message ?? t("remoteRequestFailed"));
           return result.value;
         };
-        ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), "dsh-remote: dictionaries"), ctx.effect(installStyle, "dsh-remote: client styles"), ctx.slots.inject("settings.plugin.item", () => ctx.slots.register({
+        ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), "dsh-remote: dictionaries"), ctx.effect(installStyle, "dsh-remote: client styles"), ctx.slots.inject("shell.overlay", () => ctx.slots.register({
+          name: "shell.overlay",
+          id: "dsh-remote-global-context",
+          order: 20,
+          locale: localeNamespace,
+          inject: () => ({ control })
+        }, RemoteSessionHeaderAction)), ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
+          name: "sidebar.footer.action",
+          id: "dsh-remote-workspace",
+          order: -20,
+          locale: localeNamespace,
+          inject: () => ({ control })
+        }, RemoteWorkspaceAction)), ctx.slots.inject("settings.plugin.item", () => ctx.slots.register({
           name: "settings.plugin.item",
           id: "dsh-remote",
           order: 30,

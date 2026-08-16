@@ -31,11 +31,7 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
     applies: 'restart',
     validate: value => { resolveConfig(value) },
   })
-  const configured = resolveConfig(settingsScope?.get() ?? input)
-  const config: ResolvedConfig = { ...configured, role: 'host' }
-  if (configured.role !== 'host' && settingsScope !== undefined) {
-    await settingsScope.replace({ ...settingsScope.get(), role: 'host' })
-  }
+  const config: ResolvedConfig = resolveConfig(settingsScope?.get() ?? input)
   if (!config.enabled) return
   // Mirrors SafeLogger output to the process stdout/stderr as well as the DSH
   // logger: the web process stdout is captured by the Desktop shell into
@@ -54,12 +50,11 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
   })
   const apiProxy = ctx.get('apiProxy') as ApiProxy
   const connection = ctx.get('connection') as HostConnectionHandle | undefined
-  const hostConfig = config.role === 'client' ? { ...config, serverUrl: undefined } : config
-  const runtime = new HostPluginRuntime(hostConfig, hostIdentities, apiProxy, logger)
+  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger)
 
   let clientRuntime: ClientModeRuntime | undefined
-  const hostControl = config.role === 'client' ? undefined : runtime
-  if (config.role !== 'host' && config.serverUrl !== undefined && apiProxy !== undefined && connection !== undefined) {
+  const hostControl = runtime
+  if (config.serverUrl !== undefined && apiProxy !== undefined && connection !== undefined) {
     const clientIdentities = new IdentityStore({
       directory: serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, 'client'),
     })
@@ -85,7 +80,7 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
       await runtime.start()
       if (clientRuntime !== undefined) {
         await clientRuntime.start()
-      } else if (config.role !== 'host') {
+      } else {
         logger.warn('client remote mode is unavailable', {
           serverConfigured: config.serverUrl !== undefined,
           apiProxyAvailable: apiProxy !== undefined,

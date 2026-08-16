@@ -52,7 +52,7 @@ docs/
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
 | Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
-| Plugin Client Mode | 实现保留；当前发布入口与 runtime 暂时关闭，不展示 Host/Client 或 Local/Remote 切换 | 重新开放前完成真实 dsh-desktop 安装/E2E、断线重连 |
+| Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；侧边栏 Remote 入口在本地选择自有 Host 与远端目录，随后复用原生 Harness UI | 真实 dsh-desktop 安装/E2E、断线重连、页面级导航接口 |
 | Android | 已迁移到 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、harness.api tunnel 与 mux frame 聊天 | 真机 E2E 与 Server 联调、重连后 mux 重开与 history baseline、WebRTC 走通验证 |
 | Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 完整 Zod schema、limits、golden vectors |
 | Crypto | 基础原语与标准 Noise IK 已实现 | 第三方实现审查、rekey、跨端 conformance |
@@ -60,7 +60,7 @@ docs/
 | WebRTC | 基础骨架 | signaling、ICE、TURN、自动 fallback |
 | Client Core | ApiProxy tunnel RPC/Event 关联基础已实现 | reconnect、pending call/stream 恢复 |
 | Mock Host | 旧 Android Remote RPC 联调工具，当前冻结 | 若恢复 Android 再迁移或替换 |
-| Desktop | Host 设置入口已接入 Harness Web UI；Client face 暂时关闭 | 重新开放 Client 后完成原生窗口安装与跨机 E2E |
+| Desktop | Host 设置入口与 Client Remote 工作区选择入口已接入 Harness Web UI | 完成原生窗口安装与跨机 E2E |
 | Server/Remote Web/Admin | 本仓库仅保留文档；独立 Server 仓库已有实现 | runtime 变更只在独立 Server 仓库完成，并同步跨仓库契约 |
 
 完整任务和优先级以 `TODO.md` 为准。不得把 TODO 中的目标能力描述成已经完成。

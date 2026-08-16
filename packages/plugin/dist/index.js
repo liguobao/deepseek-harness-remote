@@ -12823,12 +12823,17 @@ var ClientModeRuntime = class {
       return { ...device, ...presence };
     }));
   }
+  async authorizeClientWithAccount(email, password) {
+    const authorization = await this.server.authorizeWithAccount(this.requireIdentity(), email, password);
+    this.logger.info("Client account authorized");
+    return authorization;
+  }
   async setMode(mode, targetDeviceId, signal) {
     if (mode === "local") {
       this.proxySwitch.selectLocal();
       const previous2 = this.connected;
       this.connected = void 0;
-      await previous2?.client.close();
+      await previous2?.client.close().catch(() => void 0);
       this.logger.info("Harness target switched", { mode: "local" });
       return this.status();
     }
@@ -12840,15 +12845,47 @@ var ClientModeRuntime = class {
     this.connected = next;
     const remoteApi = new RemoteHarnessApiProxy(next.client).api;
     this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name });
-    await previous?.client.close();
+    await previous?.client.close().catch(() => void 0);
     this.logger.info("Harness target switched", { mode: "remote", targetDeviceId: shortId(next.target.deviceId) });
     return this.status();
+  }
+  async listRemoteDirectory(targetDeviceId, path, signal) {
+    const remote = await this.ensureConnected(targetDeviceId, signal);
+    const api = new RemoteHarnessApiProxy(remote.client).api;
+    const response = await api.host.listDirectory({
+      rpcId: `remote-directory-${Date.now()}`,
+      payload: path === void 0 ? {} : { path }
+    }, signal ?? new AbortController().signal);
+    return unwrapNativeResult(response);
+  }
+  async listRemoteWorkspaces(targetDeviceId, signal) {
+    const remote = await this.ensureConnected(targetDeviceId, signal);
+    const api = new RemoteHarnessApiProxy(remote.client).api;
+    const response = await api.workspace.list({
+      rpcId: `remote-workspaces-${Date.now()}`,
+      payload: {}
+    });
+    const value = unwrapNativeResult(response);
+    return value.items;
+  }
+  async openRemoteWorkspace(targetDeviceId, path, signal) {
+    if (path.trim() === "") throw new ClientModeError("INVALID_MESSAGE", "A remote working directory is required.");
+    const remote = await this.ensureConnected(targetDeviceId, signal);
+    const api = new RemoteHarnessApiProxy(remote.client).api;
+    const response = await api.workspace.create({
+      rpcId: `remote-workspace-${Date.now()}`,
+      payload: { path }
+    });
+    const workspace = unwrapNativeResult(response);
+    this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name });
+    this.logger.info("Remote workspace opened", { targetDeviceId: shortId(remote.target.deviceId) });
+    return { ...this.status(), workspace };
   }
   async close() {
     if (this.closed) return;
     this.closed = true;
     this.proxySwitch.selectLocal();
-    await this.connected?.client.close();
+    await this.connected?.client.close().catch(() => void 0);
     this.connected = void 0;
     this.proxySwitch.restore();
   }
@@ -12880,21 +12917,57 @@ var ClientModeRuntime = class {
         if (this.connected?.client !== client) return;
         this.connected = void 0;
         this.proxySwitch.selectLocal();
-        void client.close();
+        void client.close().catch(() => void 0);
         this.logger.warn("remote Harness transport closed; falling back to local mode", {
           targetDeviceId: shortId(target.deviceId)
         });
       });
       return { client, target };
     } catch (error) {
-      await client.close();
+      await client.close().catch(() => void 0);
       throw error;
     }
+  }
+  async ensureConnected(targetDeviceId, signal) {
+    if (this.connected?.target.deviceId === targetDeviceId) return this.connected;
+    const next = await this.connect(targetDeviceId, signal);
+    const previous = this.connected;
+    this.connected = next;
+    await previous?.client.close().catch(() => void 0);
+    return next;
   }
   async handleControl(endpoint, payload, signal) {
     try {
       if (endpoint === "status") return ok(this.status());
       if (endpoint === "devices") return ok(await this.devices());
+      if (endpoint === "client.account.login") {
+        const value = record(payload);
+        if (typeof value.email !== "string" || typeof value.password !== "string") {
+          throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
+        }
+        return ok(await this.authorizeClientWithAccount(value.email, value.password));
+      }
+      if (endpoint === "directory.list") {
+        const value = record(payload);
+        if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
+        return ok(await this.listRemoteDirectory(
+          value.targetDeviceId,
+          typeof value.path === "string" ? value.path : void 0,
+          signal
+        ));
+      }
+      if (endpoint === "workspaces.list") {
+        const value = record(payload);
+        if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
+        return ok(await this.listRemoteWorkspaces(value.targetDeviceId, signal));
+      }
+      if (endpoint === "workspace.open") {
+        const value = record(payload);
+        if (typeof value.targetDeviceId !== "string" || typeof value.path !== "string") {
+          throw new ClientModeError("INVALID_MESSAGE", "A Host and working directory are required.");
+        }
+        return ok(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal));
+      }
       if (endpoint === "host.account.login") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
         const value = record(payload);
@@ -12970,6 +13043,17 @@ function record(value) {
 }
 function ok(value) {
   return { ok: true, value };
+}
+function unwrapNativeResult(response) {
+  const result = response.result;
+  if (typeof result !== "object" || result === null || !("ok" in result)) {
+    throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid response.");
+  }
+  if (result.ok !== true || !("value" in result)) {
+    const message = "error" in result && typeof result.error === "object" && result.error !== null && "message" in result.error && typeof result.error.message === "string" ? result.error.message : "The remote Host rejected the request.";
+    throw new ClientModeError("REMOTE_API_ERROR", message);
+  }
+  return result.value;
 }
 function fail(error) {
   const source = error instanceof Error ? error : void 0;
@@ -15400,11 +15484,7 @@ async function activate(ctx, input) {
       resolveConfig(value);
     }
   });
-  const configured = resolveConfig(settingsScope?.get() ?? input);
-  const config = { ...configured, role: "host" };
-  if (configured.role !== "host" && settingsScope !== void 0) {
-    await settingsScope.replace({ ...settingsScope.get(), role: "host" });
-  }
+  const config = resolveConfig(settingsScope?.get() ?? input);
   if (!config.enabled) return;
   const logger = new SafeLogger({
     debug: (message) => {
@@ -15430,11 +15510,10 @@ async function activate(ctx, input) {
   });
   const apiProxy = ctx.get("apiProxy");
   const connection = ctx.get("connection");
-  const hostConfig = config.role === "client" ? { ...config, serverUrl: void 0 } : config;
-  const runtime = new HostPluginRuntime(hostConfig, hostIdentities, apiProxy, logger);
+  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger);
   let clientRuntime;
-  const hostControl = config.role === "client" ? void 0 : runtime;
-  if (config.role !== "host" && config.serverUrl !== void 0 && apiProxy !== void 0 && connection !== void 0) {
+  const hostControl = runtime;
+  if (config.serverUrl !== void 0 && apiProxy !== void 0 && connection !== void 0) {
     const clientIdentities = new IdentityStore({
       directory: serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, "client")
     });
@@ -15456,7 +15535,7 @@ async function activate(ctx, input) {
       await runtime.start();
       if (clientRuntime !== void 0) {
         await clientRuntime.start();
-      } else if (config.role !== "host") {
+      } else {
         logger.warn("client remote mode is unavailable", {
           serverConfigured: config.serverUrl !== void 0,
           apiProxyAvailable: apiProxy !== void 0,

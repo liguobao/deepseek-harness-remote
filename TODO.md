@@ -4,8 +4,8 @@
 与 Plugin 共享同一 Control/Relay 与 ApiProxy contract；Server、Remote Web 和 Admin 只在独立
 Server 仓库实现。
 
-当前发布版暂时只开放 Plugin Host；Desktop Client runtime 与 UI 代码保留，但
-Host/Client 配置切换和侧边栏 Local/Remote 入口均关闭，重新开放前必须完成真实 E2E。
+Desktop Client 已改为独立 Remote 工作区入口：本地选择账号下的 Host 与远端目录，随后复用
+原生 Harness UI。当前实现需要真实 Desktop E2E 验证后才能作为稳定能力发布。
 
 测试预算只用于协议、安全、账号授权、认证连接、ApiProxy allowlist/stream 生命周期和核心
 transport 状态机；普通 UI、文案和辅助脚本不单独补测试。

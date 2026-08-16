@@ -14,6 +14,26 @@ interface ConnectedRemote {
   target: TrustedPeer
 }
 
+export interface RemoteDirectoryEntry {
+  name: string
+  path: string
+  hidden: boolean
+}
+
+export interface RemoteDirectoryListing {
+  path: string
+  home: string
+  crumbs: RemoteDirectoryEntry[]
+  entries: RemoteDirectoryEntry[]
+  truncated: boolean
+}
+
+export interface RemoteWorkspaceView {
+  workspaceId: string
+  path: string
+  title: string
+}
+
 export interface RemoteDeviceView {
   deviceId: string
   name: string
@@ -106,12 +126,18 @@ export class ClientModeRuntime {
     }))
   }
 
+  async authorizeClientWithAccount(email: string, password: string): Promise<unknown> {
+    const authorization = await this.server.authorizeWithAccount(this.requireIdentity(), email, password)
+    this.logger.info('Client account authorized')
+    return authorization
+  }
+
   async setMode(mode: HarnessMode, targetDeviceId?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     if (mode === 'local') {
       this.proxySwitch.selectLocal()
       const previous = this.connected
       this.connected = undefined
-      await previous?.client.close()
+      await previous?.client.close().catch(() => undefined)
       this.logger.info('Harness target switched', { mode: 'local' })
       return this.status()
     }
@@ -123,16 +149,51 @@ export class ClientModeRuntime {
     this.connected = next
     const remoteApi = new RemoteHarnessApiProxy(next.client).api
     this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name })
-    await previous?.client.close()
+    await previous?.client.close().catch(() => undefined)
     this.logger.info('Harness target switched', { mode: 'remote', targetDeviceId: shortId(next.target.deviceId) })
     return this.status()
+  }
+
+  async listRemoteDirectory(targetDeviceId: string, path?: string, signal?: AbortSignal): Promise<RemoteDirectoryListing> {
+    const remote = await this.ensureConnected(targetDeviceId, signal)
+    const api = new RemoteHarnessApiProxy(remote.client).api
+    const response = await api.host.listDirectory({
+      rpcId: `remote-directory-${Date.now()}` as never,
+      payload: path === undefined ? {} : { path },
+    }, signal ?? new AbortController().signal)
+    return unwrapNativeResult<RemoteDirectoryListing>(response)
+  }
+
+  async listRemoteWorkspaces(targetDeviceId: string, signal?: AbortSignal): Promise<RemoteWorkspaceView[]> {
+    const remote = await this.ensureConnected(targetDeviceId, signal)
+    const api = new RemoteHarnessApiProxy(remote.client).api
+    const response = await api.workspace.list({
+      rpcId: `remote-workspaces-${Date.now()}` as never,
+      payload: {},
+    })
+    const value = unwrapNativeResult<{ items: RemoteWorkspaceView[] }>(response)
+    return value.items
+  }
+
+  async openRemoteWorkspace(targetDeviceId: string, path: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    if (path.trim() === '') throw new ClientModeError('INVALID_MESSAGE', 'A remote working directory is required.')
+    const remote = await this.ensureConnected(targetDeviceId, signal)
+    const api = new RemoteHarnessApiProxy(remote.client).api
+    const response = await api.workspace.create({
+      rpcId: `remote-workspace-${Date.now()}` as never,
+      payload: { path },
+    })
+    const workspace = unwrapNativeResult<{ workspace: unknown; created: boolean }>(response)
+    this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name })
+    this.logger.info('Remote workspace opened', { targetDeviceId: shortId(remote.target.deviceId) })
+    return { ...this.status(), workspace }
   }
 
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
     this.proxySwitch.selectLocal()
-    await this.connected?.client.close()
+    await this.connected?.client.close().catch(() => undefined)
     this.connected = undefined
     this.proxySwitch.restore()
   }
@@ -165,22 +226,59 @@ export class ClientModeRuntime {
         if (this.connected?.client !== client) return
         this.connected = undefined
         this.proxySwitch.selectLocal()
-        void client.close()
+        void client.close().catch(() => undefined)
         this.logger.warn('remote Harness transport closed; falling back to local mode', {
           targetDeviceId: shortId(target.deviceId),
         })
       })
       return { client, target }
     } catch (error) {
-      await client.close()
+      await client.close().catch(() => undefined)
       throw error
     }
+  }
+
+  private async ensureConnected(targetDeviceId: string, signal?: AbortSignal): Promise<ConnectedRemote> {
+    if (this.connected?.target.deviceId === targetDeviceId) return this.connected
+    const next = await this.connect(targetDeviceId, signal)
+    const previous = this.connected
+    this.connected = next
+    await previous?.client.close().catch(() => undefined)
+    return next
   }
 
   async handleControl(endpoint: string, payload: unknown, signal: AbortSignal): Promise<RpcResult<unknown>> {
     try {
       if (endpoint === 'status') return ok(this.status())
       if (endpoint === 'devices') return ok(await this.devices())
+      if (endpoint === 'client.account.login') {
+        const value = record(payload)
+        if (typeof value.email !== 'string' || typeof value.password !== 'string') {
+          throw new ClientModeError('INVALID_MESSAGE', 'Email and password are required.')
+        }
+        return ok(await this.authorizeClientWithAccount(value.email, value.password))
+      }
+      if (endpoint === 'directory.list') {
+        const value = record(payload)
+        if (typeof value.targetDeviceId !== 'string') throw new ClientModeError('INVALID_MESSAGE', 'A Host is required.')
+        return ok(await this.listRemoteDirectory(
+          value.targetDeviceId,
+          typeof value.path === 'string' ? value.path : undefined,
+          signal,
+        ))
+      }
+      if (endpoint === 'workspaces.list') {
+        const value = record(payload)
+        if (typeof value.targetDeviceId !== 'string') throw new ClientModeError('INVALID_MESSAGE', 'A Host is required.')
+        return ok(await this.listRemoteWorkspaces(value.targetDeviceId, signal))
+      }
+      if (endpoint === 'workspace.open') {
+        const value = record(payload)
+        if (typeof value.targetDeviceId !== 'string' || typeof value.path !== 'string') {
+          throw new ClientModeError('INVALID_MESSAGE', 'A Host and working directory are required.')
+        }
+        return ok(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal))
+      }
       if (endpoint === 'host.account.login') {
         if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
         const value = record(payload)
@@ -262,6 +360,21 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function ok(value: unknown): RpcResult<unknown> { return { ok: true, value } }
+
+function unwrapNativeResult<T>(response: { result: unknown }): T {
+  const result = response.result
+  if (typeof result !== 'object' || result === null || !('ok' in result)) {
+    throw new ClientModeError('INVALID_MESSAGE', 'The remote Host returned an invalid response.')
+  }
+  if (result.ok !== true || !('value' in result)) {
+    const message = 'error' in result && typeof result.error === 'object' && result.error !== null
+      && 'message' in result.error && typeof result.error.message === 'string'
+      ? result.error.message
+      : 'The remote Host rejected the request.'
+    throw new ClientModeError('REMOTE_API_ERROR', message)
+  }
+  return result.value as T
+}
 
 function fail(error: unknown): RpcResult<unknown> {
   const source = error instanceof Error ? error : undefined

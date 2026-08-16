@@ -1,6 +1,6 @@
 # @dsh-remote/plugin
 
-Remote Host plugin for DeepSeek Harness. The Desktop Client implementation is retained but currently disabled in the shipped interface and runtime.
+Remote Host plugin with an always-available Remote client capability for DeepSeek Harness. There is no user-facing Client mode; the local Remote workspace picker keeps the native Harness interaction UI on the current device.
 
 The package implements a controlled native `ApiProxy` tunnel, persistent host
 identity and trusted peers, account-authorized Host registration/token rotation,
@@ -15,14 +15,16 @@ code over the local loopback control channel for device registration, then
 persists only the device credential. Identities, credentials, and trusted peers
 are isolated by normalized Server origin and Host/Client role.
 
-The package retains its Client browser and runtime implementation for later
-re-enablement. The current release forces Host mode, hides the Host/Client
-configuration switch, and does not register the sidebar Local/Remote action.
+The Client runtime registers a dedicated Remote sidebar action. It lets the
+user choose an account-owned online Host, select an existing remote Workspace
+or enter an absolute Host directory, and open it before returning to the native
+Harness UI. This is workspace navigation rather than a visible Local/Remote
+mode switch; the same entry can reopen local Workspaces.
 The Client implementation pins the Host identity key from
 the membership-protected device detail; the Host performs the symmetric check
 for every incoming Client before Noise IK. Native Harness calls and mux/host
 streams are tunneled through an explicit allowlist;
-read-only directory metadata is available to the remote Workspace picker, while
+remote Workspace metadata is available to the picker, while
 credentials, settings writes, directory mutation, file-content access, native
 open/picker actions, attachments, and downloads remain local/disabled.
 Distinct Client devices can connect to the same Host concurrently. Each secure

@@ -6,7 +6,7 @@ DeepSeek 远程连接（DSH Remote）是一套面向 [DeepSeek Harness](https://
 
 Host 与 Client 使用长期 X25519 设备身份密钥和 Noise IK 协议完成对端认证与端到端加密。Server 仅负责账号与设备授权、在线状态、连接协调及密文转发，无法读取会话内容。远程端只能访问明确允许的 Harness `ApiProxy` 能力，不开放 Shell、任意文件访问、远程桌面或通用工具调用；同一 Host 支持多个 Client 并发连接，每条连接的加密通道、RPC 状态和事件流相互隔离。
 
-当前发布版本以 Remote Host Plugin 形式运行。仓库保留 Desktop Client 实现，但暂不开放 Client 模式和本地/远程切换入口。
+Desktop Plugin 默认同时提供 Host 服务和 Remote 客户端能力，无需切换或启动 Client 模式。侧边栏的 **Remote** 入口用于选择自己的在线 Host 和远端工作目录；随后继续使用当前设备上的原生 Harness UI，业务请求通过端到端加密通道在远端执行。
 
 > [!WARNING]
 > 项目仍处于开发预览阶段，需要兼容 [Remote Protocol v1](docs/protocol.md) 的外部 Server，尚未完成生产级互操作与独立安全审查，请勿用于生产环境。
@@ -33,7 +33,7 @@ dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.2.13"
 2. 输入登录 Server 网页后生成的一次性设备授权码；授权码只用于本次 HTTPS 接入。
 3. 重启 Harness，使 Host 常驻连接生效。
 
-当前 Plugin 固定运行 Host 模式；Client 配置和侧边栏本地/远程切换入口暂时隐藏。
+直接从侧边栏 **Remote** 选择 Host，再选择已有远端 Workspace 或输入远端绝对目录。首次使用时可在该页面完成 Client 身份的账号授权，无需切换插件模式或重启 Harness。进入远端工作区后仍使用本地 Harness UI；从 Remote 入口可重新打开本地工作区。
 
 配置保存在 `$DSH_HOME/settings.yaml` 的 `dsh-remote` namespace 中，重启后生效。没有设置服务时可用 `DSH_REMOTE_SERVER` 覆盖默认 Server；生产部署必须使用 HTTPS/WSS。
 
