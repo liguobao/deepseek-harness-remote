@@ -75,9 +75,9 @@ describe('Cordis plugin lifecycle', () => {
 
     await vi.waitFor(() => {
       expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Former client' })
+      expect(ctx.get('dshRemoteClient')).toBeDefined()
     })
     expect(replace).not.toHaveBeenCalled()
-    expect(ctx.get('dshRemoteClient')).toBeDefined()
 
     await fiber.dispose()
     await ctx.fiber.dispose()
