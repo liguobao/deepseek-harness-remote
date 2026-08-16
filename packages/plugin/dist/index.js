@@ -13244,7 +13244,7 @@ function safeErrorMessage(error) {
 import { platform } from "node:os";
 
 // src/version.ts
-var PLUGIN_VERSION = "0.2.16";
+var PLUGIN_VERSION = "0.2.17";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -13980,7 +13980,14 @@ var ConnectionController = class {
     try {
       const response = await connection.router.handle(message);
       if (!this.isActive(connection)) return;
-      await connection.channel.send(response);
+      const outbound = encodeMessage(response).byteLength <= MAX_SECURE_MESSAGE_BYTES ? response : createRpcError(
+        message.id,
+        "RESPONSE_TOO_LARGE",
+        "The Host response is too large for the secure Remote channel. Request a smaller page.",
+        { maxBytes: MAX_SECURE_MESSAGE_BYTES },
+        true
+      );
+      await connection.channel.send(outbound);
     } catch (error) {
       this.logger?.warn("peer message handling failed; disconnecting", {
         peerDeviceId: shortId2(connection.channel.peerDeviceId),
@@ -14423,7 +14430,14 @@ var HostServerConnection = class {
   }
   async handleHandshake(payload) {
     const tunnel = this.tunnels.get(payload.connectionId);
-    if (tunnel === void 0 || payload.targetDeviceId !== this.identity.deviceId || payload.step !== 1 || tunnel.channel !== void 0) {
+    if (tunnel !== void 0 && tunnel.channel !== void 0 && payload.targetDeviceId === this.identity.deviceId && payload.step === 1) {
+      this.logger.warn("duplicate secure handshake ignored", {
+        connectionId: shortId3(tunnel.connectionId),
+        peerDeviceId: shortId3(tunnel.peer.deviceId)
+      });
+      return;
+    }
+    if (tunnel === void 0 || payload.targetDeviceId !== this.identity.deviceId || payload.step !== 1) {
       throw new ControlConnectionError("SECURE_CHANNEL_FAILED", "Noise IK handshake is not valid for this connection.");
     }
     tunnel.noise.readHandshake(fromBase64Url2(payload.data));

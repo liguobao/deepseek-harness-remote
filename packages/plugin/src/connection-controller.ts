@@ -1,4 +1,9 @@
-import type { RemoteMessage } from '@dsh-remote/protocol'
+import {
+  MAX_SECURE_MESSAGE_BYTES,
+  createRpcError,
+  encodeMessage,
+  type RemoteMessage,
+} from '@dsh-remote/protocol'
 import type { IdentityStore } from './identity-store.js'
 import type { SafeLogger } from './logging.js'
 import type { RpcRouter } from './rpc-router.js'
@@ -134,7 +139,16 @@ export class ConnectionController {
     try {
       const response = await connection.router.handle(message)
       if (!this.isActive(connection)) return
-      await connection.channel.send(response)
+      const outbound = encodeMessage(response).byteLength <= MAX_SECURE_MESSAGE_BYTES
+        ? response
+        : createRpcError(
+            message.id,
+            'RESPONSE_TOO_LARGE',
+            'The Host response is too large for the secure Remote channel. Request a smaller page.',
+            { maxBytes: MAX_SECURE_MESSAGE_BYTES },
+            true,
+          )
+      await connection.channel.send(outbound)
     } catch (error) {
       this.logger?.warn('peer message handling failed; disconnecting', {
         peerDeviceId: shortId(connection.channel.peerDeviceId),

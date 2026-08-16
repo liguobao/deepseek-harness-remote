@@ -359,7 +359,21 @@ export class HostServerConnection {
 
   private async handleHandshake(payload: SecureHandshakePayload): Promise<void> {
     const tunnel = this.tunnels.get(payload.connectionId)
-    if (tunnel === undefined || payload.targetDeviceId !== this.identity.deviceId || payload.step !== 1 || tunnel.channel !== undefined) {
+    if (tunnel !== undefined
+      && tunnel.channel !== undefined
+      && payload.targetDeviceId === this.identity.deviceId
+      && payload.step === 1) {
+      // A queued Relay/WebRTC fallback can deliver the initiator's first
+      // handshake again after the authenticated channel is already ready.
+      // It belongs to this exact tunnel, so ignore it without taking the
+      // Host's shared control connection offline.
+      this.logger.warn('duplicate secure handshake ignored', {
+        connectionId: shortId(tunnel.connectionId),
+        peerDeviceId: shortId(tunnel.peer.deviceId),
+      })
+      return
+    }
+    if (tunnel === undefined || payload.targetDeviceId !== this.identity.deviceId || payload.step !== 1) {
       throw new ControlConnectionError('SECURE_CHANNEL_FAILED', 'Noise IK handshake is not valid for this connection.')
     }
     tunnel.noise.readHandshake(fromBase64Url(payload.data))
