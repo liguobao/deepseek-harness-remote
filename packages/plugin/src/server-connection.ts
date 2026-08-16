@@ -471,12 +471,12 @@ export class HostServerConnection {
     tunnel.rtc = rtc
     rtc.onMessage(data => tunnel.channel?.receive(undefined, data))
     rtc.onClose(() => {
-      void this.handleRtcFailed(tunnel, new Error('WebRTC data channel closed.'))
+      void this.handleRtcFailed(tunnel, rtc, new Error('WebRTC data channel closed.'))
     })
     void rtc.connect().then(() => {
       this.handleRtcOpened(tunnel, rtc.selectedTransport() ?? 'p2p')
     }).catch(error => {
-      void this.handleRtcFailed(tunnel, asError(error))
+      void this.handleRtcFailed(tunnel, rtc, asError(error))
     })
     rtc.handleSignal({ type: 'offer', sdp: payload.sdp })
   }
@@ -514,14 +514,23 @@ export class HostServerConnection {
     })
   }
 
-  private async handleRtcFailed(tunnel: PendingTunnel, error: Error): Promise<void> {
-    if (this.tunnels.get(tunnel.connectionId) !== tunnel) return
-    const rtc = tunnel.rtc
-    tunnel.rtc = undefined
-    if (tunnel.transport !== 'p2p' && tunnel.transport !== 'turn') {
-      tunnel.transport = 'relay'
+  private async handleRtcFailed(
+    tunnel: PendingTunnel,
+    rtc: RtcDataChannelTransport,
+    error: Error,
+  ): Promise<void> {
+    if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc !== rtc) return
+    if (tunnel.channel !== undefined || tunnel.transport === 'p2p' || tunnel.transport === 'turn') {
+      this.logger.warn('webrtc data channel failed; disconnecting peer', {
+        connectionId: shortId(tunnel.connectionId),
+        reason: diagnosticReason(error),
+      })
+      await this.dropTunnel(tunnel.connectionId, 'CONNECTION_FAILED')
+      return
     }
-    await rtc?.close()
+    tunnel.rtc = undefined
+    tunnel.transport = 'relay'
+    await rtc.close()
     this.logger.warn('webrtc negotiation failed; falling back to relay', {
       connectionId: shortId(tunnel.connectionId),
       reason: diagnosticReason(error),

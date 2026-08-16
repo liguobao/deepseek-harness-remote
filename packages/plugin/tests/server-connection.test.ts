@@ -258,6 +258,77 @@ describe('HostServerConnection', () => {
     expect(server.lastError()).toBeUndefined()
     await server.stop()
   })
+
+  it('disconnects an authenticated peer when its selected WebRTC channel fails', async () => {
+    const keys = generateKeyPair(new Uint8Array(32).fill(15))
+    const closeConnection = vi.fn(async () => true)
+    const rtc = { close: vi.fn(async () => undefined) }
+    const tunnel = {
+      connectionId: 'connection-rtc',
+      membershipId: 'membership-rtc',
+      peer: { deviceId: 'client-rtc' },
+      noise: { destroy: vi.fn() },
+      transport: 'p2p',
+      rtc,
+      channel: {},
+    }
+    const server = new HostServerConnection(
+      config(),
+      { schemaVersion: 1, deviceId: 'host-rtc', name: 'Host', fingerprint: 'HOST', ...keys },
+      { trustedPeer: vi.fn() } as unknown as IdentityStore,
+      { baseUrl: 'https://dsh.r2049.cn' } as HostServerApi,
+      { closeConnection } as unknown as ConnectionController,
+      logger(),
+      () => new FakeWebSocket(),
+    )
+    const internals = server as unknown as {
+      tunnels: Map<string, unknown>
+      handleRtcFailed(tunnel: unknown, rtc: unknown, error: Error): Promise<void>
+    }
+    internals.tunnels.set(tunnel.connectionId, tunnel)
+
+    await internals.handleRtcFailed(tunnel, rtc, new Error('data channel closed'))
+
+    expect(closeConnection).toHaveBeenCalledWith(tunnel.connectionId, 'CONNECTION_FAILED')
+    expect(rtc.close).toHaveBeenCalledOnce()
+    expect(internals.tunnels.has(tunnel.connectionId)).toBe(false)
+  })
+
+  it('keeps relay fallback only for WebRTC failures before transport selection', async () => {
+    const keys = generateKeyPair(new Uint8Array(32).fill(16))
+    const closeConnection = vi.fn(async () => true)
+    const rtc = { close: vi.fn(async () => undefined) }
+    const tunnel = {
+      connectionId: 'connection-negotiating',
+      membershipId: 'membership-negotiating',
+      peer: { deviceId: 'client-negotiating' },
+      noise: { destroy: vi.fn() },
+      transport: 'negotiating',
+      rtc,
+    }
+    const server = new HostServerConnection(
+      config(),
+      { schemaVersion: 1, deviceId: 'host-negotiating', name: 'Host', fingerprint: 'HOST', ...keys },
+      { trustedPeer: vi.fn() } as unknown as IdentityStore,
+      { baseUrl: 'https://dsh.r2049.cn' } as HostServerApi,
+      { closeConnection } as unknown as ConnectionController,
+      logger(),
+      () => new FakeWebSocket(),
+    )
+    const internals = server as unknown as {
+      tunnels: Map<string, unknown>
+      handleRtcFailed(tunnel: unknown, rtc: unknown, error: Error): Promise<void>
+    }
+    internals.tunnels.set(tunnel.connectionId, tunnel)
+
+    await internals.handleRtcFailed(tunnel, rtc, new Error('negotiation failed'))
+
+    expect(tunnel.transport).toBe('relay')
+    expect(tunnel.rtc).toBeUndefined()
+    expect(rtc.close).toHaveBeenCalledOnce()
+    expect(closeConnection).not.toHaveBeenCalled()
+    expect(internals.tunnels.get(tunnel.connectionId)).toBe(tunnel)
+  })
 })
 
 function helloAck(connectionSessionId: string) {
