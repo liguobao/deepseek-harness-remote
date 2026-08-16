@@ -24,6 +24,7 @@ interface RemoteStatus {
   transport?: 'LAN' | 'P2P' | 'TURN' | 'Relay' | 'Disconnected'
   hostAuthorizationAvailable: boolean
   host?: {
+    deviceId?: string
     configured: boolean
     online: boolean
     reconnecting: boolean
@@ -39,6 +40,8 @@ interface RemoteDevice {
   name: string
   platform: string
   online: boolean
+  clientVersion?: string
+  harnessVersion?: string
 }
 
 interface RemoteDirectoryEntry {
@@ -190,6 +193,8 @@ const en = {
   backToHosts: 'Choose another Host',
   currentDirectory: 'Selected directory',
   directoryTruncated: 'Only part of this directory could be shown.',
+  pluginVersion: 'Plugin {version}',
+  harnessVersion: 'Harness {version}',
   existingWorkspaces: 'Existing workspaces',
   remotePathPlaceholder: '/home/user/project',
   remotePathHint: 'Enter an absolute directory path on the selected Host.',
@@ -312,6 +317,8 @@ const zh: Record<keyof typeof en, string> = {
   backToHosts: '选择其他主机',
   currentDirectory: '已选目录',
   directoryTruncated: '目录内容较多，目前只显示了一部分。',
+  pluginVersion: '插件 {version}',
+  harnessVersion: 'Harness {version}',
   existingWorkspaces: '已有工作区',
   remotePathPlaceholder: '/home/user/project',
   remotePathHint: '输入所选主机上的绝对目录路径。',
@@ -627,6 +634,7 @@ window.__ModuleLoader__.load({
       const [devices, setDevices] = React.useState<RemoteDevice[]>([])
       const [selectedHost, setSelectedHost] = React.useState<RemoteDevice | undefined>(undefined)
       const [workspaces, setWorkspaces] = React.useState<RemoteWorkspaceView[]>([])
+      const [directory, setDirectory] = React.useState<RemoteDirectoryListing | undefined>(undefined)
       const [path, setPath] = React.useState('')
       const [addingWorkspace, setAddingWorkspace] = React.useState(false)
       const [busy, setBusy] = React.useState(false)
@@ -665,6 +673,25 @@ window.__ModuleLoader__.load({
           setSelectedHost(host)
           setPath('')
           setAddingWorkspace(false)
+          setDirectory(undefined)
+        } catch (reason) {
+          setError(messageOf(reason))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const browseDirectory = async (nextPath?: string): Promise<void> => {
+        if (selectedHost === undefined) return
+        setBusy(true)
+        setError(undefined)
+        try {
+          const listing = await props.control<RemoteDirectoryListing>('directory.list', {
+            targetDeviceId: selectedHost.deviceId,
+            ...(nextPath === undefined ? {} : { path: nextPath }),
+          })
+          setDirectory(listing)
+          setPath(listing.path)
         } catch (reason) {
           setError(messageOf(reason))
         } finally {
@@ -807,7 +834,7 @@ window.__ModuleLoader__.load({
                     React.createElement('strong', null, t('chooseHost')),
                     selectedHost === undefined ? null : React.createElement('button', {
                       type: 'button',
-                      onClick: () => { setSelectedHost(undefined); setWorkspaces([]); setPath(''); setAddingWorkspace(false); setError(undefined) },
+                      onClick: () => { setSelectedHost(undefined); setWorkspaces([]); setDirectory(undefined); setPath(''); setAddingWorkspace(false); setError(undefined) },
                     }, t('backToHosts'))),
                   selectedHost === undefined
                     ? React.createElement('div', { className: 'dshRemoteHostList' }, devices.length === 0
@@ -817,10 +844,17 @@ window.__ModuleLoader__.load({
                         key: device.deviceId,
                         disabled: busy || !device.online,
                         onClick: () => void selectHost(device),
-                      }, React.createElement('span', null, device.name), React.createElement('small', null, `${device.platform} · ${t(device.online ? 'online' : 'offline')}`))))
+                      }, React.createElement('span', null,
+                        React.createElement('strong', null, device.name),
+                        React.createElement('small', null, [
+                          formatPlatform(device.platform),
+                          device.harnessVersion === undefined ? undefined : t('harnessVersion', { version: device.harnessVersion }),
+                          device.clientVersion === undefined ? undefined : t('pluginVersion', { version: device.clientVersion }),
+                        ].filter(Boolean).join(' · '))),
+                      React.createElement('small', null, t(device.online ? 'online' : 'offline')))))
                     : React.createElement('div', { className: 'dshRemoteSelectedHost' },
                       React.createElement('span', null, selectedHost.name),
-                      React.createElement('small', null, `${selectedHost.platform} · ${t('online')}`))),
+                      React.createElement('small', null, [formatPlatform(selectedHost.platform), t('online')].join(' · ')))),
                 selectedHost === undefined ? React.createElement('p', { className: 'dshRemoteHint' }, t('selectHostHint'))
                   : React.createElement('section', { className: 'dshRemoteBrowser', 'aria-label': t('chooseDirectory') },
                     React.createElement('div', { className: 'dshRemoteSectionHeading' },
@@ -831,7 +865,11 @@ window.__ModuleLoader__.load({
                         title: t('addRemoteWorkspace'),
                         'aria-label': t('addRemoteWorkspace'),
                         'aria-expanded': addingWorkspace,
-                        onClick: () => { setAddingWorkspace(current => !current); setPath('') },
+                        onClick: () => {
+                          if (addingWorkspace) { setAddingWorkspace(false); setDirectory(undefined); setPath(''); return }
+                          setAddingWorkspace(true)
+                          void browseDirectory()
+                        },
                       }, '+')),
                     React.createElement('div', { className: 'dshRemoteDirectoryList' }, workspaces.length === 0
                       ? React.createElement('p', null, t('noRemoteWorkspaces'))
@@ -842,13 +880,21 @@ window.__ModuleLoader__.load({
                         onClick: () => { setAddingWorkspace(false); setPath(workspace.path) },
                       }, React.createElement('span', { 'aria-hidden': true }, '▱'),
                       React.createElement('span', null, workspace.title), React.createElement('small', null, workspace.path)))),
-                    !addingWorkspace ? null : React.createElement('label', { className: 'dshRemotePathField' },
-                      React.createElement('span', null, t('chooseDirectory')),
-                      React.createElement('input', {
-                        value: path, disabled: busy, placeholder: t('remotePathPlaceholder'),
-                        onChange: (event: Event) => setPath((event.target as HTMLInputElement).value),
-                      }),
-                      React.createElement('small', null, t('remotePathHint'))),
+                    !addingWorkspace ? null : React.createElement('div', { className: 'dshRemoteFolderBrowser' },
+                      directory === undefined
+                        ? React.createElement('p', null, t('loadingDirectory'))
+                        : React.createElement(React.Fragment, null,
+                          React.createElement('nav', { className: 'dshRemoteCrumbs', 'aria-label': t('currentDirectory') },
+                            directory.crumbs.map(crumb => React.createElement('button', {
+                              type: 'button', key: crumb.path, disabled: busy || crumb.path === directory.path,
+                              onClick: () => void browseDirectory(crumb.path),
+                            }, crumb.path === directory.home ? '⌂' : crumb.name))),
+                          React.createElement('div', { className: 'dshRemoteFolderList' }, directory.entries.filter(entry => !entry.hidden).length === 0
+                            ? React.createElement('p', null, t('emptyDirectory'))
+                            : directory.entries.filter(entry => !entry.hidden).map(entry => React.createElement('button', {
+                              type: 'button', key: entry.path, disabled: busy, onClick: () => void browseDirectory(entry.path),
+                            }, React.createElement('span', { 'aria-hidden': true }, '▱'), React.createElement('span', null, entry.name)))),
+                          directory.truncated ? React.createElement('small', null, t('directoryTruncated')) : null)),
                     React.createElement('footer', { className: 'dshRemoteOpenBar' },
                       React.createElement('div', null, React.createElement('span', null, t('currentDirectory')), React.createElement('strong', null, path || '—')),
                       React.createElement('button', { type: 'button', disabled: busy || path.trim() === '', onClick: () => void openWorkspace() }, t(busy ? 'openingWorkspace' : 'openWorkspace')))))),
@@ -1136,10 +1182,11 @@ window.__ModuleLoader__.load({
         '.dshRemotePageBody{padding:24px;overflow:auto;display:flex;flex-direction:column;gap:24px}.dshRemotePageBody button{font:inherit;color:inherit}',
         '.dshRemoteSectionHeading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.dshRemoteSectionHeading>strong{font-size:14px}.dshRemoteSectionHeading>button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:6px 0}',
         '.dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}',
-        '.dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary)}',
+        '.dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList>button>span{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteHostList>button strong{font-size:14px;font-weight:500}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary);font-size:12px}',
         '.dshRemoteSelectedHost{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}',
         '.dshRemoteBrowser{display:flex;flex-direction:column}.dshRemoteCrumbs{display:flex;align-items:center;gap:4px;overflow:auto;padding:2px 0 10px}.dshRemoteCrumbs>button{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 7px;border-radius:6px;cursor:pointer}.dshRemoteCrumbs>button:not(:last-child)::after{content:" /";color:var(--dsw-alias-label-tertiary)}.dshRemoteCrumbs>button:disabled{color:var(--dsw-alias-label-primary);font-weight:600}',
         '.dshRemoteDirectoryList{min-height:72px;display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteDirectoryList>button{min-height:52px;display:grid;grid-template-columns:auto 1fr;column-gap:10px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:8px 4px;cursor:pointer}.dshRemoteDirectoryList>button:hover,.dshRemoteDirectoryList>button.isSelected{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteDirectoryList>button.isSelected{color:var(--dsw-alias-label-primary)}.dshRemoteDirectoryList>button>span:first-child{grid-row:1/3}.dshRemoteDirectoryList>button>small{grid-column:2;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis}.dshRemoteDirectoryList>p,.dshRemoteHint{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}',
+        '.dshRemoteFolderBrowser{margin-top:14px}.dshRemoteFolderBrowser>p,.dshRemoteFolderList>p{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemoteFolderList{max-height:260px;overflow:auto;border-block:1px solid var(--dsw-alias-border-l2)}.dshRemoteFolderList>button{width:100%;min-height:42px;display:flex;align-items:center;gap:9px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:7px 6px;text-align:left;cursor:pointer}.dshRemoteFolderList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteFolderBrowser>small{display:block;margin-top:8px;color:var(--dsw-alias-state-warn-label)}',
         '.dshRemotePathField{display:flex;flex-direction:column;gap:6px;margin-top:20px}.dshRemotePathField>span{font-size:13px;font-weight:600}.dshRemotePathField>input{min-height:40px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:0 12px;font:inherit}.dshRemotePathField>small{color:var(--dsw-alias-label-secondary)}',
         '.dshRemoteOpenBar{position:sticky;bottom:-96px;display:flex;align-items:center;justify-content:space-between;gap:20px;margin-top:20px;padding:14px 0;background:var(--dsw-alias-bg-layer-1);border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteOpenBar>div{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteOpenBar span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteOpenBar strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.dshRemoteOpenBar>button,.dshRemoteEnable>button{min-height:40px;flex:0 0 auto;border:0;border-radius:8px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);padding:8px 16px;cursor:pointer}.dshRemoteOpenBar>button:disabled,.dshRemoteEnable>button:disabled{opacity:.5;cursor:default}',
         '.dshRemoteEnable{max-width:600px;display:flex;flex-direction:column;align-items:flex-start;gap:10px}.dshRemoteEnable p{margin:0;color:var(--dsw-alias-label-secondary);line-height:1.5}',
@@ -1234,6 +1281,14 @@ window.__ModuleLoader__.load({
     }
 
     function messageOf(reason: unknown): string { return reason instanceof Error ? reason.message : String(reason) }
+
+    function formatPlatform(value: string): string {
+      const normalized = value.toLowerCase()
+      if (normalized === 'darwin' || normalized === 'macos') return 'macOS'
+      if (normalized === 'win32' || normalized === 'windows') return 'Windows'
+      if (normalized === 'linux') return 'Linux'
+      return value
+    }
 
     module.exports.apply = apply
     module.exports.inject = inject

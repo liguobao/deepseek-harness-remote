@@ -4286,14 +4286,14 @@ var RemoteClientCore = class {
   async rpc(method, params, signal) {
     signal?.throwIfAborted();
     const request = createRpcRequest(method, params);
-    const result = new Promise((resolve, reject) => {
+    const result = new Promise((resolve2, reject) => {
       const timer = setTimeout(() => {
         const pending2 = this.pending.get(request.id);
         pending2?.removeAbort?.();
         this.pending.delete(request.id);
         reject(new Error(`RPC ${method} timed out`));
       }, this.timeoutMs);
-      const pending = { resolve, reject, timer };
+      const pending = { resolve: resolve2, reject, timer };
       if (signal !== void 0) {
         const onAbort = () => {
           if (this.pending.get(request.id) !== pending)
@@ -4721,8 +4721,8 @@ var RtcDataChannelTransport = class {
     if (this.connectPromise !== void 0)
       return this.connectPromise;
     this.armAbort(signal);
-    this.connectPromise = new Promise((resolve, reject) => {
-      this.openResolve = resolve;
+    this.connectPromise = new Promise((resolve2, reject) => {
+      this.openResolve = resolve2;
       this.openReject = reject;
       this.negotiateTimer = setTimeout(() => {
         this.failOpen(new RtcConnectError("RTC_CONNECT_TIMEOUT", `WebRTC negotiation timed out after ${this.negotiateTimeoutMs}ms.`));
@@ -4898,9 +4898,9 @@ var RtcDataChannelTransport = class {
       if (this.closed || this.opened)
         return;
       this.opened = true;
-      const resolve = this.openResolve;
+      const resolve2 = this.openResolve;
       this.clearNegotiation();
-      void this.resolveSelectedTransport().then(() => resolve?.());
+      void this.resolveSelectedTransport().then(() => resolve2?.());
     };
     channel.onmessage = (event) => {
       if (this.closed || !this.opened)
@@ -5081,8 +5081,8 @@ var AdaptiveTransport = class extends BaseTransport {
       return;
     this.socket = new WebSocket(this.url);
     this.socket.binaryType = "arraybuffer";
-    await new Promise((resolve, reject) => {
-      this.readyResolve = resolve;
+    await new Promise((resolve2, reject) => {
+      this.readyResolve = resolve2;
       this.readyReject = reject;
       this.handshakeTimer = setTimeout(() => this.failConnection(new Error("Adaptive control handshake timed out")), this.options.handshakeTimeoutMs ?? 15e3);
       const socket = this.socket;
@@ -12562,7 +12562,7 @@ var ClientSecureTransport = class {
   }
 };
 async function waitForResponder(inner, noise) {
-  await new Promise((resolve, reject) => {
+  await new Promise((resolve2, reject) => {
     let settled = false;
     const timer = setTimeout(() => finish(new Error("Noise IK handshake timed out.")), 1e4);
     const unsubscribe = inner.onHandshake((step, data) => {
@@ -12581,7 +12581,7 @@ async function waitForResponder(inner, noise) {
       settled = true;
       clearTimeout(timer);
       unsubscribe();
-      if (error === void 0) resolve();
+      if (error === void 0) resolve2();
       else reject(error);
     };
     void inner.sendHandshake(1, noise.writeHandshake()).catch((error) => {
@@ -12754,7 +12754,7 @@ var AsyncFrameQueue = class {
         continue;
       }
       if (this.closed) return;
-      const next = await new Promise((resolve) => this.waiters.push(resolve));
+      const next = await new Promise((resolve2) => this.waiters.push(resolve2));
       if (next.done) return;
       yield next.value;
     }
@@ -12817,7 +12817,8 @@ var ClientModeRuntime = class {
   async devices() {
     this.requireIdentity();
     const serverDevices = await this.server.listDevices();
-    return Promise.all(serverDevices.map(async (device) => {
+    const remoteDevices = serverDevices.filter((device) => device.deviceId !== this.host?.hostStatus().deviceId);
+    return Promise.all(remoteDevices.map(async (device) => {
       await this.authorizeHostPeer(device);
       const presence = await this.server.presenceFor(device.deviceId).catch(() => ({ online: false }));
       return { ...device, ...presence };
@@ -13328,7 +13329,7 @@ function safeErrorMessage(error) {
 import { platform } from "node:os";
 
 // src/version.ts
-var PLUGIN_VERSION = "0.2.17";
+var PLUGIN_VERSION = "0.2.22";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -13610,7 +13611,9 @@ function parseHostDevice(value) {
     platform: item.platform,
     membershipId: item.membershipId,
     ...typeof item.online === "boolean" ? { online: item.online } : {},
-    ...typeof item.lastSeenAt === "number" && Number.isSafeInteger(item.lastSeenAt) ? { lastSeenAt: item.lastSeenAt } : {}
+    ...typeof item.lastSeenAt === "number" && Number.isSafeInteger(item.lastSeenAt) ? { lastSeenAt: item.lastSeenAt } : {},
+    ...typeof item.clientVersion === "string" ? { clientVersion: item.clientVersion } : {},
+    ...typeof item.harnessVersion === "string" ? { harnessVersion: item.harnessVersion } : {}
   };
 }
 function parseAuthorizedPeer(value) {
@@ -14336,7 +14339,7 @@ var HostServerConnection = class {
     this.socket = socket;
     let acknowledged = false;
     let messageQueue = Promise.resolve();
-    await new Promise((resolve, reject) => {
+    await new Promise((resolve2, reject) => {
       let settled = false;
       const helloTimer = setTimeout(() => socket.close(4001, "hello timeout"), 1e4);
       const finish = (error) => {
@@ -14345,7 +14348,7 @@ var HostServerConnection = class {
         clearTimeout(helloTimer);
         this.online = false;
         if (this.socket === socket) this.socket = void 0;
-        void this.dropTunnels().finally(() => error === void 0 ? resolve() : reject(error));
+        void this.dropTunnels().finally(() => error === void 0 ? resolve2() : reject(error));
       };
       socket.onopen = () => {
         this.sendControl("hello", {
@@ -14726,14 +14729,14 @@ var HostServerConnection = class {
   waitBeforeRetry(baseDelay) {
     const spread = baseDelay * this.config.reconnect.jitter;
     const delay = Math.max(0, Math.round(baseDelay - spread + Math.random() * spread * 2));
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const timer = setTimeout(() => {
         this.retryWake = void 0;
-        resolve();
+        resolve2();
       }, delay);
       this.retryWake = () => {
         clearTimeout(timer);
-        resolve();
+        resolve2();
       };
     });
   }
@@ -14902,6 +14905,51 @@ function closeCode(code) {
   return "CONNECTION_FAILED";
 }
 
+// src/remote-directory-browser.ts
+import { readdir, stat as stat3 } from "node:fs/promises";
+import { homedir as homedir2, platform as platform2 } from "node:os";
+import { basename, dirname as dirname3, isAbsolute, parse, resolve } from "node:path";
+var MAX_ENTRIES = 500;
+async function listRemoteDirectory(path, signal) {
+  signal?.throwIfAborted();
+  const home = resolve(homedir2());
+  const target = path === void 0 || path.trim() === "" ? home : resolve(path);
+  if (!isAbsolute(target)) throw new Error("The remote directory path must be absolute.");
+  const rows = await readdir(target, { withFileTypes: true });
+  const directories = [];
+  for (const row of rows) {
+    signal?.throwIfAborted();
+    const child = resolve(target, row.name);
+    let directory = row.isDirectory();
+    if (!directory && row.isSymbolicLink()) directory = await stat3(child).then((value) => value.isDirectory()).catch(() => false);
+    if (!directory) continue;
+    directories.push({ name: row.name, path: child, hidden: platform2() !== "win32" && row.name.startsWith(".") });
+  }
+  directories.sort((left, right) => left.name.localeCompare(right.name, void 0, { sensitivity: "base" }));
+  return {
+    path: target,
+    home,
+    crumbs: crumbs(target),
+    entries: directories.slice(0, MAX_ENTRIES),
+    truncated: directories.length > MAX_ENTRIES
+  };
+}
+function crumbs(path) {
+  const root = parse(path).root;
+  const result = [{ name: root, path: root, hidden: false }];
+  const segments = [];
+  let current = path;
+  while (current !== root) {
+    segments.unshift(basename(current));
+    current = dirname3(current);
+  }
+  for (const segment of segments) {
+    current = resolve(current, segment);
+    result.push({ name: segment, path: current, hidden: false });
+  }
+  return result;
+}
+
 // src/harness-api-bridge.ts
 var callSchema = external_exports.object({
   method: external_exports.string().min(1).max(80),
@@ -14992,11 +15040,16 @@ var HarnessApiBridge = class {
     const signal = AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS);
     const request = { rpcId: params.rpcId, payload: params.payload };
     try {
-      const response = await withTimeout(
+      let response = await withTimeout(
         method(request, signal),
         NATIVE_CALL_TIMEOUT_MS,
         `Harness API call ${params.method} timed out after ${NATIVE_CALL_TIMEOUT_MS}ms`
       );
+      if (params.method === "host.listDirectory" && needsRemoteDirectoryFallback(response)) {
+        const payload = typeof params.payload === "object" && params.payload !== null ? params.payload : {};
+        const value = await listRemoteDirectory(typeof payload.path === "string" ? payload.path : void 0, signal);
+        response = { rpcId: params.rpcId, result: { ok: true, value } };
+      }
       this.logger?.debug("harness api call ok", {
         method: params.method,
         durationMs: Math.round(performance.now() - startedAt)
@@ -15099,6 +15152,10 @@ var HarnessApiBridge = class {
     }
   }
 };
+function needsRemoteDirectoryFallback(response) {
+  const result = response.result;
+  return typeof result === "object" && result !== null && "ok" in result && result.ok === false && "error" in result && typeof result.error === "object" && result.error !== null && "code" in result.error && result.error.code === "directory-picker-unavailable";
+}
 function createMethodMap(api) {
   const domains = api;
   const methods = /* @__PURE__ */ new Map();
@@ -15131,7 +15188,7 @@ function frameSessionId(frame) {
   return typeof payload.sessionId === "string" && payload.sessionId.length > 0 ? payload.sessionId : void 0;
 }
 function withTimeout(promise, ms, message) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     const timer = setTimeout(() => {
       reject(new RpcError("TIMEOUT", message, void 0, true));
     }, ms);
@@ -15139,7 +15196,7 @@ function withTimeout(promise, ms, message) {
     promise.then(
       (value) => {
         clearTimeout(timer);
-        resolve(value);
+        resolve2(value);
       },
       (error) => {
         clearTimeout(timer);
@@ -15404,6 +15461,7 @@ var HostPluginRuntime = class {
     const error = this.serverConnection?.lastError();
     const authorization = this.serverApi?.currentAuthorization();
     return {
+      ...this.identity === void 0 ? {} : { deviceId: this.identity.deviceId },
       configured: this.serverApi !== void 0,
       online: this.serverConnection?.isOnline() ?? false,
       reconnecting: this.serverConnection?.isReconnecting() ?? false,

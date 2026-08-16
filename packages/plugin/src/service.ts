@@ -13,6 +13,7 @@ import { loadWeriftFactory } from './werift-rtc.js'
 import type { AuthenticatedPeerChannel } from './types.js'
 
 export interface HostRemoteStatus {
+  deviceId?: string
   configured: boolean
   online: boolean
   reconnecting: boolean
@@ -87,6 +88,7 @@ export class HostPluginRuntime {
     const error = this.serverConnection?.lastError()
     const authorization = this.serverApi?.currentAuthorization()
     return {
+      ...(this.identity === undefined ? {} : { deviceId: this.identity.deviceId }),
       configured: this.serverApi !== undefined,
       online: this.serverConnection?.isOnline() ?? false,
       reconnecting: this.serverConnection?.isReconnecting() ?? false,

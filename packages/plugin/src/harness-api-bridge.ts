@@ -16,6 +16,7 @@ import type {
 import { z } from 'zod'
 import type { SafeLogger } from './logging.js'
 import { RpcError } from './rpc-router.js'
+import { listRemoteDirectory } from './remote-directory-browser.js'
 
 type HarnessStream = AsyncIterable<RpcRequest<MuxFrame | HostFrame>>
 type NativeMethod = (request: RpcRequest<unknown>, signal?: AbortSignal) => Promise<RpcResponse<unknown>>
@@ -145,11 +146,16 @@ export class HarnessApiBridge {
       // methods ignore AbortSignal, and without this the Host would never
       // answer and the Web-side 60s timer would fire instead. A guaranteed
       // local response turns that into a fast, explicit RPC error.
-      const response = await withTimeout(
+      let response = await withTimeout(
         method(request, signal),
         NATIVE_CALL_TIMEOUT_MS,
         `Harness API call ${params.method} timed out after ${NATIVE_CALL_TIMEOUT_MS}ms`,
       )
+      if (params.method === 'host.listDirectory' && needsRemoteDirectoryFallback(response)) {
+        const payload = typeof params.payload === 'object' && params.payload !== null ? params.payload as { path?: unknown } : {}
+        const value = await listRemoteDirectory(typeof payload.path === 'string' ? payload.path : undefined, signal)
+        response = { rpcId: params.rpcId as never, result: { ok: true, value } }
+      }
       this.logger?.debug('harness api call ok', {
         method: params.method,
         durationMs: Math.round(performance.now() - startedAt),
@@ -278,6 +284,13 @@ export class HarnessApiBridge {
       if (correlation === value) this.respondable.delete(rpcId)
     }
   }
+}
+
+function needsRemoteDirectoryFallback(response: RpcResponse<unknown>): boolean {
+  const result = response.result
+  return typeof result === 'object' && result !== null && 'ok' in result && result.ok === false
+    && 'error' in result && typeof result.error === 'object' && result.error !== null
+    && 'code' in result.error && result.error.code === 'directory-picker-unavailable'
 }
 
 function createMethodMap(api: ApiProxy): ReadonlyMap<string, NativeMethod> {

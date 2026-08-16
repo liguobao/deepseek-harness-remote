@@ -1,9 +1,31 @@
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { HarnessApiBridge } from '../src/harness-api-bridge.js'
 import { RpcError } from '../src/rpc-router.js'
 
 describe('HarnessApiBridge', () => {
+  it('falls back to read-only Host directory browsing when Harness only serves a native picker', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-remote-directory-'))
+    await mkdir(join(root, 'project'))
+    const listDirectory = vi.fn(async (request: { rpcId: string }) => ({
+      rpcId: request.rpcId,
+      result: { ok: false, error: { code: 'directory-picker-unavailable', message: 'native only', details: {} } },
+    }))
+    const bridge = new HarnessApiBridge(api({ host: { listDirectory } }), vi.fn(async () => undefined))
+    try {
+      await expect(bridge.call({ method: 'host.listDirectory', rpcId: 'native-fallback', payload: { path: root } }))
+        .resolves.toMatchObject({
+          rpcId: 'native-fallback',
+          result: { ok: true, value: { path: root, entries: [{ name: 'project', path: join(root, 'project') }] } },
+        })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('forwards allowlisted native methods and read-only directory browsing while denying privileged methods', async () => {
     const list = vi.fn(async (request: { rpcId: string }) => ({ rpcId: request.rpcId, result: { ok: true, value: [] } }))
     const listDirectory = vi.fn(async (request: { rpcId: string }) => ({

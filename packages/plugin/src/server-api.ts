@@ -42,6 +42,8 @@ export interface ServerHostDevice {
   membershipId: string
   online?: boolean
   lastSeenAt?: number
+  clientVersion?: string
+  harnessVersion?: string
 }
 
 export interface AuthorizedPeerDevice extends ServerHostDevice {
@@ -376,6 +378,8 @@ function parseHostDevice(value: unknown): ServerHostDevice {
     membershipId: item.membershipId,
     ...(typeof item.online === 'boolean' ? { online: item.online } : {}),
     ...(typeof item.lastSeenAt === 'number' && Number.isSafeInteger(item.lastSeenAt) ? { lastSeenAt: item.lastSeenAt } : {}),
+    ...(typeof item.clientVersion === 'string' ? { clientVersion: item.clientVersion } : {}),
+    ...(typeof item.harnessVersion === 'string' ? { harnessVersion: item.harnessVersion } : {}),
   }
 }
 

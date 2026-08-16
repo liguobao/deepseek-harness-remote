@@ -41,6 +41,8 @@ export interface RemoteDeviceView {
   membershipId: string
   online: boolean
   lastSeenAt?: number
+  clientVersion?: string
+  harnessVersion?: string
 }
 
 export interface HostConnectionRpc {
@@ -55,6 +57,7 @@ export interface HostConnectionHandle { rpc: HostConnectionRpc }
 
 export interface HostAuthorizationControl {
   hostStatus(): {
+    deviceId?: string
     configured: boolean
     online: boolean
     reconnecting: boolean
@@ -119,7 +122,8 @@ export class ClientModeRuntime {
   async devices(): Promise<RemoteDeviceView[]> {
     this.requireIdentity()
     const serverDevices = await this.server.listDevices()
-    return Promise.all(serverDevices.map(async device => {
+    const remoteDevices = serverDevices.filter(device => device.deviceId !== this.host?.hostStatus().deviceId)
+    return Promise.all(remoteDevices.map(async device => {
       await this.authorizeHostPeer(device)
       const presence = await this.server.presenceFor(device.deviceId).catch(() => ({ online: false }))
       return { ...device, ...presence }
