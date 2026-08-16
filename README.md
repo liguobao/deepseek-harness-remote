@@ -2,7 +2,11 @@
 
 中文 | [English](README.en.md)
 
-DeepSeek 远程连接（DSH Remote）是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Remote Host Plugin。仓库保留 Desktop Client 实现，但当前版本暂不开放 Client 模式和本地/远程切换入口。
+DeepSeek 远程连接（DSH Remote）是一套面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的安全远程访问方案，让用户可以通过手机或浏览器连接自己的本地 Harness。Host 仅建立出站 HTTPS/WSS 连接，无需开放本机公网端口；传输层支持 WebSocket Relay，并为 WebRTC、STUN/TURN 与网络切换后的自适应传输保留协议能力。
+
+Host 与 Client 使用长期 X25519 设备身份密钥和 Noise IK 协议完成对端认证与端到端加密。Server 仅负责账号与设备授权、在线状态、连接协调及密文转发，无法读取会话内容。远程端只能访问明确允许的 Harness `ApiProxy` 能力，不开放 Shell、任意文件访问、远程桌面或通用工具调用；同一 Host 支持多个 Client 并发连接，每条连接的加密通道、RPC 状态和事件流相互隔离。
+
+当前发布版本以 Remote Host Plugin 形式运行。仓库保留 Desktop Client 实现，但暂不开放 Client 模式和本地/远程切换入口。
 
 > [!WARNING]
 > 项目仍处于开发预览阶段，需要兼容 [Remote Protocol v1](docs/protocol.md) 的外部 Server，尚未完成生产级互操作与独立安全审查，请勿用于生产环境。

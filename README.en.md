@@ -2,7 +2,11 @@
 
 [中文](README.md) | English
 
-DSH Remote is a Remote Host Plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). The repository retains the Desktop Client implementation, but the current release does not expose Client mode or the Local/Remote switch.
+DSH Remote is a secure remote access solution for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), enabling users to connect to their local Harness from a phone or web browser. The Host establishes outbound-only HTTPS/WSS connections and requires no public inbound ports. Its transport layer supports WebSocket Relay, with protocol foundations for WebRTC, STUN/TURN, and adaptive transport after network changes.
+
+The Host and Client use long-term X25519 device identity keys and the Noise IK protocol for peer authentication and end-to-end encryption. The Server handles only account and device authorization, presence, connection coordination, and encrypted payload forwarding, without access to session content. Remote clients are limited to explicitly allowed Harness `ApiProxy` capabilities, with no shell, arbitrary file, remote desktop, or general-purpose tool access. Multiple Clients can connect to the same Host concurrently, with isolated encryption channels, RPC state, and event streams.
+
+The current release runs as a Remote Host Plugin. The repository retains the Desktop Client implementation, but does not currently expose Client mode or the Local/Remote switch.
 
 > [!WARNING]
 > This project is in developer preview. It requires an external Server compatible with [Remote Protocol v1](docs/protocol.md), and production interoperability and an independent security review are not complete. Do not use it in production.
