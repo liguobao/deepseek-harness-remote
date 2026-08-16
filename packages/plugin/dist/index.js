@@ -14443,12 +14443,6 @@ var HostServerConnection = class {
     tunnel.noise.readHandshake(fromBase64Url2(payload.data));
     const reply = tunnel.noise.writeHandshake();
     if (!tunnel.noise.complete) throw new ControlConnectionError("SECURE_CHANNEL_FAILED", "Noise IK handshake did not complete.");
-    this.sendControl("secure.handshake", {
-      connectionId: tunnel.connectionId,
-      targetDeviceId: tunnel.peer.deviceId,
-      step: 2,
-      data: toBase64Url2(reply)
-    });
     const viaWebRtc = tunnel.rtc !== void 0 && (tunnel.transport === "p2p" || tunnel.transport === "turn");
     if (!viaWebRtc && tunnel.transport === "negotiating") tunnel.transport = "relay";
     const mode = viaWebRtc ? tunnel.transport === "turn" ? "TURN" : "P2P" : "Relay";
@@ -14458,6 +14452,12 @@ var HostServerConnection = class {
     }, mode);
     tunnel.channel = channel;
     await this.connections.accept(channel);
+    this.sendControl("secure.handshake", {
+      connectionId: tunnel.connectionId,
+      targetDeviceId: tunnel.peer.deviceId,
+      step: 2,
+      data: toBase64Url2(reply)
+    });
     this.logger.info("authenticated peer channel ready", {
       connectionId: shortId3(tunnel.connectionId),
       peerDeviceId: shortId3(tunnel.peer.deviceId),
@@ -14879,7 +14879,7 @@ var HARNESS_API_ALLOWLIST = [
 ];
 var NATIVE_CALL_TIMEOUT_MS = 3e4;
 var HarnessApiBridge = class {
-  constructor(api, publish, maxStreams = 2, logger) {
+  constructor(api, publish, maxStreams = 3, logger) {
     this.api = api;
     this.publish = publish;
     this.maxStreams = maxStreams;

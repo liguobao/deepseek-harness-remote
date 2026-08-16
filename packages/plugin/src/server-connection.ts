@@ -379,12 +379,6 @@ export class HostServerConnection {
     tunnel.noise.readHandshake(fromBase64Url(payload.data))
     const reply = tunnel.noise.writeHandshake()
     if (!tunnel.noise.complete) throw new ControlConnectionError('SECURE_CHANNEL_FAILED', 'Noise IK handshake did not complete.')
-    this.sendControl('secure.handshake', {
-      connectionId: tunnel.connectionId,
-      targetDeviceId: tunnel.peer.deviceId,
-      step: 2,
-      data: toBase64Url(reply),
-    } satisfies SecureHandshakePayload)
     const viaWebRtc = tunnel.rtc !== undefined && (tunnel.transport === 'p2p' || tunnel.transport === 'turn')
     if (!viaWebRtc && tunnel.transport === 'negotiating') tunnel.transport = 'relay'
     const mode = viaWebRtc ? (tunnel.transport === 'turn' ? 'TURN' : 'P2P') : 'Relay'
@@ -396,6 +390,16 @@ export class HostServerConnection {
     }, mode)
     tunnel.channel = channel
     await this.connections.accept(channel)
+    // Publish the responder handshake only after the channel is registered.
+    // The Client starts its first RPC as soon as step 2 arrives; sending the
+    // reply earlier lets WebRTC deliver that RPC while tunnel.channel is still
+    // undefined, which silently drops the request.
+    this.sendControl('secure.handshake', {
+      connectionId: tunnel.connectionId,
+      targetDeviceId: tunnel.peer.deviceId,
+      step: 2,
+      data: toBase64Url(reply),
+    } satisfies SecureHandshakePayload)
     this.logger.info('authenticated peer channel ready', {
       connectionId: shortId(tunnel.connectionId),
       peerDeviceId: shortId(tunnel.peer.deviceId),

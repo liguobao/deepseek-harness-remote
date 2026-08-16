@@ -124,7 +124,7 @@ export class HarnessApiBridge {
   constructor(
     private readonly api: ApiProxy,
     private readonly publish: PublishFrame,
-    private readonly maxStreams = 2,
+    private readonly maxStreams = 3,
     private readonly logger?: SafeLogger,
   ) {
     this.methods = createMethodMap(api)

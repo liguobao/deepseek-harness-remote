@@ -104,6 +104,36 @@ describe('HarnessApiBridge', () => {
     })
   })
 
+  it('allows one replacement stream per peer while keeping the limit isolated', () => {
+    const stalled = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<never>>(() => undefined),
+      }),
+    }
+    const streamApi = api({
+      events: {
+        mux: () => stalled,
+        host: () => stalled,
+      },
+    })
+    const firstPeer = new HarnessApiBridge(streamApi, vi.fn(async () => undefined))
+    const secondPeer = new HarnessApiBridge(streamApi, vi.fn(async () => undefined))
+
+    firstPeer.openStream({ streamId: 'mux-old', stream: 'mux', rpcId: 'open-1', payload: {} })
+    firstPeer.openStream({ streamId: 'host', stream: 'host', rpcId: 'open-2', payload: {} })
+    expect(firstPeer.openStream({ streamId: 'mux-new', stream: 'mux', rpcId: 'open-3', payload: {} })).toEqual({
+      opened: true,
+      streamId: 'mux-new',
+    })
+    expect(() => firstPeer.openStream({ streamId: 'fourth', stream: 'mux', rpcId: 'open-4', payload: {} }))
+      .toThrow('Too many Harness event streams are open.')
+
+    expect(secondPeer.openStream({ streamId: 'independent', stream: 'host', rpcId: 'open-5', payload: {} })).toEqual({
+      opened: true,
+      streamId: 'independent',
+    })
+  })
+
   it('allows responses only for answerable requests emitted on the same peer bridge', async () => {
     const respond = vi.fn(async () => ({ accepted: true as const }))
     const streamApi = api({

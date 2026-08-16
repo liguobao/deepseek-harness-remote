@@ -17,10 +17,14 @@ class FakeWebSocket {
   onmessage: ((event: { data: unknown }) => void) | null = null
   onerror: ((event: unknown) => void) | null = null
   onclose: ((event: { code: number; reason: string }) => void) | null = null
+  onSend?: (frame: unknown) => void
 
   open(): void { this.readyState = 1; this.onopen?.({}) }
   receive(frame: unknown): void { this.onmessage?.({ data: JSON.stringify(frame) }) }
-  send(data: string): void { this.sent.push(data) }
+  send(data: string): void {
+    this.sent.push(data)
+    this.onSend?.(JSON.parse(data))
+  }
   close(code = 1000, reason = ''): void { this.readyState = 3; this.onclose?.({ code, reason }) }
 }
 
@@ -46,6 +50,13 @@ describe('HostServerConnection', () => {
     }
     const socket = new FakeWebSocket()
     let accepted: AuthenticatedPeerChannel | undefined
+    let acceptedAtHandshakeReply: AuthenticatedPeerChannel | undefined
+    socket.onSend = frame => {
+      const value = frame as { type?: unknown; payload?: { step?: unknown } }
+      if (value.type === 'secure.handshake' && value.payload?.step === 2) {
+        acceptedAtHandshakeReply = accepted
+      }
+    }
     const connections = {
       accept: vi.fn(async (channel: AuthenticatedPeerChannel) => { accepted = channel }),
       closeConnection: vi.fn(async (connectionId: string, code?: string) => {
@@ -131,6 +142,7 @@ describe('HostServerConnection', () => {
     await flush()
     const handshakeReply = JSON.parse(socket.sent[2]!)
     expect(handshakeReply).toMatchObject({ type: 'secure.handshake', payload: { step: 2, targetDeviceId: 'client-1' } })
+    expect(acceptedAtHandshakeReply).toBe(accepted)
     clientNoise.readHandshake(fromBase64UrlForTest(handshakeReply.payload.data))
     expect(accepted?.security).toEqual({
       protocol: 'Noise_IK_25519_ChaChaPoly_SHA256',
