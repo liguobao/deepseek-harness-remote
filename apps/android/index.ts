@@ -1,18 +1,8 @@
+import './src/polyfills';
 import { registerRootComponent } from 'expo';
-import * as ExpoCrypto from 'expo-crypto';
 import { registerGlobals } from 'react-native-webrtc';
 
 import App from './App';
-
-if (globalThis.crypto?.getRandomValues === undefined) {
-  Object.defineProperty(globalThis, 'crypto', {
-    value: {
-      getRandomValues: ExpoCrypto.getRandomValues,
-      randomUUID: ExpoCrypto.randomUUID,
-    },
-    configurable: true,
-  });
-}
 
 registerGlobals();
 

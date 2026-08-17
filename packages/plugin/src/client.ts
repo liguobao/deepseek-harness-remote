@@ -1521,6 +1521,7 @@ window.__ModuleLoader__.load({
       }, RemoteWorkspaceAction))
       ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
         name: 'settings.plugin.item',
+        key: 'dsh-remote',
         id: 'dsh-remote',
         order: 30,
         locale: localeNamespace,

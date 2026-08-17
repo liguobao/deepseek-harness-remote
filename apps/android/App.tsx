@@ -65,12 +65,12 @@ function AppNavigator() {
         const error = parsed.searchParams.get('error')
         if (error !== null) {
           useAppStore.getState().clearError()
-          useAppStore.setState({ error: 'Zhihu sign-in was not completed.' })
+          useAppStore.setState({ error: '知乎授权未完成，请重试。' })
           return
         }
         if (token === null || token.length < 16) {
           useAppStore.getState().clearError()
-          useAppStore.setState({ error: 'Zhihu sign-in returned an invalid session.' })
+          useAppStore.setState({ error: '知乎授权返回了无效会话，请重新登录。' })
           return
         }
         void completeOAuth(token).then(ok => {
@@ -124,9 +124,9 @@ function AppNavigator() {
       {error !== undefined && <ErrorBanner message={error} onDismiss={clearError} />}
       {route.name === 'server' && <ServerSetupScreen onBack={routes.length > 1 ? pop : undefined} onComplete={() => reset({ name: 'devices' })} />}
       {route.name === 'devices' && <DevicesScreen onDevice={device => push({ name: 'device', deviceId: device.deviceId })} onSettings={() => push({ name: 'settings' })} />}
-      {route.name === 'device' && deviceForRoute !== undefined && <DeviceDetailScreen device={deviceForRoute} onBack={pop} onSessions={() => push({ name: 'sessions' })} onWorkspaces={() => push({ name: 'workspaces' })} onForgotten={() => reset({ name: 'devices' })} />}
+      {route.name === 'device' && deviceForRoute !== undefined && <DeviceDetailScreen device={deviceForRoute} onBack={pop} onWorkspaces={() => push({ name: 'workspaces' })} onForgotten={() => reset({ name: 'devices' })} />}
       {route.name === 'device' && deviceForRoute === undefined && <MissingRoute onBack={() => reset({ name: 'devices' })} />}
-      {route.name === 'workspaces' && <WorkspacesScreen onBack={pop} onSessions={() => push({ name: 'sessions' })} />}
+      {route.name === 'workspaces' && <WorkspacesScreen onBack={pop} onSession={() => push({ name: 'chat' })} />}
       {route.name === 'sessions' && <SessionsScreen onBack={pop} onSession={() => push({ name: 'chat' })} />}
       {route.name === 'chat' && <ChatScreen onBack={pop} />}
       {route.name === 'settings' && <SettingsScreen onBack={pop} onReset={() => reset({ name: 'server' })} />}
@@ -139,7 +139,7 @@ function LoadingScreen() {
     <View style={styles.center}>
       <View style={styles.logo}><Bot size={27} color={colors.primary} /></View>
       <Text style={styles.loadingTitle}>DSH Remote</Text>
-      <Text style={styles.loadingBody}>Loading secure device identity…</Text>
+      <Text style={styles.loadingBody}>正在加载安全设备身份…</Text>
     </View>
   )
 }
@@ -147,9 +147,9 @@ function LoadingScreen() {
 function BootError({ message, onRetry }: { message?: string; onRetry: () => void }) {
   return (
     <View style={styles.center}>
-      <Text style={styles.loadingTitle}>Couldn’t start DSH Remote</Text>
-      <Text style={styles.loadingBody}>{message ?? 'Secure storage is unavailable.'}</Text>
-      <View style={styles.retry}><Button label="Try again" onPress={onRetry} /></View>
+      <Text style={styles.loadingTitle}>无法启动 DSH Remote</Text>
+      <Text style={styles.loadingBody}>{message ?? '安全存储当前不可用。'}</Text>
+      <View style={styles.retry}><Button label="重试" onPress={onRetry} /></View>
     </View>
   )
 }
@@ -157,9 +157,9 @@ function BootError({ message, onRetry }: { message?: string; onRetry: () => void
 function MissingRoute({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.center}>
-      <Text style={styles.loadingTitle}>Device unavailable</Text>
-      <Text style={styles.loadingBody}>This device is no longer in the trusted device list.</Text>
-      <View style={styles.retry}><Button label="Back to devices" onPress={onBack} /></View>
+      <Text style={styles.loadingTitle}>设备不可用</Text>
+      <Text style={styles.loadingBody}>该设备已不在可信设备列表中。</Text>
+      <View style={styles.retry}><Button label="返回设备" onPress={onBack} /></View>
     </View>
   )
 }

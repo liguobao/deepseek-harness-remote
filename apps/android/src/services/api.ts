@@ -72,6 +72,16 @@ export class RemoteServerApi {
     return { configured: body.configured }
   }
 
+  async accountMe(accountToken: string): Promise<{ account: string }> {
+    const body = await this.request<unknown>('/api/v1/auth/me', {}, false, accountToken)
+    if (!isRecord(body) || typeof body.account !== 'string' || body.account.length === 0) invalidResponse('account profile')
+    return { account: body.account }
+  }
+
+  async removeSelf(): Promise<void> {
+    await this.request('/api/v1/devices/self', { method: 'DELETE' })
+  }
+
   /** Account password login; the returned token only authorizes device registration. */
   async loginAccount(email: string, password: string): Promise<AccountLoginResult> {
     const body = await this.request<unknown>('/api/v1/auth/login', {

@@ -41,6 +41,9 @@ function fakeCore(): RemoteClientCore & { rpcCalls: CoreRpcMock } {
       if (paramsRecord.method === 'session.selectModel') {
         return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { selected: { provider: 'deepseek-official', model: 'deepseek-v3' } } } }
       }
+      if (paramsRecord.method === 'commands.execute') {
+        return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { commandId: 'permission', result: { kind: 'success' } } } }
+      }
       if (paramsRecord.method === 'session.prompt') {
         return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { accepted: true } } }
       }
@@ -179,6 +182,17 @@ describe('Remote ApiProxy tunnel client', () => {
       method: 'session.selectModel',
       payload: { sessionId: 's1', provider: 'deepseek-official', model: 'deepseek-v3', reasoningEffort: 'high' },
     }), undefined)
+  })
+
+  it('changes the native Harness approval mode through the permission command', async () => {
+    const core = fakeCore()
+    const proxy = new RemoteApiProxy(core)
+    await proxy.sessionSelectPermission('s1', 'default')
+    expect(core.rpcCalls).toHaveBeenCalledWith('harness.api.call', expect.objectContaining({
+      method: 'commands.execute',
+      payload: { agentId: 's1', line: '/permission default' },
+    }), undefined)
+    await expect(proxy.sessionSelectPermission('s1', '../unsafe')).rejects.toMatchObject({ code: 'INVALID_MESSAGE' })
   })
 
   it('lists workspaces with archived session ids', async () => {

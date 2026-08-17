@@ -28,12 +28,12 @@ export function DevicesScreen({ onDevice, onSettings }: {
 
   return (
     <View style={styles.flex}>
-      <TopBar title="DSH Remote" action={<IconButton label="Settings" icon={Settings} onPress={onSettings} />} />
+      <TopBar title="设备" action={<IconButton label="设置" icon={Settings} onPress={onSettings} />} />
       <Screen>
         <View style={styles.pageHeading}>
           <View>
-            <Text style={styles.title}>My devices</Text>
-            <Text style={styles.subtitle}>Harness hosts in your account</Text>
+            <Text style={styles.title}>我的设备</Text>
+            <Text style={styles.subtitle}>选择一台设备开始或继续对话</Text>
           </View>
           <RefreshAction refreshing={refreshing} onPress={() => void refresh()} />
         </View>
@@ -43,15 +43,15 @@ export function DevicesScreen({ onDevice, onSettings }: {
           : devices.length === 0
             ? <EmptyState
                 icon={Laptop}
-                title="No hosts in this account"
-                body="Install the DSH Remote plugin on a computer and sign it into the same Server account. The host will appear here."
+                title="还没有可用设备"
+                body="在电脑上安装 DSH Remote 插件，并登录同一账号，设备就会出现在这里。"
               />
             : <View>{devices.map(device => (
                 <ListRow
                   key={device.deviceId}
                   title={device.name}
                   subtitle={platformName(device.platform)}
-                  meta={device.online ? 'Ready to connect' : lastSeenText(device.lastSeenAt)}
+                  meta={device.online ? '可以连接' : lastSeenText(device.lastSeenAt)}
                   icon={Laptop}
                   status={<StatusBadge status={device.online ? 'online' : 'offline'} />}
                   onPress={() => onDevice(device)}
@@ -62,10 +62,9 @@ export function DevicesScreen({ onDevice, onSettings }: {
   )
 }
 
-export function DeviceDetailScreen({ device, onBack, onSessions, onWorkspaces, onForgotten }: {
+export function DeviceDetailScreen({ device, onBack, onWorkspaces, onForgotten }: {
   device: RemoteDevice
   onBack: () => void
-  onSessions: () => void
   onWorkspaces: () => void
   onForgotten: () => void
 }) {
@@ -82,12 +81,12 @@ export function DeviceDetailScreen({ device, onBack, onSessions, onWorkspaces, o
   const isConnecting = isSelected && (connection.phase === 'connecting' || connection.phase === 'reconnecting')
 
   const forgetDevice = () => Alert.alert(
-    `Forget ${device.name}?`,
-    'This removes the trusted identity from this phone. To reconnect later, trust the host again.',
+    `忘记 ${device.name}？`,
+    '这会移除此手机保存的可信身份。以后重新连接时，需要再次确认设备。',
     [
-      { text: 'Cancel', style: 'cancel' },
+      { text: '取消', style: 'cancel' },
       {
-        text: 'Forget',
+        text: '忘记设备',
         style: 'destructive',
         onPress: () => void forget(device.deviceId).then(forgotten => { if (forgotten) onForgotten() }),
       },
@@ -96,7 +95,7 @@ export function DeviceDetailScreen({ device, onBack, onSessions, onWorkspaces, o
 
   return (
     <View style={styles.flex}>
-      <TopBar title="Device" onBack={onBack} action={<IconButton label="Device options" icon={MoreVertical} onPress={forgetDevice} />} />
+      <TopBar title="设备" onBack={onBack} action={<IconButton label="设备选项" icon={MoreVertical} onPress={forgetDevice} />} />
       <Screen>
         <View style={styles.deviceHero}>
           <View style={styles.deviceIcon}><Laptop size={28} color={colors.primary} /></View>
@@ -106,15 +105,15 @@ export function DeviceDetailScreen({ device, onBack, onSessions, onWorkspaces, o
           </View>
           <StatusBadge
             status={isConnected ? 'relay' : device.online ? 'online' : 'offline'}
-            label={isConnected ? 'Encrypted' : undefined}
+            label={isConnected ? '已加密' : undefined}
           />
         </View>
 
         {connection.error !== undefined && isSelected && (
           <View style={styles.connectionError}>
-            <Text style={styles.connectionErrorTitle}>Connection interrupted</Text>
+            <Text style={styles.connectionErrorTitle}>连接已中断</Text>
             <Text style={styles.connectionErrorBody}>{connection.error}</Text>
-            <Button label="Try again" variant="secondary" onPress={() => void reconnect()} />
+            <Button label="重试" variant="secondary" onPress={() => void reconnect()} />
           </View>
         )}
 
@@ -123,38 +122,38 @@ export function DeviceDetailScreen({ device, onBack, onSessions, onWorkspaces, o
               <View style={styles.trustHeader}>
                 <View style={styles.trustIcon}><ShieldCheck size={22} color={colors.primary} /></View>
                 <View style={styles.trustCopy}>
-                  <Text style={styles.connectCopy}>Trust this host to pin its encryption key on this phone. The key cannot be replaced silently later.</Text>
+                  <Text style={styles.connectCopy}>确认后会在此手机上固定设备加密密钥，后续任何密钥变更都会被阻止。</Text>
                   {device.fingerprint !== undefined && <Text selectable style={styles.fingerprint}>{device.fingerprint}</Text>}
                 </View>
               </View>
-              <Button label="Trust this host" onPress={() => void trust(device)} />
+              <Button label="信任此设备" onPress={() => void trust(device)} />
             </View>
           : !isConnected
             ? <View style={styles.connectArea}>
-                <Text style={styles.connectCopy}>{device.online ? 'Connect to load the host workspace and sessions.' : 'The host appears offline. You can retry when the Remote plugin is running.'}</Text>
-                <Button label="Connect securely" onPress={() => void connect(device)} loading={isConnecting} disabled={!device.online && !isConnecting} />
+                <Text style={styles.connectCopy}>{device.online ? '安全连接后即可查看并继续设备上的对话。' : '设备当前离线，请确认电脑上的 Remote 插件正在运行。'}</Text>
+                <Button label="安全连接" onPress={() => void connect(device)} loading={isConnecting} disabled={!device.online && !isConnecting} />
               </View>
             : <>
-                <SectionTitle>Host</SectionTitle>
+                <SectionTitle>设备信息</SectionTitle>
                 <View style={styles.group}>
                   <KeyValue label="Harness" value={descriptor?.version ?? 'Unknown version'} />
-                  <KeyValue label="Directory" value={descriptor?.cwd ?? 'Unavailable'} mono />
+                  <KeyValue label="目录" value={descriptor?.cwd ?? '不可用'} mono />
                   {descriptor?.provider !== undefined && <KeyValue label="Provider" value={descriptor.provider} />}
-                  {descriptor?.model !== undefined && <KeyValue label="Model" value={descriptor.model} />}
-                  <KeyValue label="Workspaces" value={String(workspaces.length)} />
-                  <KeyValue label="Attached sessions" value={String(descriptor?.attachedSessions ?? 0)} />
+                  {descriptor?.model !== undefined && <KeyValue label="模型" value={descriptor.model} />}
+                  <View style={styles.contentCounts}>
+                    <View style={styles.contentCount}><Text style={styles.contentCountValue}>{workspaces.length}</Text><Text style={styles.contentCountLabel}>工作区</Text></View>
+                    <View style={styles.contentCountDivider} />
+                    <View style={styles.contentCount}><Text style={styles.contentCountValue}>{descriptor?.attachedSessions ?? 0}</Text><Text style={styles.contentCountLabel}>对话</Text></View>
+                  </View>
                 </View>
 
-                <SectionTitle>Connection</SectionTitle>
+                <SectionTitle>安全连接</SectionTitle>
                 <View style={styles.group}>
-                  <KeyValue label="Path" value={connectionPath(connection.stats.mode)} />
-                  <KeyValue label="Encryption" value="Noise IK · ChaCha20-Poly1305" />
-                  <KeyValue label="Received" value={bytesText(connection.stats.bytesReceived)} />
-                  <KeyValue label="Sent" value={bytesText(connection.stats.bytesSent)} />
+                  <KeyValue label="链路" value={connectionPath(connection.stats.mode)} />
+                  <KeyValue label="加密" value="Noise IK · ChaCha20-Poly1305" />
                 </View>
 
-                <View style={styles.primaryArea}><Button label="Open sessions" icon={MessageSquareText} onPress={onSessions} /></View>
-                <View style={styles.secondaryArea}><Button label="Manage workspaces" variant="secondary" onPress={onWorkspaces} /></View>
+                <View style={styles.primaryArea}><Button label="查看工作区与对话" icon={MessageSquareText} onPress={onWorkspaces} /></View>
               </>}
       </Screen>
     </View>
@@ -181,21 +180,21 @@ export function SessionsScreen({ onBack, onSession }: { onBack: () => void; onSe
   return (
     <View style={styles.flex}>
       <TopBar
-        title="Sessions"
+        title="对话"
         onBack={onBack}
-        action={<IconButton label="New session" icon={CirclePlus} onPress={() => void createSession()} disabled={creating} />}
+        action={<IconButton label="新建对话" icon={CirclePlus} onPress={() => void createSession()} disabled={creating} />}
       />
       <Screen>
         <View style={styles.pageHeading}>
-          <View><Text style={styles.title}>Harness sessions</Text><Text style={styles.subtitle}>Continue where you left off</Text></View>
+          <View><Text style={styles.title}>设备上的对话</Text><Text style={styles.subtitle}>继续上次未完成的工作</Text></View>
         </View>
-        {creating && <Text style={styles.creatingText}>Creating session…</Text>}
+        {creating && <Text style={styles.creatingText}>正在创建对话…</Text>}
         {active.length === 0 && archived.length === 0
           ? <EmptyState
               icon={MessageSquareText}
-              title="No sessions"
-              body="Start a session on the host, then open it from this phone."
-              action={<Button label="New session" icon={CirclePlus} onPress={() => void createSession()} loading={creating} />}
+              title="还没有对话"
+              body="新建一个对话，或先在电脑上的 Harness 中开始工作。"
+              action={<Button label="新建对话" icon={CirclePlus} onPress={() => void createSession()} loading={creating} />}
             />
           : <View>
               {active.map(session => (
@@ -218,7 +217,7 @@ export function SessionsScreen({ onBack, onSession }: { onBack: () => void; onSe
                     style={styles.archivedHeader}
                   >
                     <Archive size={16} color={colors.muted} />
-                    <Text style={styles.archivedTitle}>Archived ({archived.length})</Text>
+                    <Text style={styles.archivedTitle}>已归档（{archived.length}）</Text>
                     {showArchived ? <ChevronUp size={16} color={colors.muted} /> : <ChevronDown size={16} color={colors.muted} />}
                   </Pressable>
                   {showArchived && archived.map(session => (
@@ -243,9 +242,9 @@ function sessionTitle(session: RemoteSession): string {
   const projections = (session as { projections?: { values?: Record<string, { title?: string }> } }).projections
   const title = projections?.values?.sessionListMetadata
   const lastPrompt = typeof (title as { lastPromptAt?: number | null } | undefined)?.lastPromptAt === 'number'
-    ? 'Continue'
+    ? '继续对话'
     : undefined
-  return lastPrompt ?? (session.parentSessionId === undefined ? 'Session' : 'Subagent')
+  return lastPrompt ?? (session.parentSessionId === undefined ? '新对话' : '子代理对话')
 }
 
 function platformName(platform: string): string {
@@ -254,17 +253,17 @@ function platformName(platform: string): string {
 }
 
 function updatedText(timestamp?: number): string {
-  if (timestamp === undefined) return 'Update time unavailable'
+  if (timestamp === undefined) return '更新时间不可用'
   const delta = Math.max(0, Date.now() - timestamp)
-  if (delta < 60_000) return 'Updated just now'
-  if (delta < 3_600_000) return `Updated ${Math.floor(delta / 60_000)} min ago`
-  if (delta < 86_400_000) return `Updated ${Math.floor(delta / 3_600_000)} hr ago`
-  return `Updated ${new Date(timestamp).toLocaleDateString()}`
+  if (delta < 60_000) return '刚刚更新'
+  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前更新`
+  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前更新`
+  return `${new Date(timestamp).toLocaleDateString('zh-CN')} 更新`
 }
 
 function lastSeenText(value?: number): string {
-  if (value === undefined) return 'Last seen unavailable'
-  return Number.isFinite(value) ? updatedText(value).replace('Updated', 'Last seen') : 'Last seen unavailable'
+  if (value === undefined) return '最近在线时间不可用'
+  return Number.isFinite(value) ? updatedText(value) : '最近在线时间不可用'
 }
 
 function connectionPath(mode: string | undefined): string {
@@ -276,13 +275,6 @@ function connectionPath(mode: string | undefined): string {
     Disconnected: 'Disconnected',
   }
   return mode === undefined ? 'Unavailable' : names[mode] ?? mode
-}
-
-function bytesText(value: number | undefined): string {
-  if (value === undefined) return 'Unavailable'
-  if (value < 1024) return `${value} B`
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`
 }
 
 const styles = StyleSheet.create({
@@ -307,6 +299,11 @@ const styles = StyleSheet.create({
   group: { borderRadius: radius.lg, backgroundColor: colors.surface, paddingHorizontal: spacing.md },
   primaryArea: { marginTop: spacing.xxl },
   secondaryArea: { marginTop: spacing.sm },
+  contentCounts: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md },
+  contentCount: { flex: 1, alignItems: 'center' },
+  contentCountValue: { ...type.heading, color: colors.ink },
+  contentCountLabel: { ...type.caption, color: colors.muted, marginTop: 2 },
+  contentCountDivider: { width: StyleSheet.hairlineWidth, height: 32, backgroundColor: colors.separator },
   creatingText: { ...type.small, color: colors.muted, marginBottom: spacing.sm },
   archivedSection: { marginTop: spacing.lg },
   archivedHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.sm },

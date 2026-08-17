@@ -163,6 +163,17 @@ export class RemoteApiProxy {
     return result.selected
   }
 
+  async sessionSelectPermission(sessionId: string, preset: string): Promise<void> {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(preset)) {
+      throw new ApiProxyError('INVALID_MESSAGE', 'Harness returned an invalid permission preset.')
+    }
+    const execution = await this.call<{
+      result: { kind: 'success' | 'error'; text?: string }
+    } | undefined>('commands.execute', { agentId: sessionId, line: `/permission ${preset}` })
+    if (execution === undefined) throw new ApiProxyError('UNSUPPORTED', 'The Host does not provide the permission command.')
+    if (execution.result.kind === 'error') throw new ApiProxyError('COMMAND_FAILED', execution.result.text ?? 'The Host rejected the permission preset.')
+  }
+
   async sessionHistory(sessionId: string, beforeSeq?: number, maxMessages = 60): Promise<SessionHistoryPage> {
     const result = await this.call<{ events: HistoryEntry[]; hasMore: boolean }>('session.history', {
       sessionId,

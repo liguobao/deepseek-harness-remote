@@ -56,11 +56,13 @@ export class ServerSessionManager {
     webToken: string,
   ): Promise<AuthenticatedServer> {
     const publicApi = this.apiFactory(baseUrl)
+    const profile = await publicApi.accountMe(webToken)
     const tokens = await publicApi.registerDevice(identity, webToken)
     const credentials: DeviceCredentials = {
       serverUrl: baseUrl,
       deviceId: identity.deviceId,
       authorizationMethod: 'account',
+      account: profile.account,
       ...tokens,
     }
     await this.persistence.save(credentials)

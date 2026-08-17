@@ -14,10 +14,8 @@
       "package": "io.github.liguobao.dshremote",
       "versionCode": 6,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": true
     },
@@ -32,6 +30,7 @@
         "expo-build-properties",
         {
           "android": {
+            "minSdkVersion": 31,
             "usesCleartextTraffic": true
           }
         }

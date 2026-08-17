@@ -55,6 +55,7 @@ interface AppState {
   messages: Record<string, ChatItem[]>
   sessionModels?: SessionModels
   modelSelecting: boolean
+  permissionSelecting: boolean
   historyHasMore: boolean
   historyLoadingOlder: boolean
   oldestLoadedSeq?: number
@@ -81,9 +82,10 @@ interface AppState {
   stopSession(): Promise<void>
   respondApproval(itemId: string, outcome: 'allowed-once' | 'rejected'): Promise<void>
   respondQuestion(itemId: string, selected: Record<string, string[]>): Promise<void>
-  createSession(): Promise<boolean>
+  createSession(workspaceId?: string): Promise<boolean>
   archiveSession(sessionId: string): Promise<boolean>
   selectModel(selection: ModelSelection): Promise<boolean>
+  selectPermission(preset: string): Promise<boolean>
   loadOlderHistory(): Promise<void>
   workspaceCreate(path: string): Promise<boolean>
   workspaceRename(workspaceId: string, title: string): Promise<boolean>
@@ -92,6 +94,7 @@ interface AppState {
   hostListDirectory(path?: string): Promise<import('../types').DirectoryListing | undefined>
   setTransportPreference(preference: TransportPreference): Promise<void>
   resetLocalData(): Promise<void>
+  signOut(): Promise<void>
   setOffline(): void
   clearError(): void
   handleMuxFrame(frame: MuxStreamFrame): void
@@ -113,6 +116,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessions: [],
   messages: {},
   modelSelecting: false,
+  permissionSelecting: false,
   historyHasMore: false,
   historyLoadingOlder: false,
   transportPreference: 'auto',
@@ -127,7 +131,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         loadOrCreateIdentity(),
         loadTransportPreference(),
       ])
-      set({ config, identity, transportPreference, bootPhase: 'ready' })
+      set({ config, identity, account: config?.account, transportPreference, bootPhase: 'ready' })
       if (config !== undefined) await get().refreshDevices()
     } catch (error) {
       set({ bootPhase: 'error', error: friendlyError(error) })
@@ -143,7 +147,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const publicApi = new RemoteServerApi(baseUrl)
       await publicApi.health()
       const { credentials } = await serverSession.authenticateWithAccount(baseUrl, identity, email, password)
-      const config = { baseUrl }
+      const config = { baseUrl, account: credentials.account, loginMethod: 'password' as const }
       await saveServerConfig(config)
       set({
         config,
@@ -201,7 +205,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const publicApi = new RemoteServerApi(baseUrl)
       await publicApi.health()
       const { credentials } = await serverSession.authenticateWithOAuthToken(baseUrl, identity, webToken)
-      const config = { baseUrl }
+      const config = { baseUrl, account: credentials.account, loginMethod: 'oauth' as const }
       await saveServerConfig(config)
       set({
         config,
@@ -348,12 +352,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async createSession() {
+  async createSession(workspaceId) {
     if (get().connection.phase !== 'connected') return false
     set({ busyAction: 'create-session', error: undefined })
     try {
       const proxy = connection.requireProxy()
-      const { sessionId } = await proxy.sessionCreate()
+      const { sessionId } = await proxy.sessionCreate(workspaceId)
       const sessions = await proxy.sessionList()
       set({ sessions, busyAction: undefined })
       const created = sessions.find(session => session.sessionId === sessionId)
@@ -399,6 +403,35 @@ export const useAppStore = create<AppState>((set, get) => ({
       return true
     } catch (error) {
       set({ modelSelecting: false, error: friendlyError(error) })
+      return false
+    }
+  },
+
+  async selectPermission(preset) {
+    const session = get().selectedSession
+    if (session === undefined || get().connection.phase !== 'connected') return false
+    set({ permissionSelecting: true, error: undefined })
+    try {
+      await connection.requireProxy().sessionSelectPermission(session.sessionId, preset)
+      set(state => {
+        const update = (item: RemoteSession): RemoteSession => {
+          if (item.sessionId !== session.sessionId || item.projections?.values === undefined) return item
+          const permissions = item.projections.values.permissions
+          if (typeof permissions !== 'object' || permissions === null) return item
+          return {
+            ...item,
+            projections: { values: { ...item.projections.values, permissions: { ...permissions, currentValue: preset } } },
+          }
+        }
+        return {
+          sessions: state.sessions.map(update),
+          selectedSession: state.selectedSession === undefined ? undefined : update(state.selectedSession),
+          permissionSelecting: false,
+        }
+      })
+      return true
+    } catch (error) {
+      set({ permissionSelecting: false, error: friendlyError(error) })
       return false
     }
   },
@@ -628,6 +661,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ ...initialData(), identity, bootPhase: 'ready' })
   },
 
+  async signOut() {
+    const { config, identity } = get()
+    await get().disconnect()
+    if (config !== undefined && identity !== undefined) {
+      try {
+        const { api } = await serverSession.authenticate(config.baseUrl, identity)
+        await api.removeSelf()
+      } catch {
+        // Local sign-out must still complete if the server is unavailable.
+      }
+    }
+    await clearLocalData()
+    const nextIdentity = await loadOrCreateIdentity()
+    set({ ...initialData(), identity: nextIdentity, bootPhase: 'ready' })
+  },
+
   async setTransportPreference(preference) {
     await saveTransportPreference(preference)
     const wasConnected = get().connection.phase === 'connected' || get().connection.phase === 'reconnecting'
@@ -735,7 +784,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function initialData(): Pick<AppState,
   'config' | 'account' | 'devices' | 'selectedDevice' | 'connection' | 'hostDescriptor' | 'workspaces' |
-  'archivedSessionIds' | 'sessions' | 'selectedSession' | 'messages' | 'sessionModels' | 'modelSelecting' |
+  'archivedSessionIds' | 'sessions' | 'selectedSession' | 'messages' | 'sessionModels' | 'modelSelecting' | 'permissionSelecting' |
   'historyHasMore' | 'historyLoadingOlder' | 'oldestLoadedSeq' | 'transportPreference' | 'authPhase' | 'refreshing' | 'busyAction' | 'error'> {
   return {
     config: undefined,
@@ -751,6 +800,7 @@ function initialData(): Pick<AppState,
     messages: {},
     sessionModels: undefined,
     modelSelecting: false,
+    permissionSelecting: false,
     historyHasMore: false,
     historyLoadingOlder: false,
     oldestLoadedSeq: undefined,

@@ -9,6 +9,8 @@ export type ConnectionPhase =
 
 export interface ServerConfig {
   baseUrl: string
+  account?: string
+  loginMethod?: 'oauth' | 'password'
 }
 
 export interface DeviceIdentity {
@@ -143,6 +145,20 @@ export interface RemoteSession {
   origin?: 'subagent'
   cwd?: string
   agentPreset?: string
+  projections?: {
+    values?: Record<string, unknown>
+  }
+}
+
+export interface PermissionPresetOption {
+  value: string
+  name: string
+  description?: string
+}
+
+export interface PermissionSelect {
+  currentValue: string
+  options: PermissionPresetOption[]
 }
 
 export interface HistoryEntry {
@@ -276,7 +292,7 @@ export interface TransportPreferenceOption {
 }
 
 export const TRANSPORT_PREFERENCE_OPTIONS: TransportPreferenceOption[] = [
-  { value: 'auto', name: 'Auto', description: 'Try P2P and TURN first, fall back to Relay' },
-  { value: 'turn', name: 'TURN first', description: 'Route through TURN, fall back to Relay' },
-  { value: 'relay', name: 'Relay only', description: 'Always use the server Relay channel' },
+  { value: 'auto', name: '自动', description: '优先尝试 P2P 和 TURN，失败后使用中继' },
+  { value: 'turn', name: 'TURN 优先', description: '优先通过 TURN 连接，失败后使用中继' },
+  { value: 'relay', name: '仅中继', description: '始终使用服务器中继通道' },
 ]

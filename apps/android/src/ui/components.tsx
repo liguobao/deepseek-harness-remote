@@ -31,7 +31,7 @@ export function TopBar({ title, onBack, action }: { title: string; onBack?: () =
     <View style={styles.topBar}>
       <View style={styles.topBarSide}>
         {onBack !== undefined && (
-          <IconButton label="Go back" icon={ArrowLeft} onPress={onBack} />
+          <IconButton label="返回" icon={ArrowLeft} onPress={onBack} />
         )}
       </View>
       <Text style={styles.topBarTitle} numberOfLines={1}>{title}</Text>
@@ -127,8 +127,8 @@ export function ErrorBanner({ message, onDismiss, onRetry }: { message: string; 
     <View accessibilityRole="alert" style={styles.errorBanner}>
       <AlertCircle size={20} color={colors.danger} />
       <Text style={styles.errorBannerText}>{message}</Text>
-      {onRetry !== undefined && <Pressable accessibilityRole="button" onPress={onRetry}><Text style={styles.errorAction}>Try again</Text></Pressable>}
-      {onDismiss !== undefined && <Pressable accessibilityRole="button" onPress={onDismiss}><Text style={styles.errorAction}>Dismiss</Text></Pressable>}
+      {onRetry !== undefined && <Pressable accessibilityRole="button" onPress={onRetry}><Text style={styles.errorAction}>重试</Text></Pressable>}
+      {onDismiss !== undefined && <Pressable accessibilityRole="button" onPress={onDismiss}><Text style={styles.errorAction}>关闭</Text></Pressable>}
     </View>
   )
 }
@@ -195,7 +195,7 @@ export function LoadingRows({ count = 3 }: { count?: number }) {
 }
 
 export function RefreshAction({ refreshing, onPress }: { refreshing: boolean; onPress: () => void }) {
-  return <IconButton label="Refresh" icon={RefreshCw} onPress={onPress} disabled={refreshing} />
+  return <IconButton label="刷新" icon={RefreshCw} onPress={onPress} disabled={refreshing} />
 }
 
 export function SuccessNotice({ children }: { children: ReactNode }) {
@@ -210,18 +210,18 @@ const buttonStyles = StyleSheet.create({
 })
 
 const badgeStyles = {
-  online: { label: 'Online', background: colors.successSoft, foreground: colors.success },
-  offline: { label: 'Offline', background: colors.surfaceStrong, foreground: colors.muted },
-  relay: { label: 'Relay', background: colors.warningSoft, foreground: colors.warning },
+  online: { label: '在线', background: colors.successSoft, foreground: colors.success },
+  offline: { label: '离线', background: colors.surfaceStrong, foreground: colors.muted },
+  relay: { label: '中继', background: colors.warningSoft, foreground: colors.warning },
   p2p: { label: 'P2P', background: colors.accentSoft, foreground: colors.accent },
-  waiting: { label: 'Waiting', background: colors.warningSoft, foreground: colors.warning },
-  running: { label: 'Running', background: colors.accentSoft, foreground: colors.accent },
+  waiting: { label: '等待中', background: colors.warningSoft, foreground: colors.warning },
+  running: { label: '运行中', background: colors.accentSoft, foreground: colors.accent },
 } as const
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   screenContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxxl },
-  topBar: { height: 60, paddingHorizontal: spacing.sm, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator, backgroundColor: colors.background },
+  topBar: { height: 60, paddingHorizontal: spacing.sm, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator, backgroundColor: colors.surface },
   topBarSide: { width: 52, alignItems: 'flex-start' },
   topBarTrailing: { alignItems: 'flex-end' },
   topBarTitle: { ...type.heading, flex: 1, textAlign: 'center', color: colors.ink },

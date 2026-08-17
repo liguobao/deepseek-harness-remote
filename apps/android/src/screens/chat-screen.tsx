@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -13,7 +14,7 @@ import {
 } from 'react-native'
 import { Bot, Check, ChevronDown, CircleStop, Code2, Send, ShieldAlert, Sparkles, User, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
-import type { ApprovalActivity, ChatItem, ChatMessage, ModelCatalogModel, ModelProviderGroup, QuestionActivity, ToolActivity } from '../types'
+import type { ApprovalActivity, ChatItem, ChatMessage, ModelCatalogModel, ModelProviderGroup, PermissionSelect, QuestionActivity, RemoteSession, ToolActivity } from '../types'
 import { Button, IconButton, TopBar } from '../ui/components'
 import { colors, radius, spacing, type } from '../ui/theme'
 
@@ -26,14 +27,17 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const historyLoadingOlder = useAppStore(state => state.historyLoadingOlder)
   const sessionModels = useAppStore(state => state.sessionModels)
   const modelSelecting = useAppStore(state => state.modelSelecting)
+  const permissionSelecting = useAppStore(state => state.permissionSelecting)
   const sendMessage = useAppStore(state => state.sendMessage)
   const stopSession = useAppStore(state => state.stopSession)
   const respondApproval = useAppStore(state => state.respondApproval)
   const respondQuestion = useAppStore(state => state.respondQuestion)
   const loadOlderHistory = useAppStore(state => state.loadOlderHistory)
   const selectModel = useAppStore(state => state.selectModel)
+  const selectPermission = useAppStore(state => state.selectPermission)
   const [draft, setDraft] = useState('')
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [permissionPickerOpen, setPermissionPickerOpen] = useState(false)
   const listRef = useRef<FlatList<ChatItem>>(null)
   const lastItem = messages.at(-1)
   const lastText = lastItem?.kind === 'message' ? lastItem.text : undefined
@@ -57,35 +61,50 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   }
 
   const connected = connection.phase === 'connected'
+  const permissions = sessionPermissions(session)
+  const currentPermission = permissions?.options.find(option => option.value === permissions.currentValue)
+
+  const pickPermission = (preset: string) => {
+    setPermissionPickerOpen(false)
+    const apply = () => void selectPermission(preset)
+    if (preset === 'danger-full-access') {
+      Alert.alert('确认启用 Full access？', '开启后，Harness 可以直接修改文件、运行命令和执行更多敏感操作。请仅在信任当前任务时开启。', [
+        { text: '取消', style: 'cancel' },
+        { text: '启用', style: 'destructive', onPress: apply },
+      ])
+    } else apply()
+  }
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={0}>
       <TopBar
         title={sessionTitle(session.sessionId)}
         onBack={onBack}
         action={busy === 'send-message' || session.running
-          ? <IconButton label="Stop generation" icon={CircleStop} onPress={() => void stopSession()} disabled={busy === 'stop-session'} />
+          ? <IconButton label="停止生成" icon={CircleStop} onPress={() => void stopSession()} disabled={busy === 'stop-session'} />
           : undefined}
       />
 
-      {sessionModels !== undefined && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Choose model"
-          onPress={() => setModelPickerOpen(true)}
-          style={styles.modelChip}
-        >
-          <Sparkles size={14} color={colors.primary} />
-          <Text style={styles.modelChipText} numberOfLines={1}>{sessionModels.current.model}</Text>
-          {modelSelecting
-            ? <ActivityIndicator size="small" color={colors.muted} />
-            : <ChevronDown size={14} color={colors.muted} />}
-        </Pressable>
-      )}
+      <View style={styles.sessionControls}>
+        {sessionModels !== undefined && (
+          <Pressable accessibilityRole="button" accessibilityLabel="选择模型" onPress={() => setModelPickerOpen(true)} style={styles.modelChip}>
+            <Sparkles size={14} color={colors.primary} />
+            <Text style={styles.modelChipText} numberOfLines={1}>{sessionModels.current.model}</Text>
+            {modelSelecting ? <ActivityIndicator size="small" color={colors.muted} /> : <ChevronDown size={14} color={colors.muted} />}
+          </Pressable>
+        )}
+        {permissions !== undefined && (
+          <Pressable accessibilityRole="button" accessibilityLabel={`审批模式：${currentPermission?.name ?? permissions.currentValue}`} onPress={() => setPermissionPickerOpen(true)} style={styles.permissionChip}>
+            <ShieldAlert size={14} color={colors.primary} />
+            <Text style={styles.modelChipText} numberOfLines={1}>{currentPermission?.name ?? permissions.currentValue}</Text>
+            {permissionSelecting ? <ActivityIndicator size="small" color={colors.muted} /> : <ChevronDown size={14} color={colors.muted} />}
+          </Pressable>
+        )}
+      </View>
 
       {connection.phase !== 'connected' && (
         <View style={styles.connectionBanner} accessibilityRole="alert">
           <View style={styles.connectionDot} />
-          <Text style={styles.connectionBannerText}>{connection.phase === 'reconnecting' ? 'Reconnecting to host…' : 'Host connection is offline. Messages cannot be sent.'}</Text>
+          <Text style={styles.connectionBannerText}>{connection.phase === 'reconnecting' ? '正在重新连接设备…' : '设备连接已离线，暂时无法发送消息。'}</Text>
         </View>
       )}
 
@@ -102,14 +121,14 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         ListHeaderComponent={historyHasMore ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Load earlier messages"
+            accessibilityLabel="加载更早消息"
             disabled={historyLoadingOlder}
             onPress={() => void loadOlderHistory()}
             style={styles.olderButton}
           >
             {historyLoadingOlder
               ? <ActivityIndicator size="small" color={colors.primary} />
-              : <Text style={styles.olderText}>Load earlier messages</Text>}
+              : <Text style={styles.olderText}>加载更早消息</Text>}
           </Pressable>
         ) : undefined}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
@@ -118,11 +137,11 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
       <View style={styles.composerWrap}>
         <View style={styles.composer}>
           <TextInput
-            accessibilityLabel="Message to DeepSeek Harness"
+            accessibilityLabel="发送给 DeepSeek Harness 的消息"
             style={styles.composerInput}
             value={draft}
             onChangeText={setDraft}
-            placeholder="Ask DSH…"
+            placeholder="给 DSH 发消息…"
             placeholderTextColor={colors.muted}
             multiline
             maxLength={12_000}
@@ -131,7 +150,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
           />
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Send message"
+            accessibilityLabel="发送消息"
             accessibilityState={{ disabled: !connected || draft.trim().length === 0 }}
             disabled={!connected || draft.trim().length === 0}
             onPress={() => void submit()}
@@ -140,7 +159,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
             <Send size={19} color={colors.white} />
           </Pressable>
         </View>
-        <Text style={styles.composerHint}>Actions still follow the host’s Harness permission policy.</Text>
+        <Text style={styles.composerHint}>所有操作仍遵循设备端 Harness 的权限策略。</Text>
       </View>
 
       <ModelPicker
@@ -149,8 +168,50 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         onClose={() => setModelPickerOpen(false)}
         onPick={pickModel}
       />
+      <PermissionPicker visible={permissionPickerOpen} permissions={permissions} onClose={() => setPermissionPickerOpen(false)} onPick={pickPermission} />
     </KeyboardAvoidingView>
   )
+}
+
+function PermissionPicker({ visible, permissions, onClose, onPick }: {
+  visible: boolean
+  permissions?: PermissionSelect
+  onClose: () => void
+  onPick: (preset: string) => void
+}) {
+  if (permissions === undefined) return null
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Pressable style={styles.modalSheet} onPress={event => event.stopPropagation()}>
+          <View style={styles.modalHeader}><Text style={styles.modalTitle}>审批模式</Text><IconButton label="关闭" icon={X} onPress={onClose} /></View>
+          {permissions.options.filter(option => option.value !== 'custom').map(option => {
+            const current = option.value === permissions.currentValue
+            return (
+              <Pressable key={option.value} accessibilityRole="button" accessibilityState={{ selected: current }} onPress={() => onPick(option.value)} style={[styles.permissionOption, current && styles.modelOptionCurrent]}>
+                <View style={styles.permissionOptionCopy}><Text style={styles.modelOptionName}>{option.name}</Text>{option.description !== undefined && <Text style={styles.permissionOptionDescription}>{option.description}</Text>}</View>
+                {current && <Check size={16} color={colors.primary} />}
+              </Pressable>
+            )
+          })}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  )
+}
+
+function sessionPermissions(session: RemoteSession): PermissionSelect | undefined {
+  const value = session.projections?.values?.permissions
+  if (typeof value !== 'object' || value === null) return undefined
+  const source = value as { currentValue?: unknown; options?: unknown }
+  if (typeof source.currentValue !== 'string' || !Array.isArray(source.options)) return undefined
+  const options = source.options.flatMap(option => {
+    if (typeof option !== 'object' || option === null) return []
+    const item = option as { value?: unknown; name?: unknown; description?: unknown }
+    if (typeof item.value !== 'string' || typeof item.name !== 'string') return []
+    return [{ value: item.value, name: item.name, ...(typeof item.description === 'string' ? { description: item.description } : {}) }]
+  })
+  return { currentValue: source.currentValue, options }
 }
 
 function ModelPicker({ visible, models, onClose, onPick }: {
@@ -165,8 +226,8 @@ function ModelPicker({ visible, models, onClose, onPick }: {
       <Pressable style={styles.modalBackdrop} onPress={onClose}>
         <Pressable style={styles.modalSheet} onPress={event => event.stopPropagation()}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Choose model</Text>
-            <IconButton label="Close" icon={X} onPress={onClose} />
+            <Text style={styles.modalTitle}>选择模型</Text>
+            <IconButton label="关闭" icon={X} onPress={onClose} />
           </View>
           {models.groups.map(group => (
             <View key={group.id} style={styles.modelGroupBlock}>
@@ -221,9 +282,9 @@ function MessageBubble({ item }: { item: ChatMessage }) {
         {user ? <User size={16} color={colors.white} /> : <Bot size={17} color={colors.primary} />}
       </View>
       <View style={[styles.messageBody, user && styles.messageBodyUser]}>
-        <Text style={styles.messageLabel}>{user ? 'You' : item.role === 'system' ? 'System' : 'DSH'}</Text>
+        <Text style={styles.messageLabel}>{user ? '你' : item.role === 'system' ? '系统' : 'DSH'}</Text>
         <FormattedText text={item.text} />
-        {item.streaming && <View style={styles.streamingCursor} accessibilityLabel="Response streaming" />}
+        {item.streaming && <View style={styles.streamingCursor} accessibilityLabel="正在生成回复" />}
       </View>
     </View>
   )
@@ -237,7 +298,7 @@ function FormattedText({ text }: { text: string }) {
 }
 
 function ToolRow({ item }: { item: ToolActivity }) {
-  const stateText = item.state === 'running' ? 'Running' : item.state === 'failed' ? 'Failed' : 'Finished'
+  const stateText = item.state === 'running' ? '运行中' : item.state === 'failed' ? '失败' : '已完成'
   return (
     <View style={styles.toolRow}>
       <View style={styles.toolIcon}><Code2 size={17} color={colors.primary} /></View>
@@ -260,7 +321,7 @@ function ApprovalCard({ item, busy, onRespond }: {
     return (
       <View style={styles.permissionResolved}>
         {denied ? <X size={18} color={colors.danger} /> : <Check size={18} color={colors.success} />}
-        <Text style={styles.permissionResolvedText}>{denied ? 'Action not allowed' : 'Allowed once'}</Text>
+        <Text style={styles.permissionResolvedText}>{denied ? '操作未允许' : '已允许一次'}</Text>
       </View>
     )
   }
@@ -269,7 +330,7 @@ function ApprovalCard({ item, busy, onRespond }: {
       <View style={styles.permissionHeader}>
         <View style={styles.permissionIcon}><ShieldAlert size={20} color={colors.warning} /></View>
         <View style={styles.permissionHeaderCopy}>
-          <Text style={styles.permissionTitle}>Permission required</Text>
+          <Text style={styles.permissionTitle}>需要你的授权</Text>
           <Text style={styles.permissionKind}>{item.toolName} on host</Text>
         </View>
       </View>
@@ -278,10 +339,10 @@ function ApprovalCard({ item, busy, onRespond }: {
           <Text selectable style={styles.permissionText}>{item.reason}</Text>
         </View>
       )}
-      <Text style={styles.permissionScope}>Allow once applies only to this request and never bypasses host policy.</Text>
+      <Text style={styles.permissionScope}>“仅允许一次”只对当前请求生效，且不会绕过设备端策略。</Text>
       <View style={styles.permissionActions}>
-        <Button label="Allow once" onPress={() => void onRespond(item.id, 'allowed-once')} loading={busy} />
-        <Button label="Reject" variant="quiet" onPress={() => void onRespond(item.id, 'rejected')} disabled={busy} />
+        <Button label="仅允许一次" onPress={() => void onRespond(item.id, 'allowed-once')} loading={busy} />
+        <Button label="拒绝" variant="quiet" onPress={() => void onRespond(item.id, 'rejected')} disabled={busy} />
       </View>
     </View>
   )
@@ -298,7 +359,7 @@ function QuestionCard({ item, busy, onRespond }: {
     return (
       <View style={styles.permissionResolved}>
         <Check size={18} color={colors.success} />
-        <Text style={styles.permissionResolvedText}>{item.outcome === 'answered' ? 'Question answered' : 'Question cancelled'}</Text>
+        <Text style={styles.permissionResolvedText}>{item.outcome === 'answered' ? '已回答问题' : '已取消问题'}</Text>
       </View>
     )
   }
@@ -320,8 +381,8 @@ function QuestionCard({ item, busy, onRespond }: {
       <View style={styles.permissionHeader}>
         <View style={styles.permissionIcon}><ShieldAlert size={20} color={colors.accent} /></View>
         <View style={styles.permissionHeaderCopy}>
-          <Text style={styles.permissionTitle}>DSH has a question</Text>
-          <Text style={styles.permissionKind}>Answer to continue</Text>
+          <Text style={styles.permissionTitle}>DSH 需要确认</Text>
+          <Text style={styles.permissionKind}>回答后继续</Text>
         </View>
       </View>
       {item.questions.map(question => (
@@ -345,7 +406,7 @@ function QuestionCard({ item, busy, onRespond }: {
           })}
         </View>
       ))}
-      <Button label="Submit answer" onPress={() => void onRespond(item.id, selected)} loading={busy} disabled={!allAnswered} />
+      <Button label="提交回答" onPress={() => void onRespond(item.id, selected)} loading={busy} disabled={!allAnswered} />
     </View>
   )
 }
@@ -354,15 +415,17 @@ function WelcomeMessage() {
   return (
     <View style={styles.welcome}>
       <View style={styles.welcomeIcon}><Bot size={25} color={colors.primary} /></View>
-      <Text style={styles.welcomeTitle}>Continue this session</Text>
-      <Text style={styles.welcomeBody}>Ask DSH to inspect, explain, or change something in the current workspace. Tool use and permission requests will appear here.</Text>
+      <Text style={styles.welcomeTitle}>继续这段对话</Text>
+      <Text style={styles.welcomeBody}>告诉 DSH 你想检查、解释或修改什么。工具调用和授权请求会直接显示在对话中。</Text>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
-  modelChip: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.lg, paddingVertical: 8, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
+  sessionControls: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
+  modelChip: { minWidth: 0, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: 8, borderRadius: radius.sm, backgroundColor: colors.surfaceStrong },
+  permissionChip: { minWidth: 0, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: 8, borderRadius: radius.sm, backgroundColor: colors.primarySoft },
   modelChipText: { ...type.smallStrong, color: colors.ink, flexShrink: 1 },
   olderButton: { alignSelf: 'center', paddingVertical: spacing.xs, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
   olderText: { ...type.smallStrong, color: colors.primary },
@@ -375,6 +438,9 @@ const styles = StyleSheet.create({
   modelOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs },
   modelOptionCurrent: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   modelOptionName: { ...type.small, color: colors.ink, flex: 1 },
+  permissionOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surface, marginBottom: spacing.xs },
+  permissionOptionCopy: { flex: 1 },
+  permissionOptionDescription: { ...type.caption, color: colors.muted, marginTop: 2 },
   modelFailures: { ...type.caption, color: colors.danger, marginTop: spacing.sm },
   connectionBanner: { minHeight: 40, paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, backgroundColor: colors.warningSoft, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   connectionDot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.warning },
