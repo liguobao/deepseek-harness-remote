@@ -71,13 +71,17 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 
 `apps/android` 已迁移到当前 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key
 固定、Adaptive transport + Noise secure channel、`harness.api.call/respond/stream.open/close`
-tunnel 与 mux frame 聊天。剩余工作：
+tunnel 与 mux frame 聊天。功能已对标 Web 端 Remote 控制台：新建/继续/归档会话、历史分页、
+模型目录与切换、Workspace 管理（创建+只读目录浏览/重命名/删除/排序）、连接详情面板与
+传输偏好（Auto/TURN/Relay）。剩余工作：
 
-- [ ] 真机/模拟器与外部 Server + 真实 Host 跑通账号登录、设备列表、连接、会话与聊天 E2E
-- [ ] 验证重连后重新打开 mux stream 并由 `session.history` 重建 baseline
-- [ ] 验证 WebRTC P2P/TURN 路径（react-native-webrtc 与 Host werift 互操作）
-- [ ] 补齐 approval/question 应答的端到端验证（frame rpcId 与 `client-response` 回显）
-- [ ] 更新 Mock Host 或新增 Android smoke client，替换旧 Android Remote RPC 联调工具
+- [x] 数据面端到端联调（本地 Server + 真实插件 Host + smoke client）：账号授权、加密 Relay、
+      mux 流、会话列表、`host.describe` 透传与 approval `client-response` 应答
+- [x] 更新 smoke client：优先选择在线 Host（presence 探测）、按插件 bridge 的嵌套帧类型匹配
+      `assistant/chunk`（原实现永远匹配不到）
+- [ ] 真机/模拟器 UI E2E：账号登录、设备列表、连接、会话与聊天（本机无 KVM/真机，待有设备环境）
+- [ ] 重连后 mux stream 重开与 `session.history` baseline 重建的真机验证
+- [ ] WebRTC P2P/TURN 路径真机验证（react-native-webrtc 与 Host werift 互操作）
 - [ ] 同步协议 conformance fixtures 到 Android 侧校验
 
 `apps/android` 与 Mock Host 曾作为旧 Remote RPC 原型冻结；现在 Android 直接实现/消费官方
