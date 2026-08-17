@@ -6,4 +6,4 @@
  * Server can surface the plugin version in its device list and diagnostics.
  * Keep it in sync with `packages/plugin/package.json` (`version`).
  */
-export const PLUGIN_VERSION = '0.2.23'
+export const PLUGIN_VERSION = '0.2.25'

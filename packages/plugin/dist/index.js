@@ -13336,7 +13336,7 @@ function safeErrorMessage(error) {
 import { platform } from "node:os";
 
 // src/version.ts
-var PLUGIN_VERSION = "0.2.23";
+var PLUGIN_VERSION = "0.2.25";
 
 // src/server-api.ts
 var HostServerApi = class {
