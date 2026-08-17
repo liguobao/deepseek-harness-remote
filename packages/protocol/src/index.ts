@@ -501,7 +501,7 @@ export class SecureMessageCodec {
 }
 
 function isSecureFragment(frame: Uint8Array): boolean {
-  if (frame.byteLength < SECURE_FRAGMENT_HEADER_BYTES) return false
+  if (frame.byteLength < SECURE_FRAGMENT_MAGIC.byteLength) return false
   for (let index = 0; index < SECURE_FRAGMENT_MAGIC.byteLength; index += 1) {
     if (frame[index] !== SECURE_FRAGMENT_MAGIC[index]) return false
   }
