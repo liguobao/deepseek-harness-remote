@@ -5,9 +5,12 @@ import { ApiProxySwitch, type HarnessMode } from './api-proxy-switch.js'
 import { ClientSecureTransport } from './client-secure-transport.js'
 import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
+import type { TypertGatewayLike } from './harness-api-bridge.js'
+import { uuidV7 } from './ids.js'
 import type { SafeLogger } from './logging.js'
 import { RemoteHarnessApiProxy } from './remote-api-proxy.js'
 import { ClientServerApi, ServerApiError, type AuthorizedPeerDevice, type ServerHostDevice } from './server-api.js'
+import { TypertGatewaySwitch } from './typert-gateway-switch.js'
 
 interface ConnectedRemote {
   client: RemoteClientCore
@@ -78,6 +81,7 @@ export class ClientModeRuntime {
   private identity?: HostIdentity
   private connected?: ConnectedRemote
   private readonly proxySwitch: ApiProxySwitch
+  private readonly gatewaySwitch: TypertGatewaySwitch
   private closed = false
 
   constructor(
@@ -85,10 +89,12 @@ export class ClientModeRuntime {
     private readonly identities: IdentityStore,
     private readonly server: ClientServerApi,
     apiProxy: ApiProxy,
+    typertGateway: TypertGatewayLike,
     private readonly logger: SafeLogger,
     private readonly host?: HostAuthorizationControl,
   ) {
     this.proxySwitch = new ApiProxySwitch(apiProxy)
+    this.gatewaySwitch = new TypertGatewaySwitch(typertGateway)
   }
 
   async start(): Promise<void> {
@@ -96,6 +102,7 @@ export class ClientModeRuntime {
     this.identity = await this.identities.loadOrCreate(this.config.deviceName)
     this.server.bindIdentity(this.identity)
     this.proxySwitch.install()
+    this.gatewaySwitch.install()
     this.logger.info('client remote-mode identity ready', {
       deviceId: shortId(this.identity.deviceId),
       fingerprint: this.identity.fingerprint,
@@ -169,6 +176,7 @@ export class ClientModeRuntime {
     const previous = this.connected
     this.connected = undefined
     this.proxySwitch.selectLocal()
+    this.gatewaySwitch.selectLocal()
     await previous?.client.close().catch(() => undefined)
     await this.server.revokeCurrentDevice()
     this.identity = await this.identities.reset(this.config.deviceName)
@@ -189,6 +197,7 @@ export class ClientModeRuntime {
   async setMode(mode: HarnessMode, targetDeviceId?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     if (mode === 'local') {
       this.proxySwitch.selectLocal()
+      this.gatewaySwitch.selectLocal()
       const previous = this.connected
       this.connected = undefined
       await previous?.client.close().catch(() => undefined)
@@ -203,6 +212,7 @@ export class ClientModeRuntime {
     this.connected = next
     const remoteApi = new RemoteHarnessApiProxy(next.client).api
     this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name })
+    this.gatewaySwitch.selectRemote(request => invokeRemoteCommand(next.client, request))
     await previous?.client.close().catch(() => undefined)
     this.logger.info('Harness target switched', { mode: 'remote', targetDeviceId: shortId(next.target.deviceId) })
     return this.status()
@@ -239,6 +249,7 @@ export class ClientModeRuntime {
     })
     const workspace = unwrapNativeResult<{ workspace: unknown; created: boolean }>(response)
     this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name })
+    this.gatewaySwitch.selectRemote(request => invokeRemoteCommand(remote.client, request))
     this.logger.info('Remote workspace opened', { targetDeviceId: shortId(remote.target.deviceId) })
     return { ...this.status(), workspace }
   }
@@ -247,9 +258,11 @@ export class ClientModeRuntime {
     if (this.closed) return
     this.closed = true
     this.proxySwitch.selectLocal()
+    this.gatewaySwitch.selectLocal()
     await this.connected?.client.close().catch(() => undefined)
     this.connected = undefined
     this.proxySwitch.restore()
+    this.gatewaySwitch.restore()
   }
 
   private async connect(targetDeviceId: string, signal?: AbortSignal): Promise<ConnectedRemote> {
@@ -280,6 +293,7 @@ export class ClientModeRuntime {
         if (this.connected?.client !== client) return
         this.connected = undefined
         this.proxySwitch.selectLocal()
+        this.gatewaySwitch.selectLocal()
         void client.close().catch(() => undefined)
         this.logger.warn('remote Harness transport closed; falling back to local mode', {
           targetDeviceId: shortId(target.deviceId),
@@ -429,6 +443,22 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function ok(value: unknown): RpcResult<unknown> { return { ok: true, value } }
+
+async function invokeRemoteCommand(
+  client: RemoteClientCore,
+  request: Parameters<TypertGatewayLike['invoke']>[0],
+): Promise<unknown> {
+  const rpcId = uuidV7()
+  const response = await client.rpc<{ rpcId: string; result: unknown }>('harness.api.call', {
+    method: `${request.namespace}.${request.method}`,
+    rpcId,
+    payload: request.args,
+  }, request.signal)
+  if (response.rpcId !== rpcId) {
+    throw new ClientModeError('INVALID_MESSAGE', 'The remote Host returned an invalid command response.')
+  }
+  return unwrapNativeResult(response)
+}
 
 function unwrapNativeResult<T>(response: { result: unknown }): T {
   const result = response.result

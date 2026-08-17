@@ -13246,25 +13246,63 @@ function requireRecord(value, name2) {
   return value;
 }
 
+// src/typert-gateway-switch.ts
+var TypertGatewaySwitch = class {
+  constructor(gateway) {
+    this.gateway = gateway;
+    this.originalInvoke = gateway.invoke;
+    this.localInvoke = this.originalInvoke.bind(gateway);
+  }
+  originalInvoke;
+  localInvoke;
+  remoteInvoke;
+  installed = false;
+  /** A facade that always invokes the original local gateway. */
+  local() {
+    return { invoke: this.localInvoke };
+  }
+  install() {
+    if (this.installed) return;
+    this.gateway.invoke = (request) => request.namespace === "commands" && request.method === "execute" ? (this.remoteInvoke ?? this.localInvoke)(request) : this.localInvoke(request);
+    this.installed = true;
+  }
+  selectRemote(invoke) {
+    if (!this.installed) throw new Error("The Typert gateway switch is not installed.");
+    this.remoteInvoke = invoke;
+  }
+  selectLocal() {
+    this.remoteInvoke = void 0;
+  }
+  restore() {
+    if (!this.installed) return;
+    this.selectLocal();
+    this.gateway.invoke = this.originalInvoke;
+    this.installed = false;
+  }
+};
+
 // src/client-runtime.ts
 var ClientModeRuntime = class {
-  constructor(config, identities, server, apiProxy, logger, host) {
+  constructor(config, identities, server, apiProxy, typertGateway, logger, host) {
     this.config = config;
     this.identities = identities;
     this.server = server;
     this.logger = logger;
     this.host = host;
     this.proxySwitch = new ApiProxySwitch(apiProxy);
+    this.gatewaySwitch = new TypertGatewaySwitch(typertGateway);
   }
   identity;
   connected;
   proxySwitch;
+  gatewaySwitch;
   closed = false;
   async start() {
     if (this.closed) throw new Error("client remote-mode runtime is closed");
     this.identity = await this.identities.loadOrCreate(this.config.deviceName);
     this.server.bindIdentity(this.identity);
     this.proxySwitch.install();
+    this.gatewaySwitch.install();
     this.logger.info("client remote-mode identity ready", {
       deviceId: shortId(this.identity.deviceId),
       fingerprint: this.identity.fingerprint
@@ -13331,6 +13369,7 @@ var ClientModeRuntime = class {
     const previous = this.connected;
     this.connected = void 0;
     this.proxySwitch.selectLocal();
+    this.gatewaySwitch.selectLocal();
     await previous?.client.close().catch(() => void 0);
     await this.server.revokeCurrentDevice();
     this.identity = await this.identities.reset(this.config.deviceName);
@@ -13349,6 +13388,7 @@ var ClientModeRuntime = class {
   async setMode(mode, targetDeviceId, signal) {
     if (mode === "local") {
       this.proxySwitch.selectLocal();
+      this.gatewaySwitch.selectLocal();
       const previous2 = this.connected;
       this.connected = void 0;
       await previous2?.client.close().catch(() => void 0);
@@ -13363,6 +13403,7 @@ var ClientModeRuntime = class {
     this.connected = next;
     const remoteApi = new RemoteHarnessApiProxy(next.client).api;
     this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name });
+    this.gatewaySwitch.selectRemote((request) => invokeRemoteCommand(next.client, request));
     await previous?.client.close().catch(() => void 0);
     this.logger.info("Harness target switched", { mode: "remote", targetDeviceId: shortId(next.target.deviceId) });
     return this.status();
@@ -13396,6 +13437,7 @@ var ClientModeRuntime = class {
     });
     const workspace = unwrapNativeResult(response);
     this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name });
+    this.gatewaySwitch.selectRemote((request) => invokeRemoteCommand(remote.client, request));
     this.logger.info("Remote workspace opened", { targetDeviceId: shortId(remote.target.deviceId) });
     return { ...this.status(), workspace };
   }
@@ -13403,9 +13445,11 @@ var ClientModeRuntime = class {
     if (this.closed) return;
     this.closed = true;
     this.proxySwitch.selectLocal();
+    this.gatewaySwitch.selectLocal();
     await this.connected?.client.close().catch(() => void 0);
     this.connected = void 0;
     this.proxySwitch.restore();
+    this.gatewaySwitch.restore();
   }
   async connect(targetDeviceId, signal) {
     signal?.throwIfAborted();
@@ -13435,6 +13479,7 @@ var ClientModeRuntime = class {
         if (this.connected?.client !== client) return;
         this.connected = void 0;
         this.proxySwitch.selectLocal();
+        this.gatewaySwitch.selectLocal();
         void client.close().catch(() => void 0);
         this.logger.warn("remote Harness transport closed; falling back to local mode", {
           targetDeviceId: shortId(target.deviceId)
@@ -13576,6 +13621,18 @@ function record(value) {
 }
 function ok(value) {
   return { ok: true, value };
+}
+async function invokeRemoteCommand(client, request) {
+  const rpcId = uuidV7();
+  const response = await client.rpc("harness.api.call", {
+    method: `${request.namespace}.${request.method}`,
+    rpcId,
+    payload: request.args
+  }, request.signal);
+  if (response.rpcId !== rpcId) {
+    throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid command response.");
+  }
+  return unwrapNativeResult(response);
 }
 function unwrapNativeResult(response) {
   const result = response.result;
@@ -15768,8 +15825,9 @@ async function activate(ctx, input) {
   });
   const apiProxy = ctx.get("apiProxy");
   const connection = ctx.get("connection");
-  const typertGateway = () => ctx.get("typertGateway");
-  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger, typertGateway);
+  const nativeTypertGateway = ctx.get("typertGateway");
+  const localTypertGateway = new TypertGatewaySwitch(nativeTypertGateway).local();
+  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger, () => localTypertGateway);
   let clientRuntime;
   const hostControl = runtime;
   if (config.serverUrl !== void 0 && apiProxy !== void 0 && connection !== void 0) {
@@ -15781,6 +15839,7 @@ async function activate(ctx, input) {
       clientIdentities,
       new ClientServerApi(config.serverUrl, new ServerCredentialStore(clientIdentities.directory)),
       apiProxy,
+      nativeTypertGateway,
       logger,
       hostControl
     );
@@ -15838,6 +15897,7 @@ export {
   ServerApiError,
   ServerCredentialStore,
   ServerCredentialsInvalidError,
+  TypertGatewaySwitch,
   apply,
   fingerprint,
   name,

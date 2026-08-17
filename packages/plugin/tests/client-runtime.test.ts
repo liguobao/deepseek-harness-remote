@@ -43,6 +43,7 @@ describe('ClientModeRuntime Host account control', () => {
         authenticate: vi.fn(async () => ({ accessToken: 'client-access-token', account: 'owner@example.com' })),
       } as unknown as ClientServerApi,
       apiProxy(),
+      gateway(),
       logger(),
       host,
     )
@@ -103,7 +104,7 @@ describe('ClientModeRuntime Host account control', () => {
       })),
       presenceFor: vi.fn(async () => ({ online: true })),
     } as unknown as ClientServerApi
-    const runtime = new ClientModeRuntime(config(), identities, server, apiProxy(), logger())
+    const runtime = new ClientModeRuntime(config(), identities, server, apiProxy(), gateway(), logger())
     await runtime.start()
 
     await expect(runtime.devices()).resolves.toMatchObject([{ deviceId: 'host-device-1', online: true }])
@@ -152,4 +153,8 @@ function apiProxy(): ApiProxy {
 
 function logger(): SafeLogger {
   return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as SafeLogger
+}
+
+function gateway(): { invoke(request: unknown): Promise<unknown> } {
+  return { invoke: vi.fn(async () => undefined) }
 }

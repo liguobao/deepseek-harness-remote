@@ -10,6 +10,7 @@ import { HostPluginRuntime } from './service.js'
 import { ClientServerApi } from './server-api.js'
 import { ServerCredentialStore } from './server-credentials.js'
 import type { TypertGatewayLike } from './harness-api-bridge.js'
+import { TypertGatewaySwitch } from './typert-gateway-switch.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -55,8 +56,9 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
   // The official Typert gateway (`typertGateway` from dsh-api-gateway) is the
   // dispatch path behind `/api/commands/*` on the host. It is an explicit
   // activation dependency so a peer bridge never silently omits commands.
-  const typertGateway = (): TypertGatewayLike => ctx.get('typertGateway') as TypertGatewayLike
-  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger, typertGateway)
+  const nativeTypertGateway = ctx.get('typertGateway') as TypertGatewayLike
+  const localTypertGateway = new TypertGatewaySwitch(nativeTypertGateway).local()
+  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger, () => localTypertGateway)
 
   let clientRuntime: ClientModeRuntime | undefined
   const hostControl = runtime
@@ -69,6 +71,7 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
       clientIdentities,
       new ClientServerApi(config.serverUrl, new ServerCredentialStore(clientIdentities.directory)),
       apiProxy,
+      nativeTypertGateway,
       logger,
       hostControl,
     )
@@ -127,4 +130,5 @@ export { PluginControlRuntime } from './control-runtime.js'
 export { ClientSecureTransport } from './client-secure-transport.js'
 export { HARNESS_API_ALLOWLIST, HarnessApiBridge } from './harness-api-bridge.js'
 export { RemoteHarnessApiProxy } from './remote-api-proxy.js'
+export { TypertGatewaySwitch } from './typert-gateway-switch.js'
 export type { AuthenticatedPeerChannel } from './types.js'
