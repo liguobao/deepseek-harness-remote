@@ -318,7 +318,7 @@ export const helloPayloadSchema = z.object({
   role: z.enum(['host', 'client']),
   deviceId: z.string().min(1),
   accessToken: z.string().min(1),
-  protocols: z.array(z.number()).min(1),
+  protocols: z.array(z.number().int()).min(1),
   capabilities: z.array(z.string()),
   clientVersion: z.string().optional(),
 })
