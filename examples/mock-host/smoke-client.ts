@@ -47,7 +47,15 @@ const accessToken = registration.accessToken
 
 // Membership device list + authorized peer descriptor for identity pinning.
 const hosts = await request<{ items: Array<{ deviceId: string; membershipId: string }> }>('/api/v1/devices', {}, accessToken)
-const hostId = process.env.DSH_REMOTE_HOST_DEVICE_ID ?? hosts.items[0]?.deviceId
+// Prefer an online host via the presence endpoint; the list view has no online flag.
+let hostId = process.env.DSH_REMOTE_HOST_DEVICE_ID
+if (hostId === undefined) {
+  for (const item of hosts.items) {
+    const presence = await request<{ online?: boolean }>(`/api/v1/devices/${encodeURIComponent(item.deviceId)}/presence`, {}, accessToken)
+    if (presence.online === true) { hostId = item.deviceId; break }
+  }
+  hostId ??= hosts.items[0]?.deviceId
+}
 if (hostId === undefined) throw new Error('No host devices in this account')
 const descriptor = await request<{
   deviceId: string
@@ -84,8 +92,10 @@ const muxFrames: Array<{ type: string; rpcId?: string }> = []
 let muxClosed = false
 client.onEvent(event => {
   if (event.event === 'harness.api.frame') {
-    const data = event.data as { frame?: { rpcId?: string; payload?: { type?: string } } }
-    const type = data.frame?.payload?.type
+    // Mux frames nest harness event types (e.g. assistant/chunk) under
+    // payload.event.type, matching the plugin bridge and the Android reducer.
+    const data = event.data as { frame?: { rpcId?: string; payload?: { type?: string; event?: { type?: string } } } }
+    const type = data.frame?.payload?.event?.type ?? data.frame?.payload?.type
     if (type !== undefined) muxFrames.push({ type, rpcId: data.frame?.rpcId })
   }
   if (event.event === 'harness.api.stream.closed') muxClosed = true
