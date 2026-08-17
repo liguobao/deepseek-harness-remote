@@ -35,6 +35,7 @@ describe('Cordis plugin lifecycle', () => {
     let identityReadyWhenControlRegistered: boolean | undefined
     ctx.provide('settings', settings({ deviceName: 'Cordis test host' }))
     ctx.provide('apiProxy', apiProxy())
+    ctx.provide('typertGateway', typertGateway())
     ctx.provide('connection', connection(() => {
       try {
         ctx.dshRemote.currentIdentity()
@@ -69,6 +70,7 @@ describe('Cordis plugin lifecycle', () => {
       }),
     } as never)
     ctx.provide('apiProxy', apiProxy())
+    ctx.provide('typertGateway', typertGateway())
     ctx.provide('connection', connection())
 
     const fiber = await ctx.plugin(remotePlugin, { role: 'client', deviceName: 'Former client' })
@@ -102,6 +104,10 @@ function connection(onHandle?: () => void) {
       }),
     },
   } as never
+}
+
+function typertGateway() {
+  return { invoke: vi.fn(async () => undefined) } as never
 }
 
 function apiProxy(): ApiProxy {

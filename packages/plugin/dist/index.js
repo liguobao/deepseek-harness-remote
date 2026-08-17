@@ -14983,6 +14983,10 @@ var streamOpenSchema = external_exports.object({
   }).strict()
 }).strict();
 var streamCloseSchema = external_exports.object({ streamId: external_exports.string().min(1).max(128) }).strict();
+var permissionCommandSchema = external_exports.object({
+  agentId: external_exports.string().min(1).max(128),
+  line: external_exports.string().regex(/^\/permission [a-z0-9]+(?:-[a-z0-9]+)*$/)
+}).strict();
 var HARNESS_API_ALLOWLIST = [
   "session.list",
   "session.search",
@@ -15018,17 +15022,18 @@ var HARNESS_API_ALLOWLIST = [
   "goal.resume",
   "goal.complete",
   "goal.clear",
+  "commands.execute",
   "llm.providers",
   "llm.models"
 ];
 var NATIVE_CALL_TIMEOUT_MS = 3e4;
 var HarnessApiBridge = class {
-  constructor(api, publish, maxStreams = 3, logger) {
+  constructor(api, publish, maxStreams = 3, logger, typertGateway) {
     this.api = api;
     this.publish = publish;
     this.maxStreams = maxStreams;
     this.logger = logger;
-    this.methods = createMethodMap(api);
+    this.methods = createMethodMap(api, typertGateway);
     this.mux = api.events.mux.bind(api.events);
     this.host = api.events.host.bind(api.events);
     this.answer = api.respond.bind(api);
@@ -15163,10 +15168,26 @@ function needsRemoteDirectoryFallback(response) {
   const result = response.result;
   return typeof result === "object" && result !== null && "ok" in result && result.ok === false && "error" in result && typeof result.error === "object" && result.error !== null && "code" in result.error && result.error.code === "directory-picker-unavailable";
 }
-function createMethodMap(api) {
+function createMethodMap(api, typertGateway) {
   const domains = api;
   const methods = /* @__PURE__ */ new Map();
   for (const method of HARNESS_API_ALLOWLIST) {
+    if (method === "commands.execute") {
+      if (typertGateway === void 0) continue;
+      const implementation2 = async (request, signal) => {
+        const args = permissionCommandSchema.parse(request.payload);
+        const [namespace, commandMethod] = method.split(".");
+        const value = await typertGateway.invoke({
+          namespace,
+          method: commandMethod,
+          args,
+          ...signal === void 0 ? {} : { signal }
+        });
+        return { rpcId: request.rpcId, result: { ok: true, value } };
+      };
+      methods.set(method, implementation2);
+      continue;
+    }
     const [wireDomain, action] = method.split(".");
     const domain = domainProperty(wireDomain);
     const implementation = domains[domain]?.[action];
@@ -15411,7 +15432,7 @@ function isPrivate(ip) {
 
 // src/service.ts
 var HostPluginRuntime = class {
-  constructor(config, identities, apiProxy, logger) {
+  constructor(config, identities, apiProxy, logger, typertGateway) {
     this.config = config;
     this.identities = identities;
     this.logger = logger;
@@ -15420,7 +15441,8 @@ var HostPluginRuntime = class {
         apiProxy,
         (event, data) => send(createEvent(event, data)),
         void 0,
-        this.logger
+        this.logger,
+        typertGateway?.()
       );
       return new RpcRouter(harnessApi, void 0, this.logger);
     }, this.logger);
@@ -15538,7 +15560,7 @@ function shortId5(value) {
 // src/index.ts
 var name = "dsh-remote";
 function apply(ctx, input = {}) {
-  ctx.inject(["settings", "apiProxy", "connection"], (runtimeContext) => activate(runtimeContext, input));
+  ctx.inject(["settings", "apiProxy", "connection", "typertGateway"], (runtimeContext) => activate(runtimeContext, input));
 }
 async function activate(ctx, input) {
   const settings = ctx.get("settings");
@@ -15575,7 +15597,8 @@ async function activate(ctx, input) {
   });
   const apiProxy = ctx.get("apiProxy");
   const connection = ctx.get("connection");
-  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger);
+  const typertGateway = () => ctx.get("typertGateway");
+  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger, typertGateway);
   let clientRuntime;
   const hostControl = runtime;
   if (config.serverUrl !== void 0 && apiProxy !== void 0 && connection !== void 0) {

@@ -886,9 +886,10 @@ Result 是 Harness `ApiProxy` 的原生 `RpcResponse`，必须回显内层 `rpcI
 - workspace list/create/rename/delete/reorder/attach/archive
 - skill list、agent preset list/select/read
 - goal create/edit/pause/resume/complete/clear
+- `commands.execute`（经官方 Typert gateway 分发，且仅允许严格格式的 `/permission <preset>`）
 - LLM provider/model list
 
-明确禁止 credentials、settings 写入、model endpoint discovery、native path open/picker、目录创建、文件内容读取、attachment、download 以及任何未列出方法。`host.listDirectory` 只返回单层目录元数据。Host 应优先调用官方 ApiProxy browse capability；当桌面 Harness 只组合 `native` picker 时，Plugin 可在已认证的 Host bridge 内提供等价的只读元数据实现。该兜底必须限制结果数量，只返回目录名、绝对路径、面包屑、Home 路径和 hidden 标志，不得读取文件内容、写入文件系统或扩展为通用文件系统 RPC。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
+明确禁止 credentials、settings 写入、model endpoint discovery、native path open/picker、目录创建、文件内容读取、attachment、download 以及任何未列出方法。`host.listDirectory` 只返回单层目录元数据。Host 应优先调用官方 ApiProxy browse capability；当桌面 Harness 只组合 `native` picker 时，Plugin 可在已认证的 Host bridge 内提供等价的只读元数据实现。该兜底必须限制结果数量，只返回目录名、绝对路径、面包屑、Home 路径和 hidden 标志，不得读取文件内容、写入文件系统或扩展为通用文件系统 RPC。`commands.execute` 不是通用远程命令入口：Bridge 必须要求 payload 仅含 `agentId` 与 `line`，且 `line` 完整匹配 `/permission [a-z0-9]+(?:-[a-z0-9]+)*`，其他斜杠命令、额外字段、换行和拼接输入全部 fail closed。通过边界校验后，Bridge 使用官方 Typert gateway 分发，由宿主 `/permission` 命令继续校验 preset 并保留原生事件语义。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
 
 #### `harness.api.respond`
 

@@ -55,6 +55,38 @@ describe('HarnessApiBridge', () => {
     await expect(bridge.call({ method: 'host.createDirectory', rpcId: 'native-4', payload: {} })).rejects.toBeInstanceOf(RpcError)
   })
 
+  it('exposes only the permission command through the Typert gateway', async () => {
+    const denied = new HarnessApiBridge(api({}), vi.fn(async () => undefined))
+    await expect(denied.call({ method: 'commands.execute', rpcId: 'cmd-denied', payload: { agentId: 'session-1', line: '/permission danger-full-access' } }))
+      .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
+    await expect(denied.call({ method: 'commands.list', rpcId: 'list-denied', payload: { agentId: 'session-1' } }))
+      .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
+
+    const invoke = vi.fn(async () => ({
+      commandId: 'cmd-1',
+      result: { kind: 'success' as const, text: 'preset danger-full-access' },
+    }))
+    const bridged = new HarnessApiBridge(api({}), vi.fn(async () => undefined), 3, undefined, { invoke })
+    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-goal', payload: { agentId: 'session-1', line: '/goal complete' } }))
+      .rejects.toBeDefined()
+    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-injection', payload: { agentId: 'session-1', line: '/permission danger-full-access\n/goal complete' } }))
+      .rejects.toBeDefined()
+    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-extra', payload: { agentId: 'session-1', line: '/permission danger-full-access', extra: true } }))
+      .rejects.toBeDefined()
+    expect(invoke).not.toHaveBeenCalled()
+    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-ok', payload: { agentId: 'session-1', line: '/permission danger-full-access' } }))
+      .resolves.toMatchObject({
+        rpcId: 'cmd-ok',
+        result: { ok: true, value: { commandId: 'cmd-1' } },
+      })
+    expect(invoke).toHaveBeenCalledWith({
+      namespace: 'commands',
+      method: 'execute',
+      args: { agentId: 'session-1', line: '/permission danger-full-access' },
+      signal: expect.any(AbortSignal),
+    })
+  })
+
   it('publishes native stream frames and an explicit terminal event', async () => {
     const publish = vi.fn(async () => undefined)
     const bridge = new HarnessApiBridge(api({

@@ -9,11 +9,13 @@ import { SafeLogger } from './logging.js'
 import { HostPluginRuntime } from './service.js'
 import { ClientServerApi } from './server-api.js'
 import { ServerCredentialStore } from './server-credentials.js'
+import type { TypertGatewayLike } from './harness-api-bridge.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     dshRemote: HostPluginRuntime
     dshRemoteClient: ClientModeRuntime
+    typertGateway: TypertGatewayLike
   }
 }
 
@@ -21,7 +23,7 @@ export const name = 'dsh-remote'
 export { Config }
 
 export function apply(ctx: Context, input: ConfigInput = {}): void {
-  ctx.inject(['settings', 'apiProxy', 'connection'], runtimeContext => activate(runtimeContext, input))
+  ctx.inject(['settings', 'apiProxy', 'connection', 'typertGateway'], runtimeContext => activate(runtimeContext, input))
 }
 
 async function activate(ctx: Context, input: ConfigInput): Promise<void> {
@@ -50,7 +52,11 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
   })
   const apiProxy = ctx.get('apiProxy') as ApiProxy
   const connection = ctx.get('connection') as HostConnectionHandle | undefined
-  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger)
+  // The official Typert gateway (`typertGateway` from dsh-api-gateway) is the
+  // dispatch path behind `/api/commands/*` on the host. It is an explicit
+  // activation dependency so a peer bridge never silently omits commands.
+  const typertGateway = (): TypertGatewayLike => ctx.get('typertGateway') as TypertGatewayLike
+  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger, typertGateway)
 
   let clientRuntime: ClientModeRuntime | undefined
   const hostControl = runtime

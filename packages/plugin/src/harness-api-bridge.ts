@@ -51,6 +51,11 @@ const streamOpenSchema = z.object({
 
 const streamCloseSchema = z.object({ streamId: z.string().min(1).max(128) }).strict()
 
+const permissionCommandSchema = z.object({
+  agentId: z.string().min(1).max(128),
+  line: z.string().regex(/^\/permission [a-z0-9]+(?:-[a-z0-9]+)*$/),
+}).strict()
+
 /**
  * Harness API methods that are safe to expose to an authenticated remote UI.
  * Settings, credentials, native open/picker calls, directory mutation, file
@@ -92,6 +97,7 @@ export const HARNESS_API_ALLOWLIST = [
   'goal.resume',
   'goal.complete',
   'goal.clear',
+  'commands.execute',
   'llm.providers',
   'llm.models',
 ] as const
@@ -114,6 +120,21 @@ interface ActiveStream {
  */
 const NATIVE_CALL_TIMEOUT_MS = 30_000
 
+/**
+ * The official Typert gateway surface (`typertGateway` service from
+ * `dsh-api-gateway`) used to dispatch Harness command endpoints. The ApiProxy
+ * has no `commands` domain — commands live behind the Typert registry, which
+ * is exactly the path the official Web UI exercises via `/api/commands/*`.
+ */
+export interface TypertGatewayLike {
+  invoke(request: {
+    namespace: string
+    method: string
+    args: Record<string, unknown>
+    signal?: AbortSignal
+  }): Promise<unknown>
+}
+
 export class HarnessApiBridge {
   private readonly methods: ReadonlyMap<string, NativeMethod>
   private readonly streams = new Map<string, ActiveStream>()
@@ -127,8 +148,9 @@ export class HarnessApiBridge {
     private readonly publish: PublishFrame,
     private readonly maxStreams = 3,
     private readonly logger?: SafeLogger,
+    typertGateway?: TypertGatewayLike,
   ) {
-    this.methods = createMethodMap(api)
+    this.methods = createMethodMap(api, typertGateway)
     this.mux = api.events.mux.bind(api.events)
     this.host = api.events.host.bind(api.events)
     this.answer = api.respond.bind(api)
@@ -293,10 +315,29 @@ function needsRemoteDirectoryFallback(response: RpcResponse<unknown>): boolean {
     && 'code' in result.error && result.error.code === 'directory-picker-unavailable'
 }
 
-function createMethodMap(api: ApiProxy): ReadonlyMap<string, NativeMethod> {
+function createMethodMap(api: ApiProxy, typertGateway?: TypertGatewayLike): ReadonlyMap<string, NativeMethod> {
   const domains = api as unknown as Record<string, Record<string, NativeMethod>>
   const methods = new Map<string, NativeMethod>()
   for (const method of HARNESS_API_ALLOWLIST) {
+    if (method === 'commands.execute') {
+      // Commands live behind the official Typert registry (no ApiProxy
+      // `commands` domain). Dispatch them through the gateway when it is
+      // available; without it the method stays denied (fail-closed).
+      if (typertGateway === undefined) continue
+      const implementation: NativeMethod = async (request, signal) => {
+        const args = permissionCommandSchema.parse(request.payload)
+        const [namespace, commandMethod] = method.split('.') as [string, string]
+        const value = await typertGateway.invoke({
+          namespace,
+          method: commandMethod,
+          args,
+          ...(signal === undefined ? {} : { signal }),
+        })
+        return { rpcId: request.rpcId, result: { ok: true, value } }
+      }
+      methods.set(method, implementation)
+      continue
+    }
     const [wireDomain, action] = method.split('.') as [string, string]
     const domain = domainProperty(wireDomain)
     const implementation = domains[domain]?.[action]

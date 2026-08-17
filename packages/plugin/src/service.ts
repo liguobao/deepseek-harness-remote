@@ -8,7 +8,7 @@ import { RpcRouter } from './rpc-router.js'
 import { HostServerApi, ServerApiError, type DeviceAuthorization } from './server-api.js'
 import { HostServerConnection } from './server-connection.js'
 import { ServerCredentialStore } from './server-credentials.js'
-import { HarnessApiBridge } from './harness-api-bridge.js'
+import { HarnessApiBridge, type TypertGatewayLike } from './harness-api-bridge.js'
 import { loadWeriftFactory } from './werift-rtc.js'
 import type { AuthenticatedPeerChannel } from './types.js'
 
@@ -35,6 +35,7 @@ export class HostPluginRuntime {
     private readonly identities: IdentityStore,
     apiProxy: ApiProxy,
     private readonly logger: SafeLogger,
+    typertGateway?: () => TypertGatewayLike | undefined,
   ) {
     this.connections = new ConnectionController(this.identities, (_context, send) => {
       const harnessApi = new HarnessApiBridge(
@@ -42,6 +43,7 @@ export class HostPluginRuntime {
         (event, data) => send(createEvent(event, data)),
         undefined,
         this.logger,
+        typertGateway?.(),
       )
       return new RpcRouter(harnessApi, undefined, this.logger)
     }, this.logger)
