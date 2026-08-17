@@ -59,6 +59,7 @@ interface AppState {
   historyLoadingOlder: boolean
   oldestLoadedSeq?: number
   transportPreference: TransportPreference
+  pendingOAuthBaseUrl?: string
   authPhase: AuthPhase
   refreshing: boolean
   busyAction?: string
@@ -66,6 +67,9 @@ interface AppState {
 
   bootstrap(): Promise<void>
   configureServer(input: string, email: string, password: string): Promise<boolean>
+  startOAuth(input: string): Promise<string | undefined>
+  completeOAuth(token: string): Promise<boolean>
+  configureServerWithOAuthToken(input: string, webToken: string): Promise<boolean>
   refreshDevices(): Promise<void>
   trustDevice(device: RemoteDevice): Promise<boolean>
   forgetDevice(deviceId: string): Promise<boolean>
@@ -139,6 +143,64 @@ export const useAppStore = create<AppState>((set, get) => ({
       const publicApi = new RemoteServerApi(baseUrl)
       await publicApi.health()
       const { credentials } = await serverSession.authenticateWithAccount(baseUrl, identity, email, password)
+      const config = { baseUrl }
+      await saveServerConfig(config)
+      set({
+        config,
+        account: credentials.account,
+        busyAction: undefined,
+        devices: [],
+        authPhase: 'complete',
+      })
+      await get().refreshDevices()
+      return true
+    } catch (error) {
+      set({ busyAction: undefined, error: friendlyError(error) })
+      return false
+    }
+  },
+
+  /**
+   * Start Zhihu OAuth: validate the server, check OAuth is configured, and
+   * return the browser URL the UI should open. The server is remembered so
+   * the deep-link callback can finish device registration.
+   */
+  async startOAuth(input) {
+    set({ busyAction: 'oauth', error: undefined })
+    try {
+      const baseUrl = normalizeServerUrl(input)
+      const publicApi = new RemoteServerApi(baseUrl)
+      await publicApi.health()
+      const { configured } = await publicApi.oauthStatus()
+      if (!configured) throw new Error('This server does not support Zhihu sign-in.')
+      set({ pendingOAuthBaseUrl: baseUrl, busyAction: undefined })
+      return `${baseUrl}/api/v1/auth/oauth/start?return_to=${encodeURIComponent('dshremote://oauth')}`
+    } catch (error) {
+      set({ busyAction: undefined, error: friendlyError(error) })
+      return undefined
+    }
+  },
+
+  /** Finish OAuth from the dshremote://oauth deep link with the web token. */
+  async completeOAuth(token) {
+    const baseUrl = get().pendingOAuthBaseUrl
+    if (baseUrl === undefined || token.length < 16) {
+      set({ pendingOAuthBaseUrl: undefined })
+      return false
+    }
+    set({ pendingOAuthBaseUrl: undefined })
+    return get().configureServerWithOAuthToken(baseUrl, token)
+  },
+
+  async configureServerWithOAuthToken(input, webToken) {
+    set({ busyAction: 'server', error: undefined })
+    try {
+      const baseUrl = normalizeServerUrl(input)
+      const identity = get().identity
+      if (identity === undefined) throw new Error('The Android device identity is not ready.')
+      const publicApi = new RemoteServerApi(baseUrl)
+      await publicApi.health()
+      const { credentials } = await serverSession.authenticateWithOAuthToken(baseUrl, identity, webToken)
       const config = { baseUrl }
       await saveServerConfig(config)
       set({

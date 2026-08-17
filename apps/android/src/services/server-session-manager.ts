@@ -45,6 +45,31 @@ export class ServerSessionManager {
     return created
   }
 
+  /**
+   * Register this Android device under an account web session token delivered
+   * by Zhihu OAuth (dshremote://oauth?token=...). The web token is used only
+   * for the device registration and never persisted.
+   */
+  async authenticateWithOAuthToken(
+    baseUrl: string,
+    identity: DeviceIdentity,
+    webToken: string,
+  ): Promise<AuthenticatedServer> {
+    const publicApi = this.apiFactory(baseUrl)
+    const tokens = await publicApi.registerDevice(identity, webToken)
+    const credentials: DeviceCredentials = {
+      serverUrl: baseUrl,
+      deviceId: identity.deviceId,
+      authorizationMethod: 'account',
+      ...tokens,
+    }
+    await this.persistence.save(credentials)
+    return {
+      api: this.apiFactory(baseUrl, credentials.accessToken),
+      credentials,
+    }
+  }
+
   authenticate(baseUrl: string, identity: DeviceIdentity): Promise<AuthenticatedServer> {
     const key = `${baseUrl}\0${identity.deviceId}`
     const pending = this.inFlight.get(key)

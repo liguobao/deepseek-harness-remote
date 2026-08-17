@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Check, KeyRound, LockKeyhole, RotateCcw, Server, Settings } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import { Button, Field, KeyValue, Screen, TopBar } from '../ui/components'
@@ -12,13 +12,20 @@ const defaultServerUrl = 'https://dsh.r2049.cn'
 export function ServerSetupScreen({ onComplete, onBack }: { onComplete: () => void; onBack?: () => void }) {
   const config = useAppStore(state => state.config)
   const busy = useAppStore(state => state.busyAction === 'server')
+  const oauthBusy = useAppStore(state => state.busyAction === 'oauth')
   const configure = useAppStore(state => state.configureServer)
+  const startOAuth = useAppStore(state => state.startOAuth)
   const [serverUrl, setServerUrl] = useState(config?.baseUrl ?? process.env.EXPO_PUBLIC_DSH_REMOTE_SERVER ?? defaultServerUrl)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
   const submit = async () => {
     if (await configure(serverUrl, email, password)) onComplete()
+  }
+
+  const signInWithZhihu = async () => {
+    const url = await startOAuth(serverUrl)
+    if (url !== undefined) await Linking.openURL(url)
   }
 
   const canSubmit = email.trim().length > 0 && password.length > 0
@@ -63,6 +70,13 @@ export function ServerSetupScreen({ onComplete, onBack }: { onComplete: () => vo
             hint="Used once for this HTTPS authorization request and never saved."
           />
           <Button label={config === undefined ? 'Sign in and continue' : 'Save and sign in'} onPress={() => void submit()} loading={busy} disabled={!canSubmit} />
+          <View style={styles.dividerRow}>
+            <View style={styles.divider} />
+            <Text style={styles.dividerText}>or</Text>
+            <View style={styles.divider} />
+          </View>
+          <Button label="Sign in with Zhihu" variant="secondary" onPress={() => void signInWithZhihu()} loading={oauthBusy} />
+          <Text style={styles.oauthHint}>Authorizes this phone in your browser, then returns here automatically.</Text>
         </View>
 
         <View style={styles.securityNote}>
@@ -164,6 +178,10 @@ const styles = StyleSheet.create({
   title: { ...type.hero, color: colors.ink, maxWidth: 340 },
   lead: { ...type.body, color: colors.muted, marginTop: spacing.sm, maxWidth: 520 },
   form: { marginTop: spacing.xxl, gap: spacing.md },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xs },
+  divider: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
+  dividerText: { ...type.caption, color: colors.muted },
+  oauthHint: { ...type.caption, color: colors.muted, textAlign: 'center' },
   securityNote: { flexDirection: 'row', gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surface, marginTop: spacing.xxxl },
   securityCopy: { flex: 1 },
   securityTitle: { ...type.smallStrong, color: colors.ink },

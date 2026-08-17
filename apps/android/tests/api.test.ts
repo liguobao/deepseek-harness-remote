@@ -103,6 +103,13 @@ describe('Remote Server API compatibility', () => {
       retryable: false,
     })
   })
+
+  it('reports whether the server has Zhihu OAuth configured', async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async () => jsonResponse({ configured: true }))
+    const api = new RemoteServerApi('https://remote.example.com', undefined, fetchImplementation)
+    await expect(api.oauthStatus()).resolves.toEqual({ configured: true })
+    expect(fetchImplementation.mock.calls[0]?.[0]).toBe('https://remote.example.com/api/v1/auth/oauth/status')
+  })
 })
 
 function tokenPair(suffix: string) {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AppState, BackHandler, StyleSheet, Text, View } from 'react-native'
+import { AppState, BackHandler, Linking, StyleSheet, Text, View } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
@@ -52,6 +52,38 @@ function AppNavigator() {
   const reset = (next: Route) => setRoutes([next])
 
   useEffect(() => { void bootstrap() }, [bootstrap])
+
+  // Zhihu OAuth deep link: dshremote://oauth?token=... completes the
+  // account authorization started from the server setup screen.
+  useEffect(() => {
+    const completeOAuth = useAppStore.getState().completeOAuth
+    const handleOAuthUrl = (url: string) => {
+      try {
+        const parsed = new URL(url)
+        if (parsed.protocol !== 'dshremote:' || parsed.hostname !== 'oauth') return
+        const token = parsed.searchParams.get('token')
+        const error = parsed.searchParams.get('error')
+        if (error !== null) {
+          useAppStore.getState().clearError()
+          useAppStore.setState({ error: 'Zhihu sign-in was not completed.' })
+          return
+        }
+        if (token === null || token.length < 16) {
+          useAppStore.getState().clearError()
+          useAppStore.setState({ error: 'Zhihu sign-in returned an invalid session.' })
+          return
+        }
+        void completeOAuth(token).then(ok => {
+          if (ok) reset({ name: 'devices' })
+        })
+      } catch {
+        // not a dshremote link; ignore
+      }
+    }
+    const subscription = Linking.addEventListener('url', event => handleOAuthUrl(event.url))
+    void Linking.getInitialURL().then(url => { if (url !== null) handleOAuthUrl(url) })
+    return () => subscription.remove()
+  }, [])
 
   useEffect(() => {
     if (bootPhase !== 'ready' || didChooseInitialRoute.current) return

@@ -65,6 +65,13 @@ export class RemoteServerApi {
     }
   }
 
+  /** Whether the server has Zhihu OAuth configured for account sign-in. */
+  async oauthStatus(): Promise<{ configured: boolean }> {
+    const body = await this.request<unknown>('/api/v1/auth/oauth/status', {}, false)
+    if (!isRecord(body) || typeof body.configured !== 'boolean') invalidResponse('oauth status')
+    return { configured: body.configured }
+  }
+
   /** Account password login; the returned token only authorizes device registration. */
   async loginAccount(email: string, password: string): Promise<AccountLoginResult> {
     const body = await this.request<unknown>('/api/v1/auth/login', {
