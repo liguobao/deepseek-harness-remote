@@ -102,6 +102,8 @@ jobs:
     needs: quality
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -160,3 +162,23 @@ jobs:
           path: artifacts/android/dsh-remote-android.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Attach APK to GitHub Release (tag builds)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp artifacts/android/dsh-remote-android.apk \
+            "artifacts/android/dsh-remote-android-${GITHUB_REF_NAME}.apk"
+          for attempt in 1 2 3 4 5 6; do
+            if gh release upload "$GITHUB_REF_NAME" \
+                "artifacts/android/dsh-remote-android-${GITHUB_REF_NAME}.apk" \
+                --clobber 2>/dev/null; then
+              echo "attached dsh-remote-android-${GITHUB_REF_NAME}.apk to release ${GITHUB_REF_NAME}"
+              exit 0
+            fi
+            echo "release not ready (attempt ${attempt}/6), waiting 20s..."
+            sleep 20
+          done
+          echo "failed to attach the APK to release ${GITHUB_REF_NAME}" >&2
+          exit 1
