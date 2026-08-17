@@ -5,8 +5,10 @@ React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness hos
 
 ## Implemented flow
 
-- Configure and health-check a self-hosted Remote server; sign in with the Server account once to
-  register the Android device and rotate its access/refresh tokens in SecureStore.
+- Configure and health-check a Remote server (defaults to the official
+  `https://dsh.r2049.cn`; override at build time with `EXPO_PUBLIC_DSH_REMOTE_SERVER`); sign in
+  with the Server account once to register the Android device and rotate its access/refresh
+  tokens in SecureStore.
 - Generate a random Android client identity and keep its private key in Keystore-backed
   `expo-secure-store`.
 - List same-account Harness hosts, fetch each host's authorized peer descriptor, verify its

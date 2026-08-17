@@ -1,18 +1,19 @@
 import { useState } from 'react'
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Check, KeyRound, LockKeyhole, RotateCcw, Server, Settings } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import { Button, Field, KeyValue, Screen, TopBar } from '../ui/components'
 import { TRANSPORT_PREFERENCE_OPTIONS } from '../types'
 import { colors, radius, spacing, type } from '../ui/theme'
 
-const localDefault = Platform.OS === 'android' ? 'http://10.0.2.2:8080' : 'http://127.0.0.1:8080'
+/** Default DSH Remote Server; a build can override it via EXPO_PUBLIC_DSH_REMOTE_SERVER. */
+const defaultServerUrl = 'https://dsh.r2049.cn'
 
 export function ServerSetupScreen({ onComplete, onBack }: { onComplete: () => void; onBack?: () => void }) {
   const config = useAppStore(state => state.config)
   const busy = useAppStore(state => state.busyAction === 'server')
   const configure = useAppStore(state => state.configureServer)
-  const [serverUrl, setServerUrl] = useState(config?.baseUrl ?? process.env.EXPO_PUBLIC_DSH_REMOTE_SERVER ?? localDefault)
+  const [serverUrl, setServerUrl] = useState(config?.baseUrl ?? process.env.EXPO_PUBLIC_DSH_REMOTE_SERVER ?? defaultServerUrl)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
