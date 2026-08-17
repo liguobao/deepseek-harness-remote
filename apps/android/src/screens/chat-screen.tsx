@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -9,9 +11,9 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Bot, Check, CircleStop, Code2, Send, ShieldAlert, User, X } from 'lucide-react-native'
+import { Bot, Check, ChevronDown, CircleStop, Code2, Send, ShieldAlert, Sparkles, User, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
-import type { ApprovalActivity, ChatItem, ChatMessage, QuestionActivity, ToolActivity } from '../types'
+import type { ApprovalActivity, ChatItem, ChatMessage, ModelCatalogModel, ModelProviderGroup, QuestionActivity, ToolActivity } from '../types'
 import { Button, IconButton, TopBar } from '../ui/components'
 import { colors, radius, spacing, type } from '../ui/theme'
 
@@ -20,11 +22,18 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const messages = useAppStore(state => session === undefined ? [] : state.messages[session.sessionId] ?? [])
   const busy = useAppStore(state => state.busyAction)
   const connection = useAppStore(state => state.connection)
+  const historyHasMore = useAppStore(state => state.historyHasMore)
+  const historyLoadingOlder = useAppStore(state => state.historyLoadingOlder)
+  const sessionModels = useAppStore(state => state.sessionModels)
+  const modelSelecting = useAppStore(state => state.modelSelecting)
   const sendMessage = useAppStore(state => state.sendMessage)
   const stopSession = useAppStore(state => state.stopSession)
   const respondApproval = useAppStore(state => state.respondApproval)
   const respondQuestion = useAppStore(state => state.respondQuestion)
+  const loadOlderHistory = useAppStore(state => state.loadOlderHistory)
+  const selectModel = useAppStore(state => state.selectModel)
   const [draft, setDraft] = useState('')
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const listRef = useRef<FlatList<ChatItem>>(null)
   const lastItem = messages.at(-1)
   const lastText = lastItem?.kind === 'message' ? lastItem.text : undefined
@@ -42,6 +51,11 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
     if (!await sendMessage(text)) setDraft(text)
   }
 
+  const pickModel = async (group: ModelProviderGroup, model: ModelCatalogModel) => {
+    setModelPickerOpen(false)
+    await selectModel({ provider: group.id, model: model.id })
+  }
+
   const connected = connection.phase === 'connected'
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={0}>
@@ -52,6 +66,21 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
           ? <IconButton label="Stop generation" icon={CircleStop} onPress={() => void stopSession()} disabled={busy === 'stop-session'} />
           : undefined}
       />
+
+      {sessionModels !== undefined && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Choose model"
+          onPress={() => setModelPickerOpen(true)}
+          style={styles.modelChip}
+        >
+          <Sparkles size={14} color={colors.primary} />
+          <Text style={styles.modelChipText} numberOfLines={1}>{sessionModels.current.model}</Text>
+          {modelSelecting
+            ? <ActivityIndicator size="small" color={colors.muted} />
+            : <ChevronDown size={14} color={colors.muted} />}
+        </Pressable>
+      )}
 
       {connection.phase !== 'connected' && (
         <View style={styles.connectionBanner} accessibilityRole="alert">
@@ -70,6 +99,19 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         ListEmptyComponent={<WelcomeMessage />}
+        ListHeaderComponent={historyHasMore ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Load earlier messages"
+            disabled={historyLoadingOlder}
+            onPress={() => void loadOlderHistory()}
+            style={styles.olderButton}
+          >
+            {historyLoadingOlder
+              ? <ActivityIndicator size="small" color={colors.primary} />
+              : <Text style={styles.olderText}>Load earlier messages</Text>}
+          </Pressable>
+        ) : undefined}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
       />
 
@@ -100,7 +142,58 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         </View>
         <Text style={styles.composerHint}>Actions still follow the host’s Harness permission policy.</Text>
       </View>
+
+      <ModelPicker
+        visible={modelPickerOpen}
+        models={sessionModels}
+        onClose={() => setModelPickerOpen(false)}
+        onPick={pickModel}
+      />
     </KeyboardAvoidingView>
+  )
+}
+
+function ModelPicker({ visible, models, onClose, onPick }: {
+  visible: boolean
+  models?: import('../types').SessionModels
+  onClose: () => void
+  onPick: (group: ModelProviderGroup, model: ModelCatalogModel) => void
+}) {
+  if (models === undefined) return null
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Pressable style={styles.modalSheet} onPress={event => event.stopPropagation()}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Choose model</Text>
+            <IconButton label="Close" icon={X} onPress={onClose} />
+          </View>
+          {models.groups.map(group => (
+            <View key={group.id} style={styles.modelGroupBlock}>
+              <Text style={styles.modelGroupTitle}>{group.name}</Text>
+              {group.models.map(model => {
+                const current = models.current.provider === group.id && models.current.model === model.id
+                return (
+                  <Pressable
+                    key={model.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: current }}
+                    onPress={() => onPick(group, model)}
+                    style={[styles.modelOption, current && styles.modelOptionCurrent]}
+                  >
+                    <Text style={styles.modelOptionName} numberOfLines={1}>{model.name}</Text>
+                    {current && <Check size={16} color={colors.primary} />}
+                  </Pressable>
+                )
+              })}
+            </View>
+          ))}
+          {models.failures.length > 0 && (
+            <Text style={styles.modelFailures}>{models.failures.map(failure => failure.message).join('; ')}</Text>
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
   )
 }
 
@@ -269,6 +362,20 @@ function WelcomeMessage() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
+  modelChip: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.lg, paddingVertical: 8, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
+  modelChipText: { ...type.smallStrong, color: colors.ink, flexShrink: 1 },
+  olderButton: { alignSelf: 'center', paddingVertical: spacing.xs, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
+  olderText: { ...type.smallStrong, color: colors.primary },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  modalSheet: { maxHeight: '70%', backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, paddingBottom: spacing.xxl },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
+  modalTitle: { ...type.heading, color: colors.ink },
+  modelGroupBlock: { marginBottom: spacing.md },
+  modelGroupTitle: { ...type.caption, color: colors.muted, textTransform: 'uppercase', marginBottom: spacing.xs },
+  modelOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs },
+  modelOptionCurrent: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  modelOptionName: { ...type.small, color: colors.ink, flex: 1 },
+  modelFailures: { ...type.caption, color: colors.danger, marginTop: spacing.sm },
   connectionBanner: { minHeight: 40, paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, backgroundColor: colors.warningSoft, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   connectionDot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.warning },
   connectionBannerText: { ...type.small, color: colors.ink, flex: 1 },

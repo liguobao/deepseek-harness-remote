@@ -29,11 +29,41 @@ function fakeCore(): RemoteClientCore & { rpcCalls: CoreRpcMock } {
       if (paramsRecord.method === 'session.list') {
         return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { items: [{ sessionId: 's1' }] } } }
       }
+      if (paramsRecord.method === 'session.create') {
+        return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { sessionId: 's-new' } } }
+      }
       if (paramsRecord.method === 'session.history') {
         return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { events: [], hasMore: false } } }
       }
+      if (paramsRecord.method === 'session.models') {
+        return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' }, routable: true, groups: [], failures: [] } } }
+      }
+      if (paramsRecord.method === 'session.selectModel') {
+        return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { selected: { provider: 'deepseek-official', model: 'deepseek-v3' } } } }
+      }
       if (paramsRecord.method === 'session.prompt') {
         return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { accepted: true } } }
+      }
+      if (paramsRecord.method === 'workspace.list') {
+        return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { items: [{ workspaceId: 'w1' }], archivedSessionIds: ['s-old'] } } }
+      }
+      if (paramsRecord.method === 'workspace.create') {
+        return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { workspace: { workspaceId: 'w2', path: '/p', title: 'P', sessionIds: [], createdAt: 't', updatedAt: 't' }, created: true } } }
+      }
+      if (paramsRecord.method === 'workspace.rename') {
+        return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { workspace: { workspaceId: 'w1', path: '/p', title: 'Renamed', sessionIds: [], createdAt: 't', updatedAt: 't' } } } }
+      }
+      if (paramsRecord.method === 'workspace.delete') {
+        return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { deleted: true } } }
+      }
+      if (paramsRecord.method === 'workspace.archiveSession') {
+        return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { archivedSessionIds: ['s-old', 's2'] } } }
+      }
+      if (paramsRecord.method === 'workspace.insertBefore') {
+        return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { workspaceIds: ['w2', 'w1'] } } }
+      }
+      if (paramsRecord.method === 'host.listDirectory') {
+        return { rpcId: paramsRecord.rpcId, result: { ok: true, value: { path: '/', home: '/home/u', crumbs: [], entries: [{ name: 'src', path: '/src', hidden: false }], truncated: false } } }
       }
       return { rpcId: paramsRecord.rpcId, result: { ok: false, error: { code: 'method-not-found', message: 'nope' } } }
     }
@@ -125,5 +155,73 @@ describe('Remote ApiProxy tunnel client', () => {
     await expect(proxy.respondApproval('rpc-expired', 's1', 'a1', 'rejected')).rejects.toMatchObject({
       code: 'PERMISSION_NOT_PENDING',
     })
+  })
+
+  it('creates sessions and passes workspace or cwd through', async () => {
+    const core = fakeCore()
+    const proxy = new RemoteApiProxy(core)
+    await expect(proxy.sessionCreate()).resolves.toEqual({ sessionId: 's-new' })
+    await proxy.sessionCreate('w1')
+    expect(core.rpcCalls).toHaveBeenCalledWith('harness.api.call', expect.objectContaining({
+      method: 'session.create',
+      payload: { workspaceId: 'w1' },
+    }), undefined)
+  })
+
+  it('loads and selects session models with reasoning effort passthrough', async () => {
+    const core = fakeCore()
+    const proxy = new RemoteApiProxy(core)
+    const models = await proxy.sessionModels('s1')
+    expect(models.current.model).toBe('deepseek-v4-flash')
+    const selected = await proxy.sessionSelectModel('s1', { provider: 'deepseek-official', model: 'deepseek-v3', reasoningEffort: 'high' })
+    expect(selected.model).toBe('deepseek-v3')
+    expect(core.rpcCalls).toHaveBeenCalledWith('harness.api.call', expect.objectContaining({
+      method: 'session.selectModel',
+      payload: { sessionId: 's1', provider: 'deepseek-official', model: 'deepseek-v3', reasoningEffort: 'high' },
+    }), undefined)
+  })
+
+  it('lists workspaces with archived session ids', async () => {
+    const core = fakeCore()
+    const proxy = new RemoteApiProxy(core)
+    const list = await proxy.workspaceList()
+    expect(list.items[0]).toMatchObject({ workspaceId: 'w1' })
+    expect(list.archivedSessionIds).toEqual(['s-old'])
+  })
+
+  it('manages workspaces and archives sessions', async () => {
+    const core = fakeCore()
+    const proxy = new RemoteApiProxy(core)
+    const created = await proxy.workspaceCreate('/tmp/p')
+    expect(created.workspace.workspaceId).toBe('w2')
+    await proxy.workspaceRename('w1', 'Renamed')
+    await proxy.workspaceDelete('w1')
+    await expect(proxy.workspaceArchiveSession('s2')).resolves.toEqual(['s-old', 's2'])
+    await proxy.workspaceInsertBefore('w2', 'w1')
+    expect(core.rpcCalls).toHaveBeenCalledWith('harness.api.call', expect.objectContaining({
+      method: 'workspace.insertBefore',
+      payload: { workspaceId: 'w2', beforeWorkspaceId: 'w1' },
+    }), undefined)
+  })
+
+  it('lists host directories with optional path', async () => {
+    const core = fakeCore()
+    const proxy = new RemoteApiProxy(core)
+    const listing = await proxy.hostListDirectory('/src')
+    expect(listing.entries[0]).toMatchObject({ name: 'src' })
+    expect(core.rpcCalls).toHaveBeenCalledWith('harness.api.call', expect.objectContaining({
+      method: 'host.listDirectory',
+      payload: { path: '/src' },
+    }), undefined)
+  })
+
+  it('passes beforeSeq for paged history', async () => {
+    const core = fakeCore()
+    const proxy = new RemoteApiProxy(core)
+    await proxy.sessionHistory('s1', 42, 20)
+    expect(core.rpcCalls).toHaveBeenCalledWith('harness.api.call', expect.objectContaining({
+      method: 'session.history',
+      payload: { sessionId: 's1', beforeSeq: 42, maxMessages: 20 },
+    }), undefined)
   })
 })

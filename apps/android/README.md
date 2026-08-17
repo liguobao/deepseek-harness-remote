@@ -14,9 +14,12 @@ React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness hos
 - Establish a Noise IK channel over an adaptive transport (WebRTC P2P/TURN with Relay fallback) and
   reject tampered, replayed, or wrong-identity frames.
 - Drive the Host's ApiProxy bridge through `harness.api.call/respond/stream.open/stream.close`:
-  browse sessions, stream live mux frames, send prompts, cancel generation, and answer approval /
-  question requests with the native `client-response` envelope.
-- Reconnect after Android network/app lifecycle changes.
+  browse sessions (including archived ones), create sessions, stream live mux frames, send
+  prompts, cancel generation, page older history, switch the active model from the host's
+  catalog, manage host workspaces (create with a read-only directory browser, rename, delete,
+  reorder), and answer approval / question requests with the native `client-response` envelope.
+- Reconnect after Android network/app lifecycle changes. The connection transport can be
+  pinned in Settings (Auto / TURN first / Relay only) and is applied on reconnect.
 
 The app does not run in Expo Go because WebRTC includes native code. Use a development build.
 
@@ -34,8 +37,9 @@ pnpm --filter @dsh-remote/android android
 ```
 
 Android Emulator reaches a server on the development machine at `http://10.0.2.2:8080`. Cleartext
-HTTP is accepted only for `localhost`, `127.0.0.1`, and `10.0.2.2` by the client; production
-servers must use HTTPS/WSS.
+HTTP is accepted only for `localhost`, `127.0.0.1`, `10.0.2.2`, and private-network addresses
+(RFC1918 LAN ranges, link-local, and CGNAT such as Tailscale) by the client; public addresses and
+production servers must use HTTPS/WSS.
 
 ## Validation
 

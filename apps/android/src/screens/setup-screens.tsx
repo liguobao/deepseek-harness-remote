@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Alert, Platform, StyleSheet, Text, View } from 'react-native'
-import { KeyRound, LockKeyhole, RotateCcw, Server, Settings } from 'lucide-react-native'
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Check, KeyRound, LockKeyhole, RotateCcw, Server, Settings } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import { Button, Field, KeyValue, Screen, TopBar } from '../ui/components'
+import { TRANSPORT_PREFERENCE_OPTIONS } from '../types'
 import { colors, radius, spacing, type } from '../ui/theme'
 
 const localDefault = Platform.OS === 'android' ? 'http://10.0.2.2:8080' : 'http://127.0.0.1:8080'
@@ -79,6 +80,8 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
   const config = useAppStore(state => state.config)
   const identity = useAppStore(state => state.identity)
   const account = useAppStore(state => state.account)
+  const preference = useAppStore(state => state.transportPreference)
+  const setPreference = useAppStore(state => state.setTransportPreference)
   const reset = useAppStore(state => state.resetLocalData)
 
   const confirmReset = () => Alert.alert(
@@ -104,6 +107,29 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
           <KeyValue label="Server" value={config?.baseUrl ?? 'Not configured'} />
           <KeyValue label="Account" value={account ?? 'Not signed in'} />
           <KeyValue label="Protocol" value="DSH Remote v1" />
+        </View>
+
+        <Text style={styles.groupLabel}>Transport</Text>
+        <View style={styles.preferenceList}>
+          {TRANSPORT_PREFERENCE_OPTIONS.map(option => {
+            const chosen = option.value === preference
+            return (
+              <Pressable
+                key={option.value}
+                accessibilityRole="button"
+                accessibilityState={{ selected: chosen }}
+                onPress={() => void setPreference(option.value)}
+                style={[styles.preferenceOption, chosen && styles.preferenceOptionChosen]}
+              >
+                <View style={styles.preferenceCopy}>
+                  <Text style={styles.preferenceName}>{option.name}</Text>
+                  <Text style={styles.preferenceDescription}>{option.description}</Text>
+                </View>
+                {chosen && <Check size={17} color={colors.primary} />}
+              </Pressable>
+            )
+          })}
+          <Text style={styles.preferenceNote}>Changing this reconnects to the selected host. Relay is always available as the last-resort channel.</Text>
         </View>
 
         <Text style={styles.groupLabel}>Identity</Text>
@@ -147,6 +173,13 @@ const styles = StyleSheet.create({
   settingsSubtitle: { ...type.small, color: colors.muted },
   groupLabel: { ...type.smallStrong, color: colors.muted, marginTop: spacing.xl, marginBottom: spacing.xs },
   group: { borderRadius: radius.lg, backgroundColor: colors.surface, paddingHorizontal: spacing.md },
+  preferenceList: { gap: spacing.xs },
+  preferenceOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  preferenceOptionChosen: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  preferenceCopy: { flex: 1 },
+  preferenceName: { ...type.smallStrong, color: colors.ink },
+  preferenceDescription: { ...type.caption, color: colors.muted, marginTop: 2 },
+  preferenceNote: { ...type.caption, color: colors.muted, marginTop: spacing.xs },
   keyNote: { flexDirection: 'row', gap: spacing.xs, paddingVertical: spacing.md },
   keyNoteText: { ...type.small, color: colors.muted, flex: 1 },
   resetArea: { marginTop: spacing.xxxl },

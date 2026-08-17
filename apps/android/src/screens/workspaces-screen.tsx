@@ -1,0 +1,328 @@
+import { useEffect, useState } from 'react'
+import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ChevronRight, CirclePlus, Eye, EyeOff, Folder, FolderOpen, MoreVertical, Settings, X } from 'lucide-react-native'
+import { useAppStore } from '../state/store'
+import type { DirectoryListing, WorkspaceView } from '../types'
+import { Button, EmptyState, IconButton, Screen, TopBar } from '../ui/components'
+import { colors, radius, spacing, type } from '../ui/theme'
+
+export function WorkspacesScreen({ onBack, onSessions }: { onBack: () => void; onSessions: () => void }) {
+  const workspaces = useAppStore(state => state.workspaces)
+  const busy = useAppStore(state => state.busyAction)
+  const workspaceCreate = useAppStore(state => state.workspaceCreate)
+  const workspaceRename = useAppStore(state => state.workspaceRename)
+  const workspaceDelete = useAppStore(state => state.workspaceDelete)
+  const workspaceMove = useAppStore(state => state.workspaceMove)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [renameTarget, setRenameTarget] = useState<WorkspaceView | undefined>(undefined)
+
+  const confirmDelete = (workspace: WorkspaceView) => Alert.alert(
+    `Delete ${workspace.title}?`,
+    'The workspace and its sessions are removed from the host.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => void workspaceDelete(workspace.workspaceId) },
+    ],
+  )
+
+  const showActions = (workspace: WorkspaceView) => {
+    const index = workspaces.findIndex(item => item.workspaceId === workspace.workspaceId)
+    const canMoveUp = index > 0
+    const canMoveDown = index >= 0 && index < workspaces.length - 1
+    Alert.alert(workspace.title, workspace.path, [
+      { text: 'Rename', onPress: () => setRenameTarget(workspace) },
+      canMoveUp
+        ? { text: 'Move up', onPress: () => void workspaceMove(workspace.workspaceId, workspaces[index - 1]!.workspaceId) }
+        : { text: 'Move up', style: 'cancel' as const },
+      canMoveDown
+        ? { text: 'Move down', onPress: () => void workspaceMove(workspace.workspaceId, index + 2 < workspaces.length ? workspaces[index + 2]!.workspaceId : undefined) }
+        : { text: 'Move down', style: 'cancel' as const },
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => confirmDelete(workspace) },
+    ])
+  }
+
+  return (
+    <View style={styles.flex}>
+      <TopBar
+        title="Workspaces"
+        onBack={onBack}
+        action={<IconButton label="Create workspace" icon={CirclePlus} onPress={() => setCreateOpen(true)} />}
+      />
+      <Screen>
+        <View style={styles.pageHeading}>
+          <View>
+            <Text style={styles.title}>Host workspaces</Text>
+            <Text style={styles.subtitle}>Folders on the host that keep sessions together</Text>
+          </View>
+        </View>
+        {workspaces.length === 0
+          ? <EmptyState
+              icon={FolderOpen}
+              title="No workspaces"
+              body="Create a workspace to group sessions by project directory on the host."
+              action={<Button label="Create workspace" icon={CirclePlus} onPress={() => setCreateOpen(true)} />}
+            />
+          : <View>{workspaces.map(workspace => (
+              <Pressable
+                key={workspace.workspaceId}
+                accessibilityRole="button"
+                onPress={onSessions}
+                onLongPress={() => showActions(workspace)}
+                style={({ pressed }) => [styles.workspaceRow, pressed && styles.workspaceRowPressed]}
+              >
+                <View style={styles.workspaceIcon}><Folder size={18} color={colors.primary} /></View>
+                <View style={styles.workspaceCopy}>
+                  <Text style={styles.workspaceTitle} numberOfLines={1}>{workspace.title}</Text>
+                  <Text style={styles.workspacePath} numberOfLines={1}>{workspace.path}</Text>
+                  <Text style={styles.workspaceMeta}>{workspace.sessionIds.length} session{workspace.sessionIds.length === 1 ? '' : 's'}</Text>
+                </View>
+                <IconButton label="Workspace options" icon={MoreVertical} onPress={() => showActions(workspace)} />
+              </Pressable>
+            ))}</View>}
+        <View style={styles.primaryArea}>
+          <Button label="Open sessions" onPress={onSessions} />
+        </View>
+      </Screen>
+
+      <CreateWorkspaceModal
+        visible={createOpen}
+        busy={busy === 'create-workspace'}
+        onClose={() => setCreateOpen(false)}
+        onCreate={async path => workspaceCreate(path)}
+      />
+      <RenameWorkspaceModal
+        target={renameTarget}
+        busy={renameTarget !== undefined && busy === `rename-workspace:${renameTarget.workspaceId}`}
+        onClose={() => setRenameTarget(undefined)}
+        onRename={async (workspaceId, title) => workspaceRename(workspaceId, title)}
+      />
+    </View>
+  )
+}
+
+function CreateWorkspaceModal({ visible, busy, onClose, onCreate }: {
+  visible: boolean
+  busy: boolean
+  onClose: () => void
+  onCreate: (path: string) => Promise<boolean>
+}) {
+  const [path, setPath] = useState('')
+  const [browseOpen, setBrowseOpen] = useState(false)
+
+  const create = async () => {
+    const trimmed = path.trim()
+    if (trimmed.length === 0) return
+    if (await onCreate(trimmed)) {
+      setPath('')
+      onClose()
+    }
+  }
+
+  return (
+    <>
+      <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+        <Pressable style={styles.backdrop} onPress={onClose}>
+          <Pressable style={styles.sheet} onPress={event => event.stopPropagation()}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Create workspace</Text>
+              <IconButton label="Close" icon={X} onPress={onClose} />
+            </View>
+            <Text style={styles.fieldLabel}>Directory on host</Text>
+            <View style={styles.pathRow}>
+              <TextInput
+                style={styles.pathInput}
+                value={path}
+                onChangeText={setPath}
+                placeholder="/home/user/project"
+                placeholderTextColor={colors.muted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!busy}
+              />
+              <Button label="Browse" variant="secondary" onPress={() => setBrowseOpen(true)} disabled={busy} />
+            </View>
+            <Text style={styles.fieldHint}>The host folder that will hold sessions created here.</Text>
+            <Button label="Create workspace" onPress={() => void create()} loading={busy} disabled={path.trim().length === 0} />
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <DirectoryBrowserModal
+        visible={browseOpen}
+        onClose={() => setBrowseOpen(false)}
+        onChoose={picked => { setPath(picked); setBrowseOpen(false) }}
+      />
+    </>
+  )
+}
+
+function RenameWorkspaceModal({ target, busy, onClose, onRename }: {
+  target?: WorkspaceView
+  busy: boolean
+  onClose: () => void
+  onRename: (workspaceId: string, title: string) => Promise<boolean>
+}) {
+  const [title, setTitle] = useState('')
+
+  useEffect(() => {
+    if (target !== undefined) setTitle(target.title)
+  }, [target])
+
+  const rename = async () => {
+    const trimmed = title.trim()
+    if (target === undefined || trimmed.length === 0) return
+    if (await onRename(target.workspaceId, trimmed)) onClose()
+  }
+
+  return (
+    <Modal visible={target !== undefined} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={event => event.stopPropagation()}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Rename workspace</Text>
+            <IconButton label="Close" icon={X} onPress={onClose} />
+          </View>
+          <TextInput
+            style={styles.titleInput}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Workspace name"
+            placeholderTextColor={colors.muted}
+            autoFocus
+            editable={!busy}
+          />
+          <Button label="Save name" onPress={() => void rename()} loading={busy} disabled={title.trim().length === 0} />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  )
+}
+
+function DirectoryBrowserModal({ visible, onClose, onChoose }: {
+  visible: boolean
+  onClose: () => void
+  onChoose: (path: string) => void
+}) {
+  const listDirectory = useAppStore(state => state.hostListDirectory)
+  const [listing, setListing] = useState<DirectoryListing | undefined>(undefined)
+  const [showHidden, setShowHidden] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    if (!visible) return
+    let cancelled = false
+    setLoading(true)
+    setError(undefined)
+    void listDirectory(undefined).then(result => {
+      if (cancelled) return
+      if (result === undefined) { setLoading(false); return }
+      setListing(result)
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [visible, listDirectory])
+
+  const open = async (path: string) => {
+    setLoading(true)
+    setError(undefined)
+    const result = await listDirectory(path)
+    if (result !== undefined) setListing(result)
+    setLoading(false)
+  }
+
+  const entries = listing === undefined ? [] : listing.entries.filter(entry => showHidden || !entry.hidden)
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable style={styles.browserSheet} onPress={event => event.stopPropagation()}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Choose folder</Text>
+            <IconButton label="Close" icon={X} onPress={onClose} />
+          </View>
+          <View style={styles.browserPath}>
+            <Text style={styles.browserPathText} numberOfLines={1}>{listing?.path ?? 'Loading…'}</Text>
+          </View>
+          <View style={styles.crumbRow}>
+            {(listing?.crumbs ?? []).map((crumb, index, all) => (
+              <Pressable key={`${crumb.path}-${index}`} onPress={() => void open(crumb.path)}>
+                <Text style={styles.crumbText}>
+                  {crumb.name}{index < all.length - 1 ? ' / ' : ''}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {error !== undefined && <Text style={styles.errorText}>{error}</Text>}
+          <View style={styles.browserList}>
+            {loading
+              ? <Text style={styles.loadingText}>Loading directory…</Text>
+              : entries.length === 0
+                ? <Text style={styles.emptyText}>No folders here</Text>
+                : entries.map(entry => (
+                    <Pressable
+                      key={entry.path}
+                      accessibilityRole="button"
+                      onPress={() => void open(entry.path)}
+                      style={styles.entryRow}
+                    >
+                      <Folder size={16} color={colors.primary} />
+                      <Text style={styles.entryName} numberOfLines={1}>{entry.name}</Text>
+                      <ChevronRight size={14} color={colors.muted} />
+                    </Pressable>
+                  ))}
+          </View>
+          <View style={styles.browserFooter}>
+            <Button
+              label={showHidden ? 'Hide hidden' : 'Show hidden'}
+              icon={showHidden ? EyeOff : Eye}
+              variant="quiet"
+              onPress={() => setShowHidden(current => !current)}
+            />
+            <Button
+              label="Choose this folder"
+              disabled={listing === undefined || loading}
+              onPress={() => { if (listing !== undefined) onChoose(listing.path) }}
+            />
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  )
+}
+
+const styles = StyleSheet.create({
+  flex: { flex: 1, backgroundColor: colors.background },
+  pageHeading: { paddingTop: spacing.xxl, paddingBottom: spacing.md },
+  title: { ...type.title, color: colors.ink },
+  subtitle: { ...type.small, color: colors.muted, marginTop: 2 },
+  workspaceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
+  workspaceRowPressed: { opacity: 0.7 },
+  workspaceIcon: { width: 38, height: 38, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  workspaceCopy: { flex: 1, gap: 2 },
+  workspaceTitle: { ...type.bodyStrong, color: colors.ink },
+  workspacePath: { ...type.caption, color: colors.muted, fontFamily: 'monospace' },
+  workspaceMeta: { ...type.caption, color: colors.muted },
+  primaryArea: { marginTop: spacing.xxl },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
+  browserSheet: { height: '75%', backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, paddingBottom: spacing.lg },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sheetTitle: { ...type.heading, color: colors.ink },
+  fieldLabel: { ...type.smallStrong, color: colors.ink },
+  fieldHint: { ...type.caption, color: colors.muted },
+  pathRow: { flexDirection: 'row', gap: spacing.sm },
+  pathInput: { flex: 1, ...type.body, color: colors.ink, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  titleInput: { ...type.body, color: colors.ink, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  browserPath: { backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm },
+  browserPathText: { ...type.small, color: colors.ink, fontFamily: 'monospace' },
+  crumbRow: { flexDirection: 'row', flexWrap: 'wrap', paddingVertical: spacing.xs },
+  crumbText: { ...type.small, color: colors.primary },
+  browserList: { flex: 1, marginTop: spacing.xs },
+  entryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
+  entryName: { ...type.body, color: colors.ink, flex: 1 },
+  loadingText: { ...type.small, color: colors.muted, textAlign: 'center', marginTop: spacing.lg },
+  emptyText: { ...type.small, color: colors.muted, textAlign: 'center', marginTop: spacing.lg },
+  errorText: { ...type.small, color: colors.danger },
+  browserFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginTop: spacing.md },
+})

@@ -2,12 +2,16 @@ import type { RemoteClientCore } from '@dsh-remote/client-core'
 import type { EventPayload, HarnessApiCallParams, HarnessApiFrameData, HarnessApiRespondParams, HarnessApiStreamOpenParams, HarnessApiStreamClosedData } from '@dsh-remote/protocol'
 import type {
   AskUserQuestionAnswer,
+  DirectoryListing,
   HistoryEntry,
   HostDescriptor,
+  ModelSelection,
   MuxFrame,
   MuxStreamFrame,
   RemoteSession,
   SessionHistoryPage,
+  SessionModels,
+  WorkspaceList,
   WorkspaceView,
 } from '../types'
 
@@ -130,6 +134,35 @@ export class RemoteApiProxy {
     return Array.isArray(result.items) ? result.items : []
   }
 
+  async sessionCreate(workspaceId?: string, cwd?: string): Promise<{ sessionId: string }> {
+    return this.call('session.create', workspaceId !== undefined
+      ? { workspaceId }
+      : cwd !== undefined
+        ? { cwd }
+        : {})
+  }
+
+  async sessionModels(sessionId: string): Promise<SessionModels> {
+    const result = await this.call<SessionModels>('session.models', { sessionId })
+    if (!Array.isArray(result.groups) || typeof result.current?.provider !== 'string' || typeof result.current?.model !== 'string') {
+      throw new ApiProxyError('INVALID_MESSAGE', 'The Host returned an invalid model catalog.')
+    }
+    return result
+  }
+
+  async sessionSelectModel(sessionId: string, selection: ModelSelection): Promise<ModelSelection> {
+    const result = await this.call<{ selected: ModelSelection }>('session.selectModel', {
+      sessionId,
+      provider: selection.provider,
+      model: selection.model,
+      ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
+    })
+    if (typeof result.selected?.provider !== 'string' || typeof result.selected?.model !== 'string') {
+      throw new ApiProxyError('INVALID_MESSAGE', 'The Host returned an invalid model selection.')
+    }
+    return result.selected
+  }
+
   async sessionHistory(sessionId: string, beforeSeq?: number, maxMessages = 60): Promise<SessionHistoryPage> {
     const result = await this.call<{ events: HistoryEntry[]; hasMore: boolean }>('session.history', {
       sessionId,
@@ -159,9 +192,53 @@ export class RemoteApiProxy {
     return result
   }
 
-  async workspaceList(): Promise<WorkspaceView[]> {
-    const result = await this.call<{ items?: WorkspaceView[] }>('workspace.list', {})
-    return Array.isArray(result.items) ? result.items : []
+  async hostListDirectory(path?: string): Promise<DirectoryListing> {
+    const result = await this.call<DirectoryListing>('host.listDirectory', path === undefined ? {} : { path })
+    if (typeof result.path !== 'string' || !Array.isArray(result.entries)) {
+      throw new ApiProxyError('INVALID_MESSAGE', 'The Host returned an invalid directory listing.')
+    }
+    return result
+  }
+
+  async workspaceList(): Promise<WorkspaceList> {
+    const result = await this.call<WorkspaceList>('workspace.list', {})
+    return {
+      items: Array.isArray(result.items) ? result.items : [],
+      archivedSessionIds: Array.isArray(result.archivedSessionIds) ? result.archivedSessionIds : [],
+    }
+  }
+
+  async workspaceCreate(path: string): Promise<{ workspace: WorkspaceView; created: boolean }> {
+    const result = await this.call<{ workspace: WorkspaceView; created: boolean }>('workspace.create', { path })
+    if (typeof result.workspace?.workspaceId !== 'string') {
+      throw new ApiProxyError('INVALID_MESSAGE', 'The Host returned an invalid workspace.')
+    }
+    return result
+  }
+
+  async workspaceRename(workspaceId: string, title: string): Promise<WorkspaceView> {
+    const result = await this.call<{ workspace: WorkspaceView }>('workspace.rename', { workspaceId, title })
+    if (typeof result.workspace?.workspaceId !== 'string') {
+      throw new ApiProxyError('INVALID_MESSAGE', 'The Host returned an invalid workspace.')
+    }
+    return result.workspace
+  }
+
+  async workspaceDelete(workspaceId: string): Promise<void> {
+    await this.call('workspace.delete', { workspaceId })
+  }
+
+  async workspaceArchiveSession(sessionId: string): Promise<string[]> {
+    const result = await this.call<{ archivedSessionIds: string[] }>('workspace.archiveSession', { sessionId })
+    return Array.isArray(result.archivedSessionIds) ? result.archivedSessionIds : []
+  }
+
+  async workspaceInsertBefore(workspaceId: string, beforeWorkspaceId?: string): Promise<string[]> {
+    const result = await this.call<{ workspaceIds: string[] }>('workspace.insertBefore', {
+      workspaceId,
+      ...(beforeWorkspaceId === undefined ? {} : { beforeWorkspaceId }),
+    })
+    return Array.isArray(result.workspaceIds) ? result.workspaceIds : []
   }
 
   private routeEvent(event: EventPayload, streamId: string): void {

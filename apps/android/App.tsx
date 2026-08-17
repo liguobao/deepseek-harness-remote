@@ -7,6 +7,7 @@ import { Bot } from 'lucide-react-native'
 import { ChatScreen } from './src/screens/chat-screen'
 import { DeviceDetailScreen, DevicesScreen, SessionsScreen } from './src/screens/device-screens'
 import { ServerSetupScreen, SettingsScreen } from './src/screens/setup-screens'
+import { WorkspacesScreen } from './src/screens/workspaces-screen'
 import { useAppStore } from './src/state/store'
 import { Button, ErrorBanner } from './src/ui/components'
 import { colors, radius, spacing, type } from './src/ui/theme'
@@ -15,6 +16,7 @@ type Route =
   | { name: 'server' }
   | { name: 'devices' }
   | { name: 'device'; deviceId: string }
+  | { name: 'workspaces' }
   | { name: 'sessions' }
   | { name: 'chat' }
   | { name: 'settings' }
@@ -90,8 +92,9 @@ function AppNavigator() {
       {error !== undefined && <ErrorBanner message={error} onDismiss={clearError} />}
       {route.name === 'server' && <ServerSetupScreen onBack={routes.length > 1 ? pop : undefined} onComplete={() => reset({ name: 'devices' })} />}
       {route.name === 'devices' && <DevicesScreen onDevice={device => push({ name: 'device', deviceId: device.deviceId })} onSettings={() => push({ name: 'settings' })} />}
-      {route.name === 'device' && deviceForRoute !== undefined && <DeviceDetailScreen device={deviceForRoute} onBack={pop} onSessions={() => push({ name: 'sessions' })} onForgotten={() => reset({ name: 'devices' })} />}
+      {route.name === 'device' && deviceForRoute !== undefined && <DeviceDetailScreen device={deviceForRoute} onBack={pop} onSessions={() => push({ name: 'sessions' })} onWorkspaces={() => push({ name: 'workspaces' })} onForgotten={() => reset({ name: 'devices' })} />}
       {route.name === 'device' && deviceForRoute === undefined && <MissingRoute onBack={() => reset({ name: 'devices' })} />}
+      {route.name === 'workspaces' && <WorkspacesScreen onBack={pop} onSessions={() => push({ name: 'sessions' })} />}
       {route.name === 'sessions' && <SessionsScreen onBack={pop} onSession={() => push({ name: 'chat' })} />}
       {route.name === 'chat' && <ChatScreen onBack={pop} />}
       {route.name === 'settings' && <SettingsScreen onBack={pop} onReset={() => reset({ name: 'server' })} />}

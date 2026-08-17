@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
-import { CirclePlus, Laptop, MessageSquareText, MoreVertical, Settings, ShieldCheck, Unplug } from 'lucide-react-native'
+import { Archive, ChevronDown, ChevronUp, CirclePlus, Laptop, MessageSquareText, MoreVertical, Settings, ShieldCheck, Unplug } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import type { RemoteDevice, RemoteSession } from '../types'
 import {
@@ -61,10 +62,11 @@ export function DevicesScreen({ onDevice, onSettings }: {
   )
 }
 
-export function DeviceDetailScreen({ device, onBack, onSessions, onForgotten }: {
+export function DeviceDetailScreen({ device, onBack, onSessions, onWorkspaces, onForgotten }: {
   device: RemoteDevice
   onBack: () => void
   onSessions: () => void
+  onWorkspaces: () => void
   onForgotten: () => void
 }) {
   const selected = useAppStore(state => state.selectedDevice)
@@ -137,11 +139,22 @@ export function DeviceDetailScreen({ device, onBack, onSessions, onForgotten }: 
                 <View style={styles.group}>
                   <KeyValue label="Harness" value={descriptor?.version ?? 'Unknown version'} />
                   <KeyValue label="Directory" value={descriptor?.cwd ?? 'Unavailable'} mono />
+                  {descriptor?.provider !== undefined && <KeyValue label="Provider" value={descriptor.provider} />}
+                  {descriptor?.model !== undefined && <KeyValue label="Model" value={descriptor.model} />}
                   <KeyValue label="Workspaces" value={String(workspaces.length)} />
                   <KeyValue label="Attached sessions" value={String(descriptor?.attachedSessions ?? 0)} />
                 </View>
 
+                <SectionTitle>Connection</SectionTitle>
+                <View style={styles.group}>
+                  <KeyValue label="Path" value={connectionPath(connection.stats.mode)} />
+                  <KeyValue label="Encryption" value="Noise IK · ChaCha20-Poly1305" />
+                  <KeyValue label="Received" value={bytesText(connection.stats.bytesReceived)} />
+                  <KeyValue label="Sent" value={bytesText(connection.stats.bytesSent)} />
+                </View>
+
                 <View style={styles.primaryArea}><Button label="Open sessions" icon={MessageSquareText} onPress={onSessions} /></View>
+                <View style={styles.secondaryArea}><Button label="Manage workspaces" variant="secondary" onPress={onWorkspaces} /></View>
               </>}
       </Screen>
     </View>
@@ -150,37 +163,77 @@ export function DeviceDetailScreen({ device, onBack, onSessions, onForgotten }: 
 
 export function SessionsScreen({ onBack, onSession }: { onBack: () => void; onSession: (session: RemoteSession) => void }) {
   const sessions = useAppStore(state => state.sessions)
+  const archivedSessionIds = useAppStore(state => state.archivedSessionIds)
   const busy = useAppStore(state => state.busyAction)
   const openSession = useAppStore(state => state.openSession)
+  const createSession = useAppStore(state => state.createSession)
+  const [showArchived, setShowArchived] = useState(false)
 
   const open = async (session: RemoteSession) => {
     if (await openSession(session)) onSession(session)
   }
 
+  const archivedSet = new Set(archivedSessionIds)
+  const active = sessions.filter(session => !archivedSet.has(session.sessionId))
+  const archived = sessions.filter(session => archivedSet.has(session.sessionId))
+  const creating = busy === 'create-session'
+
   return (
     <View style={styles.flex}>
-      <TopBar title="Sessions" onBack={onBack} />
+      <TopBar
+        title="Sessions"
+        onBack={onBack}
+        action={<IconButton label="New session" icon={CirclePlus} onPress={() => void createSession()} disabled={creating} />}
+      />
       <Screen>
         <View style={styles.pageHeading}>
           <View><Text style={styles.title}>Harness sessions</Text><Text style={styles.subtitle}>Continue where you left off</Text></View>
         </View>
-        {sessions.length === 0
+        {creating && <Text style={styles.creatingText}>Creating session…</Text>}
+        {active.length === 0 && archived.length === 0
           ? <EmptyState
               icon={MessageSquareText}
               title="No sessions"
               body="Start a session on the host, then open it from this phone."
+              action={<Button label="New session" icon={CirclePlus} onPress={() => void createSession()} loading={creating} />}
             />
-          : <View>{sessions.map(session => (
-              <ListRow
-                key={session.sessionId}
-                title={sessionTitle(session)}
-                subtitle={session.cwd}
-                meta={updatedText(session.updatedAt)}
-                icon={MessageSquareText}
-                status={session.running ? <StatusBadge status="running" /> : undefined}
-                onPress={() => void open(session)}
-              />
-            ))}</View>}
+          : <View>
+              {active.map(session => (
+                <ListRow
+                  key={session.sessionId}
+                  title={sessionTitle(session)}
+                  subtitle={session.cwd}
+                  meta={updatedText(session.updatedAt)}
+                  icon={MessageSquareText}
+                  status={session.running ? <StatusBadge status="running" /> : undefined}
+                  onPress={() => void open(session)}
+                />
+              ))}
+              {archived.length > 0 && (
+                <View style={styles.archivedSection}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: showArchived }}
+                    onPress={() => setShowArchived(current => !current)}
+                    style={styles.archivedHeader}
+                  >
+                    <Archive size={16} color={colors.muted} />
+                    <Text style={styles.archivedTitle}>Archived ({archived.length})</Text>
+                    {showArchived ? <ChevronUp size={16} color={colors.muted} /> : <ChevronDown size={16} color={colors.muted} />}
+                  </Pressable>
+                  {showArchived && archived.map(session => (
+                    <ListRow
+                      key={session.sessionId}
+                      title={sessionTitle(session)}
+                      subtitle={session.cwd}
+                      meta={updatedText(session.updatedAt)}
+                      icon={Archive}
+                      onPress={() => void open(session)}
+                    />
+                  ))}
+                </View>
+              )}
+            </View>}
       </Screen>
     </View>
   )
@@ -214,6 +267,24 @@ function lastSeenText(value?: number): string {
   return Number.isFinite(value) ? updatedText(value).replace('Updated', 'Last seen') : 'Last seen unavailable'
 }
 
+function connectionPath(mode: string | undefined): string {
+  const names: Record<string, string> = {
+    Relay: 'Relay (server)',
+    WebRTC: 'WebRTC P2P',
+    LAN: 'Local network',
+    TURN: 'TURN relay',
+    Disconnected: 'Disconnected',
+  }
+  return mode === undefined ? 'Unavailable' : names[mode] ?? mode
+}
+
+function bytesText(value: number | undefined): string {
+  if (value === undefined) return 'Unavailable'
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
   pageHeading: { paddingTop: spacing.xxl, paddingBottom: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -235,4 +306,10 @@ const styles = StyleSheet.create({
   connectionErrorBody: { ...type.small, color: colors.muted },
   group: { borderRadius: radius.lg, backgroundColor: colors.surface, paddingHorizontal: spacing.md },
   primaryArea: { marginTop: spacing.xxl },
+  secondaryArea: { marginTop: spacing.sm },
+  creatingText: { ...type.small, color: colors.muted, marginBottom: spacing.sm },
+  archivedSection: { marginTop: spacing.lg },
+  archivedHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.sm },
+  archivedTitle: { ...type.smallStrong, color: colors.muted, flex: 1 },
+  connectionDetails: { marginTop: spacing.lg },
 })

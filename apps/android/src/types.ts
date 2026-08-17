@@ -71,6 +71,68 @@ export interface WorkspaceView {
   updatedAt: string
 }
 
+export interface WorkspaceList {
+  items: WorkspaceView[]
+  archivedSessionIds: string[]
+}
+
+export interface DirectoryEntry {
+  name: string
+  path: string
+  hidden: boolean
+}
+
+export interface DirectoryListing {
+  path: string
+  home: string
+  crumbs: DirectoryEntry[]
+  entries: DirectoryEntry[]
+  truncated: boolean
+}
+
+export interface ModelSelection {
+  provider: string
+  model: string
+  reasoningEffort?: string
+}
+
+export interface ModelReasoningEffort {
+  id: string
+  name: string
+  description?: string
+}
+
+export interface ModelReasoning {
+  efforts: ModelReasoningEffort[]
+  defaultEffort?: string
+}
+
+export interface ModelCatalogModel {
+  id: string
+  name: string
+  description?: string
+  reasoning?: ModelReasoning
+}
+
+export interface ModelProviderGroup {
+  id: string
+  name: string
+  models: ModelCatalogModel[]
+}
+
+export interface ModelCatalogFailure {
+  id: string
+  name: string
+  message: string
+}
+
+export interface SessionModels {
+  current: ModelSelection
+  routable: boolean
+  groups: ModelProviderGroup[]
+  failures: ModelCatalogFailure[]
+}
+
 /** Native ApiProxy session row projection (mirrors @deepseek-ai/dsh-host-apiproxy). */
 export interface RemoteSession {
   sessionId: string
@@ -203,3 +265,18 @@ export interface ConnectionSnapshot {
 export interface PairLink {
   server?: string
 }
+
+/** Client-side transport routing preference (mirrors the Web Remote console). */
+export type TransportPreference = 'auto' | 'turn' | 'relay'
+
+export interface TransportPreferenceOption {
+  value: TransportPreference
+  name: string
+  description: string
+}
+
+export const TRANSPORT_PREFERENCE_OPTIONS: TransportPreferenceOption[] = [
+  { value: 'auto', name: 'Auto', description: 'Try P2P and TURN first, fall back to Relay' },
+  { value: 'turn', name: 'TURN first', description: 'Route through TURN, fall back to Relay' },
+  { value: 'relay', name: 'Relay only', description: 'Always use the server Relay channel' },
+]

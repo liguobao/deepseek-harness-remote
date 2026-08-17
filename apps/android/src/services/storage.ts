@@ -10,6 +10,7 @@ const KEYS = {
   identity: 'dshremote.identity.v1',
   credentials: 'dshremote.credentials.v1',
   trustedHosts: 'dshremote.trusted-hosts.v1',
+  transportPreference: 'dshremote.transport-preference.v1',
 } as const
 
 const secureOptions: SecureStore.SecureStoreOptions = {
@@ -71,6 +72,16 @@ export async function trustHost(host: RemoteDevice): Promise<void> {
 export async function forgetHost(deviceId: string): Promise<void> {
   const hosts = await loadTrustedHosts()
   await writeJson(KEYS.trustedHosts, hosts.filter(host => host.deviceId !== deviceId))
+}
+
+export async function loadTransportPreference(): Promise<import('../types').TransportPreference> {
+  const stored = await readJson<{ value: import('../types').TransportPreference }>(KEYS.transportPreference)
+  if (stored?.value === 'turn' || stored?.value === 'relay') return stored.value
+  return 'auto'
+}
+
+export async function saveTransportPreference(value: import('../types').TransportPreference): Promise<void> {
+  await writeJson(KEYS.transportPreference, { value })
 }
 
 export async function clearLocalData(): Promise<void> {

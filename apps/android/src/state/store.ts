@@ -12,8 +12,10 @@ import {
   forgetHost,
   loadOrCreateIdentity,
   loadServerConfig,
+  loadTransportPreference,
   loadTrustedHosts,
   saveServerConfig,
+  saveTransportPreference,
   trustHost,
 } from '../services/storage'
 import type {
@@ -22,10 +24,14 @@ import type {
   DeviceIdentity,
   HistoryEntry,
   HostDescriptor,
+  ModelSelection,
   MuxStreamFrame,
   RemoteDevice,
   RemoteSession,
   ServerConfig,
+  SessionModels,
+  TransportPreference,
+  WorkspaceList,
   WorkspaceView,
 } from '../types'
 import { foldHistory, applyMuxFrameToMessages } from './event-reducer'
@@ -43,9 +49,16 @@ interface AppState {
   connection: ConnectionSnapshot
   hostDescriptor?: HostDescriptor
   workspaces: WorkspaceView[]
+  archivedSessionIds: string[]
   sessions: RemoteSession[]
   selectedSession?: RemoteSession
   messages: Record<string, ChatItem[]>
+  sessionModels?: SessionModels
+  modelSelecting: boolean
+  historyHasMore: boolean
+  historyLoadingOlder: boolean
+  oldestLoadedSeq?: number
+  transportPreference: TransportPreference
   authPhase: AuthPhase
   refreshing: boolean
   busyAction?: string
@@ -64,6 +77,16 @@ interface AppState {
   stopSession(): Promise<void>
   respondApproval(itemId: string, outcome: 'allowed-once' | 'rejected'): Promise<void>
   respondQuestion(itemId: string, selected: Record<string, string[]>): Promise<void>
+  createSession(): Promise<boolean>
+  archiveSession(sessionId: string): Promise<boolean>
+  selectModel(selection: ModelSelection): Promise<boolean>
+  loadOlderHistory(): Promise<void>
+  workspaceCreate(path: string): Promise<boolean>
+  workspaceRename(workspaceId: string, title: string): Promise<boolean>
+  workspaceDelete(workspaceId: string): Promise<boolean>
+  workspaceMove(workspaceId: string, beforeWorkspaceId?: string): Promise<boolean>
+  hostListDirectory(path?: string): Promise<import('../types').DirectoryListing | undefined>
+  setTransportPreference(preference: TransportPreference): Promise<void>
   resetLocalData(): Promise<void>
   setOffline(): void
   clearError(): void
@@ -82,16 +105,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   devices: [],
   connection: disconnected,
   workspaces: [],
+  archivedSessionIds: [],
   sessions: [],
   messages: {},
+  modelSelecting: false,
+  historyHasMore: false,
+  historyLoadingOlder: false,
+  transportPreference: 'auto',
   authPhase: 'idle',
   refreshing: false,
 
   async bootstrap() {
     set({ bootPhase: 'loading', error: undefined })
     try {
-      const [config, identity] = await Promise.all([loadServerConfig(), loadOrCreateIdentity()])
-      set({ config, identity, bootPhase: 'ready' })
+      const [config, identity, transportPreference] = await Promise.all([
+        loadServerConfig(),
+        loadOrCreateIdentity(),
+        loadTransportPreference(),
+      ])
+      set({ config, identity, transportPreference, bootPhase: 'ready' })
       if (config !== undefined) await get().refreshDevices()
     } catch (error) {
       set({ bootPhase: 'error', error: friendlyError(error) })
@@ -162,6 +194,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
     try {
       const { api, credentials } = await serverSession.authenticate(config.baseUrl, identity)
+      const preference = get().transportPreference
+      const preferredTransports = preference === 'relay'
+        ? ['relay'] as const
+        : preference === 'turn'
+          ? ['turn', 'relay'] as const
+          : undefined
       await connection.connect(
         config.baseUrl,
         identity,
@@ -170,6 +208,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         frame => get().handleMuxFrame(frame),
         {
           fetchIceServers: async connectionId => api.turnCredentials(connectionId),
+          ...(preferredTransports === undefined ? {} : { preferredTransports: [...preferredTransports] }),
           onClose: () => {
             if (get().connection.phase === 'connected' || get().connection.phase === 'reconnecting') {
               set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: 'The host connection closed.' } })
@@ -178,14 +217,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       )
       const proxy = connection.requireProxy()
-      const [hostDescriptor, workspaces, sessions] = await Promise.all([
+      const [hostDescriptor, workspaceList, sessions] = await Promise.all([
         proxy.hostDescribe(),
         proxy.workspaceList(),
         proxy.sessionList(),
       ])
       set({
         hostDescriptor,
-        workspaces,
+        workspaces: workspaceList.items,
+        archivedSessionIds: workspaceList.archivedSessionIds,
         sessions,
         connection: { phase: 'connected', stats: connection.getStats() ?? { mode: 'Relay', connected: true } },
       })
@@ -212,8 +252,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedDevice: undefined,
       hostDescriptor: undefined,
       workspaces: [],
+      archivedSessionIds: [],
       sessions: [],
       selectedSession: undefined,
+      sessionModels: undefined,
+      historyHasMore: false,
+      historyLoadingOlder: false,
+      oldestLoadedSeq: undefined,
     })
   },
 
@@ -229,6 +274,170 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...state.messages,
           [session.sessionId]: mergeHistoryAndLive(items, state.messages[session.sessionId] ?? []),
         },
+        historyHasMore: history.hasMore,
+        oldestLoadedSeq: oldestSeq(history.events),
+        busyAction: undefined,
+      }))
+      void refreshSessionModels(session.sessionId)
+      return true
+    } catch (error) {
+      set({ busyAction: undefined, error: friendlyError(error) })
+      return false
+    }
+  },
+
+  async createSession() {
+    if (get().connection.phase !== 'connected') return false
+    set({ busyAction: 'create-session', error: undefined })
+    try {
+      const proxy = connection.requireProxy()
+      const { sessionId } = await proxy.sessionCreate()
+      const sessions = await proxy.sessionList()
+      set({ sessions, busyAction: undefined })
+      const created = sessions.find(session => session.sessionId === sessionId)
+      if (created !== undefined) await get().openSession(created)
+      return true
+    } catch (error) {
+      set({ busyAction: undefined, error: friendlyError(error) })
+      return false
+    }
+  },
+
+  async archiveSession(sessionId) {
+    if (get().connection.phase !== 'connected') return false
+    set({ busyAction: `archive:${sessionId}`, error: undefined })
+    try {
+      const proxy = connection.requireProxy()
+      const archivedSessionIds = await proxy.workspaceArchiveSession(sessionId)
+      const sessions = await proxy.sessionList()
+      set(state => ({
+        archivedSessionIds,
+        sessions,
+        busyAction: undefined,
+        selectedSession: state.selectedSession?.sessionId === sessionId ? undefined : state.selectedSession,
+        sessionModels: state.selectedSession?.sessionId === sessionId ? undefined : state.sessionModels,
+      }))
+      return true
+    } catch (error) {
+      set({ busyAction: undefined, error: friendlyError(error) })
+      return false
+    }
+  },
+
+  async selectModel(selection) {
+    const session = get().selectedSession
+    if (session === undefined || get().connection.phase !== 'connected') return false
+    set({ modelSelecting: true, error: undefined })
+    try {
+      const selected = await connection.requireProxy().sessionSelectModel(session.sessionId, selection)
+      set(state => ({
+        sessionModels: state.sessionModels === undefined ? undefined : { ...state.sessionModels, current: selected },
+        modelSelecting: false,
+      }))
+      return true
+    } catch (error) {
+      set({ modelSelecting: false, error: friendlyError(error) })
+      return false
+    }
+  },
+
+  async workspaceRename(workspaceId, title) {
+    if (get().connection.phase !== 'connected') return false
+    set({ busyAction: `rename-workspace:${workspaceId}`, error: undefined })
+    try {
+      const proxy = connection.requireProxy()
+      const workspace = await proxy.workspaceRename(workspaceId, title)
+      set(state => ({
+        workspaces: state.workspaces.map(item => item.workspaceId === workspaceId ? workspace : item),
+        busyAction: undefined,
+      }))
+      return true
+    } catch (error) {
+      set({ busyAction: undefined, error: friendlyError(error) })
+      return false
+    }
+  },
+
+  async workspaceDelete(workspaceId) {
+    if (get().connection.phase !== 'connected') return false
+    set({ busyAction: `delete-workspace:${workspaceId}`, error: undefined })
+    try {
+      const proxy = connection.requireProxy()
+      await proxy.workspaceDelete(workspaceId)
+      set(state => ({
+        workspaces: state.workspaces.filter(item => item.workspaceId !== workspaceId),
+        sessions: state.sessions.filter(session => {
+          const workspace = state.workspaces.find(item => item.workspaceId === workspaceId)
+          return workspace === undefined || !workspace.sessionIds.includes(session.sessionId)
+        }),
+        busyAction: undefined,
+      }))
+      return true
+    } catch (error) {
+      set({ busyAction: undefined, error: friendlyError(error) })
+      return false
+    }
+  },
+
+  async workspaceMove(workspaceId, beforeWorkspaceId) {
+    if (get().connection.phase !== 'connected') return false
+    set({ busyAction: `move-workspace:${workspaceId}`, error: undefined })
+    try {
+      const proxy = connection.requireProxy()
+      const workspaceIds = await proxy.workspaceInsertBefore(workspaceId, beforeWorkspaceId)
+      const byId = new Map(get().workspaces.map(item => [item.workspaceId, item]))
+      set({
+        workspaces: workspaceIds.flatMap(id => byId.get(id) === undefined ? [] : [byId.get(id)!]),
+        busyAction: undefined,
+      })
+      return true
+    } catch (error) {
+      set({ busyAction: undefined, error: friendlyError(error) })
+      return false
+    }
+  },
+
+  async hostListDirectory(path) {
+    if (get().connection.phase !== 'connected') return undefined
+    try {
+      return await connection.requireProxy().hostListDirectory(path)
+    } catch (error) {
+      set({ error: friendlyError(error) })
+      return undefined
+    }
+  },
+
+  async loadOlderHistory() {
+    const session = get().selectedSession
+    const beforeSeq = get().oldestLoadedSeq
+    if (session === undefined || beforeSeq === undefined || get().historyLoadingOlder || !get().historyHasMore) return
+    set({ historyLoadingOlder: true })
+    try {
+      const page = await connection.requireProxy().sessionHistory(session.sessionId, beforeSeq, 60)
+      const items = foldHistory(page.events, session.sessionId)
+      const older = oldestSeq(page.events)
+      set(state => ({
+        messages: {
+          ...state.messages,
+          [session.sessionId]: prependHistory(items, state.messages[session.sessionId] ?? []),
+        },
+        historyHasMore: page.hasMore,
+        oldestLoadedSeq: older ?? state.oldestLoadedSeq,
+        historyLoadingOlder: false,
+      }))
+    } catch (error) {
+      set({ historyLoadingOlder: false, error: friendlyError(error) })
+    }
+  },
+
+  async workspaceCreate(path) {
+    if (get().connection.phase !== 'connected') return false
+    set({ busyAction: 'create-workspace', error: undefined })
+    try {
+      const proxy = connection.requireProxy()
+      const { workspace } = await proxy.workspaceCreate(path)
+      set(state => ({
+        workspaces: [...state.workspaces.filter(item => item.workspaceId !== workspace.workspaceId), workspace],
         busyAction: undefined,
       }))
       return true
@@ -357,6 +566,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ ...initialData(), identity, bootPhase: 'ready' })
   },
 
+  async setTransportPreference(preference) {
+    await saveTransportPreference(preference)
+    const wasConnected = get().connection.phase === 'connected' || get().connection.phase === 'reconnecting'
+    set({ transportPreference: preference })
+    if (wasConnected) await get().reconnect()
+  },
+
   setOffline() {
     if (get().connection.phase !== 'disconnected') {
       set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: 'Network unavailable.' } })
@@ -425,13 +641,40 @@ function mergeHistoryAndLive(history: ChatItem[], live: ChatItem[]): ChatItem[] 
   ]
 }
 
+/** Prepend an older history page in front of the current chat items, deduplicated by id. */
+function prependHistory(older: ChatItem[], current: ChatItem[]): ChatItem[] {
+  const currentIds = new Set(current.map(item => item.id))
+  return [...older.filter(item => !currentIds.has(item.id)), ...current]
+}
+
+/** Smallest event seq in a history page; drives the next `session.history` beforeSeq. */
+function oldestSeq(events: HistoryEntry[]): number | undefined {
+  let oldest: number | undefined
+  for (const entry of events) {
+    const seq = entry.event.seq
+    if (Number.isSafeInteger(seq)) oldest = oldest === undefined ? seq : Math.min(oldest, seq)
+  }
+  return oldest
+}
+
+/** Best-effort model catalog load; a failure must not block opening the session. */
+async function refreshSessionModels(sessionId: string): Promise<void> {
+  try {
+    const models = await connection.requireProxy().sessionModels(sessionId)
+    useAppStore.setState({ sessionModels: models })
+  } catch {
+    // ignored: the chat stays usable without a model catalog
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
 function initialData(): Pick<AppState,
   'config' | 'account' | 'devices' | 'selectedDevice' | 'connection' | 'hostDescriptor' | 'workspaces' |
-  'sessions' | 'selectedSession' | 'messages' | 'authPhase' | 'refreshing' | 'busyAction' | 'error'> {
+  'archivedSessionIds' | 'sessions' | 'selectedSession' | 'messages' | 'sessionModels' | 'modelSelecting' |
+  'historyHasMore' | 'historyLoadingOlder' | 'oldestLoadedSeq' | 'transportPreference' | 'authPhase' | 'refreshing' | 'busyAction' | 'error'> {
   return {
     config: undefined,
     account: undefined,
@@ -440,9 +683,16 @@ function initialData(): Pick<AppState,
     connection: disconnected,
     hostDescriptor: undefined,
     workspaces: [],
+    archivedSessionIds: [],
     sessions: [],
     selectedSession: undefined,
     messages: {},
+    sessionModels: undefined,
+    modelSelecting: false,
+    historyHasMore: false,
+    historyLoadingOlder: false,
+    oldestLoadedSeq: undefined,
+    transportPreference: 'auto',
     authPhase: 'idle',
     refreshing: false,
     busyAction: undefined,
