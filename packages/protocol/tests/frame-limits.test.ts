@@ -218,7 +218,7 @@ describe('SecureMessageCodec round-trip integrity', () => {
   // KNOWN BUG: isSecureFragment() uses magic prefix detection, causing
   // unfragmented messages starting with DSHF (0x44534846) to be incorrectly
   // treated as fragments. This affects any message 4+ bytes starting with
-  // those magic bytes. See: https://github.com/liguobao/deepseek-harness-remote/issues/TBD
+  // those magic bytes.
   it.fails('round-trips an unfragmented message starting with fragment magic (8 bytes)', () => {
     const encoder = new SecureMessageCodec()
     const decoder = new SecureMessageCodec()
