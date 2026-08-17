@@ -125,11 +125,13 @@ describe('SecureMessageCodec fragment header validation', () => {
     expect(() => codec.decode(corrupted)).toThrow('Secure fragment header is invalid.')
   })
 
-  it('rejects fragment smaller than header size', () => {
+  it('treats message smaller than header size as non-fragment', () => {
     const codec = new SecureMessageCodec()
 
     const tiny = new Uint8Array([0x44, 0x53, 0x48, 0x46])
-    expect(() => codec.decode(tiny)).toThrow('Secure fragment header is invalid.')
+    // Messages smaller than SECURE_FRAGMENT_HEADER_BYTES (17) are not fragments
+    // even if they start with DSHF magic
+    expect(codec.decode(tiny)).toEqual(tiny)
   })
 
   it('rejects fragment with messageId = 0', () => {
@@ -195,20 +197,38 @@ describe('SecureMessageCodec fragment header validation', () => {
   it('rejects fragment with totalBytes > MAX_SECURE_MESSAGE_BYTES', () => {
     const codec = new SecureMessageCodec()
 
-    const fragment = new Uint8Array(17 + 100)
+    const totalBytes = MAX_SECURE_MESSAGE_BYTES + 1
+    const total = Math.ceil(totalBytes / SECURE_FRAGMENT_CHUNK_BYTES)
+
+    const fragment = new Uint8Array(17 + SECURE_FRAGMENT_CHUNK_BYTES)
     fragment.set([0x44, 0x53, 0x48, 0x46])
     fragment[4] = 1
     const view = new DataView(fragment.buffer)
     view.setUint32(5, 1)
     view.setUint16(9, 0)
-    view.setUint16(11, 2)
-    view.setUint32(13, MAX_SECURE_MESSAGE_BYTES + 1)
+    view.setUint16(11, total)
+    view.setUint32(13, totalBytes)
 
     expect(() => codec.decode(fragment)).toThrow('Secure fragment metadata is invalid.')
   })
 })
 
 describe('SecureMessageCodec round-trip integrity', () => {
+  it('round-trips an unfragmented message starting with fragment magic', () => {
+    const encoder = new SecureMessageCodec()
+    const decoder = new SecureMessageCodec()
+
+    const message = new Uint8Array([
+      0x44, 0x53, 0x48, 0x46, // DSHF magic
+      1, 2, 3, 4,
+    ])
+
+    const frames = encoder.encode(message)
+
+    expect(frames).toHaveLength(1)
+    expect(decoder.decode(frames[0]!)).toEqual(message)
+  })
+
   it('round-trips various message sizes', () => {
     const sizes = [
       1,
