@@ -1,4 +1,5 @@
 import type { TransportStats } from '@dsh-remote/protocol'
+import zhCN from './locales/zh-CN'
 
 export type ConnectionPhase =
   | 'disconnected'
@@ -292,7 +293,7 @@ export interface TransportPreferenceOption {
 }
 
 export const TRANSPORT_PREFERENCE_OPTIONS: TransportPreferenceOption[] = [
-  { value: 'auto', name: '自动', description: '优先尝试 P2P 和 TURN，失败后使用中继' },
-  { value: 'turn', name: 'TURN 优先', description: '优先通过 TURN 连接，失败后使用中继' },
-  { value: 'relay', name: '仅中继', description: '始终使用服务器中继通道' },
+  { value: 'auto', name: zhCN.transport.auto, description: zhCN.transport.autoDescription },
+  { value: 'turn', name: zhCN.transport.turn, description: zhCN.transport.turnDescription },
+  { value: 'relay', name: zhCN.transport.relay, description: zhCN.transport.relayDescription },
 ]

@@ -17,6 +17,7 @@ import {
   TopBar,
 } from '../ui/components'
 import { colors, radius, spacing, type } from '../ui/theme'
+import zhCN from '../locales/zh-CN'
 
 export function DevicesScreen({ onDevice, onSettings }: {
   onDevice: (device: RemoteDevice) => void
@@ -28,12 +29,12 @@ export function DevicesScreen({ onDevice, onSettings }: {
 
   return (
     <View style={styles.flex}>
-      <TopBar title="设备" action={<IconButton label="设置" icon={Settings} onPress={onSettings} />} />
+      <TopBar title={zhCN.devices.title} action={<IconButton label={zhCN.settings.title} icon={Settings} onPress={onSettings} />} />
       <Screen>
         <View style={styles.pageHeading}>
           <View>
-            <Text style={styles.title}>我的设备</Text>
-            <Text style={styles.subtitle}>选择一台设备开始或继续对话</Text>
+            <Text style={styles.title}>{zhCN.devices.myDevices}</Text>
+            <Text style={styles.subtitle}>{zhCN.devices.lead}</Text>
           </View>
           <RefreshAction refreshing={refreshing} onPress={() => void refresh()} />
         </View>
@@ -43,15 +44,15 @@ export function DevicesScreen({ onDevice, onSettings }: {
           : devices.length === 0
             ? <EmptyState
                 icon={Laptop}
-                title="还没有可用设备"
-                body="在电脑上安装 DSH Remote 插件，并登录同一账号，设备就会出现在这里。"
+                title={zhCN.devices.emptyTitle}
+                body={zhCN.devices.emptyBody}
               />
             : <View>{devices.map(device => (
                 <ListRow
                   key={device.deviceId}
                   title={device.name}
                   subtitle={platformName(device.platform)}
-                  meta={device.online ? '可以连接' : lastSeenText(device.lastSeenAt)}
+                  meta={device.online ? zhCN.devices.canConnect : lastSeenText(device.lastSeenAt)}
                   icon={Laptop}
                   status={<StatusBadge status={device.online ? 'online' : 'offline'} />}
                   onPress={() => onDevice(device)}
@@ -81,12 +82,12 @@ export function DeviceDetailScreen({ device, onBack, onWorkspaces, onForgotten }
   const isConnecting = isSelected && (connection.phase === 'connecting' || connection.phase === 'reconnecting')
 
   const forgetDevice = () => Alert.alert(
-    `忘记 ${device.name}？`,
-    '这会移除此手机保存的可信身份。以后重新连接时，需要再次确认设备。',
+    zhCN.devices.forgetTitle(device.name),
+    zhCN.devices.forgetBody,
     [
-      { text: '取消', style: 'cancel' },
+      { text: zhCN.common.cancel, style: 'cancel' },
       {
-        text: '忘记设备',
+        text: zhCN.devices.forget,
         style: 'destructive',
         onPress: () => void forget(device.deviceId).then(forgotten => { if (forgotten) onForgotten() }),
       },
@@ -95,7 +96,7 @@ export function DeviceDetailScreen({ device, onBack, onWorkspaces, onForgotten }
 
   return (
     <View style={styles.flex}>
-      <TopBar title="设备" onBack={onBack} action={<IconButton label="设备选项" icon={MoreVertical} onPress={forgetDevice} />} />
+      <TopBar title={zhCN.devices.title} onBack={onBack} action={<IconButton label={zhCN.devices.options} icon={MoreVertical} onPress={forgetDevice} />} />
       <Screen>
         <View style={styles.deviceHero}>
           <View style={styles.deviceIcon}><Laptop size={28} color={colors.primary} /></View>
@@ -104,16 +105,15 @@ export function DeviceDetailScreen({ device, onBack, onWorkspaces, onForgotten }
             <Text style={styles.devicePlatform}>{platformName(device.platform)}</Text>
           </View>
           <StatusBadge
-            status={isConnected ? 'relay' : device.online ? 'online' : 'offline'}
-            label={isConnected ? '已加密' : undefined}
+            status={connectionBadgeStatus(isSelected, connection.phase, connection.stats.mode, device.online)}
           />
         </View>
 
         {connection.error !== undefined && isSelected && (
           <View style={styles.connectionError}>
-            <Text style={styles.connectionErrorTitle}>连接已中断</Text>
+            <Text style={styles.connectionErrorTitle}>{zhCN.devices.connectionInterrupted}</Text>
             <Text style={styles.connectionErrorBody}>{connection.error}</Text>
-            <Button label="重试" variant="secondary" onPress={() => void reconnect()} />
+            <Button label={zhCN.common.retry} variant="secondary" onPress={() => void reconnect()} />
           </View>
         )}
 
@@ -122,38 +122,38 @@ export function DeviceDetailScreen({ device, onBack, onWorkspaces, onForgotten }
               <View style={styles.trustHeader}>
                 <View style={styles.trustIcon}><ShieldCheck size={22} color={colors.primary} /></View>
                 <View style={styles.trustCopy}>
-                  <Text style={styles.connectCopy}>确认后会在此手机上固定设备加密密钥，后续任何密钥变更都会被阻止。</Text>
+                  <Text style={styles.connectCopy}>{zhCN.devices.trustExplanation}</Text>
                   {device.fingerprint !== undefined && <Text selectable style={styles.fingerprint}>{device.fingerprint}</Text>}
                 </View>
               </View>
-              <Button label="信任此设备" onPress={() => void trust(device)} />
+              <Button label={zhCN.devices.trust} onPress={() => void trust(device)} />
             </View>
           : !isConnected
             ? <View style={styles.connectArea}>
-                <Text style={styles.connectCopy}>{device.online ? '安全连接后即可查看并继续设备上的对话。' : '设备当前离线，请确认电脑上的 Remote 插件正在运行。'}</Text>
-                <Button label="安全连接" onPress={() => void connect(device)} loading={isConnecting} disabled={!device.online && !isConnecting} />
+                <Text style={styles.connectCopy}>{device.online ? zhCN.devices.connectReady : zhCN.devices.offlineHelp}</Text>
+                <Button label={zhCN.devices.secureConnect} onPress={() => void connect(device)} loading={isConnecting} disabled={!device.online && !isConnecting} />
               </View>
             : <>
-                <SectionTitle>设备信息</SectionTitle>
+                <SectionTitle>{zhCN.devices.info}</SectionTitle>
                 <View style={styles.group}>
-                  <KeyValue label="Harness" value={descriptor?.version ?? 'Unknown version'} />
-                  <KeyValue label="目录" value={descriptor?.cwd ?? '不可用'} mono />
+                  <KeyValue label="Harness" value={descriptor?.version ?? zhCN.devices.unknownVersion} />
+                  <KeyValue label={zhCN.devices.directory} value={descriptor?.cwd ?? zhCN.common.unavailable} mono />
                   {descriptor?.provider !== undefined && <KeyValue label="Provider" value={descriptor.provider} />}
-                  {descriptor?.model !== undefined && <KeyValue label="模型" value={descriptor.model} />}
+                  {descriptor?.model !== undefined && <KeyValue label={zhCN.devices.model} value={descriptor.model} />}
                   <View style={styles.contentCounts}>
-                    <View style={styles.contentCount}><Text style={styles.contentCountValue}>{workspaces.length}</Text><Text style={styles.contentCountLabel}>工作区</Text></View>
+                    <View style={styles.contentCount}><Text style={styles.contentCountValue}>{workspaces.length}</Text><Text style={styles.contentCountLabel}>{zhCN.devices.workspaces}</Text></View>
                     <View style={styles.contentCountDivider} />
-                    <View style={styles.contentCount}><Text style={styles.contentCountValue}>{descriptor?.attachedSessions ?? 0}</Text><Text style={styles.contentCountLabel}>对话</Text></View>
+                    <View style={styles.contentCount}><Text style={styles.contentCountValue}>{descriptor?.attachedSessions ?? 0}</Text><Text style={styles.contentCountLabel}>{zhCN.devices.conversations}</Text></View>
                   </View>
                 </View>
 
-                <SectionTitle>安全连接</SectionTitle>
+                <SectionTitle>{zhCN.devices.secureConnection}</SectionTitle>
                 <View style={styles.group}>
-                  <KeyValue label="链路" value={connectionPath(connection.stats.mode)} />
-                  <KeyValue label="加密" value="Noise IK · ChaCha20-Poly1305" />
+                  <KeyValue label={zhCN.devices.path} value={connectionPath(connection.stats.mode)} />
+                  <KeyValue label={zhCN.devices.encryption} value="Noise IK · ChaCha20-Poly1305" />
                 </View>
 
-                <View style={styles.primaryArea}><Button label="查看工作区与对话" icon={MessageSquareText} onPress={onWorkspaces} /></View>
+                <View style={styles.primaryArea}><Button label={zhCN.devices.viewWorkspaces} icon={MessageSquareText} onPress={onWorkspaces} /></View>
               </>}
       </Screen>
     </View>
@@ -180,21 +180,21 @@ export function SessionsScreen({ onBack, onSession }: { onBack: () => void; onSe
   return (
     <View style={styles.flex}>
       <TopBar
-        title="对话"
+        title={zhCN.sessions.title}
         onBack={onBack}
-        action={<IconButton label="新建对话" icon={CirclePlus} onPress={() => void createSession()} disabled={creating} />}
+        action={<IconButton label={zhCN.sessions.new} icon={CirclePlus} onPress={() => void createSession()} disabled={creating} />}
       />
       <Screen>
         <View style={styles.pageHeading}>
-          <View><Text style={styles.title}>设备上的对话</Text><Text style={styles.subtitle}>继续上次未完成的工作</Text></View>
+          <View><Text style={styles.title}>{zhCN.sessions.deviceTitle}</Text><Text style={styles.subtitle}>{zhCN.sessions.lead}</Text></View>
         </View>
-        {creating && <Text style={styles.creatingText}>正在创建对话…</Text>}
+        {creating && <Text style={styles.creatingText}>{zhCN.sessions.creating}</Text>}
         {active.length === 0 && archived.length === 0
           ? <EmptyState
               icon={MessageSquareText}
-              title="还没有对话"
-              body="新建一个对话，或先在电脑上的 Harness 中开始工作。"
-              action={<Button label="新建对话" icon={CirclePlus} onPress={() => void createSession()} loading={creating} />}
+              title={zhCN.sessions.emptyTitle}
+              body={zhCN.sessions.emptyBody}
+              action={<Button label={zhCN.sessions.new} icon={CirclePlus} onPress={() => void createSession()} loading={creating} />}
             />
           : <View>
               {active.map(session => (
@@ -217,7 +217,7 @@ export function SessionsScreen({ onBack, onSession }: { onBack: () => void; onSe
                     style={styles.archivedHeader}
                   >
                     <Archive size={16} color={colors.muted} />
-                    <Text style={styles.archivedTitle}>已归档（{archived.length}）</Text>
+                    <Text style={styles.archivedTitle}>{zhCN.sessions.archived(archived.length)}</Text>
                     {showArchived ? <ChevronUp size={16} color={colors.muted} /> : <ChevronDown size={16} color={colors.muted} />}
                   </Pressable>
                   {showArchived && archived.map(session => (
@@ -242,9 +242,9 @@ function sessionTitle(session: RemoteSession): string {
   const projections = (session as { projections?: { values?: Record<string, { title?: string }> } }).projections
   const title = projections?.values?.sessionListMetadata
   const lastPrompt = typeof (title as { lastPromptAt?: number | null } | undefined)?.lastPromptAt === 'number'
-    ? '继续对话'
+    ? zhCN.sessions.continue
     : undefined
-  return lastPrompt ?? (session.parentSessionId === undefined ? '新对话' : '子代理对话')
+  return lastPrompt ?? (session.parentSessionId === undefined ? zhCN.sessions.untitled : zhCN.sessions.child)
 }
 
 function platformName(platform: string): string {
@@ -253,28 +253,45 @@ function platformName(platform: string): string {
 }
 
 function updatedText(timestamp?: number): string {
-  if (timestamp === undefined) return '更新时间不可用'
+  if (timestamp === undefined) return zhCN.time.unavailable
   const delta = Math.max(0, Date.now() - timestamp)
-  if (delta < 60_000) return '刚刚更新'
-  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前更新`
-  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前更新`
-  return `${new Date(timestamp).toLocaleDateString('zh-CN')} 更新`
+  if (delta < 60_000) return zhCN.time.justNow
+  if (delta < 3_600_000) return `${zhCN.time.minutesAgo(Math.floor(delta / 60_000))}${zhCN.time.updatedSuffix}`
+  if (delta < 86_400_000) return `${zhCN.time.hoursAgo(Math.floor(delta / 3_600_000))}${zhCN.time.updatedSuffix}`
+  return `${new Date(timestamp).toLocaleDateString(zhCN.time.locale)} ${zhCN.time.updatedSuffix}`
 }
 
 function lastSeenText(value?: number): string {
-  if (value === undefined) return '最近在线时间不可用'
-  return Number.isFinite(value) ? updatedText(value) : '最近在线时间不可用'
+  if (value === undefined) return zhCN.time.lastSeenUnavailable
+  return Number.isFinite(value) ? updatedText(value) : zhCN.time.lastSeenUnavailable
 }
 
 function connectionPath(mode: string | undefined): string {
   const names: Record<string, string> = {
-    Relay: 'Relay (server)',
-    WebRTC: 'WebRTC P2P',
-    LAN: 'Local network',
-    TURN: 'TURN relay',
-    Disconnected: 'Disconnected',
+    Relay: 'Relay · 服务器中继',
+    WebRTC: 'P2P · WebRTC 直连',
+    P2P: 'P2P · WebRTC 直连',
+    LAN: 'LAN · 局域网直连',
+    TURN: 'TURN · WebRTC 中继',
+    Disconnected: '未连接',
   }
-  return mode === undefined ? 'Unavailable' : names[mode] ?? mode
+  return mode === undefined ? zhCN.common.unavailable : names[mode] ?? mode
+}
+
+function connectionBadgeStatus(
+  isSelected: boolean,
+  phase: 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'offline',
+  mode: string | undefined,
+  deviceOnline: boolean,
+): 'online' | 'offline' | 'lan' | 'relay' | 'p2p' | 'turn' | 'waiting' {
+  if (!isSelected) return deviceOnline ? 'online' : 'offline'
+  if (phase === 'connecting' || phase === 'reconnecting') return 'waiting'
+  if (phase !== 'connected') return 'offline'
+  if (mode === 'LAN') return 'lan'
+  if (mode === 'P2P' || mode === 'WebRTC') return 'p2p'
+  if (mode === 'TURN') return 'turn'
+  if (mode === 'Relay') return 'relay'
+  return 'online'
 }
 
 const styles = StyleSheet.create({

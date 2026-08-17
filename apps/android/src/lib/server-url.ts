@@ -1,4 +1,5 @@
 import type { PairLink } from '../types'
+import zhCN from '../locales/zh-CN'
 
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '10.0.2.2'])
 
@@ -19,21 +20,21 @@ function isPrivateHostname(hostname: string): boolean {
 
 export function normalizeServerUrl(input: string): string {
   const value = input.trim().replace(/\/+$/, '')
-  if (value.length === 0) throw new Error('Enter the address of your DSH Remote server.')
+  if (value.length === 0) throw new Error(zhCN.validation.serverRequired)
 
   const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`
   let url: URL
   try {
     url = new URL(withScheme)
   } catch {
-    throw new Error('Enter a valid server address, for example https://remote.example.com.')
+    throw new Error(zhCN.validation.serverInvalid)
   }
 
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isPrivateHostname(url.hostname))) {
-    throw new Error('Use HTTPS. Plain HTTP is only allowed for local development.')
+    throw new Error(zhCN.validation.httpsRequired)
   }
   if (url.username || url.password || url.search || url.hash) {
-    throw new Error('The server address cannot include credentials, query parameters, or a fragment.')
+    throw new Error(zhCN.validation.serverPartsForbidden)
   }
   return url.toString().replace(/\/$/, '')
 }

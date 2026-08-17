@@ -5,6 +5,7 @@ import { useAppStore } from '../state/store'
 import type { DirectoryListing, RemoteSession, WorkspaceView } from '../types'
 import { Button, EmptyState, IconButton, Screen, TopBar } from '../ui/components'
 import { colors, radius, spacing, type } from '../ui/theme'
+import zhCN from '../locales/zh-CN'
 
 export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; onSession: (session: RemoteSession) => void }) {
   const workspaces = useAppStore(state => state.workspaces)
@@ -30,11 +31,11 @@ export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; on
   }
 
   const confirmDelete = (workspace: WorkspaceView) => Alert.alert(
-    `删除 ${workspace.title}？`,
-    '工作区及其中的对话将从设备上删除。',
+    zhCN.workspaces.deleteTitle(workspace.title),
+    zhCN.workspaces.deleteBody,
     [
-      { text: '取消', style: 'cancel' },
-      { text: '删除', style: 'destructive', onPress: () => void workspaceDelete(workspace.workspaceId) },
+      { text: zhCN.common.cancel, style: 'cancel' },
+      { text: zhCN.common.delete, style: 'destructive', onPress: () => void workspaceDelete(workspace.workspaceId) },
     ],
   )
 
@@ -43,38 +44,38 @@ export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; on
     const canMoveUp = index > 0
     const canMoveDown = index >= 0 && index < workspaces.length - 1
     Alert.alert(workspace.title, workspace.path, [
-      { text: '重命名', onPress: () => setRenameTarget(workspace) },
+      { text: zhCN.workspaces.rename, onPress: () => setRenameTarget(workspace) },
       canMoveUp
-        ? { text: '上移', onPress: () => void workspaceMove(workspace.workspaceId, workspaces[index - 1]!.workspaceId) }
-        : { text: '上移', style: 'cancel' as const },
+        ? { text: zhCN.workspaces.moveUp, onPress: () => void workspaceMove(workspace.workspaceId, workspaces[index - 1]!.workspaceId) }
+        : { text: zhCN.workspaces.moveUp, style: 'cancel' as const },
       canMoveDown
-        ? { text: '下移', onPress: () => void workspaceMove(workspace.workspaceId, index + 2 < workspaces.length ? workspaces[index + 2]!.workspaceId : undefined) }
-        : { text: '下移', style: 'cancel' as const },
-      { text: '取消', style: 'cancel' },
-      { text: '删除', style: 'destructive', onPress: () => confirmDelete(workspace) },
+        ? { text: zhCN.workspaces.moveDown, onPress: () => void workspaceMove(workspace.workspaceId, index + 2 < workspaces.length ? workspaces[index + 2]!.workspaceId : undefined) }
+        : { text: zhCN.workspaces.moveDown, style: 'cancel' as const },
+      { text: zhCN.common.cancel, style: 'cancel' },
+      { text: zhCN.common.delete, style: 'destructive', onPress: () => confirmDelete(workspace) },
     ])
   }
 
   return (
     <View style={styles.flex}>
       <TopBar
-        title="工作区"
+        title={zhCN.workspaces.title}
         onBack={onBack}
-        action={<IconButton label="创建工作区" icon={CirclePlus} onPress={() => setCreateOpen(true)} />}
+        action={<IconButton label={zhCN.workspaces.create} icon={CirclePlus} onPress={() => setCreateOpen(true)} />}
       />
       <Screen>
         <View style={styles.pageHeading}>
           <View>
-            <Text style={styles.title}>设备工作区</Text>
-            <Text style={styles.subtitle}>按设备目录组织对话</Text>
+            <Text style={styles.title}>{zhCN.workspaces.deviceTitle}</Text>
+            <Text style={styles.subtitle}>{zhCN.workspaces.lead}</Text>
           </View>
         </View>
         {workspaces.length === 0
           ? <EmptyState
               icon={FolderOpen}
-              title="还没有工作区"
-              body="创建工作区，按设备上的项目目录组织对话。"
-              action={<Button label="创建工作区" icon={CirclePlus} onPress={() => setCreateOpen(true)} />}
+              title={zhCN.workspaces.emptyTitle}
+              body={zhCN.workspaces.emptyBody}
+              action={<Button label={zhCN.workspaces.create} icon={CirclePlus} onPress={() => setCreateOpen(true)} />}
             />
           : <View>{workspaces.map(workspace => {
               const workspaceSessions = workspace.sessionIds.flatMap(sessionId => {
@@ -89,17 +90,17 @@ export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; on
                       <Text style={styles.workspaceTitle} numberOfLines={1}>{workspace.title}</Text>
                       <Text style={styles.workspacePath} numberOfLines={1}>{workspace.path}</Text>
                     </View>
-                    <IconButton label={`在 ${workspace.title} 中新建对话`} icon={CirclePlus} onPress={() => void createInWorkspace(workspace.workspaceId)} />
-                    <IconButton label="工作区选项" icon={MoreVertical} onPress={() => showActions(workspace)} />
+                    <IconButton label={zhCN.workspaces.newSessionIn(workspace.title)} icon={CirclePlus} onPress={() => void createInWorkspace(workspace.workspaceId)} />
+                    <IconButton label={zhCN.workspaces.options} icon={MoreVertical} onPress={() => showActions(workspace)} />
                   </View>
                   {workspaceSessions.length === 0
-                    ? <Pressable onPress={() => void createInWorkspace(workspace.workspaceId)} style={styles.noSessions}><Text style={styles.noSessionsText}>暂无对话，点击新建</Text></Pressable>
+                    ? <Pressable onPress={() => void createInWorkspace(workspace.workspaceId)} style={styles.noSessions}><Text style={styles.noSessionsText}>{zhCN.workspaces.noSessions}</Text></Pressable>
                     : workspaceSessions.map(session => (
                         <Pressable key={session.sessionId} accessibilityRole="button" onPress={() => void open(session)} style={({ pressed }) => [styles.sessionRow, pressed && styles.workspaceRowPressed]}>
                           <MessageSquareText size={17} color={colors.muted} />
                           <View style={styles.sessionCopy}>
-                            <Text style={styles.sessionTitle} numberOfLines={1}>{session.blank ? '新对话' : shortPath(session.cwd) ?? '未命名对话'}</Text>
-                            <Text style={styles.sessionMeta}>{session.running ? '运行中' : relativeTime(session.updatedAt)}</Text>
+                            <Text style={styles.sessionTitle} numberOfLines={1}>{session.blank ? zhCN.sessions.untitled : shortPath(session.cwd) ?? zhCN.workspaces.unnamedSession}</Text>
+                            <Text style={styles.sessionMeta}>{session.running ? zhCN.status.running : relativeTime(session.updatedAt)}</Text>
                           </View>
                           <ChevronRight size={17} color={colors.subtle} />
                         </Pressable>
@@ -132,10 +133,10 @@ function shortPath(path?: string): string | undefined {
 
 function relativeTime(timestamp: number): string {
   const delta = Math.max(0, Date.now() - timestamp)
-  if (delta < 60_000) return '刚刚更新'
-  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} 分钟前`
-  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} 小时前`
-  return new Date(timestamp).toLocaleDateString('zh-CN')
+  if (delta < 60_000) return zhCN.time.justNow
+  if (delta < 3_600_000) return zhCN.time.minutesAgo(Math.floor(delta / 60_000))
+  if (delta < 86_400_000) return zhCN.time.hoursAgo(Math.floor(delta / 3_600_000))
+  return new Date(timestamp).toLocaleDateString(zhCN.time.locale)
 }
 
 function CreateWorkspaceModal({ visible, busy, onClose, onCreate }: {
@@ -162,10 +163,10 @@ function CreateWorkspaceModal({ visible, busy, onClose, onCreate }: {
         <Pressable style={styles.backdrop} onPress={onClose}>
           <Pressable style={styles.sheet} onPress={event => event.stopPropagation()}>
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>创建工作区</Text>
-              <IconButton label="关闭" icon={X} onPress={onClose} />
+              <Text style={styles.sheetTitle}>{zhCN.workspaces.create}</Text>
+              <IconButton label={zhCN.common.close} icon={X} onPress={onClose} />
             </View>
-            <Text style={styles.fieldLabel}>设备上的目录</Text>
+            <Text style={styles.fieldLabel}>{zhCN.workspaces.deviceDirectory}</Text>
             <View style={styles.pathRow}>
               <TextInput
                 style={styles.pathInput}
@@ -177,10 +178,10 @@ function CreateWorkspaceModal({ visible, busy, onClose, onCreate }: {
                 autoCorrect={false}
                 editable={!busy}
               />
-              <Button label="浏览" variant="secondary" onPress={() => setBrowseOpen(true)} disabled={busy} />
+              <Button label={zhCN.workspaces.browse} variant="secondary" onPress={() => setBrowseOpen(true)} disabled={busy} />
             </View>
-            <Text style={styles.fieldHint}>在这里创建的对话会归入该设备目录。</Text>
-            <Button label="创建工作区" onPress={() => void create()} loading={busy} disabled={path.trim().length === 0} />
+            <Text style={styles.fieldHint}>{zhCN.workspaces.directoryHint}</Text>
+            <Button label={zhCN.workspaces.create} onPress={() => void create()} loading={busy} disabled={path.trim().length === 0} />
           </Pressable>
         </Pressable>
       </Modal>
@@ -216,19 +217,19 @@ function RenameWorkspaceModal({ target, busy, onClose, onRename }: {
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={event => event.stopPropagation()}>
           <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>重命名工作区</Text>
-            <IconButton label="关闭" icon={X} onPress={onClose} />
+            <Text style={styles.sheetTitle}>{zhCN.workspaces.renameTitle}</Text>
+            <IconButton label={zhCN.common.close} icon={X} onPress={onClose} />
           </View>
           <TextInput
             style={styles.titleInput}
             value={title}
             onChangeText={setTitle}
-            placeholder="工作区名称"
+            placeholder={zhCN.workspaces.namePlaceholder}
             placeholderTextColor={colors.muted}
             autoFocus
             editable={!busy}
           />
-          <Button label="保存名称" onPress={() => void rename()} loading={busy} disabled={title.trim().length === 0} />
+          <Button label={zhCN.workspaces.saveName} onPress={() => void rename()} loading={busy} disabled={title.trim().length === 0} />
         </Pressable>
       </Pressable>
     </Modal>
@@ -275,11 +276,11 @@ function DirectoryBrowserModal({ visible, onClose, onChoose }: {
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.browserSheet} onPress={event => event.stopPropagation()}>
           <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>选择文件夹</Text>
-            <IconButton label="关闭" icon={X} onPress={onClose} />
+            <Text style={styles.sheetTitle}>{zhCN.workspaces.chooseFolder}</Text>
+            <IconButton label={zhCN.common.close} icon={X} onPress={onClose} />
           </View>
           <View style={styles.browserPath}>
-            <Text style={styles.browserPathText} numberOfLines={1}>{listing?.path ?? '正在加载…'}</Text>
+            <Text style={styles.browserPathText} numberOfLines={1}>{listing?.path ?? zhCN.workspaces.loading}</Text>
           </View>
           <View style={styles.crumbRow}>
             {(listing?.crumbs ?? []).map((crumb, index, all) => (
@@ -293,9 +294,9 @@ function DirectoryBrowserModal({ visible, onClose, onChoose }: {
           {error !== undefined && <Text style={styles.errorText}>{error}</Text>}
           <View style={styles.browserList}>
             {loading
-              ? <Text style={styles.loadingText}>正在加载目录…</Text>
+              ? <Text style={styles.loadingText}>{zhCN.workspaces.loadingDirectory}</Text>
               : entries.length === 0
-                ? <Text style={styles.emptyText}>这里没有文件夹</Text>
+                ? <Text style={styles.emptyText}>{zhCN.workspaces.noFolders}</Text>
                 : entries.map(entry => (
                     <Pressable
                       key={entry.path}
@@ -311,13 +312,13 @@ function DirectoryBrowserModal({ visible, onClose, onChoose }: {
           </View>
           <View style={styles.browserFooter}>
             <Button
-              label={showHidden ? '隐藏隐藏项' : '显示隐藏项'}
+              label={showHidden ? zhCN.workspaces.hideHidden : zhCN.workspaces.showHidden}
               icon={showHidden ? EyeOff : Eye}
               variant="quiet"
               onPress={() => setShowHidden(current => !current)}
             />
             <Button
-              label="选择此文件夹"
+              label={zhCN.workspaces.chooseThisFolder}
               disabled={listing === undefined || loading}
               onPress={() => { if (listing !== undefined) onChoose(listing.path) }}
             />

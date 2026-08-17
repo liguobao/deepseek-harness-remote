@@ -17,6 +17,7 @@ import { useAppStore } from '../state/store'
 import type { ApprovalActivity, ChatItem, ChatMessage, ModelCatalogModel, ModelProviderGroup, PermissionSelect, QuestionActivity, RemoteSession, ToolActivity } from '../types'
 import { Button, IconButton, TopBar } from '../ui/components'
 import { colors, radius, spacing, type } from '../ui/theme'
+import zhCN from '../locales/zh-CN'
 
 export function ChatScreen({ onBack }: { onBack: () => void }) {
   const session = useAppStore(state => state.selectedSession)
@@ -69,9 +70,9 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
     setPermissionPickerOpen(false)
     const apply = () => void selectPermission(preset)
     if (preset === 'danger-full-access') {
-      Alert.alert('确认启用 Full access？', '开启后，Harness 可以直接修改文件、运行命令和执行更多敏感操作。请仅在信任当前任务时开启。', [
-        { text: '取消', style: 'cancel' },
-        { text: '启用', style: 'destructive', onPress: apply },
+      Alert.alert(zhCN.chat.fullAccessTitle, zhCN.chat.fullAccessBody, [
+        { text: zhCN.common.cancel, style: 'cancel' },
+        { text: zhCN.chat.enable, style: 'destructive', onPress: apply },
       ])
     } else apply()
   }
@@ -81,20 +82,20 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         title={sessionTitle(session.sessionId)}
         onBack={onBack}
         action={busy === 'send-message' || session.running
-          ? <IconButton label="停止生成" icon={CircleStop} onPress={() => void stopSession()} disabled={busy === 'stop-session'} />
+          ? <IconButton label={zhCN.chat.stop} icon={CircleStop} onPress={() => void stopSession()} disabled={busy === 'stop-session'} />
           : undefined}
       />
 
       <View style={styles.sessionControls}>
         {sessionModels !== undefined && (
-          <Pressable accessibilityRole="button" accessibilityLabel="选择模型" onPress={() => setModelPickerOpen(true)} style={styles.modelChip}>
+          <Pressable accessibilityRole="button" accessibilityLabel={zhCN.chat.selectModel} onPress={() => setModelPickerOpen(true)} style={styles.modelChip}>
             <Sparkles size={14} color={colors.primary} />
             <Text style={styles.modelChipText} numberOfLines={1}>{sessionModels.current.model}</Text>
             {modelSelecting ? <ActivityIndicator size="small" color={colors.muted} /> : <ChevronDown size={14} color={colors.muted} />}
           </Pressable>
         )}
         {permissions !== undefined && (
-          <Pressable accessibilityRole="button" accessibilityLabel={`审批模式：${currentPermission?.name ?? permissions.currentValue}`} onPress={() => setPermissionPickerOpen(true)} style={styles.permissionChip}>
+          <Pressable accessibilityRole="button" accessibilityLabel={zhCN.chat.approvalModeLabel(currentPermission?.name ?? permissions.currentValue)} onPress={() => setPermissionPickerOpen(true)} style={styles.permissionChip}>
             <ShieldAlert size={14} color={colors.primary} />
             <Text style={styles.modelChipText} numberOfLines={1}>{currentPermission?.name ?? permissions.currentValue}</Text>
             {permissionSelecting ? <ActivityIndicator size="small" color={colors.muted} /> : <ChevronDown size={14} color={colors.muted} />}
@@ -105,7 +106,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
       {connection.phase !== 'connected' && (
         <View style={styles.connectionBanner} accessibilityRole="alert">
           <View style={styles.connectionDot} />
-          <Text style={styles.connectionBannerText}>{connection.phase === 'reconnecting' ? '正在重新连接设备…' : '设备连接已离线，暂时无法发送消息。'}</Text>
+          <Text style={styles.connectionBannerText}>{connection.phase === 'reconnecting' ? zhCN.chat.reconnecting : zhCN.chat.offline}</Text>
         </View>
       )}
 
@@ -122,14 +123,14 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         ListHeaderComponent={historyHasMore ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="加载更早消息"
+            accessibilityLabel={zhCN.chat.older}
             disabled={historyLoadingOlder}
             onPress={() => void loadOlderHistory()}
             style={styles.olderButton}
           >
             {historyLoadingOlder
               ? <ActivityIndicator size="small" color={colors.primary} />
-              : <Text style={styles.olderText}>加载更早消息</Text>}
+              : <Text style={styles.olderText}>{zhCN.chat.older}</Text>}
           </Pressable>
         ) : undefined}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
@@ -138,11 +139,11 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
       <View style={styles.composerWrap}>
         <View style={styles.composer}>
           <TextInput
-            accessibilityLabel="发送给 DeepSeek Harness 的消息"
+            accessibilityLabel={zhCN.chat.messageLabel}
             style={styles.composerInput}
             value={draft}
             onChangeText={setDraft}
-            placeholder="给 DSH 发消息…"
+            placeholder={zhCN.chat.placeholder}
             placeholderTextColor={colors.muted}
             multiline
             maxLength={12_000}
@@ -151,7 +152,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
           />
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="发送消息"
+            accessibilityLabel={zhCN.chat.send}
             accessibilityState={{ disabled: !connected || draft.trim().length === 0 }}
             disabled={!connected || draft.trim().length === 0}
             onPress={() => void submit()}
@@ -160,7 +161,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
             <Send size={19} color={colors.white} />
           </Pressable>
         </View>
-        <Text style={styles.composerHint}>所有操作仍遵循设备端 Harness 的权限策略。</Text>
+        <Text style={styles.composerHint}>{zhCN.chat.policyHint}</Text>
       </View>
 
       <ModelPicker
@@ -185,7 +186,7 @@ function PermissionPicker({ visible, permissions, onClose, onPick }: {
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.modalBackdrop} onPress={onClose}>
         <Pressable style={styles.modalSheet} onPress={event => event.stopPropagation()}>
-          <View style={styles.modalHeader}><Text style={styles.modalTitle}>审批模式</Text><IconButton label="关闭" icon={X} onPress={onClose} /></View>
+          <View style={styles.modalHeader}><Text style={styles.modalTitle}>{zhCN.chat.approvalMode}</Text><IconButton label={zhCN.common.close} icon={X} onPress={onClose} /></View>
           {permissions.options.filter(option => option.value !== 'custom').map(option => {
             const current = option.value === permissions.currentValue
             return (
@@ -227,8 +228,8 @@ function ModelPicker({ visible, models, onClose, onPick }: {
       <Pressable style={styles.modalBackdrop} onPress={onClose}>
         <Pressable style={styles.modalSheet} onPress={event => event.stopPropagation()}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>选择模型</Text>
-            <IconButton label="关闭" icon={X} onPress={onClose} />
+            <Text style={styles.modalTitle}>{zhCN.chat.selectModel}</Text>
+            <IconButton label={zhCN.common.close} icon={X} onPress={onClose} />
           </View>
           {models.groups.map(group => (
             <View key={group.id} style={styles.modelGroupBlock}>
@@ -283,9 +284,9 @@ function MessageBubble({ item }: { item: ChatMessage }) {
         {user ? <User size={16} color={colors.white} /> : <Bot size={17} color={colors.primary} />}
       </View>
       <View style={[styles.messageBody, user && styles.messageBodyUser]}>
-        <Text style={styles.messageLabel}>{user ? '你' : item.role === 'system' ? '系统' : 'Remote'}</Text>
+        <Text style={styles.messageLabel}>{user ? zhCN.chat.you : item.role === 'system' ? zhCN.chat.system : 'Remote'}</Text>
         <FormattedText text={item.text} />
-        {item.streaming && <View style={styles.streamingCursor} accessibilityLabel="正在生成回复" />}
+        {item.streaming && <View style={styles.streamingCursor} accessibilityLabel={zhCN.chat.generating} />}
       </View>
     </View>
   )
@@ -299,7 +300,7 @@ function FormattedText({ text }: { text: string }) {
 }
 
 function ToolRow({ item }: { item: ToolActivity }) {
-  const stateText = item.state === 'running' ? '运行中' : item.state === 'failed' ? '失败' : '已完成'
+  const stateText = item.state === 'running' ? zhCN.status.running : item.state === 'failed' ? zhCN.chat.failed : zhCN.chat.completed
   return (
     <View style={styles.toolRow}>
       <View style={styles.toolIcon}><Code2 size={17} color={colors.primary} /></View>
@@ -322,7 +323,7 @@ function ApprovalCard({ item, busy, onRespond }: {
     return (
       <View style={styles.permissionResolved}>
         {denied ? <X size={18} color={colors.danger} /> : <Check size={18} color={colors.success} />}
-        <Text style={styles.permissionResolvedText}>{denied ? '操作未允许' : '已允许一次'}</Text>
+        <Text style={styles.permissionResolvedText}>{denied ? zhCN.chat.denied : zhCN.chat.allowedOnce}</Text>
       </View>
     )
   }
@@ -331,7 +332,7 @@ function ApprovalCard({ item, busy, onRespond }: {
       <View style={styles.permissionHeader}>
         <View style={styles.permissionIcon}><ShieldAlert size={20} color={colors.warning} /></View>
         <View style={styles.permissionHeaderCopy}>
-          <Text style={styles.permissionTitle}>需要你的授权</Text>
+          <Text style={styles.permissionTitle}>{zhCN.chat.permissionTitle}</Text>
           <Text style={styles.permissionKind}>{item.toolName} on host</Text>
         </View>
       </View>
@@ -340,10 +341,10 @@ function ApprovalCard({ item, busy, onRespond }: {
           <Text selectable style={styles.permissionText}>{item.reason}</Text>
         </View>
       )}
-      <Text style={styles.permissionScope}>“仅允许一次”只对当前请求生效，且不会绕过设备端策略。</Text>
+      <Text style={styles.permissionScope}>{zhCN.chat.permissionScope}</Text>
       <View style={styles.permissionActions}>
-        <Button label="仅允许一次" onPress={() => void onRespond(item.id, 'allowed-once')} loading={busy} />
-        <Button label="拒绝" variant="quiet" onPress={() => void onRespond(item.id, 'rejected')} disabled={busy} />
+        <Button label={zhCN.chat.allowOnce} onPress={() => void onRespond(item.id, 'allowed-once')} loading={busy} />
+        <Button label={zhCN.chat.deny} variant="quiet" onPress={() => void onRespond(item.id, 'rejected')} disabled={busy} />
       </View>
     </View>
   )
@@ -360,7 +361,7 @@ function QuestionCard({ item, busy, onRespond }: {
     return (
       <View style={styles.permissionResolved}>
         <Check size={18} color={colors.success} />
-        <Text style={styles.permissionResolvedText}>{item.outcome === 'answered' ? '已回答问题' : '已取消问题'}</Text>
+        <Text style={styles.permissionResolvedText}>{item.outcome === 'answered' ? zhCN.chat.answered : zhCN.chat.questionCancelled}</Text>
       </View>
     )
   }
@@ -382,8 +383,8 @@ function QuestionCard({ item, busy, onRespond }: {
       <View style={styles.permissionHeader}>
         <View style={styles.permissionIcon}><ShieldAlert size={20} color={colors.accent} /></View>
         <View style={styles.permissionHeaderCopy}>
-          <Text style={styles.permissionTitle}>DSH 需要确认</Text>
-          <Text style={styles.permissionKind}>回答后继续</Text>
+          <Text style={styles.permissionTitle}>{zhCN.chat.questionTitle}</Text>
+          <Text style={styles.permissionKind}>{zhCN.chat.answerToContinue}</Text>
         </View>
       </View>
       {item.questions.map(question => (
@@ -407,7 +408,7 @@ function QuestionCard({ item, busy, onRespond }: {
           })}
         </View>
       ))}
-      <Button label="提交回答" onPress={() => void onRespond(item.id, selected)} loading={busy} disabled={!allAnswered} />
+      <Button label={zhCN.chat.submitAnswer} onPress={() => void onRespond(item.id, selected)} loading={busy} disabled={!allAnswered} />
     </View>
   )
 }
@@ -416,8 +417,8 @@ function WelcomeMessage() {
   return (
     <View style={styles.welcome}>
       <View style={styles.welcomeIcon}><Bot size={25} color={colors.primary} /></View>
-      <Text style={styles.welcomeTitle}>继续这段对话</Text>
-      <Text style={styles.welcomeBody}>告诉 DSH 你想检查、解释或修改什么。工具调用和授权请求会直接显示在对话中。</Text>
+      <Text style={styles.welcomeTitle}>{zhCN.chat.welcomeTitle}</Text>
+      <Text style={styles.welcomeBody}>{zhCN.chat.welcomeBody}</Text>
     </View>
   )
 }

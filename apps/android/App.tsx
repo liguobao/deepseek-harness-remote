@@ -11,6 +11,7 @@ import { WorkspacesScreen } from './src/screens/workspaces-screen'
 import { useAppStore } from './src/state/store'
 import { Button, ErrorBanner } from './src/ui/components'
 import { colors, radius, spacing, type } from './src/ui/theme'
+import zhCN from './src/locales/zh-CN'
 
 type Route =
   | { name: 'server' }
@@ -65,12 +66,12 @@ function AppNavigator() {
         const error = parsed.searchParams.get('error')
         if (error !== null) {
           useAppStore.getState().clearError()
-          useAppStore.setState({ error: '知乎授权未完成，请重试。' })
+          useAppStore.setState({ error: zhCN.app.oauthCancelled })
           return
         }
         if (token === null || token.length < 16) {
           useAppStore.getState().clearError()
-          useAppStore.setState({ error: '知乎授权返回了无效会话，请重新登录。' })
+          useAppStore.setState({ error: zhCN.app.oauthInvalid })
           return
         }
         void completeOAuth(token).then(ok => {
@@ -139,7 +140,7 @@ function LoadingScreen() {
     <View style={styles.center}>
       <View style={styles.logo}><Bot size={27} color={colors.primary} /></View>
       <Text style={styles.loadingTitle}>DSH Remote</Text>
-      <Text style={styles.loadingBody}>正在加载安全设备身份…</Text>
+      <Text style={styles.loadingBody}>{zhCN.app.loadingIdentity}</Text>
     </View>
   )
 }
@@ -147,9 +148,9 @@ function LoadingScreen() {
 function BootError({ message, onRetry }: { message?: string; onRetry: () => void }) {
   return (
     <View style={styles.center}>
-      <Text style={styles.loadingTitle}>无法启动 DSH Remote</Text>
-      <Text style={styles.loadingBody}>{message ?? '安全存储当前不可用。'}</Text>
-      <View style={styles.retry}><Button label="重试" onPress={onRetry} /></View>
+      <Text style={styles.loadingTitle}>{zhCN.app.bootFailed}</Text>
+      <Text style={styles.loadingBody}>{message ?? zhCN.app.secureStorageUnavailable}</Text>
+      <View style={styles.retry}><Button label={zhCN.common.retry} onPress={onRetry} /></View>
     </View>
   )
 }
@@ -157,9 +158,9 @@ function BootError({ message, onRetry }: { message?: string; onRetry: () => void
 function MissingRoute({ onBack }: { onBack: () => void }) {
   return (
     <View style={styles.center}>
-      <Text style={styles.loadingTitle}>设备不可用</Text>
-      <Text style={styles.loadingBody}>该设备已不在可信设备列表中。</Text>
-      <View style={styles.retry}><Button label="返回设备" onPress={onBack} /></View>
+      <Text style={styles.loadingTitle}>{zhCN.app.deviceUnavailable}</Text>
+      <Text style={styles.loadingBody}>{zhCN.app.deviceNoLongerTrusted}</Text>
+      <View style={styles.retry}><Button label={zhCN.app.backToDevices} onPress={onBack} /></View>
     </View>
   )
 }

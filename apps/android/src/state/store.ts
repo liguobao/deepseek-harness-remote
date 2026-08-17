@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics'
 import { create } from 'zustand'
+import zhCN from '../locales/zh-CN'
 import { friendlyError } from '../lib/errors'
 import { normalizeServerUrl } from '../lib/server-url'
 import { RemoteServerApi } from '../services/api'
@@ -143,7 +144,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const baseUrl = normalizeServerUrl(input)
       const identity = get().identity
-      if (identity === undefined) throw new Error('The Android device identity is not ready.')
+      if (identity === undefined) throw new Error(zhCN.runtime.identityNotReady)
       const publicApi = new RemoteServerApi(baseUrl)
       await publicApi.health()
       const { credentials } = await serverSession.authenticateWithAccount(baseUrl, identity, email, password)
@@ -176,7 +177,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const publicApi = new RemoteServerApi(baseUrl)
       await publicApi.health()
       const { configured } = await publicApi.oauthStatus()
-      if (!configured) throw new Error('This server does not support Zhihu sign-in.')
+      if (!configured) throw new Error(zhCN.runtime.zhihuUnsupported)
       set({ pendingOAuthBaseUrl: baseUrl, busyAction: undefined })
       return `${baseUrl}/api/v1/auth/oauth/start?return_to=${encodeURIComponent('dshremote://oauth')}`
     } catch (error) {
@@ -201,7 +202,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const baseUrl = normalizeServerUrl(input)
       const identity = get().identity
-      if (identity === undefined) throw new Error('The Android device identity is not ready.')
+      if (identity === undefined) throw new Error(zhCN.runtime.identityNotReady)
       const publicApi = new RemoteServerApi(baseUrl)
       await publicApi.health()
       const { credentials } = await serverSession.authenticateWithOAuthToken(baseUrl, identity, webToken)
@@ -277,7 +278,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...(preferredTransports === undefined ? {} : { preferredTransports: [...preferredTransports] }),
           onClose: () => {
             if (get().connection.phase === 'connected' || get().connection.phase === 'reconnecting') {
-              set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: 'The host connection closed.' } })
+              set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: zhCN.runtime.hostClosed } })
             }
           },
         },
@@ -598,7 +599,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const proxy = connection.requireProxy()
       const item = findApproval(get().messages, itemId)
       if (item === undefined || item.frameRpcId === undefined) {
-        throw new Error('Open the session before answering a host request.')
+        throw new Error(zhCN.runtime.openSessionFirst)
       }
       await proxy.respondApproval(item.frameRpcId, item.sessionId, item.approvalId, outcome)
       set(state => ({
@@ -619,7 +620,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const proxy = connection.requireProxy()
       const item = findQuestion(get().messages, itemId)
       if (item === undefined || item.frameRpcId === undefined) {
-        throw new Error('Open the session before answering a host request.')
+        throw new Error(zhCN.runtime.openSessionFirst)
       }
       const answers = item.questions.map(question => ({
         id: question.id,
@@ -686,7 +687,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setOffline() {
     if (get().connection.phase !== 'disconnected') {
-      set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: 'Network unavailable.' } })
+      set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: zhCN.runtime.networkUnavailable } })
     }
   },
 

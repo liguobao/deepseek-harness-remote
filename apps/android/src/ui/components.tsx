@@ -11,6 +11,7 @@ import {
 } from 'react-native'
 import { AlertCircle, ArrowLeft, ChevronRight, CircleCheck, RefreshCw, WifiOff, type LucideIcon } from 'lucide-react-native'
 import { colors, radius, spacing, type } from './theme'
+import zhCN from '../locales/zh-CN'
 
 export function Screen({ children, scroll = true }: { children: ReactNode; scroll?: boolean }) {
   if (!scroll) return <View style={styles.screen}>{children}</View>
@@ -31,7 +32,7 @@ export function TopBar({ title, onBack, action }: { title: string; onBack?: () =
     <View style={styles.topBar}>
       <View style={styles.topBarSide}>
         {onBack !== undefined && (
-          <IconButton label="返回" icon={ArrowLeft} onPress={onBack} />
+          <IconButton label={zhCN.common.back} icon={ArrowLeft} onPress={onBack} />
         )}
       </View>
       <Text style={styles.topBarTitle} numberOfLines={1}>{title}</Text>
@@ -110,7 +111,7 @@ export function Field({ label, hint, error, ...props }: TextInputProps & { label
 }
 
 export function StatusBadge({ status, label }: {
-  status: 'online' | 'offline' | 'relay' | 'p2p' | 'waiting' | 'running'
+  status: 'online' | 'offline' | 'lan' | 'relay' | 'p2p' | 'turn' | 'waiting' | 'running'
   label?: string
 }) {
   const badge = badgeStyles[status]
@@ -127,8 +128,8 @@ export function ErrorBanner({ message, onDismiss, onRetry }: { message: string; 
     <View accessibilityRole="alert" style={styles.errorBanner}>
       <AlertCircle size={20} color={colors.danger} />
       <Text style={styles.errorBannerText}>{message}</Text>
-      {onRetry !== undefined && <Pressable accessibilityRole="button" onPress={onRetry}><Text style={styles.errorAction}>重试</Text></Pressable>}
-      {onDismiss !== undefined && <Pressable accessibilityRole="button" onPress={onDismiss}><Text style={styles.errorAction}>关闭</Text></Pressable>}
+      {onRetry !== undefined && <Pressable accessibilityRole="button" onPress={onRetry}><Text style={styles.errorAction}>{zhCN.common.retry}</Text></Pressable>}
+      {onDismiss !== undefined && <Pressable accessibilityRole="button" onPress={onDismiss}><Text style={styles.errorAction}>{zhCN.common.close}</Text></Pressable>}
     </View>
   )
 }
@@ -195,7 +196,7 @@ export function LoadingRows({ count = 3 }: { count?: number }) {
 }
 
 export function RefreshAction({ refreshing, onPress }: { refreshing: boolean; onPress: () => void }) {
-  return <IconButton label="刷新" icon={RefreshCw} onPress={onPress} disabled={refreshing} />
+  return <IconButton label={zhCN.common.refresh} icon={RefreshCw} onPress={onPress} disabled={refreshing} />
 }
 
 export function SuccessNotice({ children }: { children: ReactNode }) {
@@ -210,12 +211,14 @@ const buttonStyles = StyleSheet.create({
 })
 
 const badgeStyles = {
-  online: { label: '在线', background: colors.successSoft, foreground: colors.success },
-  offline: { label: '离线', background: colors.surfaceStrong, foreground: colors.muted },
-  relay: { label: '中继', background: colors.warningSoft, foreground: colors.warning },
-  p2p: { label: 'P2P', background: colors.accentSoft, foreground: colors.accent },
-  waiting: { label: '等待中', background: colors.warningSoft, foreground: colors.warning },
-  running: { label: '运行中', background: colors.accentSoft, foreground: colors.accent },
+  online: { label: zhCN.status.online, background: colors.successSoft, foreground: colors.success },
+  offline: { label: zhCN.status.offline, background: colors.surfaceStrong, foreground: colors.muted },
+  lan: { label: zhCN.status.lan, background: colors.successSoft, foreground: colors.success },
+  relay: { label: zhCN.status.relay, background: colors.warningSoft, foreground: colors.warning },
+  p2p: { label: zhCN.status.p2p, background: colors.accentSoft, foreground: colors.accent },
+  turn: { label: zhCN.status.turn, background: colors.warningSoft, foreground: colors.warning },
+  waiting: { label: zhCN.status.waiting, background: colors.warningSoft, foreground: colors.warning },
+  running: { label: zhCN.status.running, background: colors.accentSoft, foreground: colors.accent },
 } as const
 
 const styles = StyleSheet.create({

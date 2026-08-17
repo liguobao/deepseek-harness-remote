@@ -5,6 +5,7 @@ import { useAppStore } from '../state/store'
 import { Button, Field, KeyValue, Screen, TopBar } from '../ui/components'
 import { TRANSPORT_PREFERENCE_OPTIONS } from '../types'
 import { colors, radius, spacing, type } from '../ui/theme'
+import zhCN from '../locales/zh-CN'
 
 /** Default DSH Remote Server; a build can override it via EXPO_PUBLIC_DSH_REMOTE_SERVER. */
 const defaultServerUrl = 'https://dsh.r2049.cn'
@@ -33,44 +34,43 @@ export function ServerSetupScreen({ onComplete, onBack }: { onComplete: () => vo
 
   return (
     <View style={styles.flex}>
-      <TopBar title="登录" onBack={onBack} />
+      <TopBar title={zhCN.setup.title} onBack={onBack} />
       <Screen>
         <Text style={styles.productName}>DeepSeek Harness Remote</Text>
-        <Text style={styles.title}>{config === undefined ? '登录账号' : '重新登录'}</Text>
-        <Text style={styles.lead}>授权此手机后，即可查看同一账号下的设备并继续对话。</Text>
+        <Text style={styles.title}>{config === undefined ? zhCN.setup.signIn : zhCN.setup.signInAgain}</Text>
+        <Text style={styles.lead}>{zhCN.setup.lead}</Text>
 
         <View style={styles.form}>
           <View style={styles.methodTabs}>
             <Pressable accessibilityRole="tab" accessibilityState={{ selected: loginMethod === 'oauth' }} onPress={() => setLoginMethod('oauth')} style={[styles.methodTab, loginMethod === 'oauth' && styles.methodTabActive]}>
-              <Text style={[styles.methodTabText, loginMethod === 'oauth' && styles.methodTabTextActive]}>授权登录</Text>
+              <Text style={[styles.methodTabText, loginMethod === 'oauth' && styles.methodTabTextActive]}>{zhCN.setup.oauth}</Text>
             </Pressable>
             <Pressable accessibilityRole="tab" accessibilityState={{ selected: loginMethod === 'password' }} onPress={() => setLoginMethod('password')} style={[styles.methodTab, loginMethod === 'password' && styles.methodTabActive]}>
-              <Text style={[styles.methodTabText, loginMethod === 'password' && styles.methodTabTextActive]}>账号密码</Text>
+              <Text style={[styles.methodTabText, loginMethod === 'password' && styles.methodTabTextActive]}>{zhCN.setup.passwordMethod}</Text>
             </Pressable>
           </View>
 
           {loginMethod === 'oauth'
             ? <>
-                <Button label="使用知乎账号授权" onPress={() => void signInWithZhihu()} loading={oauthBusy} />
-                <Text style={styles.oauthHint}>将在浏览器中完成授权，成功后自动返回 App。</Text>
+                <Button label={zhCN.setup.zhihu} onPress={() => void signInWithZhihu()} loading={oauthBusy} />
+                <Text style={styles.oauthHint}>{zhCN.setup.oauthHint}</Text>
               </>
             : <>
-                <Field label="邮箱" value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" textContentType="username" placeholder="请输入登录邮箱" />
-                <Field label="密码" value={password} onChangeText={setPassword} secureTextEntry textContentType="password" returnKeyType="go" onSubmitEditing={() => { if (canSubmit) void submit() }} placeholder="请输入账号密码" hint="密码仅用于本次 HTTPS 登录，不会保存在设备上。" />
-                <Button label="登录" onPress={() => void submit()} loading={busy} disabled={!canSubmit} />
+                <Field label={zhCN.setup.email} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" textContentType="username" placeholder={zhCN.setup.emailPlaceholder} />
+                <Field label={zhCN.setup.password} value={password} onChangeText={setPassword} secureTextEntry textContentType="password" returnKeyType="go" onSubmitEditing={() => { if (canSubmit) void submit() }} placeholder={zhCN.setup.passwordPlaceholder} hint={zhCN.setup.passwordHint} />
+                <Button label={zhCN.setup.title} onPress={() => void submit()} loading={busy} disabled={!canSubmit} />
               </>}
 
           <View style={styles.serverSection}>
-            <Text style={styles.serverLabel}>服务器</Text>
-            <Field label="服务地址" value={serverUrl} onChangeText={setServerUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" hint="公网服务必须使用 HTTPS。" placeholder="https://remote.example.com" />
+            <Field label={zhCN.setup.server} value={serverUrl} onChangeText={setServerUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" hint={zhCN.setup.serverHint} placeholder="https://remote.example.com" />
           </View>
         </View>
 
         <View style={styles.securityNote}>
           <LockKeyhole size={20} color={colors.primary} />
           <View style={styles.securityCopy}>
-            <Text style={styles.securityTitle}>端到端设备信任</Text>
-            <Text style={styles.securityBody}>服务器只转发加密数据，不会获得此手机的私钥。设备仍需通过同一账号授权。</Text>
+            <Text style={styles.securityTitle}>{zhCN.setup.trustTitle}</Text>
+            <Text style={styles.securityBody}>{zhCN.setup.trustBody}</Text>
           </View>
         </View>
       </Screen>
@@ -88,41 +88,41 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
   const signOut = useAppStore(state => state.signOut)
 
   const confirmReset = () => Alert.alert(
-    '重置 DSH Remote？',
-    '这会移除此手机上的服务器配置、设备身份和所有可信设备。之后需要重新登录。',
+    zhCN.settings.resetTitle,
+    zhCN.settings.resetBody,
     [
-      { text: '取消', style: 'cancel' },
-      { text: '重置', style: 'destructive', onPress: () => void reset().then(onReset) },
+      { text: zhCN.common.cancel, style: 'cancel' },
+      { text: zhCN.settings.reset, style: 'destructive', onPress: () => void reset().then(onReset) },
     ],
   )
 
   const confirmSignOut = () => Alert.alert(
-    '退出登录？',
-    '此手机将从账号中退出，需要重新授权后才能访问设备。',
+    zhCN.settings.signOutTitle,
+    zhCN.settings.signOutBody,
     [
-      { text: '取消', style: 'cancel' },
-      { text: '退出登录', style: 'destructive', onPress: () => void signOut().then(onReset) },
+      { text: zhCN.common.cancel, style: 'cancel' },
+      { text: zhCN.settings.signOut, style: 'destructive', onPress: () => void signOut().then(onReset) },
     ],
   )
 
   return (
     <View style={styles.flex}>
-      <TopBar title="设置" onBack={onBack} />
+      <TopBar title={zhCN.settings.title} onBack={onBack} />
       <Screen>
         <View style={styles.settingsHeader}>
           <View style={styles.settingsIcon}><Settings size={25} color={colors.primary} /></View>
-          <View style={styles.securityCopy}><Text style={styles.settingsTitle}>此手机</Text><Text style={styles.settingsSubtitle}>{identity?.name ?? 'Android 设备'}</Text></View>
+          <View style={styles.securityCopy}><Text style={styles.settingsTitle}>{zhCN.settings.thisPhone}</Text><Text style={styles.settingsSubtitle}>{identity?.name ?? zhCN.settings.androidDevice}</Text></View>
         </View>
 
-        <Text style={styles.groupLabel}>连接</Text>
+        <Text style={styles.groupLabel}>{zhCN.settings.connection}</Text>
         <View style={styles.group}>
-          <KeyValue label="服务器" value={config?.baseUrl ?? '未配置'} />
-          <KeyValue label="账号" value={account ?? '未登录'} />
-          <KeyValue label="登录方式" value={config?.loginMethod === 'oauth' ? '授权登录' : config?.loginMethod === 'password' ? '账号密码' : '未知'} />
-          <KeyValue label="协议" value="DSH Remote v1" />
+          <KeyValue label={zhCN.settings.server} value={config?.baseUrl ?? zhCN.settings.notConfigured} />
+          <KeyValue label={zhCN.settings.account} value={account ?? zhCN.settings.notSignedIn} />
+          <KeyValue label={zhCN.settings.loginMethod} value={config?.loginMethod === 'oauth' ? zhCN.setup.oauth : config?.loginMethod === 'password' ? zhCN.setup.passwordMethod : zhCN.common.unknown} />
+          <KeyValue label={zhCN.settings.protocol} value="DSH Remote v1" />
         </View>
 
-        <Text style={styles.groupLabel}>传输方式</Text>
+        <Text style={styles.groupLabel}>{zhCN.settings.transport}</Text>
         <View style={styles.preferenceList}>
           {TRANSPORT_PREFERENCE_OPTIONS.map(option => {
             const chosen = option.value === preference
@@ -142,20 +142,20 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
               </Pressable>
             )
           })}
-          <Text style={styles.preferenceNote}>修改后会重新连接当前设备；无法直连时始终可以回退到服务器中继。</Text>
+          <Text style={styles.preferenceNote}>{zhCN.settings.transportNote}</Text>
         </View>
 
-        <Text style={styles.groupLabel}>设备身份</Text>
+        <Text style={styles.groupLabel}>{zhCN.settings.identity}</Text>
         <View style={styles.group}>
-          <KeyValue label="设备 ID" value={shorten(identity?.deviceId)} mono />
-          <KeyValue label="公钥" value={fingerprint(identity?.publicKey)} mono />
-          <View style={styles.keyNote}><KeyRound size={17} color={colors.muted} /><Text style={styles.keyNoteText}>私钥由 Android Keystore 加密保存，永远不会离开此手机。</Text></View>
+          <KeyValue label={zhCN.settings.deviceId} value={shorten(identity?.deviceId)} mono />
+          <KeyValue label={zhCN.settings.publicKey} value={fingerprint(identity?.publicKey)} mono />
+          <View style={styles.keyNote}><KeyRound size={17} color={colors.muted} /><Text style={styles.keyNoteText}>{zhCN.settings.keyNote}</Text></View>
         </View>
 
         <View style={styles.resetArea}>
-          <Button label="退出登录" variant="secondary" onPress={confirmSignOut} />
+          <Button label={zhCN.settings.signOut} variant="secondary" onPress={confirmSignOut} />
           <View style={styles.resetGap} />
-          <Button label="重置本地数据" icon={RotateCcw} variant="danger" onPress={confirmReset} />
+          <Button label={zhCN.settings.resetLocal} icon={RotateCcw} variant="danger" onPress={confirmReset} />
         </View>
       </Screen>
     </View>
@@ -163,12 +163,12 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
 }
 
 function shorten(value?: string): string {
-  if (value === undefined) return '不可用'
+  if (value === undefined) return zhCN.common.unavailable
   return value.length > 18 ? `${value.slice(0, 9)}…${value.slice(-7)}` : value
 }
 
 function fingerprint(value?: string): string {
-  if (value === undefined || value.length === 0) return '不可用'
+  if (value === undefined || value.length === 0) return zhCN.common.unavailable
   return value.slice(0, 24).toUpperCase().match(/.{1,4}/g)?.join(' ') ?? value
 }
 
