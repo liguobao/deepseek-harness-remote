@@ -77,7 +77,7 @@ export interface HelloPayload {
   protocols: number[]
   capabilities: string[]
   /** Version of the Client/Plugin software reporting in; symmetric to ``HelloAckPayload.serverVersion``. */
-  clientVersion: string
+  clientVersion?: string
 }
 
 export interface HelloAckPayload {
@@ -510,7 +510,7 @@ export function parseControlFrame(input: unknown): ControlFrame {
   const frame = controlFrameSchema.parse(input)
   const payloadSchema = controlFramePayloadSchemas[frame.type]
   if (payloadSchema) {
-    payloadSchema.parse(frame.payload)
+    return { ...frame, payload: payloadSchema.parse(frame.payload) }
   }
   return frame
 }
