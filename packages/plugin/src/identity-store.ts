@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { chmod, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fromBase64Url, generateKeyPair } from '@dsh-remote/crypto'
@@ -111,6 +111,13 @@ export class IdentityStore {
   current(): HostIdentity {
     if (this.identity === undefined) throw new Error('identity store has not been loaded')
     return this.identity
+  }
+
+  async reset(deviceName: string): Promise<HostIdentity> {
+    await rm(this.directory, { recursive: true, force: true })
+    this.identity = undefined
+    this.peers.clear()
+    return this.loadOrCreate(deviceName)
   }
 
   listTrustedPeers(): TrustedPeer[] {

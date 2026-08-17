@@ -26,6 +26,16 @@ interface WebLoginResponse {
   isAdmin: boolean
 }
 
+export interface OAuthQrSession {
+  qrId: string
+  scanUrl: string
+  expiresIn: number
+}
+
+export type OAuthQrPollResult =
+  | { status: 'pending' | 'expired' }
+  | { status: 'complete'; authorization: DeviceAuthorization }
+
 export interface DeviceAuthorization {
   method: 'account' | 'host_registration_code' | 'owned_device'
   account?: string
@@ -76,6 +86,25 @@ export class HostServerApi {
     }
   }
 
+  async clearAuthorization(): Promise<void> {
+    this.credentials = undefined
+    this.credentialsPromise = undefined
+    await this.store.clear()
+  }
+
+  async revokeCurrentDevice(): Promise<void> {
+    const identity = this.requireIdentity()
+    if (await this.store.load(this.baseUrl, identity.deviceId) === undefined) {
+      await this.clearAuthorization()
+      return
+    }
+    try {
+      await this.request<unknown>('/api/v1/devices/self', { method: 'DELETE' })
+    } finally {
+      await this.clearAuthorization()
+    }
+  }
+
   async authorizeWithAccount(identity: HostIdentity, email: string, password: string): Promise<DeviceAuthorization> {
     this.bindIdentity(identity)
     const account = email.trim()
@@ -96,6 +125,47 @@ export class HostServerApi {
       account: login.account,
       expiresAt: login.expiresAt,
       isAdmin: login.isAdmin,
+    }
+  }
+
+  async startOAuthQrLogin(): Promise<OAuthQrSession> {
+    const value = requireRecord(await this.publicRequest<unknown>('/api/v1/auth/oauth/qr/start', {
+      method: 'POST',
+      body: '{}',
+    }), 'QR login')
+    if (typeof value.qrId !== 'string' || value.qrId.length < 20
+      || typeof value.scanUrl !== 'string' || !value.scanUrl.startsWith(`${this.baseUrl}/`)
+      || !Number.isSafeInteger(value.expiresIn)) {
+      throw new ServerApiError('INVALID_MESSAGE', 'The Server returned an invalid QR login session.', false)
+    }
+    return { qrId: value.qrId, scanUrl: value.scanUrl, expiresIn: value.expiresIn as number }
+  }
+
+  async pollOAuthQrLogin(identity: HostIdentity, qrId: string): Promise<OAuthQrPollResult> {
+    const value = requireRecord(await this.publicRequest<unknown>(
+      `/api/v1/auth/oauth/qr/${encodeURIComponent(qrId)}`,
+      { method: 'GET' },
+    ), 'QR login status')
+    if (value.status === 'pending' || value.status === 'expired') return { status: value.status }
+    if (value.status !== 'complete' || typeof value.token !== 'string' || value.token.length < 16) {
+      throw new ServerApiError('INVALID_MESSAGE', 'The Server returned an invalid QR login status.', false)
+    }
+    const account = requireRecord(await this.publicRequest<unknown>(
+      '/api/v1/auth/me',
+      { method: 'GET' },
+      value.token,
+    ), 'account profile')
+    if (typeof account.account !== 'string' || account.account.length === 0 || typeof account.isAdmin !== 'boolean') {
+      throw new ServerApiError('INVALID_MESSAGE', 'The Server returned an invalid account profile.', false)
+    }
+    await this.register(identity, {
+      accountToken: value.token,
+      account: account.account,
+      authorizationMethod: 'account',
+    })
+    return {
+      status: 'complete',
+      authorization: { method: 'account', account: account.account, isAdmin: account.isAdmin },
     }
   }
 

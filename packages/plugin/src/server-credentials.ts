@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import { uuidV7 } from './ids.js'
@@ -38,6 +38,10 @@ export class ServerCredentialStore {
     const record = credentialSchema.parse({ schemaVersion: 1, ...credentials })
     await atomicWrite(this.path, `${JSON.stringify(record, null, 2)}\n`)
     return record
+  }
+
+  async clear(): Promise<void> {
+    await rm(this.path, { force: true })
   }
 }
 

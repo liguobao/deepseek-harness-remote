@@ -1,4 +1,3 @@
-import { rm } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SettingsScope } from '@deepseek-ai/dsh-settings'
@@ -47,6 +46,7 @@ export class PluginControlRuntime {
     try {
       if (endpoint === 'settings.get') return ok(await this.settingsView())
       if (endpoint === 'settings.configure') return ok(await this.configure(payload))
+      if (endpoint === 'settings.server.set') return ok(await this.setServer(payload))
       if (endpoint === 'settings.role.set') return ok(await this.setRole(payload))
       if (endpoint === 'settings.logout') return ok(await this.logout())
       if (endpoint === 'host.reconnect') {
@@ -120,6 +120,20 @@ export class PluginControlRuntime {
     }
   }
 
+  private async setServer(payload: unknown): Promise<PluginSettingsView> {
+    if (this.settings === undefined) {
+      throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
+    }
+    const value = record(payload)
+    if (typeof value.serverUrl !== 'string') {
+      throw new ClientModeError('INVALID_MESSAGE', 'Server URL is required.')
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()))
+    const next = resolveConfig({ ...current, serverUrl: value.serverUrl })
+    await this.settings.replace(editableConfig(next))
+    return this.settingsView()
+  }
+
   private async setRole(payload: unknown): Promise<PluginSettingsView> {
     if (this.settings === undefined) {
       throw new ClientModeError('SETTINGS_UNAVAILABLE', 'DSH user settings are unavailable in this profile.')
@@ -166,9 +180,14 @@ export class PluginControlRuntime {
     }
     const config = resolveConfig(this.settings.get())
     if (config.serverUrl !== undefined) {
-      const role = config.role === 'client' ? 'client' : 'host'
-      const directory = serverStorageDirectory(this.identityDirectory, config.serverUrl, role)
-      await rm(directory, { recursive: true, force: true })
+      await Promise.all([
+        this.client?.clearClientAuthorization(),
+        this.host?.clearHostAuthorization(),
+      ])
+      await Promise.all((['host', 'client'] as const).map(async role => {
+        const directory = serverStorageDirectory(this.identityDirectory, config.serverUrl!, role)
+        await new ServerCredentialStore(directory).clear()
+      }))
     }
     return this.settingsView()
   }

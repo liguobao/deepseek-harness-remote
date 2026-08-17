@@ -14,14 +14,19 @@ await build({
   external: ['@deepseek-ai/*', 'werift'],
 })
 
-await build({
-  entryPoints: [join(root, 'src/client.ts')],
-  bundle: true,
-  platform: 'browser',
-  format: 'iife',
-  minifySyntax: true,
-  define: {
-    DSH_REMOTE_CLIENT_MODULE_ID: JSON.stringify('dsh-remote'),
-  },
-  outfile: join(root, 'dist/client.github.js'),
-})
+for (const [moduleId, outfile] of [
+  ['@dsh-remote/plugin', 'client.js'],
+  ['dsh-remote', 'client.github.js'],
+]) {
+  await build({
+    entryPoints: [join(root, 'src/client.ts')],
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    minifySyntax: true,
+    define: {
+      DSH_REMOTE_CLIENT_MODULE_ID: JSON.stringify(moduleId),
+    },
+    outfile: join(root, 'dist', outfile),
+  })
+}

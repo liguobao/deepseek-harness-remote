@@ -119,6 +119,32 @@ describe('HostServerApi', () => {
     })
   })
 
+  it('revokes the current Server device before clearing local credentials', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-server-sign-out-'))
+    directories.push(directory)
+    const identity = hostIdentity()
+    const store = new ServerCredentialStore(directory)
+    await store.save({
+      serverUrl: 'https://dsh.r2049.cn',
+      deviceId: identity.deviceId,
+      authorizationMethod: 'account',
+      account: 'owner@example.com',
+      ...tokens(),
+    })
+    const fetchMock = vi.fn(async () => json({ deviceId: identity.deviceId })) as unknown as typeof fetch
+    const api = new HostServerApi('https://dsh.r2049.cn', store, fetchMock)
+    api.bindIdentity(identity)
+
+    await api.revokeCurrentDevice()
+
+    expect(String(vi.mocked(fetchMock).mock.calls[0]?.[0])).toBe('https://dsh.r2049.cn/api/v1/devices/self')
+    expect(vi.mocked(fetchMock).mock.calls[0]?.[1]).toMatchObject({
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer access-token-value' },
+    })
+    await expect(store.load('https://dsh.r2049.cn', identity.deviceId)).resolves.toBeUndefined()
+  })
+
   it('reports account authorization when a fresh Host cannot register anonymously', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-server-account-required-'))
     directories.push(directory)

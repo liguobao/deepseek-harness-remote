@@ -12779,306 +12779,8 @@ function routeStreamEvent(event, streamId, queue) {
   }
 }
 
-// src/client-runtime.ts
-var ClientModeRuntime = class {
-  constructor(config, identities, server, apiProxy, logger, host) {
-    this.config = config;
-    this.identities = identities;
-    this.server = server;
-    this.logger = logger;
-    this.host = host;
-    this.proxySwitch = new ApiProxySwitch(apiProxy);
-  }
-  identity;
-  connected;
-  proxySwitch;
-  closed = false;
-  async start() {
-    if (this.closed) throw new Error("client remote-mode runtime is closed");
-    this.identity = await this.identities.loadOrCreate(this.config.deviceName);
-    this.server.bindIdentity(this.identity);
-    this.proxySwitch.install();
-    this.logger.info("client remote-mode identity ready", {
-      deviceId: shortId(this.identity.deviceId),
-      fingerprint: this.identity.fingerprint
-    });
-  }
-  registerControl(connection) {
-    return connection.rpc.handle("/remote", (endpoint, payload, signal) => this.handleControl(endpoint, payload, signal), {
-      authority: "loopback"
-    });
-  }
-  status() {
-    return {
-      available: this.config.serverUrl !== void 0,
-      identityReady: this.identity !== void 0,
-      deviceId: this.identity?.deviceId,
-      serverUrl: this.config.serverUrl,
-      ...this.proxySwitch.status(),
-      connected: this.connected !== void 0,
-      transport: this.connected?.client.getStats().mode ?? "Disconnected",
-      hostAuthorizationAvailable: this.host !== void 0,
-      ...this.host === void 0 ? {} : { host: this.host.hostStatus() }
-    };
-  }
-  async devices() {
-    this.requireIdentity();
-    const serverDevices = await this.server.listDevices();
-    const remoteDevices = serverDevices.filter((device) => device.deviceId !== this.host?.hostStatus().deviceId);
-    return Promise.all(remoteDevices.map(async (device) => {
-      await this.authorizeHostPeer(device);
-      const presence = await this.server.presenceFor(device.deviceId).catch(() => ({ online: false }));
-      return { ...device, ...presence };
-    }));
-  }
-  async authorizeClientWithAccount(email, password) {
-    const authorization = await this.server.authorizeWithAccount(this.requireIdentity(), email, password);
-    this.logger.info("Client account authorized");
-    return authorization;
-  }
-  async setMode(mode, targetDeviceId, signal) {
-    if (mode === "local") {
-      this.proxySwitch.selectLocal();
-      const previous2 = this.connected;
-      this.connected = void 0;
-      await previous2?.client.close().catch(() => void 0);
-      this.logger.info("Harness target switched", { mode: "local" });
-      return this.status();
-    }
-    if (targetDeviceId === void 0 || targetDeviceId.length === 0) {
-      throw new ClientModeError("INVALID_MESSAGE", "A targetDeviceId is required for remote mode.");
-    }
-    const next = await this.connect(targetDeviceId, signal);
-    const previous = this.connected;
-    this.connected = next;
-    const remoteApi = new RemoteHarnessApiProxy(next.client).api;
-    this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name });
-    await previous?.client.close().catch(() => void 0);
-    this.logger.info("Harness target switched", { mode: "remote", targetDeviceId: shortId(next.target.deviceId) });
-    return this.status();
-  }
-  async listRemoteDirectory(targetDeviceId, path, signal) {
-    const remote = await this.ensureConnected(targetDeviceId, signal);
-    const api = new RemoteHarnessApiProxy(remote.client).api;
-    const response = await api.host.listDirectory({
-      rpcId: `remote-directory-${Date.now()}`,
-      payload: path === void 0 ? {} : { path }
-    }, signal ?? new AbortController().signal);
-    return unwrapNativeResult(response);
-  }
-  async listRemoteWorkspaces(targetDeviceId, signal) {
-    const remote = await this.ensureConnected(targetDeviceId, signal);
-    const api = new RemoteHarnessApiProxy(remote.client).api;
-    const response = await api.workspace.list({
-      rpcId: `remote-workspaces-${Date.now()}`,
-      payload: {}
-    });
-    const value = unwrapNativeResult(response);
-    return value.items;
-  }
-  async openRemoteWorkspace(targetDeviceId, path, signal) {
-    if (path.trim() === "") throw new ClientModeError("INVALID_MESSAGE", "A remote working directory is required.");
-    const remote = await this.ensureConnected(targetDeviceId, signal);
-    const api = new RemoteHarnessApiProxy(remote.client).api;
-    const response = await api.workspace.create({
-      rpcId: `remote-workspace-${Date.now()}`,
-      payload: { path }
-    });
-    const workspace = unwrapNativeResult(response);
-    this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name });
-    this.logger.info("Remote workspace opened", { targetDeviceId: shortId(remote.target.deviceId) });
-    return { ...this.status(), workspace };
-  }
-  async close() {
-    if (this.closed) return;
-    this.closed = true;
-    this.proxySwitch.selectLocal();
-    await this.connected?.client.close().catch(() => void 0);
-    this.connected = void 0;
-    this.proxySwitch.restore();
-  }
-  async connect(targetDeviceId, signal) {
-    signal?.throwIfAborted();
-    const identity = this.requireIdentity();
-    const serverDevice = (await this.server.listDevices()).find((device) => device.deviceId === targetDeviceId);
-    if (serverDevice === void 0) {
-      throw new ClientModeError("MEMBERSHIP_REQUIRED", "The selected Host is not authorized for this account.");
-    }
-    const target = await this.authorizeHostPeer(serverDevice);
-    const presence = await this.server.presenceFor(targetDeviceId);
-    if (!presence.online) throw new ClientModeError("HOST_OFFLINE", "The selected Host is offline.", true);
-    const credentials = await this.server.authenticate(identity);
-    const transport = new AdaptiveTransport(websocketUrl(this.server.baseUrl), {
-      role: "client",
-      deviceId: identity.deviceId,
-      accessToken: credentials.accessToken,
-      targetDeviceId,
-      forceRelay: this.config.forceRelay,
-      preferredTransports: this.config.forceRelay ? ["relay"] : ["p2p", "turn", "relay"],
-      fetchIceServers: async (connectionId) => this.server.turnCredentials(connectionId)
-    });
-    const client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 6e4);
-    try {
-      await client.connect();
-      signal?.throwIfAborted();
-      client.onClose(() => {
-        if (this.connected?.client !== client) return;
-        this.connected = void 0;
-        this.proxySwitch.selectLocal();
-        void client.close().catch(() => void 0);
-        this.logger.warn("remote Harness transport closed; falling back to local mode", {
-          targetDeviceId: shortId(target.deviceId)
-        });
-      });
-      return { client, target };
-    } catch (error) {
-      await client.close().catch(() => void 0);
-      throw error;
-    }
-  }
-  async ensureConnected(targetDeviceId, signal) {
-    if (this.connected?.target.deviceId === targetDeviceId) return this.connected;
-    const next = await this.connect(targetDeviceId, signal);
-    const previous = this.connected;
-    this.connected = next;
-    await previous?.client.close().catch(() => void 0);
-    return next;
-  }
-  async handleControl(endpoint, payload, signal) {
-    try {
-      if (endpoint === "status") return ok(this.status());
-      if (endpoint === "devices") return ok(await this.devices());
-      if (endpoint === "client.account.login") {
-        const value = record(payload);
-        if (typeof value.email !== "string" || typeof value.password !== "string") {
-          throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
-        }
-        return ok(await this.authorizeClientWithAccount(value.email, value.password));
-      }
-      if (endpoint === "directory.list") {
-        const value = record(payload);
-        if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
-        return ok(await this.listRemoteDirectory(
-          value.targetDeviceId,
-          typeof value.path === "string" ? value.path : void 0,
-          signal
-        ));
-      }
-      if (endpoint === "workspaces.list") {
-        const value = record(payload);
-        if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
-        return ok(await this.listRemoteWorkspaces(value.targetDeviceId, signal));
-      }
-      if (endpoint === "workspace.open") {
-        const value = record(payload);
-        if (typeof value.targetDeviceId !== "string" || typeof value.path !== "string") {
-          throw new ClientModeError("INVALID_MESSAGE", "A Host and working directory are required.");
-        }
-        return ok(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal));
-      }
-      if (endpoint === "host.account.login") {
-        if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        const value = record(payload);
-        if (typeof value.email !== "string" || typeof value.password !== "string") {
-          throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
-        }
-        return ok(await this.host.authorizeHostWithAccount(value.email, value.password));
-      }
-      if (endpoint === "host.registration-code.submit") {
-        if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        const value = record(payload);
-        if (typeof value.code !== "string" || value.code.trim() === "") {
-          throw new ClientModeError("INVALID_MESSAGE", "A Host registration code is required.");
-        }
-        return ok(await this.host.authorizeHostWithCode(value.code));
-      }
-      if (endpoint === "mode.set") {
-        const value = record(payload);
-        if (value.mode !== "local" && value.mode !== "remote") throw new ClientModeError("INVALID_MESSAGE", "Mode must be local or remote.");
-        return ok(await this.setMode(value.mode, typeof value.targetDeviceId === "string" ? value.targetDeviceId : void 0, signal));
-      }
-      throw new ClientModeError("METHOD_NOT_FOUND", "The remote-mode control method does not exist.");
-    } catch (error) {
-      return fail(error);
-    }
-  }
-  requireIdentity() {
-    if (this.identity === void 0) throw new ClientModeError("IDENTITY_INVALID", "The client identity is not ready.");
-    return this.identity;
-  }
-  async authorizeHostPeer(serverDevice) {
-    const descriptor = await this.server.deviceFor(serverDevice.deviceId);
-    assertAuthorizedHost(serverDevice, descriptor);
-    const existing = this.identities.trustedPeer(descriptor.deviceId);
-    if (existing !== void 0 && existing.publicKey !== descriptor.identityKey) {
-      throw new ClientModeError("PEER_IDENTITY_MISMATCH", "The authorized Host identity key changed unexpectedly.");
-    }
-    if (existing !== void 0 && existing.membershipId === descriptor.membershipId && existing.name === descriptor.name && existing.platform === descriptor.platform) {
-      return existing;
-    }
-    return this.identities.trustPeer({
-      deviceId: descriptor.deviceId,
-      name: descriptor.name,
-      platform: descriptor.platform,
-      publicKey: descriptor.identityKey,
-      membershipId: descriptor.membershipId
-    });
-  }
-};
-var ClientModeError = class extends Error {
-  constructor(code, message, retryable = false) {
-    super(message);
-    this.code = code;
-    this.retryable = retryable;
-  }
-};
-function assertAuthorizedHost(listed, descriptor) {
-  if (descriptor.role !== "host" || descriptor.deviceId !== listed.deviceId || descriptor.membershipId !== listed.membershipId) {
-    throw new ClientModeError("PEER_IDENTITY_MISMATCH", "Server Host details do not match the authorized device list.");
-  }
-}
-function websocketUrl(baseUrl) {
-  const url = new URL(baseUrl);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = `${url.pathname.replace(/\/$/, "")}/ws/v1/connect`;
-  return url.toString();
-}
-function record(value) {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
-  }
-  return value;
-}
-function ok(value) {
-  return { ok: true, value };
-}
-function unwrapNativeResult(response) {
-  const result = response.result;
-  if (typeof result !== "object" || result === null || !("ok" in result)) {
-    throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid response.");
-  }
-  if (result.ok !== true || !("value" in result)) {
-    const message = "error" in result && typeof result.error === "object" && result.error !== null && "message" in result.error && typeof result.error.message === "string" ? result.error.message : "The remote Host rejected the request.";
-    throw new ClientModeError("REMOTE_API_ERROR", message);
-  }
-  return result.value;
-}
-function fail(error) {
-  const source = error instanceof Error ? error : void 0;
-  const remoteCode = source !== void 0 && "code" in source && typeof source.code === "string" ? source.code : source instanceof ClientModeError ? source.code : void 0;
-  const retryable = source !== void 0 && "retryable" in source && typeof source.retryable === "boolean" ? source.retryable : source instanceof ClientModeError ? source.retryable : false;
-  return {
-    ok: false,
-    error: {
-      code: "internal",
-      message: source?.message ?? "The remote-mode operation failed.",
-      details: remoteCode === void 0 ? {} : { remoteCode, retryable }
-    }
-  };
-}
-function shortId(value) {
-  return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
-}
+// src/server-api.ts
+import { platform } from "node:os";
 
 // src/config.ts
 import { hostname } from "node:os";
@@ -13159,182 +12861,6 @@ function normalizeServerUrl(value) {
   return url.origin;
 }
 
-// src/control-runtime.ts
-import { rm } from "node:fs/promises";
-import { hostname as hostname2 } from "node:os";
-
-// src/identity-store.ts
-import { createHash } from "node:crypto";
-import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-var identitySchema = external_exports.object({
-  schemaVersion: external_exports.literal(1),
-  deviceId: external_exports.string().uuid(),
-  name: external_exports.string().min(1).max(80),
-  publicKey: external_exports.string().min(1)
-}).strict();
-var trustedPeerSchema = external_exports.object({
-  deviceId: external_exports.string().min(1),
-  name: external_exports.string().min(1).max(80),
-  platform: external_exports.string().min(1).max(40),
-  publicKey: external_exports.string().min(1),
-  fingerprint: external_exports.string().min(1),
-  trustedAt: external_exports.number().int().nonnegative(),
-  membershipId: external_exports.string().min(1).optional()
-}).strict();
-var trustedPeersSchema = external_exports.object({
-  schemaVersion: external_exports.literal(1),
-  peers: external_exports.array(trustedPeerSchema)
-}).strict();
-var IdentityInvalidError = class extends Error {
-  code = "IDENTITY_INVALID";
-};
-var IdentityStore = class {
-  directory;
-  identity;
-  peers = /* @__PURE__ */ new Map();
-  constructor(options = {}) {
-    const env = options.env ?? process.env;
-    const dshHome = env.DSH_HOME || join(options.homeDirectory ?? homedir(), ".dsh");
-    this.directory = options.directory ?? join(dshHome, "remote");
-  }
-  async loadOrCreate(deviceName) {
-    await mkdir(this.directory, { recursive: true, mode: 448 });
-    await chmod(this.directory, 448);
-    const devicePath = join(this.directory, "device.json");
-    const keyPath = join(this.directory, "device.key");
-    const [hasDevice, hasKey] = await Promise.all([exists(devicePath), exists(keyPath)]);
-    if (hasDevice !== hasKey) {
-      throw new IdentityInvalidError("device identity is incomplete; repair it explicitly before reconnecting");
-    }
-    if (!hasDevice) {
-      const keys = generateKeyPair();
-      const record3 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
-      await atomicJsonWrite(devicePath, record3, 384);
-      await atomicTextWrite(keyPath, `${keys.privateKey}
-`, 384);
-    }
-    await assertPrivateMode(keyPath);
-    try {
-      let record3 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
-      const privateKey = (await readFile(keyPath, "utf8")).trim();
-      const regenerated = generateKeyPair(fromBase64Url2(privateKey));
-      if (regenerated.publicKey !== record3.publicKey) {
-        throw new IdentityInvalidError("device public and private keys do not match");
-      }
-      if (record3.name !== deviceName) {
-        record3 = { ...record3, name: deviceName };
-        await atomicJsonWrite(devicePath, record3, 384);
-      }
-      this.identity = { ...record3, privateKey, fingerprint: fingerprint(record3.publicKey) };
-      await this.loadPeers();
-      return this.identity;
-    } catch (error) {
-      if (error instanceof IdentityInvalidError) throw error;
-      throw new IdentityInvalidError(`device identity is invalid: ${safeErrorMessage(error)}`);
-    }
-  }
-  current() {
-    if (this.identity === void 0) throw new Error("identity store has not been loaded");
-    return this.identity;
-  }
-  listTrustedPeers() {
-    return [...this.peers.values()].map((peer) => ({ ...peer }));
-  }
-  trustedPeer(deviceId) {
-    const peer = this.peers.get(deviceId);
-    return peer === void 0 ? void 0 : { ...peer };
-  }
-  isTrusted(deviceId, publicKey) {
-    return this.peers.get(deviceId)?.publicKey === publicKey;
-  }
-  async trustPeer(input) {
-    this.current();
-    const peer = {
-      ...input,
-      fingerprint: fingerprint(input.publicKey),
-      trustedAt: Date.now()
-    };
-    this.peers.set(peer.deviceId, peer);
-    await this.savePeers();
-    return { ...peer };
-  }
-  async revokePeer(deviceId) {
-    const removed = this.peers.delete(deviceId);
-    if (removed) await this.savePeers();
-    return removed;
-  }
-  async loadPeers() {
-    const path = join(this.directory, "trusted-peers.json");
-    if (!await exists(path)) {
-      await atomicJsonWrite(path, { schemaVersion: 1, peers: [] }, 384);
-    }
-    const parsed = trustedPeersSchema.parse(JSON.parse(await readFile(path, "utf8")));
-    const peers = /* @__PURE__ */ new Map();
-    for (const peer of parsed.peers) {
-      if (peer.fingerprint !== fingerprint(peer.publicKey)) {
-        throw new IdentityInvalidError(`trusted peer ${peer.deviceId} has an invalid fingerprint`);
-      }
-      if (peers.has(peer.deviceId)) throw new IdentityInvalidError(`trusted peer ${peer.deviceId} is duplicated`);
-      peers.set(peer.deviceId, peer);
-    }
-    this.peers = peers;
-  }
-  async savePeers() {
-    await atomicJsonWrite(join(this.directory, "trusted-peers.json"), {
-      schemaVersion: 1,
-      peers: [...this.peers.values()]
-    }, 384);
-  }
-};
-function serverStorageDirectory(root, serverUrl, role) {
-  const origin = new URL(serverUrl).origin;
-  const scope = createHash("sha256").update(origin).digest("hex").slice(0, 24);
-  return join(root, "servers", scope, role);
-}
-function fingerprint(publicKey) {
-  const compact = createHash("sha256").update(fromBase64Url2(publicKey)).digest("hex").slice(0, 12).toUpperCase();
-  return compact.match(/.{1,4}/g).join(" ");
-}
-async function assertPrivateMode(path) {
-  if (process.platform === "win32") return;
-  const mode = (await stat(path)).mode & 511;
-  if ((mode & 63) !== 0) {
-    throw new IdentityInvalidError(`private key permissions must be 0600, got ${mode.toString(8).padStart(3, "0")}`);
-  }
-}
-async function atomicJsonWrite(path, value, mode) {
-  await atomicTextWrite(path, `${JSON.stringify(value, null, 2)}
-`, mode);
-}
-async function atomicTextWrite(path, value, mode) {
-  await mkdir(dirname(path), { recursive: true, mode: 448 });
-  const temporary = `${path}.${process.pid}.${uuidV7()}.tmp`;
-  await writeFile(temporary, value, { encoding: "utf8", mode, flag: "wx" });
-  await chmod(temporary, mode);
-  await rename(temporary, path);
-  await chmod(path, mode);
-}
-async function exists(path) {
-  try {
-    await stat(path);
-    return true;
-  } catch (error) {
-    if (isNodeError(error) && error.code === "ENOENT") return false;
-    throw error;
-  }
-}
-function isNodeError(error) {
-  return error instanceof Error && "code" in error;
-}
-function safeErrorMessage(error) {
-  return error instanceof Error ? error.message : "invalid identity data";
-}
-
-// src/server-api.ts
-import { platform } from "node:os";
-
 // src/version.ts
 var PLUGIN_VERSION = "0.2.25";
 
@@ -13360,6 +12886,23 @@ var HostServerApi = class {
       ...this.credentials.account === void 0 ? {} : { account: this.credentials.account }
     };
   }
+  async clearAuthorization() {
+    this.credentials = void 0;
+    this.credentialsPromise = void 0;
+    await this.store.clear();
+  }
+  async revokeCurrentDevice() {
+    const identity = this.requireIdentity();
+    if (await this.store.load(this.baseUrl, identity.deviceId) === void 0) {
+      await this.clearAuthorization();
+      return;
+    }
+    try {
+      await this.request("/api/v1/devices/self", { method: "DELETE" });
+    } finally {
+      await this.clearAuthorization();
+    }
+  }
   async authorizeWithAccount(identity, email, password) {
     this.bindIdentity(identity);
     const account = email.trim();
@@ -13380,6 +12923,43 @@ var HostServerApi = class {
       account: login.account,
       expiresAt: login.expiresAt,
       isAdmin: login.isAdmin
+    };
+  }
+  async startOAuthQrLogin() {
+    const value = requireRecord(await this.publicRequest("/api/v1/auth/oauth/qr/start", {
+      method: "POST",
+      body: "{}"
+    }), "QR login");
+    if (typeof value.qrId !== "string" || value.qrId.length < 20 || typeof value.scanUrl !== "string" || !value.scanUrl.startsWith(`${this.baseUrl}/`) || !Number.isSafeInteger(value.expiresIn)) {
+      throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid QR login session.", false);
+    }
+    return { qrId: value.qrId, scanUrl: value.scanUrl, expiresIn: value.expiresIn };
+  }
+  async pollOAuthQrLogin(identity, qrId) {
+    const value = requireRecord(await this.publicRequest(
+      `/api/v1/auth/oauth/qr/${encodeURIComponent(qrId)}`,
+      { method: "GET" }
+    ), "QR login status");
+    if (value.status === "pending" || value.status === "expired") return { status: value.status };
+    if (value.status !== "complete" || typeof value.token !== "string" || value.token.length < 16) {
+      throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid QR login status.", false);
+    }
+    const account = requireRecord(await this.publicRequest(
+      "/api/v1/auth/me",
+      { method: "GET" },
+      value.token
+    ), "account profile");
+    if (typeof account.account !== "string" || account.account.length === 0 || typeof account.isAdmin !== "boolean") {
+      throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid account profile.", false);
+    }
+    await this.register(identity, {
+      accountToken: value.token,
+      account: account.account,
+      authorizationMethod: "account"
+    });
+    return {
+      status: "complete",
+      authorization: { method: "account", account: account.account, isAdmin: account.isAdmin }
     };
   }
   async authorizeHostWithCode(identity, code) {
@@ -13666,8 +13246,545 @@ function requireRecord(value, name2) {
   return value;
 }
 
+// src/client-runtime.ts
+var ClientModeRuntime = class {
+  constructor(config, identities, server, apiProxy, logger, host) {
+    this.config = config;
+    this.identities = identities;
+    this.server = server;
+    this.logger = logger;
+    this.host = host;
+    this.proxySwitch = new ApiProxySwitch(apiProxy);
+  }
+  identity;
+  connected;
+  proxySwitch;
+  closed = false;
+  async start() {
+    if (this.closed) throw new Error("client remote-mode runtime is closed");
+    this.identity = await this.identities.loadOrCreate(this.config.deviceName);
+    this.server.bindIdentity(this.identity);
+    this.proxySwitch.install();
+    this.logger.info("client remote-mode identity ready", {
+      deviceId: shortId(this.identity.deviceId),
+      fingerprint: this.identity.fingerprint
+    });
+  }
+  registerControl(connection) {
+    return connection.rpc.handle("/remote", (endpoint, payload, signal) => this.handleControl(endpoint, payload, signal), {
+      authority: "loopback"
+    });
+  }
+  status() {
+    return {
+      available: this.config.serverUrl !== void 0,
+      identityReady: this.identity !== void 0,
+      deviceId: this.identity?.deviceId,
+      serverUrl: this.config.serverUrl,
+      ...this.proxySwitch.status(),
+      connected: this.connected !== void 0,
+      transport: this.connected?.client.getStats().mode ?? "Disconnected",
+      hostAuthorizationAvailable: this.host !== void 0,
+      ...this.host === void 0 ? {} : { host: this.host.hostStatus() }
+    };
+  }
+  async devices() {
+    this.requireIdentity();
+    const serverDevices = await this.server.listDevices();
+    const remoteDevices = serverDevices.filter((device) => device.deviceId !== this.host?.hostStatus().deviceId);
+    return Promise.all(remoteDevices.map(async (device) => {
+      await this.authorizeHostPeer(device);
+      const presence = await this.server.presenceFor(device.deviceId).catch(() => ({ online: false }));
+      return { ...device, ...presence };
+    }));
+  }
+  async authorizeClientWithAccount(email, password) {
+    let authorization;
+    try {
+      authorization = await this.server.authorizeWithAccount(this.requireIdentity(), email, password);
+    } catch (error) {
+      if (!(error instanceof ServerApiError) || error.code !== "DEVICE_REVOKED") throw error;
+      this.identity = await this.identities.reset(this.config.deviceName);
+      this.server.bindIdentity(this.identity);
+      authorization = await this.server.authorizeWithAccount(this.identity, email, password);
+    }
+    this.logger.info("Client account authorized");
+    return authorization;
+  }
+  async startClientOAuthQrLogin() {
+    return this.server.startOAuthQrLogin();
+  }
+  async pollClientOAuthQrLogin(qrId) {
+    try {
+      const result = await this.server.pollOAuthQrLogin(this.requireIdentity(), qrId);
+      if (result.status === "complete") this.logger.info("Client account authorized with QR login");
+      return result;
+    } catch (error) {
+      if (!(error instanceof ServerApiError) || error.code !== "DEVICE_REVOKED") throw error;
+      this.identity = await this.identities.reset(this.config.deviceName);
+      this.server.bindIdentity(this.identity);
+      this.logger.info("Rotated revoked Client identity before QR retry");
+      return { status: "expired" };
+    }
+  }
+  async clearClientAuthorization() {
+    const previous = this.connected;
+    this.connected = void 0;
+    this.proxySwitch.selectLocal();
+    await previous?.client.close().catch(() => void 0);
+    await this.server.revokeCurrentDevice();
+    this.identity = await this.identities.reset(this.config.deviceName);
+    this.server.bindIdentity(this.identity);
+  }
+  async setHostAuthorization(enabled) {
+    if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
+    if (!enabled) {
+      await this.host.clearHostAuthorization();
+      return this.status();
+    }
+    const credentials = await this.server.authenticate(this.requireIdentity());
+    await this.host.authorizeHostAsOwned(credentials.accessToken, credentials.account);
+    return this.status();
+  }
+  async setMode(mode, targetDeviceId, signal) {
+    if (mode === "local") {
+      this.proxySwitch.selectLocal();
+      const previous2 = this.connected;
+      this.connected = void 0;
+      await previous2?.client.close().catch(() => void 0);
+      this.logger.info("Harness target switched", { mode: "local" });
+      return this.status();
+    }
+    if (targetDeviceId === void 0 || targetDeviceId.length === 0) {
+      throw new ClientModeError("INVALID_MESSAGE", "A targetDeviceId is required for remote mode.");
+    }
+    const next = await this.connect(targetDeviceId, signal);
+    const previous = this.connected;
+    this.connected = next;
+    const remoteApi = new RemoteHarnessApiProxy(next.client).api;
+    this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name });
+    await previous?.client.close().catch(() => void 0);
+    this.logger.info("Harness target switched", { mode: "remote", targetDeviceId: shortId(next.target.deviceId) });
+    return this.status();
+  }
+  async listRemoteDirectory(targetDeviceId, path, signal) {
+    const remote = await this.ensureConnected(targetDeviceId, signal);
+    const api = new RemoteHarnessApiProxy(remote.client).api;
+    const response = await api.host.listDirectory({
+      rpcId: `remote-directory-${Date.now()}`,
+      payload: path === void 0 ? {} : { path }
+    }, signal ?? new AbortController().signal);
+    return unwrapNativeResult(response);
+  }
+  async listRemoteWorkspaces(targetDeviceId, signal) {
+    const remote = await this.ensureConnected(targetDeviceId, signal);
+    const api = new RemoteHarnessApiProxy(remote.client).api;
+    const response = await api.workspace.list({
+      rpcId: `remote-workspaces-${Date.now()}`,
+      payload: {}
+    });
+    const value = unwrapNativeResult(response);
+    return value.items;
+  }
+  async openRemoteWorkspace(targetDeviceId, path, signal) {
+    if (path.trim() === "") throw new ClientModeError("INVALID_MESSAGE", "A remote working directory is required.");
+    const remote = await this.ensureConnected(targetDeviceId, signal);
+    const api = new RemoteHarnessApiProxy(remote.client).api;
+    const response = await api.workspace.create({
+      rpcId: `remote-workspace-${Date.now()}`,
+      payload: { path }
+    });
+    const workspace = unwrapNativeResult(response);
+    this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name });
+    this.logger.info("Remote workspace opened", { targetDeviceId: shortId(remote.target.deviceId) });
+    return { ...this.status(), workspace };
+  }
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.proxySwitch.selectLocal();
+    await this.connected?.client.close().catch(() => void 0);
+    this.connected = void 0;
+    this.proxySwitch.restore();
+  }
+  async connect(targetDeviceId, signal) {
+    signal?.throwIfAborted();
+    const identity = this.requireIdentity();
+    const serverDevice = (await this.server.listDevices()).find((device) => device.deviceId === targetDeviceId);
+    if (serverDevice === void 0) {
+      throw new ClientModeError("MEMBERSHIP_REQUIRED", "The selected Host is not authorized for this account.");
+    }
+    const target = await this.authorizeHostPeer(serverDevice);
+    const presence = await this.server.presenceFor(targetDeviceId);
+    if (!presence.online) throw new ClientModeError("HOST_OFFLINE", "The selected Host is offline.", true);
+    const credentials = await this.server.authenticate(identity);
+    const transport = new AdaptiveTransport(websocketUrl(this.server.baseUrl), {
+      role: "client",
+      deviceId: identity.deviceId,
+      accessToken: credentials.accessToken,
+      targetDeviceId,
+      forceRelay: this.config.forceRelay,
+      preferredTransports: this.config.forceRelay ? ["relay"] : ["p2p", "turn", "relay"],
+      fetchIceServers: async (connectionId) => this.server.turnCredentials(connectionId)
+    });
+    const client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 6e4);
+    try {
+      await client.connect();
+      signal?.throwIfAborted();
+      client.onClose(() => {
+        if (this.connected?.client !== client) return;
+        this.connected = void 0;
+        this.proxySwitch.selectLocal();
+        void client.close().catch(() => void 0);
+        this.logger.warn("remote Harness transport closed; falling back to local mode", {
+          targetDeviceId: shortId(target.deviceId)
+        });
+      });
+      return { client, target };
+    } catch (error) {
+      await client.close().catch(() => void 0);
+      throw error;
+    }
+  }
+  async ensureConnected(targetDeviceId, signal) {
+    if (this.connected?.target.deviceId === targetDeviceId) return this.connected;
+    const next = await this.connect(targetDeviceId, signal);
+    const previous = this.connected;
+    this.connected = next;
+    await previous?.client.close().catch(() => void 0);
+    return next;
+  }
+  async handleControl(endpoint, payload, signal) {
+    try {
+      if (endpoint === "status") return ok(this.status());
+      if (endpoint === "devices") return ok(await this.devices());
+      if (endpoint === "client.account.login") {
+        const value = record(payload);
+        if (typeof value.email !== "string" || typeof value.password !== "string") {
+          throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
+        }
+        return ok(await this.authorizeClientWithAccount(value.email, value.password));
+      }
+      if (endpoint === "client.account.qr.start") return ok(await this.startClientOAuthQrLogin());
+      if (endpoint === "client.account.qr.poll") {
+        const value = record(payload);
+        if (typeof value.qrId !== "string" || value.qrId.length < 20) {
+          throw new ClientModeError("INVALID_MESSAGE", "A QR login session is required.");
+        }
+        return ok(await this.pollClientOAuthQrLogin(value.qrId));
+      }
+      if (endpoint === "directory.list") {
+        const value = record(payload);
+        if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
+        return ok(await this.listRemoteDirectory(
+          value.targetDeviceId,
+          typeof value.path === "string" ? value.path : void 0,
+          signal
+        ));
+      }
+      if (endpoint === "workspaces.list") {
+        const value = record(payload);
+        if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
+        return ok(await this.listRemoteWorkspaces(value.targetDeviceId, signal));
+      }
+      if (endpoint === "workspace.open") {
+        const value = record(payload);
+        if (typeof value.targetDeviceId !== "string" || typeof value.path !== "string") {
+          throw new ClientModeError("INVALID_MESSAGE", "A Host and working directory are required.");
+        }
+        return ok(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal));
+      }
+      if (endpoint === "host.account.login") {
+        if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
+        const value = record(payload);
+        if (typeof value.email !== "string" || typeof value.password !== "string") {
+          throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
+        }
+        return ok(await this.host.authorizeHostWithAccount(value.email, value.password));
+      }
+      if (endpoint === "host.authorization.set") {
+        const value = record(payload);
+        if (typeof value.enabled !== "boolean") {
+          throw new ClientModeError("INVALID_MESSAGE", "Host authorization state is required.");
+        }
+        return ok(await this.setHostAuthorization(value.enabled));
+      }
+      if (endpoint === "host.registration-code.submit") {
+        if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
+        const value = record(payload);
+        if (typeof value.code !== "string" || value.code.trim() === "") {
+          throw new ClientModeError("INVALID_MESSAGE", "A Host registration code is required.");
+        }
+        return ok(await this.host.authorizeHostWithCode(value.code));
+      }
+      if (endpoint === "mode.set") {
+        const value = record(payload);
+        if (value.mode !== "local" && value.mode !== "remote") throw new ClientModeError("INVALID_MESSAGE", "Mode must be local or remote.");
+        return ok(await this.setMode(value.mode, typeof value.targetDeviceId === "string" ? value.targetDeviceId : void 0, signal));
+      }
+      throw new ClientModeError("METHOD_NOT_FOUND", "The remote-mode control method does not exist.");
+    } catch (error) {
+      return fail(error);
+    }
+  }
+  requireIdentity() {
+    if (this.identity === void 0) throw new ClientModeError("IDENTITY_INVALID", "The client identity is not ready.");
+    return this.identity;
+  }
+  async authorizeHostPeer(serverDevice) {
+    const descriptor = await this.server.deviceFor(serverDevice.deviceId);
+    assertAuthorizedHost(serverDevice, descriptor);
+    const existing = this.identities.trustedPeer(descriptor.deviceId);
+    if (existing !== void 0 && existing.publicKey !== descriptor.identityKey) {
+      throw new ClientModeError("PEER_IDENTITY_MISMATCH", "The authorized Host identity key changed unexpectedly.");
+    }
+    if (existing !== void 0 && existing.membershipId === descriptor.membershipId && existing.name === descriptor.name && existing.platform === descriptor.platform) {
+      return existing;
+    }
+    return this.identities.trustPeer({
+      deviceId: descriptor.deviceId,
+      name: descriptor.name,
+      platform: descriptor.platform,
+      publicKey: descriptor.identityKey,
+      membershipId: descriptor.membershipId
+    });
+  }
+};
+var ClientModeError = class extends Error {
+  constructor(code, message, retryable = false) {
+    super(message);
+    this.code = code;
+    this.retryable = retryable;
+  }
+};
+function assertAuthorizedHost(listed, descriptor) {
+  if (descriptor.role !== "host" || descriptor.deviceId !== listed.deviceId || descriptor.membershipId !== listed.membershipId) {
+    throw new ClientModeError("PEER_IDENTITY_MISMATCH", "Server Host details do not match the authorized device list.");
+  }
+}
+function websocketUrl(baseUrl) {
+  const url = new URL(baseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/ws/v1/connect`;
+  return url.toString();
+}
+function record(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
+  }
+  return value;
+}
+function ok(value) {
+  return { ok: true, value };
+}
+function unwrapNativeResult(response) {
+  const result = response.result;
+  if (typeof result !== "object" || result === null || !("ok" in result)) {
+    throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid response.");
+  }
+  if (result.ok !== true || !("value" in result)) {
+    const message = "error" in result && typeof result.error === "object" && result.error !== null && "message" in result.error && typeof result.error.message === "string" ? result.error.message : "The remote Host rejected the request.";
+    throw new ClientModeError("REMOTE_API_ERROR", message);
+  }
+  return result.value;
+}
+function fail(error) {
+  const source = error instanceof Error ? error : void 0;
+  const remoteCode = source !== void 0 && "code" in source && typeof source.code === "string" ? source.code : source instanceof ClientModeError ? source.code : void 0;
+  const retryable = source !== void 0 && "retryable" in source && typeof source.retryable === "boolean" ? source.retryable : source instanceof ClientModeError ? source.retryable : false;
+  return {
+    ok: false,
+    error: {
+      code: "internal",
+      message: source?.message ?? "The remote-mode operation failed.",
+      details: remoteCode === void 0 ? {} : { remoteCode, retryable }
+    }
+  };
+}
+function shortId(value) {
+  return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
+}
+
+// src/control-runtime.ts
+import { hostname as hostname2 } from "node:os";
+
+// src/identity-store.ts
+import { createHash } from "node:crypto";
+import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+var identitySchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  deviceId: external_exports.string().uuid(),
+  name: external_exports.string().min(1).max(80),
+  publicKey: external_exports.string().min(1)
+}).strict();
+var trustedPeerSchema = external_exports.object({
+  deviceId: external_exports.string().min(1),
+  name: external_exports.string().min(1).max(80),
+  platform: external_exports.string().min(1).max(40),
+  publicKey: external_exports.string().min(1),
+  fingerprint: external_exports.string().min(1),
+  trustedAt: external_exports.number().int().nonnegative(),
+  membershipId: external_exports.string().min(1).optional()
+}).strict();
+var trustedPeersSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  peers: external_exports.array(trustedPeerSchema)
+}).strict();
+var IdentityInvalidError = class extends Error {
+  code = "IDENTITY_INVALID";
+};
+var IdentityStore = class {
+  directory;
+  identity;
+  peers = /* @__PURE__ */ new Map();
+  constructor(options = {}) {
+    const env = options.env ?? process.env;
+    const dshHome = env.DSH_HOME || join(options.homeDirectory ?? homedir(), ".dsh");
+    this.directory = options.directory ?? join(dshHome, "remote");
+  }
+  async loadOrCreate(deviceName) {
+    await mkdir(this.directory, { recursive: true, mode: 448 });
+    await chmod(this.directory, 448);
+    const devicePath = join(this.directory, "device.json");
+    const keyPath = join(this.directory, "device.key");
+    const [hasDevice, hasKey] = await Promise.all([exists(devicePath), exists(keyPath)]);
+    if (hasDevice !== hasKey) {
+      throw new IdentityInvalidError("device identity is incomplete; repair it explicitly before reconnecting");
+    }
+    if (!hasDevice) {
+      const keys = generateKeyPair();
+      const record3 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
+      await atomicJsonWrite(devicePath, record3, 384);
+      await atomicTextWrite(keyPath, `${keys.privateKey}
+`, 384);
+    }
+    await assertPrivateMode(keyPath);
+    try {
+      let record3 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
+      const privateKey = (await readFile(keyPath, "utf8")).trim();
+      const regenerated = generateKeyPair(fromBase64Url2(privateKey));
+      if (regenerated.publicKey !== record3.publicKey) {
+        throw new IdentityInvalidError("device public and private keys do not match");
+      }
+      if (record3.name !== deviceName) {
+        record3 = { ...record3, name: deviceName };
+        await atomicJsonWrite(devicePath, record3, 384);
+      }
+      this.identity = { ...record3, privateKey, fingerprint: fingerprint(record3.publicKey) };
+      await this.loadPeers();
+      return this.identity;
+    } catch (error) {
+      if (error instanceof IdentityInvalidError) throw error;
+      throw new IdentityInvalidError(`device identity is invalid: ${safeErrorMessage(error)}`);
+    }
+  }
+  current() {
+    if (this.identity === void 0) throw new Error("identity store has not been loaded");
+    return this.identity;
+  }
+  async reset(deviceName) {
+    await rm(this.directory, { recursive: true, force: true });
+    this.identity = void 0;
+    this.peers.clear();
+    return this.loadOrCreate(deviceName);
+  }
+  listTrustedPeers() {
+    return [...this.peers.values()].map((peer) => ({ ...peer }));
+  }
+  trustedPeer(deviceId) {
+    const peer = this.peers.get(deviceId);
+    return peer === void 0 ? void 0 : { ...peer };
+  }
+  isTrusted(deviceId, publicKey) {
+    return this.peers.get(deviceId)?.publicKey === publicKey;
+  }
+  async trustPeer(input) {
+    this.current();
+    const peer = {
+      ...input,
+      fingerprint: fingerprint(input.publicKey),
+      trustedAt: Date.now()
+    };
+    this.peers.set(peer.deviceId, peer);
+    await this.savePeers();
+    return { ...peer };
+  }
+  async revokePeer(deviceId) {
+    const removed = this.peers.delete(deviceId);
+    if (removed) await this.savePeers();
+    return removed;
+  }
+  async loadPeers() {
+    const path = join(this.directory, "trusted-peers.json");
+    if (!await exists(path)) {
+      await atomicJsonWrite(path, { schemaVersion: 1, peers: [] }, 384);
+    }
+    const parsed = trustedPeersSchema.parse(JSON.parse(await readFile(path, "utf8")));
+    const peers = /* @__PURE__ */ new Map();
+    for (const peer of parsed.peers) {
+      if (peer.fingerprint !== fingerprint(peer.publicKey)) {
+        throw new IdentityInvalidError(`trusted peer ${peer.deviceId} has an invalid fingerprint`);
+      }
+      if (peers.has(peer.deviceId)) throw new IdentityInvalidError(`trusted peer ${peer.deviceId} is duplicated`);
+      peers.set(peer.deviceId, peer);
+    }
+    this.peers = peers;
+  }
+  async savePeers() {
+    await atomicJsonWrite(join(this.directory, "trusted-peers.json"), {
+      schemaVersion: 1,
+      peers: [...this.peers.values()]
+    }, 384);
+  }
+};
+function serverStorageDirectory(root, serverUrl, role) {
+  const origin = new URL(serverUrl).origin;
+  const scope = createHash("sha256").update(origin).digest("hex").slice(0, 24);
+  return join(root, "servers", scope, role);
+}
+function fingerprint(publicKey) {
+  const compact = createHash("sha256").update(fromBase64Url2(publicKey)).digest("hex").slice(0, 12).toUpperCase();
+  return compact.match(/.{1,4}/g).join(" ");
+}
+async function assertPrivateMode(path) {
+  if (process.platform === "win32") return;
+  const mode = (await stat(path)).mode & 511;
+  if ((mode & 63) !== 0) {
+    throw new IdentityInvalidError(`private key permissions must be 0600, got ${mode.toString(8).padStart(3, "0")}`);
+  }
+}
+async function atomicJsonWrite(path, value, mode) {
+  await atomicTextWrite(path, `${JSON.stringify(value, null, 2)}
+`, mode);
+}
+async function atomicTextWrite(path, value, mode) {
+  await mkdir(dirname(path), { recursive: true, mode: 448 });
+  const temporary = `${path}.${process.pid}.${uuidV7()}.tmp`;
+  await writeFile(temporary, value, { encoding: "utf8", mode, flag: "wx" });
+  await chmod(temporary, mode);
+  await rename(temporary, path);
+  await chmod(path, mode);
+}
+async function exists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+function isNodeError(error) {
+  return error instanceof Error && "code" in error;
+}
+function safeErrorMessage(error) {
+  return error instanceof Error ? error.message : "invalid identity data";
+}
+
 // src/server-credentials.ts
-import { chmod as chmod2, mkdir as mkdir2, readFile as readFile2, rename as rename2, stat as stat2, writeFile as writeFile2 } from "node:fs/promises";
+import { chmod as chmod2, mkdir as mkdir2, readFile as readFile2, rename as rename2, rm as rm2, stat as stat2, writeFile as writeFile2 } from "node:fs/promises";
 import { dirname as dirname2, join as join2 } from "node:path";
 var credentialSchema = external_exports.object({
   schemaVersion: external_exports.literal(1),
@@ -13701,6 +13818,9 @@ var ServerCredentialStore = class {
     await atomicWrite(this.path, `${JSON.stringify(record3, null, 2)}
 `);
     return record3;
+  }
+  async clear() {
+    await rm2(this.path, { force: true });
   }
 };
 var ServerCredentialsInvalidError = class extends Error {
@@ -13750,6 +13870,7 @@ var PluginControlRuntime = class {
     try {
       if (endpoint === "settings.get") return ok2(await this.settingsView());
       if (endpoint === "settings.configure") return ok2(await this.configure(payload));
+      if (endpoint === "settings.server.set") return ok2(await this.setServer(payload));
       if (endpoint === "settings.role.set") return ok2(await this.setRole(payload));
       if (endpoint === "settings.logout") return ok2(await this.logout());
       if (endpoint === "host.reconnect") {
@@ -13817,6 +13938,19 @@ var PluginControlRuntime = class {
       settings: await this.settingsView()
     };
   }
+  async setServer(payload) {
+    if (this.settings === void 0) {
+      throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
+    }
+    const value = record2(payload);
+    if (typeof value.serverUrl !== "string") {
+      throw new ClientModeError("INVALID_MESSAGE", "Server URL is required.");
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()));
+    const next = resolveConfig({ ...current, serverUrl: value.serverUrl });
+    await this.settings.replace(editableConfig(next));
+    return this.settingsView();
+  }
   async setRole(payload) {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
@@ -13851,9 +13985,14 @@ var PluginControlRuntime = class {
     }
     const config = resolveConfig(this.settings.get());
     if (config.serverUrl !== void 0) {
-      const role = config.role === "client" ? "client" : "host";
-      const directory = serverStorageDirectory(this.identityDirectory, config.serverUrl, role);
-      await rm(directory, { recursive: true, force: true });
+      await Promise.all([
+        this.client?.clearClientAuthorization(),
+        this.host?.clearHostAuthorization()
+      ]);
+      await Promise.all(["host", "client"].map(async (role) => {
+        const directory = serverStorageDirectory(this.identityDirectory, config.serverUrl, role);
+        await new ServerCredentialStore(directory).clear();
+      }));
     }
     return this.settingsView();
   }
@@ -15465,16 +15604,7 @@ var HostPluginRuntime = class {
     });
     if (this.serverApi !== void 0) {
       this.serverApi.bindIdentity(this.identity);
-      this.serverConnection = new HostServerConnection(
-        this.config,
-        this.identity,
-        this.identities,
-        this.serverApi,
-        this.connections,
-        this.logger,
-        void 0,
-        this.config.forceRelay ? void 0 : loadWeriftFactory
-      );
+      this.serverConnection = this.createServerConnection(this.identity);
       this.serverConnection.start();
     }
   }
@@ -15497,6 +15627,7 @@ var HostPluginRuntime = class {
       ...this.serverConnection?.lastActivity() === void 0 ? {} : { lastActiveAt: this.serverConnection.lastActivity() },
       ...error === void 0 ? {} : { error },
       ...authorization?.account === void 0 ? {} : { account: authorization.account },
+      authorized: authorization !== void 0,
       accountRequired: error === "ACCOUNT_AUTH_REQUIRED" || error === "AUTH_INVALID" || error === "TOKEN_EXPIRED"
     };
   }
@@ -15506,6 +15637,34 @@ var HostPluginRuntime = class {
       throw new ServerApiError("SERVER_NOT_CONFIGURED", "Configure serverUrl before reconnecting.", false);
     }
     this.serverConnection.reconnect();
+  }
+  async clearHostAuthorization() {
+    await this.serverConnection?.stop();
+    await this.serverApi?.revokeCurrentDevice();
+    this.identity = await this.identities.reset(this.config.deviceName);
+    this.serverApi?.bindIdentity(this.identity);
+    if (this.serverApi !== void 0) this.serverConnection = this.createServerConnection(this.identity);
+    this.logger.info("Host authorization cleared");
+  }
+  async authorizeHostAsOwned(accessToken, account) {
+    if (this.serverApi === void 0) {
+      throw new ServerApiError("SERVER_NOT_CONFIGURED", "Configure serverUrl before enabling Host access.", false);
+    }
+    let result;
+    try {
+      result = await this.serverApi.authorizeOwnedRole(this.currentIdentity(), accessToken, account);
+    } catch (error) {
+      if (!(error instanceof ServerApiError) || error.code !== "DEVICE_REVOKED") throw error;
+      await this.serverConnection?.stop();
+      this.identity = await this.identities.reset(this.config.deviceName);
+      this.serverApi.bindIdentity(this.identity);
+      this.serverConnection = this.createServerConnection(this.identity);
+      result = await this.serverApi.authorizeOwnedRole(this.identity, accessToken, account);
+      this.logger.info("Rotated revoked Host identity before owned-device authorization");
+    }
+    this.serverConnection?.resume();
+    this.logger.info("Host authorized as an owned device");
+    return result;
   }
   async authorizeHostWithAccount(email, password) {
     if (this.serverApi === void 0) {
@@ -15551,6 +15710,18 @@ var HostPluginRuntime = class {
       peerDeviceIds: this.connections.peerDeviceIds().map(shortId5),
       trustedPeers: this.identities.listTrustedPeers().length
     };
+  }
+  createServerConnection(identity) {
+    return new HostServerConnection(
+      this.config,
+      identity,
+      this.identities,
+      this.serverApi,
+      this.connections,
+      this.logger,
+      void 0,
+      this.config.forceRelay ? void 0 : loadWeriftFactory
+    );
   }
 };
 function shortId5(value) {

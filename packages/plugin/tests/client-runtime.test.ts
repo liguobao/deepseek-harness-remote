@@ -26,16 +26,22 @@ describe('ClientModeRuntime Host account control', () => {
         online: false,
         reconnecting: false,
         error: 'ACCOUNT_AUTH_REQUIRED',
+        authorized: false,
         accountRequired: true,
       })),
       reconnectHost: vi.fn(),
+      clearHostAuthorization: vi.fn(),
+      authorizeHostAsOwned: vi.fn(),
       authorizeHostWithAccount: vi.fn(async (email: string) => ({ account: email, expiresAt: Date.now() + 60_000, isAdmin: false })),
       authorizeHostWithCode: vi.fn(async () => ({ method: 'host_registration_code' })),
     } satisfies HostAuthorizationControl
     const runtime = new ClientModeRuntime(
       config(),
       new IdentityStore({ directory }),
-      { bindIdentity: vi.fn() } as unknown as ClientServerApi,
+      {
+        bindIdentity: vi.fn(),
+        authenticate: vi.fn(async () => ({ accessToken: 'client-access-token', account: 'owner@example.com' })),
+      } as unknown as ClientServerApi,
       apiProxy(),
       logger(),
       host,
@@ -62,6 +68,10 @@ describe('ClientModeRuntime Host account control', () => {
       email: 'host@example.com', password: 'correct horse battery staple',
     }, signal)).resolves.toMatchObject({ ok: true, value: { account: 'host@example.com' } })
     expect(host.authorizeHostWithAccount).toHaveBeenCalledWith('host@example.com', 'correct horse battery staple')
+    await expect(handler?.('host.authorization.set', { enabled: true }, signal)).resolves.toMatchObject({ ok: true })
+    expect(host.authorizeHostAsOwned).toHaveBeenCalledWith('client-access-token', 'owner@example.com')
+    await expect(handler?.('host.authorization.set', { enabled: false }, signal)).resolves.toMatchObject({ ok: true })
+    expect(host.clearHostAuthorization).toHaveBeenCalledOnce()
 
     await dispose()
     await runtime.close()

@@ -20,6 +20,7 @@ export interface HostRemoteStatus {
   lastActiveAt?: number
   error?: string
   account?: string
+  authorized: boolean
   accountRequired: boolean
 }
 
@@ -62,16 +63,7 @@ export class HostPluginRuntime {
     })
     if (this.serverApi !== undefined) {
       this.serverApi.bindIdentity(this.identity)
-      this.serverConnection = new HostServerConnection(
-        this.config,
-        this.identity,
-        this.identities,
-        this.serverApi,
-        this.connections,
-        this.logger,
-        undefined,
-        this.config.forceRelay ? undefined : loadWeriftFactory,
-      )
+      this.serverConnection = this.createServerConnection(this.identity)
       this.serverConnection.start()
     }
   }
@@ -99,6 +91,7 @@ export class HostPluginRuntime {
         : { lastActiveAt: this.serverConnection.lastActivity() }),
       ...(error === undefined ? {} : { error }),
       ...(authorization?.account === undefined ? {} : { account: authorization.account }),
+      authorized: authorization !== undefined,
       accountRequired: error === 'ACCOUNT_AUTH_REQUIRED' || error === 'AUTH_INVALID' || error === 'TOKEN_EXPIRED',
     }
   }
@@ -109,6 +102,36 @@ export class HostPluginRuntime {
       throw new ServerApiError('SERVER_NOT_CONFIGURED', 'Configure serverUrl before reconnecting.', false)
     }
     this.serverConnection.reconnect()
+  }
+
+  async clearHostAuthorization(): Promise<void> {
+    await this.serverConnection?.stop()
+    await this.serverApi?.revokeCurrentDevice()
+    this.identity = await this.identities.reset(this.config.deviceName)
+    this.serverApi?.bindIdentity(this.identity)
+    if (this.serverApi !== undefined) this.serverConnection = this.createServerConnection(this.identity)
+    this.logger.info('Host authorization cleared')
+  }
+
+  async authorizeHostAsOwned(accessToken: string, account?: string): Promise<DeviceAuthorization> {
+    if (this.serverApi === undefined) {
+      throw new ServerApiError('SERVER_NOT_CONFIGURED', 'Configure serverUrl before enabling Host access.', false)
+    }
+    let result
+    try {
+      result = await this.serverApi.authorizeOwnedRole(this.currentIdentity(), accessToken, account)
+    } catch (error) {
+      if (!(error instanceof ServerApiError) || error.code !== 'DEVICE_REVOKED') throw error
+      await this.serverConnection?.stop()
+      this.identity = await this.identities.reset(this.config.deviceName)
+      this.serverApi.bindIdentity(this.identity)
+      this.serverConnection = this.createServerConnection(this.identity)
+      result = await this.serverApi.authorizeOwnedRole(this.identity, accessToken, account)
+      this.logger.info('Rotated revoked Host identity before owned-device authorization')
+    }
+    this.serverConnection?.resume()
+    this.logger.info('Host authorized as an owned device')
+    return result
   }
 
   async authorizeHostWithAccount(email: string, password: string): Promise<DeviceAuthorization> {
@@ -159,6 +182,19 @@ export class HostPluginRuntime {
       peerDeviceIds: this.connections.peerDeviceIds().map(shortId),
       trustedPeers: this.identities.listTrustedPeers().length,
     }
+  }
+
+  private createServerConnection(identity: HostIdentity): HostServerConnection {
+    return new HostServerConnection(
+      this.config,
+      identity,
+      this.identities,
+      this.serverApi!,
+      this.connections,
+      this.logger,
+      undefined,
+      this.config.forceRelay ? undefined : loadWeriftFactory,
+    )
   }
 }
 

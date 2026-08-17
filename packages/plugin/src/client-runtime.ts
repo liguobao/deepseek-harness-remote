@@ -7,7 +7,7 @@ import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
 import type { SafeLogger } from './logging.js'
 import { RemoteHarnessApiProxy } from './remote-api-proxy.js'
-import { ClientServerApi, type AuthorizedPeerDevice, type ServerHostDevice } from './server-api.js'
+import { ClientServerApi, ServerApiError, type AuthorizedPeerDevice, type ServerHostDevice } from './server-api.js'
 
 interface ConnectedRemote {
   client: RemoteClientCore
@@ -64,9 +64,12 @@ export interface HostAuthorizationControl {
     lastActiveAt?: number
     error?: string
     account?: string
+    authorized: boolean
     accountRequired: boolean
   }
   reconnectHost(): void
+  clearHostAuthorization(): Promise<void>
+  authorizeHostAsOwned(accessToken: string, account?: string): Promise<unknown>
   authorizeHostWithAccount(email: string, password: string): Promise<unknown>
   authorizeHostWithCode(code: string): Promise<unknown>
 }
@@ -131,9 +134,56 @@ export class ClientModeRuntime {
   }
 
   async authorizeClientWithAccount(email: string, password: string): Promise<unknown> {
-    const authorization = await this.server.authorizeWithAccount(this.requireIdentity(), email, password)
+    let authorization
+    try {
+      authorization = await this.server.authorizeWithAccount(this.requireIdentity(), email, password)
+    } catch (error) {
+      if (!(error instanceof ServerApiError) || error.code !== 'DEVICE_REVOKED') throw error
+      this.identity = await this.identities.reset(this.config.deviceName)
+      this.server.bindIdentity(this.identity)
+      authorization = await this.server.authorizeWithAccount(this.identity, email, password)
+    }
     this.logger.info('Client account authorized')
     return authorization
+  }
+
+  async startClientOAuthQrLogin(): Promise<unknown> {
+    return this.server.startOAuthQrLogin()
+  }
+
+  async pollClientOAuthQrLogin(qrId: string): Promise<unknown> {
+    try {
+      const result = await this.server.pollOAuthQrLogin(this.requireIdentity(), qrId)
+      if (result.status === 'complete') this.logger.info('Client account authorized with QR login')
+      return result
+    } catch (error) {
+      if (!(error instanceof ServerApiError) || error.code !== 'DEVICE_REVOKED') throw error
+      this.identity = await this.identities.reset(this.config.deviceName)
+      this.server.bindIdentity(this.identity)
+      this.logger.info('Rotated revoked Client identity before QR retry')
+      return { status: 'expired' }
+    }
+  }
+
+  async clearClientAuthorization(): Promise<void> {
+    const previous = this.connected
+    this.connected = undefined
+    this.proxySwitch.selectLocal()
+    await previous?.client.close().catch(() => undefined)
+    await this.server.revokeCurrentDevice()
+    this.identity = await this.identities.reset(this.config.deviceName)
+    this.server.bindIdentity(this.identity)
+  }
+
+  async setHostAuthorization(enabled: boolean): Promise<unknown> {
+    if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
+    if (!enabled) {
+      await this.host.clearHostAuthorization()
+      return this.status()
+    }
+    const credentials = await this.server.authenticate(this.requireIdentity())
+    await this.host.authorizeHostAsOwned(credentials.accessToken, credentials.account)
+    return this.status()
   }
 
   async setMode(mode: HarnessMode, targetDeviceId?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -262,6 +312,14 @@ export class ClientModeRuntime {
         }
         return ok(await this.authorizeClientWithAccount(value.email, value.password))
       }
+      if (endpoint === 'client.account.qr.start') return ok(await this.startClientOAuthQrLogin())
+      if (endpoint === 'client.account.qr.poll') {
+        const value = record(payload)
+        if (typeof value.qrId !== 'string' || value.qrId.length < 20) {
+          throw new ClientModeError('INVALID_MESSAGE', 'A QR login session is required.')
+        }
+        return ok(await this.pollClientOAuthQrLogin(value.qrId))
+      }
       if (endpoint === 'directory.list') {
         const value = record(payload)
         if (typeof value.targetDeviceId !== 'string') throw new ClientModeError('INVALID_MESSAGE', 'A Host is required.')
@@ -290,6 +348,13 @@ export class ClientModeRuntime {
           throw new ClientModeError('INVALID_MESSAGE', 'Email and password are required.')
         }
         return ok(await this.host.authorizeHostWithAccount(value.email, value.password))
+      }
+      if (endpoint === 'host.authorization.set') {
+        const value = record(payload)
+        if (typeof value.enabled !== 'boolean') {
+          throw new ClientModeError('INVALID_MESSAGE', 'Host authorization state is required.')
+        }
+        return ok(await this.setHostAuthorization(value.enabled))
       }
       if (endpoint === 'host.registration-code.submit') {
         if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')

@@ -46,6 +46,7 @@ assert.ok(
   'browser client must expose the Chinese plugin name',
 )
 assert.doesNotMatch(clientBundle, /settings\.plugins\.tab/, 'browser client must not create a separate plugin settings tab')
+assert.doesNotMatch(clientBundle, /require\(["']qrcode["']\)/, 'browser client must inline its QR encoder')
 
 let githubClient
 runInNewContext(clientBundle, {

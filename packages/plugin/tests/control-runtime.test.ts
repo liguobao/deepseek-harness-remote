@@ -17,6 +17,26 @@ afterEach(async () => {
 })
 
 describe('PluginControlRuntime settings setup', () => {
+  it('updates the Server address without creating a separate authorization', async () => {
+    const directory = await temporaryDirectory()
+    const settings = settingsScope({ serverUrl: 'https://old.example.com', role: 'client' })
+    const handler = register(new PluginControlRuntime(
+      resolveConfig(settings.get()), directory, settings, undefined, undefined,
+    ))
+
+    await expect(handler('settings.server.set', {
+      serverUrl: 'https://remote.example.com/',
+    }, signal())).resolves.toMatchObject({
+      ok: true,
+      value: {
+        config: { serverUrl: 'https://remote.example.com' },
+        associations: {},
+        applies: 'restart',
+      },
+    })
+    expect(settings.get()).toMatchObject({ serverUrl: 'https://remote.example.com', role: 'client' })
+  })
+
   it('exposes Host activity and starts a manual reconnect through loopback control', async () => {
     const reconnectHost = vi.fn()
     const host = {
@@ -26,9 +46,12 @@ describe('PluginControlRuntime settings setup', () => {
         reconnecting: true,
         lastActiveAt: 1_723_456_789_000,
         error: 'CONNECTION_FAILED',
+        authorized: false,
         accountRequired: false,
       })),
       reconnectHost,
+      clearHostAuthorization: vi.fn(),
+      authorizeHostAsOwned: vi.fn(),
       authorizeHostWithAccount: vi.fn(),
       authorizeHostWithCode: vi.fn(),
     } satisfies HostAuthorizationControl
@@ -121,9 +144,10 @@ describe('PluginControlRuntime settings setup', () => {
     expect(calls).toHaveLength(3)
     await expect(handler('settings.logout', {}, signal())).resolves.toMatchObject({
       ok: true,
-      value: { config: { role: 'host' } },
+      value: { config: { role: 'host' }, associations: {} },
     })
     await expect(readFile(join(hostDirectory, 'server-credentials.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(join(clientDirectory, 'server-credentials.json'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('authorizes a Client with its site account and persists only device credentials', async () => {
