@@ -79,13 +79,73 @@ jobs:
           sha256sum dsh-remote-plugin-*.tgz > SHA256SUMS.txt
 
       - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: DeepSeek 远程连接 ${{ github.ref_name }}
+          files: release-assets/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+
+  android-apk:
+    name: Build and attach Android APK
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: pnpm --filter './packages/**' -r build
+
+      - name: Generate Android project
+        run: pnpm --dir apps/android exec expo prebuild --platform android --no-install
+
+      - name: Build release APK
         env:
-          GH_TOKEN: ${{ github.token }}
+          NODE_ENV: production
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            release-assets/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --title "DeepSeek 远程连接 ${GITHUB_REF_NAME}" \
-            --notes "Plugin-only release. The frozen Android prototype is not included." \
-            --generate-notes
+          chmod +x apps/android/android/gradlew
+          apps/android/android/gradlew \
+            -p apps/android/android \
+            :app:assembleRelease \
+            --no-daemon \
+            --build-cache \
+            -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
+
+      - name: Stage APK
+        run: |
+          mkdir -p artifacts/android
+          cp apps/android/android/app/build/outputs/apk/release/app-release.apk \
+            "artifacts/android/dsh-remote-android-${{ github.ref_name }}.apk"
+
+      - name: Attach APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: artifacts/android/dsh-remote-android-${{ github.ref_name }}.apk
+          fail_on_unmatched_files: true
