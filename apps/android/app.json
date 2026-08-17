@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "io.github.liguobao.dshremote",
-      "versionCode": 7,
+      "versionCode": 8,
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW"
       ],

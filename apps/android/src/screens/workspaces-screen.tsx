@@ -35,7 +35,7 @@ export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; on
     zhCN.workspaces.deleteBody,
     [
       { text: zhCN.common.cancel, style: 'cancel' },
-      { text: zhCN.common.delete, style: 'destructive', onPress: () => void workspaceDelete(workspace.workspaceId) },
+      { text: zhCN.workspaces.delete, style: 'destructive', onPress: () => void workspaceDelete(workspace.workspaceId) },
     ],
   )
 
@@ -52,7 +52,7 @@ export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; on
         ? { text: zhCN.workspaces.moveDown, onPress: () => void workspaceMove(workspace.workspaceId, index + 2 < workspaces.length ? workspaces[index + 2]!.workspaceId : undefined) }
         : { text: zhCN.workspaces.moveDown, style: 'cancel' as const },
       { text: zhCN.common.cancel, style: 'cancel' },
-      { text: zhCN.common.delete, style: 'destructive', onPress: () => confirmDelete(workspace) },
+      { text: zhCN.workspaces.delete, style: 'destructive', onPress: () => confirmDelete(workspace) },
     ])
   }
 

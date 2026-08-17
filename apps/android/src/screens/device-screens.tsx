@@ -136,9 +136,9 @@ export function DeviceDetailScreen({ device, onBack, onWorkspaces, onForgotten }
             : <>
                 <SectionTitle>{zhCN.devices.info}</SectionTitle>
                 <View style={styles.group}>
-                  <KeyValue label="Harness" value={descriptor?.version ?? zhCN.devices.unknownVersion} />
+                  <KeyValue label={zhCN.devices.harness} value={descriptor?.version ?? zhCN.devices.unknownVersion} />
                   <KeyValue label={zhCN.devices.directory} value={descriptor?.cwd ?? zhCN.common.unavailable} mono />
-                  {descriptor?.provider !== undefined && <KeyValue label="Provider" value={descriptor.provider} />}
+                  {descriptor?.provider !== undefined && <KeyValue label={zhCN.devices.provider} value={descriptor.provider} />}
                   {descriptor?.model !== undefined && <KeyValue label={zhCN.devices.model} value={descriptor.model} />}
                   <View style={styles.contentCounts}>
                     <View style={styles.contentCount}><Text style={styles.contentCountValue}>{workspaces.length}</Text><Text style={styles.contentCountLabel}>{zhCN.devices.workspaces}</Text></View>
@@ -268,12 +268,12 @@ function lastSeenText(value?: number): string {
 
 function connectionPath(mode: string | undefined): string {
   const names: Record<string, string> = {
-    Relay: 'Relay · 服务器中继',
-    WebRTC: 'P2P · WebRTC 直连',
-    P2P: 'P2P · WebRTC 直连',
-    LAN: 'LAN · 局域网直连',
-    TURN: 'TURN · WebRTC 中继',
-    Disconnected: '未连接',
+    Relay: zhCN.status.relay,
+    WebRTC: zhCN.status.p2p,
+    P2P: zhCN.status.p2p,
+    LAN: zhCN.status.lan,
+    TURN: zhCN.status.turn,
+    Disconnected: zhCN.status.disconnected,
   }
   return mode === undefined ? zhCN.common.unavailable : names[mode] ?? mode
 }
