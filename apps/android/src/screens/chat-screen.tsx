@@ -39,7 +39,8 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [permissionPickerOpen, setPermissionPickerOpen] = useState(false)
   const listRef = useRef<FlatList<ChatItem>>(null)
-  const lastItem = messages.at(-1)
+  const visibleMessages = messages.filter(item => item.kind !== 'message' || item.role !== 'user')
+  const lastItem = visibleMessages.at(-1)
   const lastText = lastItem?.kind === 'message' ? lastItem.text : undefined
 
   useEffect(() => {
@@ -111,8 +112,8 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
       <FlatList
         ref={listRef}
         style={styles.list}
-        contentContainerStyle={[styles.listContent, messages.length === 0 && styles.emptyList]}
-        data={messages}
+        contentContainerStyle={[styles.listContent, visibleMessages.length === 0 && styles.emptyList]}
+        data={visibleMessages}
         keyExtractor={item => item.id}
         renderItem={({ item }) => <ChatItemView item={item} busyAction={busy} onApproval={respondApproval} onQuestion={respondQuestion} />}
         keyboardShouldPersistTaps="handled"
@@ -189,7 +190,7 @@ function PermissionPicker({ visible, permissions, onClose, onPick }: {
             const current = option.value === permissions.currentValue
             return (
               <Pressable key={option.value} accessibilityRole="button" accessibilityState={{ selected: current }} onPress={() => onPick(option.value)} style={[styles.permissionOption, current && styles.modelOptionCurrent]}>
-                <View style={styles.permissionOptionCopy}><Text style={styles.modelOptionName}>{option.name}</Text>{option.description !== undefined && <Text style={styles.permissionOptionDescription}>{option.description}</Text>}</View>
+                <View style={styles.permissionOptionCopy}><Text style={styles.permissionOptionName}>{option.name}</Text>{option.description !== undefined && <Text style={styles.permissionOptionDescription}>{option.description}</Text>}</View>
                 {current && <Check size={16} color={colors.primary} />}
               </Pressable>
             )
@@ -282,7 +283,7 @@ function MessageBubble({ item }: { item: ChatMessage }) {
         {user ? <User size={16} color={colors.white} /> : <Bot size={17} color={colors.primary} />}
       </View>
       <View style={[styles.messageBody, user && styles.messageBodyUser]}>
-        <Text style={styles.messageLabel}>{user ? '你' : item.role === 'system' ? '系统' : 'DSH'}</Text>
+        <Text style={styles.messageLabel}>{user ? '你' : item.role === 'system' ? '系统' : 'Remote'}</Text>
         <FormattedText text={item.text} />
         {item.streaming && <View style={styles.streamingCursor} accessibilityLabel="正在生成回复" />}
       </View>
@@ -440,6 +441,7 @@ const styles = StyleSheet.create({
   modelOptionName: { ...type.small, color: colors.ink, flex: 1 },
   permissionOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surface, marginBottom: spacing.xs },
   permissionOptionCopy: { flex: 1 },
+  permissionOptionName: { ...type.small, color: colors.ink },
   permissionOptionDescription: { ...type.caption, color: colors.muted, marginTop: 2 },
   modelFailures: { ...type.caption, color: colors.danger, marginTop: spacing.sm },
   connectionBanner: { minHeight: 40, paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, backgroundColor: colors.warningSoft, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
