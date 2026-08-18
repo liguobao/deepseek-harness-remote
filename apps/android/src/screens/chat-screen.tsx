@@ -263,8 +263,11 @@ function ModelPicker({ visible, models, onClose, onPick }: {
 function sessionTitle(session: RemoteSession): string {
   const metadata = session.projections?.values?.sessionListMetadata
   if (typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)) {
-    const projectionTitle = typeof (metadata as { title?: unknown }).title === 'string' ? (metadata as { title?: string }).title : ''
-    if (projectionTitle.length > 0) return projectionTitle.trim()
+    const projectionTitleRaw = (metadata as { title?: unknown }).title
+    if (typeof projectionTitleRaw === 'string') {
+      const projectionTitle = projectionTitleRaw.trim()
+      if (projectionTitle.length > 0) return projectionTitle
+    }
     if (typeof (metadata as { lastPromptAt?: unknown }).lastPromptAt === 'number') return zhCN.sessions.continue
   }
   if (session.blank && session.parentSessionId === undefined) return zhCN.sessions.untitled
