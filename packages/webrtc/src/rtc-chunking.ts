@@ -22,6 +22,7 @@ export const RTC_CHUNK_MAGIC = new Uint8Array([0x52, 0x54, 0x43, 0x48]) // "RTCH
 export const RTC_CHUNK_HEADER_BYTES = 12
 export const RTC_CHUNK_PAYLOAD_BYTES = 8 * 1024
 export const RTC_CHUNK_MAX_MESSAGE_BYTES = 4 * 1024 * 1024
+const RTC_CHUNK_MAX_TOTAL = Math.ceil(RTC_CHUNK_MAX_MESSAGE_BYTES / RTC_CHUNK_PAYLOAD_BYTES)
 const MAX_IN_FLIGHT_MESSAGES = 8
 const MAX_ASSEMBLY_AGE_MS = 30_000
 
@@ -62,28 +63,25 @@ export class RtcChunkCodec {
   }
 
   decode(frame: Uint8Array): Uint8Array | undefined {
-    if (!isChunk(frame)) return frame
+    if (!isChunk(frame)) {
+      if (frame.byteLength > RTC_CHUNK_MAX_MESSAGE_BYTES) {
+        throw new Error('WebRTC transport message exceeds the reassembly limit.')
+      }
+      return frame
+    }
     if (frame.byteLength < RTC_CHUNK_HEADER_BYTES) throw new Error('WebRTC transport chunk header is invalid.')
     const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength)
     const messageId = view.getUint32(4)
     const index = view.getUint16(8)
     const total = view.getUint16(10)
-    if (messageId === 0 || total < 2 || index >= total) {
+    if (messageId === 0 || total < 2 || total > RTC_CHUNK_MAX_TOTAL || index >= total) {
       throw new Error('WebRTC transport chunk metadata is invalid.')
     }
-    const expectedChunkBytes = Math.min(
-      RTC_CHUNK_PAYLOAD_BYTES,
-      RTC_CHUNK_MAX_MESSAGE_BYTES - index * RTC_CHUNK_PAYLOAD_BYTES,
-    )
     const chunk = frame.subarray(RTC_CHUNK_HEADER_BYTES)
-    if (chunk.byteLength !== Math.max(1, Math.min(RTC_CHUNK_PAYLOAD_BYTES, expectedChunkBytes))) {
-      // final chunk may be shorter; earlier chunks must be full size.
-      if (index < total - 1 && chunk.byteLength !== RTC_CHUNK_PAYLOAD_BYTES) {
-        throw new Error('WebRTC transport chunk length is invalid.')
-      }
-      if (index === total - 1 && chunk.byteLength === 0) {
-        throw new Error('WebRTC transport chunk is empty.')
-      }
+    if (chunk.byteLength > RTC_CHUNK_PAYLOAD_BYTES
+      || (index < total - 1 && chunk.byteLength !== RTC_CHUNK_PAYLOAD_BYTES)
+      || (index === total - 1 && chunk.byteLength === 0)) {
+      throw new Error('WebRTC transport chunk length is invalid.')
     }
 
     this.pruneStale()
@@ -99,8 +97,13 @@ export class RtcChunkCodec {
       this.assemblies.delete(messageId)
       throw new Error('WebRTC transport chunk sequence is invalid.')
     }
+    const receivedBytes = assembly.receivedBytes + chunk.byteLength
+    if (receivedBytes > RTC_CHUNK_MAX_MESSAGE_BYTES) {
+      this.assemblies.delete(messageId)
+      throw new Error('WebRTC transport message exceeds the reassembly limit.')
+    }
     assembly.chunks.push(Uint8Array.from(chunk))
-    assembly.receivedBytes += chunk.byteLength
+    assembly.receivedBytes = receivedBytes
     assembly.updatedAt = Date.now()
     if (assembly.chunks.length < total) return undefined
     this.assemblies.delete(messageId)

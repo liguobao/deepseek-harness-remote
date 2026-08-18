@@ -32,6 +32,16 @@ function expectRoundTrip(size: number): void {
   expect(reassembled[0]).toEqual(original)
 }
 
+function chunkFrame(index: number, total: number, payloadBytes = RTC_CHUNK_PAYLOAD_BYTES): Uint8Array {
+  const frame = new Uint8Array(RTC_CHUNK_HEADER_BYTES + payloadBytes)
+  frame.set(RTC_CHUNK_MAGIC)
+  const view = new DataView(frame.buffer)
+  view.setUint32(4, 1)
+  view.setUint16(8, index)
+  view.setUint16(10, total)
+  return frame
+}
+
 describe('RtcChunkCodec', () => {
   it('passes a small payload through without a chunk header', () => {
     const codec = new RtcChunkCodec()
@@ -106,6 +116,30 @@ describe('RtcChunkCodec', () => {
   it('rejects messages above the reassembly limit', () => {
     const codec = new RtcChunkCodec()
     expect(() => codec.encode(bytes(RTC_CHUNK_MAX_MESSAGE_BYTES + 1))).toThrow(/limit/)
+  })
+
+  it('enforces the reassembly limit for inbound frames', () => {
+    const codec = new RtcChunkCodec()
+    const maxChunks = Math.ceil(RTC_CHUNK_MAX_MESSAGE_BYTES / RTC_CHUNK_PAYLOAD_BYTES)
+
+    expect(() => codec.decode(chunkFrame(0, maxChunks + 1))).toThrow(/metadata/)
+    expect(() => codec.decode(new Uint8Array(RTC_CHUNK_MAX_MESSAGE_BYTES + 1))).toThrow(/limit/)
+  })
+
+  it('rejects an oversized final chunk', () => {
+    const codec = new RtcChunkCodec()
+    expect(codec.decode(chunkFrame(0, 2))).toBeUndefined()
+    expect(() => codec.decode(chunkFrame(1, 2, RTC_CHUNK_PAYLOAD_BYTES + 1))).toThrow(/length/)
+  })
+
+  it('round-trips a message at the reassembly limit', () => {
+    const encoder = new RtcChunkCodec()
+    const decoder = new RtcChunkCodec()
+    let reassembled: Uint8Array | undefined
+    for (const frame of encoder.encode(new Uint8Array(RTC_CHUNK_MAX_MESSAGE_BYTES))) {
+      reassembled = decoder.decode(frame)
+    }
+    expect(reassembled?.byteLength).toBe(RTC_CHUNK_MAX_MESSAGE_BYTES)
   })
 })
 
