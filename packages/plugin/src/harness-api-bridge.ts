@@ -13,6 +13,11 @@ import type {
   HarnessApiStreamClosedData,
   HarnessApiStreamOpenParams,
 } from '@dsh-remote/protocol'
+import {
+  createRpcResponse,
+  encodeMessage,
+  MAX_SECURE_MESSAGE_BYTES,
+} from '@dsh-remote/protocol'
 import { z } from 'zod'
 import type { SafeLogger } from './logging.js'
 import { RpcError } from './rpc-router.js'
@@ -120,6 +125,8 @@ interface ActiveStream {
  */
 const NATIVE_CALL_TIMEOUT_MS = 30_000
 
+const SESSION_HISTORY_PAGE_SIZES = [50, 30, 20, 12, 6, 3, 1] as const
+
 /**
  * The official Typert gateway surface (`typertGateway` service from
  * `dsh-api-gateway`) used to dispatch Harness command endpoints. The ApiProxy
@@ -168,11 +175,17 @@ export class HarnessApiBridge {
       // methods ignore AbortSignal, and without this the Host would never
       // answer and the Web-side 60s timer would fire instead. A guaranteed
       // local response turns that into a fast, explicit RPC error.
-      let response = await withTimeout(
-        method(request, signal),
+      const callWithTimeout = (overridePayload: unknown) => withTimeout(
+        method({ rpcId: params.rpcId as never, payload: overridePayload }, signal),
         NATIVE_CALL_TIMEOUT_MS,
         `Harness API call ${params.method} timed out after ${NATIVE_CALL_TIMEOUT_MS}ms`,
       )
+      let response: RpcResponse<unknown>
+      if (params.method === 'session.history') {
+        response = await callSessionHistory(callWithTimeout, params.payload, params.rpcId as never)
+      } else {
+        response = await callWithTimeout(request.payload)
+      }
       if (params.method === 'host.listDirectory' && needsRemoteDirectoryFallback(response)) {
         const payload = typeof params.payload === 'object' && params.payload !== null ? params.payload as { path?: unknown } : {}
         const value = await listRemoteDirectory(typeof payload.path === 'string' ? payload.path : undefined, signal)
@@ -369,6 +382,70 @@ function diagnosticReason(error: unknown): string {
 function frameSessionId(frame: RpcRequest<MuxFrame | HostFrame>): string | undefined {
   const payload = frame.payload as { sessionId?: unknown }
   return typeof payload.sessionId === 'string' && payload.sessionId.length > 0 ? payload.sessionId : undefined
+}
+
+function callSessionHistory(
+  callWithTimeout: (payload: unknown) => Promise<RpcResponse<unknown>>,
+  payload: unknown,
+  rpcId: string,
+): Promise<RpcResponse<unknown>> {
+  const fallbackPageSizes = sessionHistoryFallbackPageSizes(payloadMaxMessages(payload))
+  return callHistoryWithRetry(callWithTimeout, payload, rpcId, fallbackPageSizes)
+}
+
+async function callHistoryWithRetry(
+  callWithTimeout: (payload: unknown) => Promise<RpcResponse<unknown>>,
+  payload: unknown,
+  rpcId: string,
+  pageSizes: readonly number[],
+): Promise<RpcResponse<unknown>> {
+  for (const maxMessages of pageSizes) {
+    const requestPayload = historyRequestPayload(payload, maxMessages)
+    const response = await callWithTimeout(requestPayload)
+    const request = createRpcResponse(rpcId, response.result)
+    if (encodeMessage(request).byteLength <= MAX_SECURE_MESSAGE_BYTES) return response
+    if (maxMessages === pageSizes[pageSizes.length - 1]) {
+      throw new RpcError(
+        'RESPONSE_TOO_LARGE',
+        'The Host response is too large for the remote channel. Request a smaller page.',
+        { maxBytes: MAX_SECURE_MESSAGE_BYTES },
+        true,
+      )
+    }
+  }
+  throw new RpcError('INTERNAL_ERROR', 'Failed to load session history with a fallback page size.')
+}
+
+function sessionHistoryFallbackPageSizes(requestedMaxMessages: number | undefined): readonly number[] {
+  const requested = normalizeSessionHistoryPageSize(requestedMaxMessages)
+  const sizes: number[] = []
+  if (requested === undefined) {
+    sizes.push(...SESSION_HISTORY_PAGE_SIZES)
+    return sizes
+  }
+  sizes.push(requested)
+  for (const value of SESSION_HISTORY_PAGE_SIZES) {
+    if (value < requested && !sizes.includes(value)) sizes.push(value)
+  }
+  return sizes
+}
+
+function normalizeSessionHistoryPageSize(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined
+  if (!Number.isInteger(value)) return undefined
+  if (value <= 0) return undefined
+  return Math.max(1, value)
+}
+
+function payloadMaxMessages(payload: unknown): number | undefined {
+  if (payload === null || typeof payload !== 'object') return undefined
+  const value = (payload as { maxMessages?: unknown }).maxMessages
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
+}
+
+function historyRequestPayload(payload: unknown, maxMessages: number): unknown {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return { maxMessages }
+  return { ...payload, maxMessages }
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
