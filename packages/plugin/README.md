@@ -82,6 +82,22 @@ pnpm --filter @dsh-remote/plugin build
 
 根包提供 GitHub Bundle manifest；本包是 npm 发布和 CI artifact 边界。构建会生成 `dist/index.js`、`dist/client.js` 和 GitHub client bundle。
 
+## 发布与版本一致性要求
+
+发布新版本前必须同步以下版本号：
+
+- 根目录 `package.json` 的 `version`
+- `packages/plugin/package.json` 的 `version`
+- `packages/plugin/src/version.ts` 中的 `PLUGIN_VERSION`
+
+`packages/plugin/scripts/verify-version-sync.mjs` 会在 `check/build/test` 前校验这三处是否一致。任一不一致将导致构建失败。
+
+建议发布步骤：
+
+1. 同步更新上述三个版本号。
+2. 运行 `pnpm --filter @dsh-remote/plugin check`。
+3. 通过后再执行 `pnpm --filter @dsh-remote/plugin build` 与 `test`。
+
 ## 兼容边界
 
 Plugin 使用官方 `@deepseek-ai/dsh-host-apiproxy/api`，不维护第二套 Session、Event 或 Permission 协议。Server、Remote Web 和 Admin runtime 不在本仓库实现。协议详情见 [Remote Protocol](../../docs/protocol.md)，Server 接入见 [Plugin integration](../../docs/plugin-integration.md)。
