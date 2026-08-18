@@ -1,6 +1,6 @@
 {
   "name": "@dsh-remote/plugin",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "DeepSeek 远程连接",
   "type": "module",
   "main": "./dist/index.js",
@@ -38,9 +38,9 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/build-bundles.mjs",
-    "check": "tsc -p tsconfig.test.json",
-    "test": "vitest run"
+    "build": "node scripts/verify-version-sync.mjs && tsc -p tsconfig.json && node scripts/build-bundles.mjs",
+    "check": "node scripts/verify-version-sync.mjs && tsc -p tsconfig.test.json",
+    "test": "node scripts/verify-version-sync.mjs && vitest run"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1",

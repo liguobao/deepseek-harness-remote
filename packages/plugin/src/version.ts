@@ -5,5 +5,7 @@
  * in the Device Descriptor) and again in the WebSocket `hello` frame, so the
  * Server can surface the plugin version in its device list and diagnostics.
  * Keep it in sync with `packages/plugin/package.json` (`version`).
+ * If they diverge, `npm scripts` checks in `scripts/verify-version-sync.mjs`
+ * will fail fast during build/check/test.
  */
-export const PLUGIN_VERSION = '0.2.25'
+export const PLUGIN_VERSION = '0.3.2'
