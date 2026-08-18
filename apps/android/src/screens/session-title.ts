@@ -58,15 +58,6 @@ function pickProjectTitleFromProjections(values: ProjectionRecord): string | und
 }
 
 export function resolveSessionDisplayTitle(session: RemoteSession): string | undefined {
-  const title = trimString(session.title)
-  if (title !== undefined) return title
-
-  const name = trimString((session as { name?: unknown }).name)
-  if (name !== undefined) return name
-
-  const label = trimString((session as { label?: unknown }).label)
-  if (label !== undefined) return label
-
   const metadata = getMetadata(session)
   const projectedTitle = trimString(metadata?.title)
   if (projectedTitle !== undefined) return projectedTitle
@@ -76,6 +67,15 @@ export function resolveSessionDisplayTitle(session: RemoteSession): string | und
     : undefined
   const projectionTitle = projectionValues === undefined ? undefined : pickProjectTitleFromProjections(projectionValues)
   if (projectionTitle !== undefined) return projectionTitle
+
+  const name = trimString((session as { name?: unknown }).name)
+  if (name !== undefined) return name
+
+  const label = trimString((session as { label?: unknown }).label)
+  if (label !== undefined) return label
+
+  const title = trimString(session.title)
+  if (title !== undefined) return title
 
   return trimString((session as { summary?: unknown }).summary)
 }
