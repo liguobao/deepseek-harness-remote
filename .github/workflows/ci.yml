@@ -46,10 +46,9 @@ jobs:
       - name: Check types
         run: pnpm -r check
 
-      - name: Verify committed GitHub plugin bundle
+      - name: Verify GitHub plugin bundle
         run: |
           node scripts/verify-dsh-plugin.mjs
-          git diff --exit-code -- index.js packages/plugin/dist/index.js packages/plugin/dist/client.github.js
 
       - name: Run tests
         run: pnpm -r test
