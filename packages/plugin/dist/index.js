@@ -12866,7 +12866,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.2";
+var PLUGIN_VERSION = "0.3.4";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -15227,6 +15227,7 @@ var HARNESS_API_ALLOWLIST = [
   "llm.models"
 ];
 var NATIVE_CALL_TIMEOUT_MS = 3e4;
+var SESSION_HISTORY_PAGE_SIZES = [50, 30, 20, 12, 6, 3, 1];
 var HarnessApiBridge = class {
   constructor(api, publish, maxStreams = 3, logger, typertGateway) {
     this.api = api;
@@ -15252,11 +15253,17 @@ var HarnessApiBridge = class {
     const signal = AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS);
     const request = { rpcId: params.rpcId, payload: params.payload };
     try {
-      let response = await withTimeout(
-        method(request, signal),
+      const callWithTimeout = (overridePayload) => withTimeout(
+        method({ rpcId: params.rpcId, payload: overridePayload }, signal),
         NATIVE_CALL_TIMEOUT_MS,
         `Harness API call ${params.method} timed out after ${NATIVE_CALL_TIMEOUT_MS}ms`
       );
+      let response;
+      if (params.method === "session.history") {
+        response = await callSessionHistory(callWithTimeout, params.payload, params.rpcId);
+      } else {
+        response = await callWithTimeout(request.payload);
+      }
       if (params.method === "host.listDirectory" && needsRemoteDirectoryFallback(response)) {
         const payload = typeof params.payload === "object" && params.payload !== null ? params.payload : {};
         const value = await listRemoteDirectory(typeof payload.path === "string" ? payload.path : void 0, signal);
@@ -15414,6 +15421,55 @@ function diagnosticReason4(error) {
 function frameSessionId(frame) {
   const payload = frame.payload;
   return typeof payload.sessionId === "string" && payload.sessionId.length > 0 ? payload.sessionId : void 0;
+}
+function callSessionHistory(callWithTimeout, payload, rpcId) {
+  const fallbackPageSizes = sessionHistoryFallbackPageSizes(payloadMaxMessages(payload));
+  return callHistoryWithRetry(callWithTimeout, payload, rpcId, fallbackPageSizes);
+}
+async function callHistoryWithRetry(callWithTimeout, payload, rpcId, pageSizes) {
+  for (const maxMessages of pageSizes) {
+    const requestPayload = historyRequestPayload(payload, maxMessages);
+    const response = await callWithTimeout(requestPayload);
+    const request = createRpcResponse(rpcId, response.result);
+    if (encodeMessage(request).byteLength <= MAX_SECURE_MESSAGE_BYTES) return response;
+    if (maxMessages === pageSizes[pageSizes.length - 1]) {
+      throw new RpcError(
+        "RESPONSE_TOO_LARGE",
+        "The Host response is too large for the remote channel. Request a smaller page.",
+        { maxBytes: MAX_SECURE_MESSAGE_BYTES },
+        true
+      );
+    }
+  }
+  throw new RpcError("INTERNAL_ERROR", "Failed to load session history with a fallback page size.");
+}
+function sessionHistoryFallbackPageSizes(requestedMaxMessages) {
+  const requested = normalizeSessionHistoryPageSize(requestedMaxMessages);
+  const sizes = [];
+  if (requested === void 0) {
+    sizes.push(...SESSION_HISTORY_PAGE_SIZES);
+    return sizes;
+  }
+  sizes.push(requested);
+  for (const value of SESSION_HISTORY_PAGE_SIZES) {
+    if (value < requested && !sizes.includes(value)) sizes.push(value);
+  }
+  return sizes;
+}
+function normalizeSessionHistoryPageSize(value) {
+  if (value === void 0) return void 0;
+  if (!Number.isInteger(value)) return void 0;
+  if (value <= 0) return void 0;
+  return Math.max(1, value);
+}
+function payloadMaxMessages(payload) {
+  if (payload === null || typeof payload !== "object") return void 0;
+  const value = payload.maxMessages;
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : void 0;
+}
+function historyRequestPayload(payload, maxMessages) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return { maxMessages };
+  return { ...payload, maxMessages };
 }
 function withTimeout(promise, ms, message) {
   return new Promise((resolve2, reject) => {
