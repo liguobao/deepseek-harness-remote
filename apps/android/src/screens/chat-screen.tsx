@@ -79,7 +79,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={0}>
       <TopBar
-        title={sessionTitle(session.sessionId)}
+        title={sessionTitle(session)}
         onBack={onBack}
         action={busy === 'send-message' || session.running
           ? <IconButton label={zhCN.chat.stop} icon={CircleStop} onPress={() => void stopSession()} disabled={busy === 'stop-session'} />
@@ -260,8 +260,20 @@ function ModelPicker({ visible, models, onClose, onPick }: {
   )
 }
 
-function sessionTitle(sessionId: string): string {
-  return sessionId.length > 24 ? `${sessionId.slice(0, 12)}…${sessionId.slice(-6)}` : sessionId
+function sessionTitle(session: RemoteSession): string {
+  const metadata = session.projections?.values?.sessionListMetadata
+  if (typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)) {
+    const projectionTitle = typeof (metadata as { title?: unknown }).title === 'string' ? (metadata as { title?: string }).title : ''
+    if (projectionTitle.length > 0) return projectionTitle.trim()
+    if (typeof (metadata as { lastPromptAt?: unknown }).lastPromptAt === 'number') return zhCN.sessions.continue
+  }
+  if (session.blank && session.parentSessionId === undefined) return zhCN.sessions.untitled
+  if (typeof session.cwd === 'string') {
+    const parts = session.cwd.split(/[\\/]/).filter(Boolean)
+    const name = parts.at(-1)
+    if (name !== undefined && name.length > 0) return name
+  }
+  return session.parentSessionId === undefined ? zhCN.sessions.untitled : zhCN.sessions.child
 }
 
 function ChatItemView({ item, busyAction, onApproval, onQuestion }: {

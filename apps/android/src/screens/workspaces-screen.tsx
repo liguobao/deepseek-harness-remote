@@ -99,7 +99,7 @@ export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; on
                         <Pressable key={session.sessionId} accessibilityRole="button" onPress={() => void open(session)} style={({ pressed }) => [styles.sessionRow, pressed && styles.workspaceRowPressed]}>
                           <MessageSquareText size={17} color={colors.muted} />
                           <View style={styles.sessionCopy}>
-                            <Text style={styles.sessionTitle} numberOfLines={1}>{session.blank ? zhCN.sessions.untitled : shortPath(session.cwd) ?? zhCN.workspaces.unnamedSession}</Text>
+                          <Text style={styles.sessionTitle} numberOfLines={1}>{resolveSessionTitle(session)}</Text>
                             <Text style={styles.sessionMeta}>{session.running ? zhCN.status.running : relativeTime(session.updatedAt)}</Text>
                           </View>
                           <ChevronRight size={17} color={colors.subtle} />
@@ -129,6 +129,25 @@ export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; on
 function shortPath(path?: string): string | undefined {
   if (path === undefined) return undefined
   return path.split(/[\\/]/).filter(Boolean).at(-1)
+}
+
+function resolveSessionTitle(session: RemoteSession): string {
+  const metadata = extractSessionMetadata(session)
+  if (metadata !== undefined) {
+    const title = typeof metadata.title === 'string' ? metadata.title.trim() : ''
+    if (title.length > 0) return title
+    if (typeof metadata.lastPromptAt === 'number') return zhCN.sessions.continue
+  }
+  const path = shortPath(session.cwd)
+  if (!session.blank && typeof path === 'string' && path.length > 0) return path
+  return session.parentSessionId === undefined ? zhCN.sessions.untitled : zhCN.sessions.child
+}
+
+function extractSessionMetadata(session: RemoteSession): Record<string, unknown> | undefined {
+  const values = session.projections?.values
+  if (values === undefined) return undefined
+  const metadata = values.sessionListMetadata
+  return typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata) ? metadata as Record<string, unknown> : undefined
 }
 
 function relativeTime(timestamp: number): string {
