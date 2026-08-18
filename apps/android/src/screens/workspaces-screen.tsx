@@ -6,6 +6,7 @@ import type { DirectoryListing, RemoteSession, WorkspaceView } from '../types'
 import { Button, EmptyState, IconButton, Screen, TopBar } from '../ui/components'
 import { colors, radius, spacing, type } from '../ui/theme'
 import zhCN from '../locales/zh-CN'
+import { resolveSessionDisplayTitle } from './session-title'
 
 export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; onSession: (session: RemoteSession) => void }) {
   const workspaces = useAppStore(state => state.workspaces)
@@ -132,22 +133,12 @@ function shortPath(path?: string): string | undefined {
 }
 
 function resolveSessionTitle(session: RemoteSession): string {
-  const metadata = extractSessionMetadata(session)
-  if (metadata !== undefined) {
-    const title = typeof metadata.title === 'string' ? metadata.title.trim() : ''
-    if (title.length > 0) return title
-    if (typeof metadata.lastPromptAt === 'number') return zhCN.sessions.continue
-  }
+  const resolvedTitle = resolveSessionDisplayTitle(session)
+  if (resolvedTitle !== undefined) return resolvedTitle
+  if (session.blank && session.parentSessionId === undefined) return zhCN.sessions.untitled
   const path = shortPath(session.cwd)
   if (!session.blank && typeof path === 'string' && path.length > 0) return path
   return session.parentSessionId === undefined ? zhCN.sessions.untitled : zhCN.sessions.child
-}
-
-function extractSessionMetadata(session: RemoteSession): Record<string, unknown> | undefined {
-  const values = session.projections?.values
-  if (values === undefined) return undefined
-  const metadata = values.sessionListMetadata
-  return typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata) ? metadata as Record<string, unknown> : undefined
 }
 
 function relativeTime(timestamp: number): string {

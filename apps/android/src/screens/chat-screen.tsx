@@ -18,6 +18,7 @@ import type { ApprovalActivity, ChatItem, ChatMessage, ModelCatalogModel, ModelP
 import { Button, IconButton, TopBar } from '../ui/components'
 import { colors, radius, spacing, type } from '../ui/theme'
 import zhCN from '../locales/zh-CN'
+import { resolveSessionDisplayTitle } from './session-title'
 
 export function ChatScreen({ onBack }: { onBack: () => void }) {
   const session = useAppStore(state => state.selectedSession)
@@ -261,21 +262,9 @@ function ModelPicker({ visible, models, onClose, onPick }: {
 }
 
 function sessionTitle(session: RemoteSession): string {
-  const metadata = session.projections?.values?.sessionListMetadata
-  if (typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)) {
-    const projectionTitleRaw = (metadata as { title?: unknown }).title
-    if (typeof projectionTitleRaw === 'string') {
-      const projectionTitle = projectionTitleRaw.trim()
-      if (projectionTitle.length > 0) return projectionTitle
-    }
-    if (typeof (metadata as { lastPromptAt?: unknown }).lastPromptAt === 'number') return zhCN.sessions.continue
-  }
+  const title = resolveSessionDisplayTitle(session)
+  if (title !== undefined) return title
   if (session.blank && session.parentSessionId === undefined) return zhCN.sessions.untitled
-  if (typeof session.cwd === 'string') {
-    const parts = session.cwd.split(/[\\/]/).filter(Boolean)
-    const name = parts.at(-1)
-    if (name !== undefined && name.length > 0) return name
-  }
   return session.parentSessionId === undefined ? zhCN.sessions.untitled : zhCN.sessions.child
 }
 

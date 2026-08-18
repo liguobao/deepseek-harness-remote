@@ -142,6 +142,7 @@ export interface RemoteSession {
   updatedAt: number
   running: boolean
   blank: boolean
+  title?: string
   parentSessionId?: string
   origin?: 'subagent'
   cwd?: string

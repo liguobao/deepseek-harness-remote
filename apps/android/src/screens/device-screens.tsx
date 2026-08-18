@@ -18,6 +18,7 @@ import {
 } from '../ui/components'
 import { colors, radius, spacing, type } from '../ui/theme'
 import zhCN from '../locales/zh-CN'
+import { resolveSessionDisplayTitle } from './session-title'
 
 export function DevicesScreen({ onDevice, onSettings }: {
   onDevice: (device: RemoteDevice) => void
@@ -239,12 +240,9 @@ export function SessionsScreen({ onBack, onSession }: { onBack: () => void; onSe
 }
 
 function sessionTitle(session: RemoteSession): string {
-  const projections = (session as { projections?: { values?: Record<string, { title?: string }> } }).projections
-  const title = projections?.values?.sessionListMetadata
-  const lastPrompt = typeof (title as { lastPromptAt?: number | null } | undefined)?.lastPromptAt === 'number'
-    ? zhCN.sessions.continue
-    : undefined
-  return lastPrompt ?? (session.parentSessionId === undefined ? zhCN.sessions.untitled : zhCN.sessions.child)
+  const resolvedTitle = resolveSessionDisplayTitle(session)
+  if (resolvedTitle !== undefined) return resolvedTitle
+  return session.parentSessionId === undefined ? zhCN.sessions.untitled : zhCN.sessions.child
 }
 
 function platformName(platform: string): string {
