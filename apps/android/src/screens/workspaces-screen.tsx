@@ -127,17 +127,10 @@ export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; on
   )
 }
 
-function shortPath(path?: string): string | undefined {
-  if (path === undefined) return undefined
-  return path.split(/[\\/]/).filter(Boolean).at(-1)
-}
-
 function resolveSessionTitle(session: RemoteSession): string {
   const resolvedTitle = resolveSessionDisplayTitle(session)
   if (resolvedTitle !== undefined) return resolvedTitle
   if (session.blank && session.parentSessionId === undefined) return zhCN.sessions.untitled
-  const path = shortPath(session.cwd)
-  if (!session.blank && typeof path === 'string' && path.length > 0) return path
   return session.parentSessionId === undefined ? zhCN.sessions.untitled : zhCN.sessions.child
 }
 
