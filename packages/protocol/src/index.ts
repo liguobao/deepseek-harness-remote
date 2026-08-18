@@ -77,7 +77,7 @@ export interface HelloPayload {
   protocols: number[]
   capabilities: string[]
   /** Version of the Client/Plugin software reporting in; symmetric to ``HelloAckPayload.serverVersion``. */
-  clientVersion: string
+  clientVersion?: string
 }
 
 export interface HelloAckPayload {
@@ -307,6 +307,122 @@ export const controlFrameSchema = z.object({
   payload: z.unknown(),
 }).strict() as unknown as z.ZodType<ControlFrame>
 
+// ────────────────────────────────────────────────────────────────────────────
+// Control frame payload schemas (protocol.md §10-§23)
+// ────────────────────────────────────────────────────────────────────────────
+
+const transportEnum = z.enum(['lan', 'p2p', 'turn', 'relay'])
+const selectedTransportEnum = z.enum(['p2p', 'turn', 'relay'])
+
+export const helloPayloadSchema = z.object({
+  role: z.enum(['host', 'client']),
+  deviceId: z.string().min(1),
+  accessToken: z.string().min(1),
+  protocols: z.array(z.number().int()).min(1),
+  capabilities: z.array(z.string()),
+  clientVersion: z.string().optional(),
+})
+
+export const helloAckPayloadSchema = z.object({
+  protocol: z.literal(PROTOCOL_VERSION),
+  serverVersion: z.string().min(1),
+  connectionSessionId: z.string().min(1),
+  heartbeatIntervalMs: z.number().int().positive(),
+  maxControlFrameBytes: z.number().int().positive(),
+  maxRelayFrameBytes: z.number().int().positive(),
+  webrtcEnabled: z.boolean().optional(),
+  webrtcFallbackTimeoutMs: z.number().int().positive().optional(),
+})
+
+export const connectRequestPayloadSchema = z.object({
+  hostDeviceId: z.string().min(1),
+  preferredTransports: z.array(transportEnum).min(1),
+})
+
+export const connectIncomingPayloadSchema = z.object({
+  connectionId: z.string().min(1),
+  clientDeviceId: z.string().min(1),
+  clientIdentityKey: z.string().min(1),
+  authorization: z.literal('account'),
+  preferredTransports: z.array(transportEnum).min(1),
+})
+
+export const connectAcceptedPayloadSchema = z.object({
+  connectionId: z.string().min(1),
+})
+
+export const connectRejectedPayloadSchema = z.object({
+  connectionId: z.string().min(1),
+  code: z.string().optional(),
+  message: z.string().optional(),
+})
+
+export const secureHandshakePayloadSchema = z.object({
+  connectionId: z.string().min(1),
+  targetDeviceId: z.string().min(1),
+  step: z.number().int().positive(),
+  data: z.string().min(1),
+})
+
+export const relayPayloadSchema = z.object({
+  connectionId: z.string().min(1),
+  targetDeviceId: z.string().min(1),
+  counter: z.number().int().nonnegative(),
+  ciphertext: z.string().min(1),
+})
+
+export const signalPayloadSchema = z.object({
+  connectionId: z.string().min(1),
+  targetDeviceId: z.string().min(1),
+  sdp: z.string().min(1),
+})
+
+export const signalIcePayloadSchema = z.object({
+  connectionId: z.string().min(1),
+  targetDeviceId: z.string().min(1),
+  candidate: z.object({
+    candidate: z.string().optional(),
+    sdpMid: z.string().nullable().optional(),
+    sdpMLineIndex: z.number().int().nullable().optional(),
+    usernameFragment: z.string().nullable().optional(),
+  }),
+})
+
+export const transportSelectedPayloadSchema = z.object({
+  connectionId: z.string().min(1),
+  targetDeviceId: z.string().min(1),
+  transport: selectedTransportEnum,
+})
+
+export const pingPongPayloadSchema = z.object({
+  nonce: z.string().min(1),
+})
+
+export const controlErrorPayloadSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  retryable: z.boolean().optional(),
+  connectionId: z.string().min(1).optional(),
+})
+
+const controlFramePayloadSchemas: Record<ControlFrameType, z.ZodType> = {
+  'hello': helloPayloadSchema,
+  'hello.ack': helloAckPayloadSchema,
+  'connect.request': connectRequestPayloadSchema,
+  'connect.incoming': connectIncomingPayloadSchema,
+  'connect.accepted': connectAcceptedPayloadSchema,
+  'connect.rejected': connectRejectedPayloadSchema,
+  'secure.handshake': secureHandshakePayloadSchema,
+  'relay': relayPayloadSchema,
+  'signal.offer': signalPayloadSchema,
+  'signal.answer': signalPayloadSchema,
+  'signal.ice': signalIcePayloadSchema,
+  'transport.selected': transportSelectedPayloadSchema,
+  'ping': pingPongPayloadSchema,
+  'pong': pingPongPayloadSchema,
+  'error': controlErrorPayloadSchema,
+}
+
 export const rpcRequestPayloadSchema = z.object({
   method: rpcMethodSchema,
   params: z.unknown(),
@@ -391,7 +507,12 @@ export function parseRemoteMessage(input: unknown): RemoteMessage {
 }
 
 export function parseControlFrame(input: unknown): ControlFrame {
-  return controlFrameSchema.parse(input)
+  const frame = controlFrameSchema.parse(input)
+  const payloadSchema = controlFramePayloadSchemas[frame.type]
+  if (payloadSchema) {
+    return { ...frame, payload: payloadSchema.parse(frame.payload) }
+  }
+  return frame
 }
 
 export function encodeMessage(message: RemoteMessage): Uint8Array {
