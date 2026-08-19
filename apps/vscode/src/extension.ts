@@ -259,7 +259,7 @@ class Controller {
   async openSession(session?: RemoteSession): Promise<void> {
     if (!session) return
     if (this.sessionPanel === undefined) {
-      const panel = new SessionPanel(session, this.connection, () => this.loadHostContent().then(() => this.fireViews()))
+      const panel = new SessionPanel(session, this.connection, this.context.extensionUri, () => this.loadHostContent().then(() => this.fireViews()))
       this.sessionPanel = panel
       panel.onDispose(() => {
         if (this.sessionPanel === panel) this.sessionPanel = undefined
@@ -389,6 +389,7 @@ class SessionPanel {
   private approvals: PendingApproval[] = []
   private readonly unsubscribeFrames: () => void
   private loaded = false
+  private loading?: Promise<void>
   private modelLabel = 'Model'
   private modelCatalog?: SessionModels
   private projectionValues: Record<string, unknown>
@@ -396,6 +397,7 @@ class SessionPanel {
   constructor(
     private session: RemoteSession,
     private readonly connection: RemoteConnection,
+    private readonly extensionUri: vscode.Uri,
     private readonly onChanged: () => Promise<void>,
   ) {
     this.running = session.running
@@ -404,35 +406,28 @@ class SessionPanel {
       'dshRemote.session',
       sessionTitle(session),
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false },
-      { enableScripts: true, retainContextWhenHidden: true },
+      { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media', 'harness')] },
     )
     this.unsubscribeFrames = connection.onFrame(frame => {
-      const payload = frame.payload
-      if (payload.sessionId !== this.session.sessionId) return
-      if (payload.type === 'session/event' && isRecord(payload.event)) {
-        if (payload.event.type === 'turn/start') {
-          this.running = true
-          this.cancelling = false
-          void this.show()
-        } else if (payload.event.type === 'turn/end') {
-          this.running = false
-          this.cancelling = false
-          void this.show()
-        }
-      } else if (payload.type === 'session/projection' && typeof payload.key === 'string') {
-        this.projectionValues = { ...this.projectionValues, [payload.key]: payload.value }
-        void this.show()
-      } else if (payload.type === 'approval/requested' && typeof payload.approvalId === 'string') {
-        this.approvals.push({ frameRpcId: frame.rpcId, sessionId: this.session.sessionId, approvalId: payload.approvalId, toolName: typeof payload.toolName === 'string' ? payload.toolName : 'Harness tool', ...(typeof payload.reason === 'string' ? { reason: payload.reason } : {}) })
-        void this.show()
-      } else if (payload.type === 'approval/resolved' && typeof payload.approvalId === 'string') {
-        this.approvals = this.approvals.filter(item => item.approvalId !== payload.approvalId)
-        void this.show()
-      }
+      void this.panel.webview.postMessage({ type: 'harnessFrame', frame })
     })
     this.panel.onDidDispose(() => { this.unsubscribeFrames(); this.disposed.fire(); this.disposed.dispose() })
     this.panel.webview.onDidReceiveMessage(message => {
       if (!isRecord(message)) return
+      if (message.type === 'harnessApiCall' && typeof message.requestId === 'string' && typeof message.method === 'string') {
+        void this.connection.nativeCall(message.method, message.payload).then(
+          value => this.panel.webview.postMessage({ type: 'harnessBridgeResult', requestId: message.requestId, ok: true, value }),
+          error => this.panel.webview.postMessage({ type: 'harnessBridgeResult', requestId: message.requestId, ok: false, error: error instanceof Error ? error.message : String(error) }),
+        )
+        return
+      }
+      if (message.type === 'harnessRespond' && typeof message.requestId === 'string') {
+        void this.connection.respondNative(message.message).then(
+          () => this.panel.webview.postMessage({ type: 'harnessBridgeResult', requestId: message.requestId, ok: true, value: { accepted: true } }),
+          error => this.panel.webview.postMessage({ type: 'harnessBridgeResult', requestId: message.requestId, ok: false, error: error instanceof Error ? error.message : String(error) }),
+        )
+        return
+      }
       if (message.type === 'send' && typeof message.text === 'string') void this.send(message.text)
       if (message.type === 'stop') void this.stop()
       if (message.type === 'refresh') void this.show()
@@ -452,6 +447,7 @@ class SessionPanel {
       this.modelCatalog = undefined
       this.modelLabel = 'Model'
       this.loaded = false
+      this.loading = undefined
       this.running = session.running
       this.cancelling = false
       this.panel.title = sessionTitle(session)
@@ -465,19 +461,17 @@ class SessionPanel {
   async show(): Promise<void> {
     const session = this.session
     this.panel.reveal(vscode.ViewColumn.Beside, false)
-    if (!this.loaded) this.panel.webview.html = renderLoadingSession(this.panel.webview, session)
-    const [messages, catalog] = await Promise.all([
-      this.connection.history(session.sessionId),
-      this.connection.models(session.sessionId).catch(() => undefined),
-    ])
-    if (session.sessionId !== this.session.sessionId) return
-    if (catalog) {
-      this.modelCatalog = catalog
-      const selected = catalog.groups.flatMap(group => group.models).find(model => model.id === catalog.current.model)
-      this.modelLabel = selected?.name ?? catalog.current.model
+    if (this.loaded) return
+    if (this.loading === undefined) {
+      this.panel.webview.html = renderLoadingSession(this.panel.webview, session)
+      this.loading = (async () => {
+        const descriptor = await this.connection.hostDescriptor()
+        if (session.sessionId !== this.session.sessionId) return
+        this.loaded = true
+        this.panel.webview.html = renderHarnessSession(this.panel.webview, this.extensionUri, session, descriptor)
+      })().finally(() => { this.loading = undefined })
     }
-    this.loaded = true
-    this.panel.webview.html = renderSession(this.panel.webview, session, messages, this.approvals, this.busy, this.running, this.cancelling, this.modelLabel, this.modelCatalog, this.projectionValues)
+    await this.loading
   }
 
   private async send(value: string): Promise<void> {
@@ -546,11 +540,39 @@ class SessionPanel {
   }
 }
 
+function renderHarnessSession(webview: vscode.Webview, extensionUri: vscode.Uri, session: RemoteSession, descriptor: unknown): string {
+  const root = vscode.Uri.joinPath(extensionUri, 'media', 'harness')
+  const resource = (...parts: string[]) => webview.asWebviewUri(vscode.Uri.joinPath(root, ...parts)).toString()
+  const plugin = (id: string, file: string, inject: string[] = [], immediately = false) => ({ id, url: resource('plugins', file), rev: 'vscode-rc6', inject, ...(immediately ? { immediately: true } : {}) })
+  const entries = [
+    plugin('@deepseek-ai/dsh-typert-registry', 'dsh-typert-registry.js', [], true),
+    plugin('@deepseek-ai/dsh-client-connection', 'dsh-client-connection.js', [], true),
+    plugin('@deepseek-ai/dsh-api-gateway', 'dsh-api-gateway.js', ['@deepseek-ai/dsh-typert-registry', '@deepseek-ai/dsh-client-connection'], true),
+    plugin('@deepseek-ai/dsh-api-remotes', 'dsh-api-remotes.js', ['@deepseek-ai/dsh-api-gateway'], true),
+    plugin('@deepseek-ai/dsh-client-ui-settings', 'dsh-client-ui-settings.js', ['@deepseek-ai/dsh-client-connection', '@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-api-remotes'], true),
+    plugin('@deepseek-ai/dsh-client-runtime', 'dsh-client-runtime.js', ['@deepseek-ai/dsh-client-connection', '@deepseek-ai/dsh-typert-registry', '@deepseek-ai/dsh-api-gateway'], true),
+    plugin('@deepseek-ai/dsh-client-ui-theme', 'dsh-client-ui-theme.js', ['@deepseek-ai/dsh-client-connection', '@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-locale', '@deepseek-ai/dsh-client-ui-settings', '@deepseek-ai/dsh-api-remotes'], true),
+    plugin('@deepseek-ai/dsh-client-locale', 'dsh-client-locale.js', ['@deepseek-ai/dsh-client-connection', '@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-settings', '@deepseek-ai/dsh-api-remotes'], true),
+    plugin('@deepseek-ai/dsh-client-ui-layout', 'dsh-client-ui-layout.js', ['@deepseek-ai/dsh-client-runtime']),
+    plugin('@deepseek-ai/dsh-client-ui-conversation', 'dsh-client-ui-conversation.js', ['@deepseek-ai/dsh-client-ui-layout']),
+    plugin('@deepseek-ai/dsh-client-ui-tool', 'dsh-client-ui-tool.js', ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-locale', '@deepseek-ai/dsh-client-ui-conversation']),
+    plugin('@deepseek-ai/dsh-client-ui-input-trigger', 'dsh-client-ui-input-trigger.js', ['@deepseek-ai/dsh-client-runtime']),
+    plugin('@deepseek-ai/dsh-client-ui-commands', 'dsh-client-ui-commands.js', ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-input-trigger', '@deepseek-ai/dsh-client-locale']),
+    plugin('@deepseek-ai/dsh-client-ui-model-selection', 'dsh-client-ui-model-selection.js', ['@deepseek-ai/dsh-client-ui-commands', '@deepseek-ai/dsh-client-ui-conversation']),
+    plugin('@deepseek-ai/dsh-client-ui-permission-presets', 'dsh-client-ui-permission-presets.js', ['@deepseek-ai/dsh-client-ui-commands', '@deepseek-ai/dsh-client-ui-conversation']),
+  ]
+  const nonce = crypto.randomUUID().replaceAll('-', '')
+  const boot = JSON.stringify({ rev: 'vscode-rc6', entries }).replaceAll('<', '\\u003c')
+  const host = JSON.stringify(descriptor).replaceAll('<', '\\u003c')
+  const sessionId = JSON.stringify(session.sessionId)
+  return `<!doctype html><html lang="${vscode.env.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data: blob:; font-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline' 'unsafe-eval' 'nonce-${nonce}'; worker-src ${webview.cspSource} blob:"><link rel="modulepreload" href="${resource('assets', 'vendor-Cjbwl5VI.js')}"><link rel="stylesheet" href="${resource('assets', 'vendor-CjyC-hUb.css')}"><link rel="stylesheet" href="${resource('assets', 'index-CSGf6Qzd.css')}"><style>html,body,#root{height:100%;margin:0}body{background:var(--vscode-editor-background)}[data-slot="root"]{height:100%}</style><title>${escapeHtml(sessionTitle(session))}</title></head><body><div id="root"></div><script nonce="${nonce}">window.__DSH_VSCODE__=acquireVsCodeApi();window.__DSH_BOOT__=${boot};window.__DSH_HOST__=${host};window.__DSH_SESSION_ID__=${sessionId};</script><script nonce="${nonce}" type="module" src="${resource('assets', 'index-Dqw48FrP.js')}"></script></body></html>`
+}
+
 function renderSession(webview: vscode.Webview, session: RemoteSession, messages: ChatMessage[], approvals: PendingApproval[], busy: boolean, running: boolean, cancelling: boolean, modelLabel: string, catalog: SessionModels | undefined, projections: Record<string, unknown>): string {
   const nonce = crypto.randomUUID().replaceAll('-', '')
   const content = messages.length === 0
     ? '<div class="empty"><div class="emptyMark">◡</div><strong>What can I help you build?</strong><span>Send a message to start this remote Harness session.</span></div>'
-    : messages.map(message => message.role === 'tool' ? renderToolMessage(message) : `<article class="message ${message.role}">${message.role === 'assistant' ? `<div class="avatar">${fishLogo()}</div>` : ''}<div class="bubble"><header>${message.role === 'user' ? 'You' : 'DeepSeek Harness'}</header><div class="messageText">${message.role === 'assistant' ? markdown.render(message.text) : escapeHtml(message.text).replaceAll('\n', '<br>')}</div></div></article>`).join('')
+    : messages.map(message => message.role === 'tool' ? renderToolMessage(message) : message.role === 'reasoning' ? renderReasoning(message) : `<article class="message ${message.role}">${message.role === 'assistant' ? `<div class="avatar">${fishLogo()}</div>` : ''}<div class="bubble"><header>${message.role === 'user' ? 'You' : 'DeepSeek Harness'}</header><div class="messageText">${message.role === 'assistant' ? markdown.render(message.text) : escapeHtml(message.text).replaceAll('\n', '<br>')}</div></div></article>`).join('')
   const approvalCards = approvals.map(item => `<section class="approval"><div><strong>Approval required</strong><span>${escapeHtml(item.toolName)}${item.reason ? ` · ${escapeHtml(item.reason)}` : ''}</span></div><div class="approvalActions"><button type="button" class="secondary approvalButton" data-id="${escapeHtml(item.approvalId)}" data-outcome="rejected">Deny</button><button type="button" class="approvalButton" data-id="${escapeHtml(item.approvalId)}" data-outcome="allowed-once">Allow once</button></div></section>`).join('')
   const permissions = permissionSelect(projections)
   const statistics = sessionStatistics(projections)
@@ -562,7 +584,7 @@ function renderSession(webview: vscode.Webview, session: RemoteSession, messages
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'"><style>
     :root{color-scheme:light dark}*{box-sizing:border-box}body{margin:0;color:var(--vscode-foreground);background:var(--vscode-editor-background);font-family:var(--vscode-font-family)}
     .layout{height:100vh;display:grid;grid-template-rows:auto 1fr auto}.top{padding:7px 20px 8px;border-bottom:1px solid var(--vscode-panel-border);background:var(--vscode-editor-background)}.meta{font-size:11px;color:var(--vscode-descriptionForeground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .messages{overflow:auto;padding:28px max(24px,calc((100% - 820px)/2));display:flex;flex-direction:column;gap:24px;scrollbar-gutter:stable}.message{width:min(100%,820px);line-height:1.65;display:flex;gap:12px}.message.user{align-self:flex-end;justify-content:flex-end}.message.user .bubble{max-width:78%;background:var(--vscode-textBlockQuote-background);padding:10px 14px;border-radius:10px}.message.assistant{align-self:flex-start}.message.assistant .bubble{padding-top:1px;min-width:0;max-width:calc(100% - 38px)}.avatar{width:26px;height:26px;flex:0 0 26px;display:grid;place-items:center;color:var(--vscode-textLink-foreground)}.avatar svg{width:23px;height:auto}.message.tool{align-self:flex-start;width:min(100%,820px);gap:9px;color:var(--vscode-descriptionForeground);font-size:12px;line-height:18px}.toolIcon{width:20px;height:20px;flex:0 0 20px;display:grid;place-items:center;color:var(--vscode-descriptionForeground)}.toolIcon svg{width:15px;height:15px}.toolBody{min-width:0;padding-top:1px}.toolLine{display:flex;align-items:baseline;gap:7px;min-width:0}.toolTitle{color:var(--vscode-foreground);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.toolState{flex:0 0 auto;color:var(--vscode-descriptionForeground);font-size:11px}.toolState.running::before{content:'◌';display:inline-block;margin-right:4px;animation:spin 1s linear infinite}.toolState.completed::before{content:'✓';margin-right:4px}.toolState.failed{color:var(--vscode-errorForeground)}.toolState.failed::before{content:'×';margin-right:4px}.toolDetail{max-width:680px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--vscode-descriptionForeground);font-family:var(--vscode-editor-font-family);font-size:11px}@keyframes spin{to{transform:rotate(360deg)}}.message header{font-size:11px;font-weight:600;color:var(--vscode-descriptionForeground);margin-bottom:5px}.message.user header{display:none}.messageText>:first-child{margin-top:0}.messageText>:last-child{margin-bottom:0}.messageText p{margin:0 0 12px}.messageText h1,.messageText h2,.messageText h3{line-height:1.3;margin:20px 0 9px}.messageText h1{font-size:1.35em}.messageText h2{font-size:1.2em}.messageText h3{font-size:1.08em}.messageText pre{overflow:auto;padding:12px;border:1px solid var(--vscode-panel-border);border-radius:6px;background:var(--vscode-textCodeBlock-background)}.messageText code{font-family:var(--vscode-editor-font-family);font-size:.92em}.messageText :not(pre)>code{padding:1px 4px;border-radius:3px;background:var(--vscode-textCodeBlock-background)}.messageText blockquote{margin:10px 0;padding-left:12px;border-left:2px solid var(--vscode-textBlockQuote-border);color:var(--vscode-descriptionForeground)}.messageText a{color:var(--vscode-textLink-foreground)}.messageText table{border-collapse:collapse}.messageText td,.messageText th{border:1px solid var(--vscode-panel-border);padding:5px 8px}.empty{margin:auto;display:flex;flex-direction:column;align-items:center;gap:7px;color:var(--vscode-descriptionForeground);text-align:center}.empty strong{font-size:16px;color:var(--vscode-foreground)}.emptyMark{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:#315efb;color:#fff;font-size:25px;font-weight:700}.empty span{font-size:12px}
+    .messages{overflow:auto;padding:28px max(24px,calc((100% - 820px)/2));display:flex;flex-direction:column;gap:24px;scrollbar-gutter:stable}.message{width:min(100%,820px);line-height:1.65;display:flex;gap:12px}.message.user{align-self:flex-end;justify-content:flex-end}.message.user .bubble{max-width:78%;background:var(--vscode-textBlockQuote-background);padding:10px 14px;border-radius:10px}.message.assistant{align-self:flex-start}.message.assistant .bubble{padding-top:1px;min-width:0;max-width:calc(100% - 38px)}.avatar{width:26px;height:26px;flex:0 0 26px;display:grid;place-items:center;color:var(--vscode-textLink-foreground)}.avatar svg{width:23px;height:auto}.reasoning{width:min(100%,820px);color:var(--vscode-descriptionForeground);font-size:12px}.reasoning details{max-width:100%;border-left:2px solid var(--vscode-panel-border);padding-left:10px}.reasoning summary{cursor:pointer;user-select:none;font-weight:500}.reasoningText{margin-top:7px;white-space:pre-wrap;font-family:var(--vscode-editor-font-family);line-height:1.55}.message.tool{align-self:flex-start;width:min(100%,820px);gap:9px;color:var(--vscode-descriptionForeground);font-size:12px;line-height:18px}.toolIcon{width:20px;height:20px;flex:0 0 20px;display:grid;place-items:center;color:var(--vscode-descriptionForeground)}.toolIcon svg{width:15px;height:15px}.toolBody{min-width:0;padding-top:1px}.toolLine{display:flex;align-items:baseline;gap:7px;min-width:0}.toolTitle{color:var(--vscode-foreground);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.toolState{flex:0 0 auto;color:var(--vscode-descriptionForeground);font-size:11px}.toolState.running::before{content:'◌';display:inline-block;margin-right:4px;animation:spin 1s linear infinite}.toolState.completed::before{content:'✓';margin-right:4px}.toolState.failed{color:var(--vscode-errorForeground)}.toolState.failed::before{content:'×';margin-right:4px}.toolDetail{max-width:680px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--vscode-descriptionForeground);font-family:var(--vscode-editor-font-family);font-size:11px}@keyframes spin{to{transform:rotate(360deg)}}.message header{font-size:11px;font-weight:600;color:var(--vscode-descriptionForeground);margin-bottom:5px}.message.user header{display:none}.messageText>:first-child{margin-top:0}.messageText>:last-child{margin-bottom:0}.messageText p{margin:0 0 12px}.messageText h1,.messageText h2,.messageText h3{line-height:1.3;margin:20px 0 9px}.messageText h1{font-size:1.35em}.messageText h2{font-size:1.2em}.messageText h3{font-size:1.08em}.messageText pre{overflow:auto;padding:12px;border:1px solid var(--vscode-panel-border);border-radius:6px;background:var(--vscode-textCodeBlock-background)}.messageText code{font-family:var(--vscode-editor-font-family);font-size:.92em}.messageText :not(pre)>code{padding:1px 4px;border-radius:3px;background:var(--vscode-textCodeBlock-background)}.messageText blockquote{margin:10px 0;padding-left:12px;border-left:2px solid var(--vscode-textBlockQuote-border);color:var(--vscode-descriptionForeground)}.messageText a{color:var(--vscode-textLink-foreground)}.messageText table{border-collapse:collapse}.messageText td,.messageText th{border:1px solid var(--vscode-panel-border);padding:5px 8px}.empty{margin:auto;display:flex;flex-direction:column;align-items:center;gap:7px;color:var(--vscode-descriptionForeground);text-align:center}.empty strong{font-size:16px;color:var(--vscode-foreground)}.emptyMark{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:#315efb;color:#fff;font-size:25px;font-weight:700}.empty span{font-size:12px}
     .composerSeat{position:relative;background:linear-gradient(180deg,transparent 0,var(--vscode-editor-background) 34px);padding:8px 16px 6px}.approval{width:100%;max-width:748px;margin:0 auto 12px;border:1px solid var(--vscode-inputValidation-warningBorder);border-radius:20px;background:var(--vscode-input-background);box-shadow:0 5px 18px rgba(0,0,0,.14);overflow:hidden}.approval>div:first-child{padding:12px 16px 0}.approval strong{font-size:15px;font-weight:500}.approval span{display:block;margin-top:4px;font:13px/20px var(--vscode-editor-font-family);color:var(--vscode-descriptionForeground)}.approvalActions{display:flex;justify-content:flex-end;gap:8px;padding:14px 16px}.approvalActions .approvalButton{width:auto;height:30px;padding:0 12px;border-radius:999px;font-size:12px}.approvalActions .approvalButton::after{content:none}.approvalActions .secondary{color:var(--vscode-button-secondaryForeground);background:var(--vscode-button-secondaryBackground)}form{box-sizing:border-box;width:100%;max-width:780px;margin:0 auto;border:1px solid var(--vscode-input-border);border-radius:22px;background:var(--vscode-input-background);box-shadow:0 5px 18px rgba(0,0,0,.14);display:flex;flex-direction:column;gap:8px;padding:10px 8px 6px}textarea{width:100%;min-height:52px;max-height:336px;resize:none;outline:0;color:var(--vscode-input-foreground);background:transparent;border:0;padding:4px 8px;font:16px/24px var(--vscode-font-family)}.composerRow{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}.modes{display:flex;align-items:center;gap:4px;min-width:0}.modeButton{width:auto;max-width:220px;height:28px;color:var(--vscode-descriptionForeground);background:transparent;border:0;border-radius:24px;padding:0 8px;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.modeButton::after{content:'⌄';font-size:12px;margin-left:5px}.modeButton:hover,.modeButton.open{background:var(--vscode-toolbar-hoverBackground)}.selectMenu{position:absolute;z-index:20;left:max(16px,calc((100% - 780px)/2));bottom:66px;width:min(360px,calc(100% - 32px));max-height:min(420px,55vh);overflow:auto;padding:6px;border:1px solid var(--vscode-widget-border,var(--vscode-panel-border));border-radius:10px;background:var(--vscode-menu-background,var(--vscode-input-background));box-shadow:0 8px 28px rgba(0,0,0,.32)}.selectMenu[hidden]{display:none}.menuTitle,.menuGroup{padding:6px 8px;color:var(--vscode-descriptionForeground);font-size:11px;font-weight:600}.menuGroup{padding-top:10px;text-transform:uppercase}.menuOption{display:block;width:100%;height:auto;min-height:34px;padding:7px 9px;text-align:left;color:var(--vscode-menu-foreground,var(--vscode-foreground));background:transparent;border:0;border-radius:5px}.menuOption:hover{background:var(--vscode-list-hoverBackground)}.menuOption.selected{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground)}.menuOption strong{display:block;font-size:13px;font-weight:500}.menuOption span{display:block;margin-top:2px;color:var(--vscode-descriptionForeground);font-size:11px;line-height:15px}.effort{padding-left:22px}.send{align-self:center;width:34px;height:34px;border-radius:999px;color:#fff;background:var(--vscode-button-background);border:0;cursor:pointer;font-size:0}.send::after{content:'↑';font-size:18px;font-weight:600}.send.stop::after{content:'■';font-size:13px}.send:hover{background:var(--vscode-button-hoverBackground)}button:disabled{opacity:.45;cursor:default}.statistics{width:100%;max-width:780px;margin:6px auto 0;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;color:var(--vscode-descriptionForeground);font-size:11px;line-height:18px}.stat{white-space:nowrap}.stat+.stat::before{content:'|';padding:0 7px;color:var(--vscode-panel-border)}
   </style></head><body><div class="layout"><header class="top"><div class="meta">${escapeHtml(session.cwd ?? session.sessionId)}</div></header><main class="messages" id="messages">${content}</main><div class="composerSeat">${approvalCards}${modelMenu}${permissionMenu}<form id="composer"><textarea id="prompt" aria-label="Prompt" placeholder="Ask DeepSeek Harness…" ${busy ? 'disabled' : ''}></textarea><div class="composerRow"><div class="modes"><button type="button" class="modeButton" id="model">${escapeHtml(modelLabel)}</button>${permissions === undefined ? '' : `<button type="button" class="modeButton" id="permission">${escapeHtml(permissions.currentName)}</button>`}</div>${actionButton}</div></form>${statistics}</div></div><script nonce="${nonce}">const vscode=acquireVsCodeApi();const messages=document.getElementById('messages');messages.scrollTop=messages.scrollHeight;const form=document.getElementById('composer');const prompt=document.getElementById('prompt');const modelButton=document.getElementById('model');const permissionButton=document.getElementById('permission');const modelMenu=document.getElementById('modelMenu');const permissionMenu=document.getElementById('permissionMenu');function toggle(menu,button){const open=menu?.hidden===true;document.querySelectorAll('.selectMenu').forEach(item=>item.hidden=true);document.querySelectorAll('.modeButton').forEach(item=>item.classList.remove('open'));if(open&&menu){menu.hidden=false;button?.classList.add('open');}}modelButton.addEventListener('click',()=>toggle(modelMenu,modelButton));permissionButton?.addEventListener('click',()=>toggle(permissionMenu,permissionButton));document.getElementById('stop')?.addEventListener('click',()=>vscode.postMessage({type:'stop'}));form.addEventListener('submit',event=>{event.preventDefault();const text=prompt.value.trim();if(text){vscode.postMessage({type:'send',text});prompt.value='';}});prompt.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit();}if(event.key==='Escape'){document.querySelectorAll('.selectMenu').forEach(item=>item.hidden=true);}});document.querySelectorAll('.modelOption').forEach(button=>button.addEventListener('click',()=>vscode.postMessage({type:'modelSelect',provider:button.dataset.provider,model:button.dataset.model,...(button.dataset.effort?{reasoningEffort:button.dataset.effort}:{})})));document.querySelectorAll('.permissionOption').forEach(button=>button.addEventListener('click',()=>vscode.postMessage({type:'permissionSelect',preset:button.dataset.preset})));document.querySelectorAll('.approvalButton').forEach(button=>button.addEventListener('click',()=>vscode.postMessage({type:'approval',id:button.dataset.id,outcome:button.dataset.outcome})));</script></body></html>`
 }
@@ -573,6 +595,10 @@ function renderLoadingSession(webview: vscode.Webview, session: RemoteSession): 
 }
 
 function escapeHtml(value: string): string { return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;') }
+function renderReasoning(message: ChatMessage): string {
+  const label = vscode.env.language.toLowerCase().startsWith('zh') ? '思考过程' : 'Thinking'
+  return `<article class="message reasoning"><details><summary>${label}</summary><div class="reasoningText">${escapeHtml(message.text)}</div></details></article>`
+}
 function renderToolMessage(message: ChatMessage): string {
   const state = message.toolState ?? 'running'
   const detail = message.toolDetail ? `<div class="toolDetail" title="${escapeHtml(message.toolDetail)}">${escapeHtml(message.toolDetail)}</div>` : ''

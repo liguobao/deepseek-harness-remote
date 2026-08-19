@@ -1,6 +1,6 @@
 import type { Credentials, DeviceIdentity, RemoteHost } from './types.js'
 
-const CLIENT_VERSION = '0.3.15'
+const CLIENT_VERSION = '0.3.16'
 
 interface TokenPair {
   accessToken: string

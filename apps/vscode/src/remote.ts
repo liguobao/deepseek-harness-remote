@@ -79,6 +79,15 @@ export class RemoteConnection {
     await this.core?.rpc('harness.api.respond', { message: { type: 'client-response', rpcId: frameRpcId, result: { ok: true, value: { sessionId, approvalId, outcome } } } })
   }
 
+  async respondNative(message: unknown): Promise<void> {
+    if (!this.core) throw new Error('Connect to a host first.')
+    await this.core.rpc('harness.api.respond', { message })
+  }
+
+  async nativeCall<T>(method: string, payload: unknown): Promise<T> {
+    return this.call<T>(method, payload)
+  }
+
   async history(sessionId: string): Promise<ChatMessage[]> {
     const result = await this.call<{ events: HistoryEntry[] }>('session.history', { sessionId, maxMessages: 100 })
     return foldHistory(Array.isArray(result.events) ? result.events : [])
@@ -132,19 +141,22 @@ export class RemoteConnection {
 function foldHistory(entries: HistoryEntry[]): ChatMessage[] {
   const messages: ChatMessage[] = []
   const toolRows = new Map<string, number>()
-  let stream = ''
   for (const entry of entries) {
     const event = entry.event
     const data = isRecord(event.data) ? event.data : {}
-    if (event.type === 'user/message' || event.type === 'assistant/message') {
-      if (stream) { messages.push({ role: 'assistant', text: stream }); stream = '' }
-      const text = messageText(data)
-      if (text) messages.push({ role: event.type === 'user/message' ? 'user' : 'assistant', text })
-    } else if (event.type === 'assistant/chunk') {
-      const chunk = isRecord(data.chunk) ? data.chunk : {}
-      if ((chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') && typeof chunk.text === 'string') stream += chunk.text
+    if (event.type === 'user/message') {
+      const message = eventMessage(data)
+      const source = isRecord(message.source) ? message.source : {}
+      if (source.kind !== 'user') continue
+      const text = contentText(message, 'text')
+      if (text) messages.push({ role: 'user', text })
+    } else if (event.type === 'assistant/message') {
+      const message = eventMessage(data)
+      const reasoning = contentText(message, 'reasoning')
+      const text = contentText(message, 'text')
+      if (reasoning) messages.push({ role: 'reasoning', text: reasoning })
+      if (text) messages.push({ role: 'assistant', text })
     } else if (event.type === 'tool/call') {
-      if (stream) { messages.push({ role: 'assistant', text: stream }); stream = '' }
       const view = entry.view?.for === 'call' && isRecord(entry.view.view) ? entry.view.view : undefined
       const name = typeof view?.title === 'string' ? view.title : typeof data.name === 'string' ? data.name : typeof data.toolName === 'string' ? data.toolName : 'Tool'
       const callId = typeof data.callId === 'string' ? data.callId : undefined
@@ -152,7 +164,6 @@ function foldHistory(entries: HistoryEntry[]): ChatMessage[] {
       messages.push({ role: 'tool', text: name, toolState: 'running', ...(callId === undefined ? {} : { toolCallId: callId }), ...(typeof view?.kind === 'string' ? { toolKind: view.kind } : {}), ...(typeof view?.card === 'string' ? { toolCard: view.card } : {}), ...(detail === undefined ? {} : { toolDetail: detail }) })
       if (callId !== undefined) toolRows.set(callId, messages.length - 1)
     } else if (event.type === 'tool/result') {
-      if (stream) { messages.push({ role: 'assistant', text: stream }); stream = '' }
       const message = isRecord(data.message) ? data.message : {}
       const source = isRecord(message.source) ? message.source : {}
       const callId = typeof source.callId === 'string' ? source.callId : typeof data.callId === 'string' ? data.callId : undefined
@@ -168,14 +179,15 @@ function foldHistory(entries: HistoryEntry[]): ChatMessage[] {
       }
     }
   }
-  if (stream) messages.push({ role: 'assistant', text: stream })
   return messages
 }
 
-function messageText(data: Record<string, unknown>): string {
-  const message = isRecord(data.message) ? data.message : data
+function eventMessage(data: Record<string, unknown>): Record<string, unknown> {
+  return isRecord(data.message) ? data.message : data
+}
+function contentText(message: Record<string, unknown>, type: 'text' | 'reasoning'): string {
   const content = Array.isArray(message.content) ? message.content : []
-  return content.flatMap(block => isRecord(block) && block.type === 'text' && typeof block.text === 'string' ? [block.text] : []).join('\n')
+  return content.flatMap(block => isRecord(block) && block.type === type && typeof block.text === 'string' ? [block.text] : []).join('\n')
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }
 

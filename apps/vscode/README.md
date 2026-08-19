@@ -29,7 +29,7 @@ account before the Host can appear in the device list.
 [`ds-harness-remote`](https://www.npmjs.com/package/ds-harness-remote) 插件；远端 Host
 插件与 VS Code 客户端还必须登录同一账号，设备才会出现在列表中。
 
-Version `0.3.15` corresponds to the `ds-harness-remote` npm plugin release.
+Version `0.3.16` is compatible with the `ds-harness-remote` `0.3.15` npm plugin release.
 
 ## Development
 
