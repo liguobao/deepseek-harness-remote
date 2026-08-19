@@ -88,9 +88,9 @@ export class AdaptiveTransport extends BaseTransport {
         })
       }
       socket.onerror = () => this.failConnection(new Error(`AdaptiveTransport failed to connect to ${this.url}`))
-      socket.onclose = () => {
+      socket.onclose = event => {
         const pending = this.readyReject !== undefined
-        if (pending) this.failConnection(new Error('Adaptive control channel closed before it was ready'))
+        if (pending) this.failConnection(adaptiveControlCloseError(event))
         this.socket = undefined
         this.connectionId = undefined
         this.emitClose()
@@ -372,6 +372,14 @@ export class AdaptiveTransport extends BaseTransport {
     if (this.handshakeTimer !== undefined) clearTimeout(this.handshakeTimer)
     this.handshakeTimer = undefined
   }
+}
+
+function adaptiveControlCloseError(event: CloseEvent): Error {
+  const reason = event.reason.trim().slice(0, 300)
+  const detail = reason.length > 0
+    ? `${reason} (WebSocket ${event.code})`
+    : `WebSocket closed with code ${event.code}`
+  return new Error(`Adaptive control channel closed before it was ready: ${detail}`)
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

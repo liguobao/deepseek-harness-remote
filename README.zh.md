@@ -20,6 +20,10 @@
 
 你可以在浏览器中打开 Remote，也可以从另一台电脑的 Harness 进入 **Remote** 工作区。
 
+仓库的 [`apps/vscode`](apps/vscode) 还提供开发者预览版 VS Code 客户端，可登录账号、固定并连接
+已授权 Host，并按 Host → Workspace → Session 浏览、在编辑区打开会话。使用 `pnpm --filter deepseek-harness-remote-vscode build` 构建，
+详情见其 [README](apps/vscode/README.md)。
+
 ## 安装 Host 插件
 
 在运行 Harness 和项目的电脑上安装插件。

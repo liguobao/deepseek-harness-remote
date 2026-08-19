@@ -1,0 +1,106 @@
+{
+  "name": "deepseek-harness-remote-vscode",
+  "publisher": "deepseek-harness-remote",
+  "displayName": "%extension.displayName%",
+  "description": "%extension.description%",
+  "icon": "media/icon.png",
+  "version": "0.3.15",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liguobao/deepseek-harness-remote.git",
+    "directory": "apps/vscode"
+  },
+  "homepage": "https://github.com/liguobao/deepseek-harness-remote#readme",
+  "bugs": {
+    "url": "https://github.com/liguobao/deepseek-harness-remote/issues"
+  },
+  "keywords": ["deepseek", "harness", "remote", "agent", "webrtc"],
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onView:dshRemote.login", "onView:dshRemote.hosts"],
+  "main": "./dist/extension.cjs",
+  "contributes": {
+    "commands": [
+      { "command": "dshRemote.signIn", "title": "%command.signIn%" },
+      { "command": "dshRemote.signOut", "title": "%command.signOut%" },
+      { "command": "dshRemote.settings", "title": "%command.settings%", "icon": "$(gear)" },
+      { "command": "dshRemote.openSettings", "title": "%command.openSettings%" },
+      { "command": "dshRemote.refresh", "title": "%command.refresh%", "icon": "$(refresh)" },
+      { "command": "dshRemote.connect", "title": "%command.connect%", "icon": "$(plug)" },
+      { "command": "dshRemote.disconnect", "title": "%command.disconnect%", "icon": "$(debug-disconnect)" },
+      { "command": "dshRemote.addWorkspace", "title": "%command.addWorkspace%", "icon": "$(new-folder)" },
+      { "command": "dshRemote.newSession", "title": "%command.newSession%", "icon": "$(add)" },
+      { "command": "dshRemote.openSession", "title": "%command.openSession%", "icon": "$(open-preview)" }
+    ],
+    "configuration": {
+      "title": "%extension.displayName%",
+      "properties": {
+        "dshRemote.serverUrl": {
+          "type": "string",
+          "default": "https://dsh.r2049.cn",
+          "description": "%configuration.serverUrl%"
+        },
+        "dshRemote.forceRelay": {
+          "type": "boolean",
+          "default": false,
+          "description": "%configuration.forceRelay%"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [{
+        "id": "dshRemote",
+        "title": "%extension.displayName%",
+        "icon": "media/whale.svg"
+      }]
+    },
+    "views": {
+      "dshRemote": [
+        { "id": "dshRemote.login", "name": "%view.signIn%", "type": "webview", "when": "!dshRemote.signedIn" },
+        { "id": "dshRemote.hosts", "name": "", "when": "dshRemote.signedIn" }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        { "command": "dshRemote.refresh", "when": "view == dshRemote.hosts", "group": "navigation@1" },
+        { "command": "dshRemote.settings", "when": "view == dshRemote.hosts", "group": "navigation@2" }
+      ],
+      "view/item/context": [
+        { "command": "dshRemote.connect", "when": "view == dshRemote.hosts && viewItem == dshRemote.host", "group": "inline" },
+        { "command": "dshRemote.addWorkspace", "when": "view == dshRemote.hosts && viewItem == dshRemote.host", "group": "inline@2" },
+        { "command": "dshRemote.newSession", "when": "view == dshRemote.hosts && viewItem == dshRemote.workspace", "group": "inline" },
+        { "command": "dshRemote.openSession", "when": "view == dshRemote.hosts && viewItem == dshRemote.session", "group": "inline" }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "check": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "@dsh-remote/client-core": "workspace:*",
+    "@dsh-remote/crypto": "workspace:*",
+    "@dsh-remote/protocol": "workspace:*",
+    "@dsh-remote/webrtc": "workspace:*",
+    "markdown-it": "^14.1.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/qrcode": "^1.5.5",
+    "@types/markdown-it": "^14.1.2",
+    "@types/vscode": "^1.96.0",
+    "@types/ws": "^8.5.13",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

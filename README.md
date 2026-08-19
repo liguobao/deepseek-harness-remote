@@ -20,6 +20,10 @@ Return to the same Harness session from whichever device is with you. Harness ke
 
 Remote is available in a browser and through the **Remote** workspace entry in Harness on another computer.
 
+A developer-preview VS Code client also lives in [`apps/vscode`](apps/vscode). It can sign in,
+pin and connect to an authorized Host, browse Host workspaces/sessions, and open conversations beside the Activity Bar.
+Build it with `pnpm --filter deepseek-harness-remote-vscode build`; see its [README](apps/vscode/README.md).
+
 ## Install the Host plugin
 
 Install the plugin on the computer where Harness and your projects run.

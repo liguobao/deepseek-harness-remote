@@ -1,0 +1,17 @@
+{
+  "extension.displayName": "DS Harness Remote",
+  "extension.description": "Securely connect VS Code to a remote DeepSeek Harness Host.",
+  "command.signIn": "DS Harness Remote Sign In",
+  "command.signOut": "DS Harness Remote Sign Out",
+  "command.settings": "DS Harness Remote Settings",
+  "command.openSettings": "DS Harness Remote Open Settings",
+  "command.refresh": "DS Harness Remote Refresh Hosts",
+  "command.connect": "DS Harness Remote Connect to Host",
+  "command.disconnect": "DS Harness Remote Disconnect",
+  "command.addWorkspace": "DS Harness Remote Add Workspace",
+  "command.newSession": "DS Harness Remote New Session",
+  "command.openSession": "DS Harness Remote Open Session",
+  "configuration.serverUrl": "HTTPS URL of the DS Harness Remote server.",
+  "configuration.forceRelay": "Use the authenticated relay instead of trying peer-to-peer transports.",
+  "view.signIn": "Sign In"
+}

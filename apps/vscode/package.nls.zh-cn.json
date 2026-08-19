@@ -1,0 +1,17 @@
+{
+  "extension.displayName": "DS Harness Remote",
+  "extension.description": "在 VS Code 中安全连接远端 DeepSeek Harness Host。",
+  "command.signIn": "DS Harness Remote 登录",
+  "command.signOut": "DS Harness Remote 退出登录",
+  "command.settings": "DS Harness Remote 设置",
+  "command.openSettings": "DS Harness Remote 打开设置",
+  "command.refresh": "DS Harness Remote 刷新主机",
+  "command.connect": "DS Harness Remote 连接主机",
+  "command.disconnect": "DS Harness Remote 断开连接",
+  "command.addWorkspace": "DS Harness Remote 添加工作区",
+  "command.newSession": "DS Harness Remote 新建对话",
+  "command.openSession": "DS Harness Remote 打开对话",
+  "configuration.serverUrl": "DS Harness Remote 服务的 HTTPS 地址。",
+  "configuration.forceRelay": "只使用已认证的服务器转发，不尝试 P2P 连接。",
+  "view.signIn": "登录"
+}

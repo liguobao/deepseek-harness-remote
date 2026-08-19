@@ -8,6 +8,7 @@
 
 - DeepSeek Harness Plugin（Remote Host + 本地 Remote 工作区入口；无用户可见的 Client 模式）
 - Android Client（账号授权 + Adaptive transport + ApiProxy tunnel 数据面）
+- VS Code Client（账号授权 + Host 信任固定 + ApiProxy 会话/Prompt）
 - Protocol、Crypto、WebRTC、Client Core 等共享能力
 - 依赖外部 Server 的 Mock Host/Smoke Client
 - Server 设计与跨仓库协议契约
@@ -26,6 +27,7 @@ Server、Remote Web 和 Admin 必须由独立 Server 仓库作为同一站点实
 ```text
 apps/
   android/             React Native / Expo Android Client（账号授权 + ApiProxy tunnel）
+  vscode/              VS Code Extension Client（Host 列表、加密连接与远程会话）
 packages/
   plugin/              Host runtime、Remote 工作区入口与原生 API 代理
   protocol/            Remote/Control frame 类型和运行时校验
@@ -54,6 +56,7 @@ docs/
 | Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
 | Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；Remote 模态框支持本机过滤、主机/版本信息、已有 Workspace 和远端目录浏览，随后复用原生 Harness UI | 真实 dsh-desktop 跨机 E2E、断线重连、页面级导航接口 |
 | Android | 已迁移到 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、harness.api tunnel 与 mux frame 聊天 | 真机 E2E 与 Server 联调、重连后 mux 重开与 history baseline、WebRTC 走通验证 |
+| VS Code | Extension 基础已实现：SecretStorage 身份/凭证、账号/扫码登录、Host 指纹固定、Adaptive transport + Noise、Host→Workspace→Session 导航与编辑区会话面板 | Extension Host 跨机 E2E、实时流式更新、approval/question 与重连恢复 |
 | Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 完整 Zod schema、limits、golden vectors |
 | Crypto | 基础原语与标准 Noise IK 已实现 | 第三方实现审查、rekey、跨端 conformance |
 | Relay Transport | Protocol v1 control/relay 已实现 | 心跳、限制协商、断线状态传播 |

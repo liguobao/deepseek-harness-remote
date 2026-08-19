@@ -67,6 +67,17 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [ ] 提供脱敏日志导出和真实设备长连接性能基线
 - [ ] 修复冻结 Android 原型的 Metro exports fallback 警告（仅在恢复 Android 产品线时）
 
+## VS Code Client
+
+`apps/vscode` 已实现 Extension 基础入口、SecretStorage 连接身份/凭证、账号密码与扫码登录、同账号
+Host 列表与 identity fingerprint 固定、Adaptive transport + Noise，以及 Host → Workspace → Session
+层级导航和编辑区会话面板。该能力仍是开发者预览，剩余工作：
+
+- [ ] 在真实 VS Code Extension Host、外部 Server 与跨机 Harness Host 上完成 E2E
+- [ ] 增加 token 失效恢复与连接断开后的自动重连
+- [ ] 接入 mux stream、历史增量、流式聊天、approval/question 响应界面
+- [ ] 验证 VSIX 在 macOS、Windows、Linux 的系统 SecretStorage 与代理网络行为
+
 ## Android 恢复开发
 
 `apps/android` 已迁移到当前 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key
