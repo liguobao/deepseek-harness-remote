@@ -33,7 +33,8 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
           cache: pnpm
 
       - name: Validate version tag
@@ -87,7 +88,7 @@ jobs:
           if npm view "$PACKAGE_NAME"@"$VERSION" >/dev/null 2>&1; then
             echo "Version already exists on npm, skip publish."
           else
-            pnpm --filter ds-harness-remote publish --no-git-checks
+            (cd packages/plugin && npm publish --no-git-checks)
           fi
 
       - name: Publish GitHub Release

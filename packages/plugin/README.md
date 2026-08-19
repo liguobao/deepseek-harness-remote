@@ -1,103 +1,99 @@
 # ds-harness-remote
 
-DeepSeek Harness 的 Host + Remote 工作区插件。一次安装同时提供：
+English | 中文
 
-- Host runtime：让当前 Harness 接受来自自有设备的加密远程操作。
-- Remote workspace：在当前 Harness UI 中选择另一台 Host 及其工作区。
+## Overview / 概览
 
-用户不需要启动或切换 Client 模式。选择 Remote 工作区后，本地 Web UI 保持不变，稳定的 `ApiProxySwitch` 将新请求路由到远端 `RemoteHarnessApiProxy`；断线或退出时恢复本地 ApiProxy。
+DeepSeek Remote plugin for DSH Host + Remote workspaces. One install provides encrypted remote access from your own devices and remote workspace switching inside the existing Harness UI.
 
-## 用户流程
+DeepSeek Remote 是 DSH Host + Remote 工作区插件。一次安装可提供本地设备到远端的加密远程访问能力，以及在现有 Harness UI 内切换远端工作区。
 
-1. 在插件设置中配置 Server，并用网页生成的一次性设备授权码注册 Host；独立 Remote 身份通过 `owned_device` 自动继承账号归属。
-2. 从侧边栏 **Remote** 打开模态框。
-3. 选择同账号的在线 Host。当前 Host 会被排除；列表显示 macOS、Windows 或 Linux，以及 Harness 和插件版本。
-4. 选择已有 Workspace，或点击 **+** 浏览远端目录并创建 Workspace。
-5. 进入远程工作区后，通过顶部 Header 查看主机、LAN/P2P/TURN/Relay 路径和端到端加密状态；点击 **退出** 回到本地。
+No Client mode switch is required. Choosing a remote workspace keeps the local UI unchanged, routes requests through `RemoteHarnessApiProxy`, and falls back to local ApiProxy on disconnect or exit.
 
-## 目录浏览
+无需启动或切换 Client 模式。选择远端工作区后，本地 UI 不变，请求通过 `RemoteHarnessApiProxy` 路由，断线或退出时恢复本地 ApiProxy。
 
-Remote picker 首先调用远端 Harness 的 `host.listDirectory`。若远端 Harness 组合的是桌面 `native` picker，插件 Host bridge 会在已认证、端到端加密的连接内提供只读目录元数据兜底。
+## User flow / 用户流程
 
-目录能力仅返回单层子目录、绝对路径、面包屑、Home 路径和隐藏标志，并限制单次结果数量。它不读取文件内容，不提供文件操作，也不允许创建、修改或删除目录。
+1. Open **Remote** from the sidebar and log in first (preferred entry).
+2. After login, you can enable remote control for the current device.
+3. Select an online Host, then enter an existing workspace or create/browse one remotely.
+4. Use **Exit** to return local and stop forwarding.
 
-## 架构
+1. 从侧边栏优先打开 **Remote** 入口并登录。  
+2. 登录后可开启当前设备的远程控制。
+3. 选择同账号在线 Host 后，进入已有 Workspace，或浏览远端目录创建/选择 Workspace。
+4. 使用 **退出** 回到本地并停止转发。
+
+## Directory browsing / 目录浏览
+
+- Calls remote `host.listDirectory` first.
+- Returns read-only metadata only: one-level children, absolute path, breadcrumbs, Home, hidden flag.
+- No file contents, no file writes, no directory create/rename/delete.
+
+- 默认先调用远端 `host.listDirectory`。
+- 仅返回只读元数据：单层子目录、绝对路径、面包屑、Home、隐藏标记。
+- 不读文件内容，不改文件系统，不建/改/删目录。
+
+## Architecture / 架构
 
 ```text
-本地 Harness UI
+Local Harness UI
   -> ApiProxySwitch
   -> RemoteHarnessApiProxy
   -> Adaptive transport (LAN / P2P / TURN / Relay)
   -> Noise IK secure channel
   -> HarnessApiBridge allowlist
+  -> Remote Harness ApiProxy
+```
+
+```text
+本地 Harness UI
+  -> ApiProxySwitch
+  -> RemoteHarnessApiProxy
+  -> 自适应传输（LAN / P2P / TURN / Relay）
+  -> Noise IK 安全通道
+  -> HarnessApiBridge allowlist
   -> 远端 Harness ApiProxy
 ```
 
-主要模块：
+## Key modules / 核心模块
 
-- `service.ts`：Host runtime 与连接生命周期。
-- `client-runtime.ts`：设备列表、连接、远程目录和 Workspace 操作。
-- `client.ts`：设置卡片、Remote 模态框、侧边栏入口和远程 Header。
-- `harness-api-bridge.ts`：固定 ApiProxy allowlist、unary、respond 与 stream bridge。
-- `remote-directory-browser.ts`：native picker 场景下的只读目录兜底。
-- `server-api.ts` / `server-connection.ts`：账号设备 API 与 Host 控制连接。
-- `identity-store.ts` / `server-credentials.ts`：按 Server origin 和角色隔离的身份与凭证。
+- `service.ts`: Host lifecycle / Host 生命周期
+- `client-runtime.ts`: device list, connection, workspace actions / 设备列表、连接、工作区操作
+- `client.ts`: settings UI, remote modal, sidebar, remote header / 设置卡片、Remote 弹窗、侧边栏、远端 Header
+- `harness-api-bridge.ts`: ApiProxy allowlist and stream bridge / ApiProxy 白名单与 stream 桥接
+- `identity-store.ts` / `server-credentials.ts`: account-scoped identity and credentials / 账号隔离的身份与凭证
 
-## 安全模型
+## Security model / 安全模型
 
-- Host 只建立出站 HTTPS/WSS 连接，不监听公网端口。
-- Host 与 Client 使用长期 X25519 identity key 和 Noise IK 相互认证。
-- Server membership 和本地 pinned peer key 必须同时匹配。
-- 每个 Client connection 拥有独立的 secure channel、RPC pending 和 stream registry。
-- ApiProxy method 必须命中代码内 allowlist；未知或敏感方法 fail closed。
-- 禁止 Shell、PTY、远程桌面、credentials/settings、native open/picker、目录写入、文件内容、attachment、download 和 Cordis service 反射。
+- Host only makes outbound HTTPS/WSS connections.
+- Host/Client authenticate with long-lived X25519 keys using Noise IK.
+- ApiProxy methods are allowlist-driven (fail-closed).
+- Directory browsing is metadata-only.
+- Sensitive capabilities are disabled, including shell, PTY, remote desktop, and file operations.
+- Data is stored under `$DSH_HOME/remote/servers/<origin-hash>/{host,client}`. Unix private keys must be `0600`.
 
-身份数据位于 `$DSH_HOME/remote/servers/<origin-hash>/{host,client}`。Unix 私钥必须为 `0600`；损坏或权限过宽的 key 会被拒绝，不会静默替换。
+- Host 仅发起外连 HTTPS/WSS，不开放公网监听。
+- Host/Client 使用长期 X25519 key + Noise IK 进行相互认证。
+- ApiProxy 仅允许白名单方法（未命中即拒绝）。
+- 目录浏览仅返回元数据，不涉及文件读写。
+- Shell、PTY、远程桌面、文件操作等高风险能力已禁用。
+- 数据位于 `$DSH_HOME/remote/servers/<origin-hash>/{host,client}`，私钥权限需 `0600`。
 
-## 配置
+## Configuration and install / 配置与安装
 
-插件设置写入 `$DSH_HOME/settings.yaml` 的 `dsh-remote` namespace，重启后应用。也可以设置：
+Settings are written to `$DSH_HOME/settings.yaml` under `dsh-remote` (restart required).
+
+配置写入 `$DSH_HOME/settings.yaml` 的 `dsh-remote`（重启后生效）。
 
 ```sh
 export DSH_REMOTE_SERVER=https://dsh.r2049.cn
 ```
 
-生产 Server 必须使用 HTTPS/WSS。Host 和 Remote 身份使用独立 deviceId、identity key 和 token，但可以通过 `register-owned-role` 继承同一账号归属。
+Install via DSH Desktop:
 
-## 安装与构建
-
-DSH Desktop GitHub 安装：
+通过 DSH Desktop 安装：
 
 ```text
 github:liguobao/deepseek-harness-remote#v0.2.23
 ```
-
-本地验证：
-
-```sh
-pnpm --filter ds-harness-remote check
-pnpm --filter ds-harness-remote test
-pnpm --filter ds-harness-remote build
-```
-
-根包提供 GitHub Bundle manifest；本包是 npm 发布和 CI artifact 边界。构建会生成 `dist/index.js`、`dist/client.js` 和 GitHub client bundle。
-
-## 发布与版本一致性要求
-
-发布新版本前必须同步以下版本号：
-
-- 根目录 `package.json` 的 `version`
-- `packages/plugin/package.json` 的 `version`
-- `packages/plugin/src/version.ts` 中的 `PLUGIN_VERSION`
-
-`packages/plugin/scripts/verify-version-sync.mjs` 会在 `check/build/test` 前校验这三处是否一致。任一不一致将导致构建失败。
-
-建议发布步骤：
-
-1. 同步更新上述三个版本号。
-2. 运行 `pnpm --filter ds-harness-remote check`。
-3. 通过后再执行 `pnpm --filter ds-harness-remote build` 与 `test`。
-
-## 兼容边界
-
-Plugin 使用官方 `@deepseek-ai/dsh-host-apiproxy/api`，不维护第二套 Session、Event 或 Permission 协议。Server、Remote Web 和 Admin runtime 不在本仓库实现。协议详情见 [Remote Protocol](../../docs/protocol.md)，Server 接入见 [Plugin integration](../../docs/plugin-integration.md)。
