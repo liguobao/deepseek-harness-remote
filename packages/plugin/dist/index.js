@@ -4102,6 +4102,103 @@ var controlFrameSchema = external_exports.object({
   timestamp: external_exports.number().int().positive(),
   payload: external_exports.unknown()
 }).strict();
+var transportEnum = external_exports.enum(["lan", "p2p", "turn", "relay"]);
+var selectedTransportEnum = external_exports.enum(["p2p", "turn", "relay"]);
+var helloPayloadSchema = external_exports.object({
+  role: external_exports.enum(["host", "client"]),
+  deviceId: external_exports.string().min(1),
+  accessToken: external_exports.string().min(1),
+  protocols: external_exports.array(external_exports.number().int()).min(1),
+  capabilities: external_exports.array(external_exports.string()),
+  clientVersion: external_exports.string().optional()
+});
+var helloAckPayloadSchema = external_exports.object({
+  protocol: external_exports.literal(PROTOCOL_VERSION),
+  serverVersion: external_exports.string().min(1),
+  connectionSessionId: external_exports.string().min(1),
+  heartbeatIntervalMs: external_exports.number().int().positive(),
+  maxControlFrameBytes: external_exports.number().int().positive(),
+  maxRelayFrameBytes: external_exports.number().int().positive(),
+  webrtcEnabled: external_exports.boolean().optional(),
+  webrtcFallbackTimeoutMs: external_exports.number().int().positive().optional()
+});
+var connectRequestPayloadSchema = external_exports.object({
+  hostDeviceId: external_exports.string().min(1),
+  preferredTransports: external_exports.array(transportEnum).min(1)
+});
+var connectIncomingPayloadSchema = external_exports.object({
+  connectionId: external_exports.string().min(1),
+  clientDeviceId: external_exports.string().min(1),
+  clientIdentityKey: external_exports.string().min(1),
+  authorization: external_exports.literal("account"),
+  preferredTransports: external_exports.array(transportEnum).min(1)
+});
+var connectAcceptedPayloadSchema = external_exports.object({
+  connectionId: external_exports.string().min(1)
+});
+var connectRejectedPayloadSchema = external_exports.object({
+  connectionId: external_exports.string().min(1),
+  code: external_exports.string().optional(),
+  message: external_exports.string().optional()
+});
+var secureHandshakePayloadSchema = external_exports.object({
+  connectionId: external_exports.string().min(1),
+  targetDeviceId: external_exports.string().min(1),
+  step: external_exports.number().int().positive(),
+  data: external_exports.string().min(1)
+});
+var relayPayloadSchema = external_exports.object({
+  connectionId: external_exports.string().min(1),
+  targetDeviceId: external_exports.string().min(1),
+  counter: external_exports.number().int().nonnegative(),
+  ciphertext: external_exports.string().min(1)
+});
+var signalPayloadSchema = external_exports.object({
+  connectionId: external_exports.string().min(1),
+  targetDeviceId: external_exports.string().min(1),
+  sdp: external_exports.string().min(1)
+});
+var signalIcePayloadSchema = external_exports.object({
+  connectionId: external_exports.string().min(1),
+  targetDeviceId: external_exports.string().min(1),
+  candidate: external_exports.object({
+    candidate: external_exports.string().optional(),
+    sdpMid: external_exports.string().nullable().optional(),
+    sdpMLineIndex: external_exports.number().int().nullable().optional(),
+    usernameFragment: external_exports.string().nullable().optional()
+  })
+});
+var transportSelectedPayloadSchema = external_exports.object({
+  connectionId: external_exports.string().min(1),
+  targetDeviceId: external_exports.string().min(1),
+  transport: selectedTransportEnum
+});
+var pingPongPayloadSchema = external_exports.object({
+  nonce: external_exports.string().min(1)
+});
+var controlErrorPayloadSchema = external_exports.object({
+  code: external_exports.string().min(1),
+  message: external_exports.string().min(1),
+  retryable: external_exports.boolean().optional(),
+  connectionId: external_exports.string().min(1).optional()
+});
+var controlFramePayloadSchemas = {
+  "hello": helloPayloadSchema,
+  "hello.ack": helloAckPayloadSchema,
+  "connect.request": connectRequestPayloadSchema,
+  "connect.incoming": connectIncomingPayloadSchema,
+  "connect.accepted": connectAcceptedPayloadSchema,
+  "connect.rejected": connectRejectedPayloadSchema,
+  "secure.handshake": secureHandshakePayloadSchema,
+  "relay": relayPayloadSchema,
+  "signal.offer": signalPayloadSchema,
+  "signal.answer": signalPayloadSchema,
+  "signal.ice": signalIcePayloadSchema,
+  "transport.selected": transportSelectedPayloadSchema,
+  "ping": pingPongPayloadSchema,
+  "pong": pingPongPayloadSchema,
+  "error": controlErrorPayloadSchema
+};
 var rpcRequestPayloadSchema = external_exports.object({
   method: rpcMethodSchema,
   params: external_exports.unknown()
@@ -4151,7 +4248,12 @@ function parseRemoteMessage(input) {
   return remoteMessageSchema.parse(input);
 }
 function parseControlFrame(input) {
-  return controlFrameSchema.parse(input);
+  const frame = controlFrameSchema.parse(input);
+  const payloadSchema = controlFramePayloadSchemas[frame.type];
+  if (payloadSchema) {
+    return { ...frame, payload: payloadSchema.parse(frame.payload) };
+  }
+  return frame;
 }
 function encodeMessage(message) {
   return new TextEncoder().encode(JSON.stringify(message));
@@ -12866,7 +12968,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.7";
+var PLUGIN_VERSION = "0.3.13";
 
 // src/server-api.ts
 var HostServerApi = class {

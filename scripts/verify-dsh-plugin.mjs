@@ -33,8 +33,13 @@ const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
 assert.match(patch, /^\s*- id:\s*dsh-remote\s*$/m, 'root patch must keep the stable Cordis instance id')
 assert.match(
   patch,
+  new RegExp(`name:\\s*['"]?${manifest.name.replaceAll('-', '\\-')}['"]?`),
+  'root patch must load the installed GitHub root package',
+)
+assert.doesNotMatch(
+  patch,
   new RegExp(`name:\\s*['"]?${pluginManifest.name.replaceAll('-', '\\-')}['"]?`),
-  'root patch must load the nested package',
+  'root patch must not load the separately published nested npm package',
 )
 
 const rootHostEntry = readFileSync(join(root, 'index.js'), 'utf8')
