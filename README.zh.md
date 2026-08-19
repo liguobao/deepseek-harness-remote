@@ -27,24 +27,27 @@
 在 DSH Desktop 中打开 **扩展 → 管理插件…**，安装：
 
 ```text
-github:liguobao/deepseek-harness-remote#v0.3.14
+ds-harness-remote
 ```
 
 也可以为 `web` profile 使用命令行安装：
 
 ```sh
-dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.14"
+dsh plugin --profile web add ds-harness-remote
 ```
 
-重启 Harness，然后打开 **设置 → 插件 → 插件配置 → DeepSeek 远程连接**。
+项目地址：[npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-## 关联电脑
+如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.15`。
 
-先使用邀请码 [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY) 注册账号，然后：
+安装后请重启 Harness。
 
-1. 登录站点，生成一次性关联码。
-2. 在 Host 插件中输入关联码。
-3. 设备显示在线后，即可开始远程使用。
+## 登录与连接
+
+1. 从 Harness 侧边栏打开 **Remote** 入口。
+2. 使用知乎授权登录，或使用账号密码登录。新注册账号密码用户可使用当前邀请码 [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY)。
+3. 为当前机器启用远端控制，即可从其他设备访问这台机器；也可以直接选择另一台在线设备并控制它。
+4. 选择已有 Workspace，或浏览远端目录后打开 Workspace。
 
 > **注意：** 自建中转节点方案将在稍后提供。
 

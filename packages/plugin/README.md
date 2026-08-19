@@ -14,15 +14,15 @@ No Client mode switch is required. Choosing a remote workspace keeps the local U
 
 ## User flow / 用户流程
 
-1. Open **Remote** from the sidebar and log in first (preferred entry).
-2. After login, you can enable remote control for the current device.
-3. Select an online Host, then enter an existing workspace or create/browse one remotely.
-4. Use **Exit** to return local and stop forwarding.
+1. Open **Remote** from the sidebar.
+2. Sign in with Zhihu authorization, or with your account and password. New password accounts can register with invitation code [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY).
+3. Enable remote control for the current computer, or select another online device to control it directly.
+4. Enter an existing workspace or browse remote directories to open one. Use **Exit** to return local and stop forwarding.
 
-1. 从侧边栏优先打开 **Remote** 入口并登录。  
-2. 登录后可开启当前设备的远程控制。
-3. 选择同账号在线 Host 后，进入已有 Workspace，或浏览远端目录创建/选择 Workspace。
-4. 使用 **退出** 回到本地并停止转发。
+1. 从侧边栏打开 **Remote** 入口。
+2. 使用知乎授权登录，或使用账号密码登录。新注册账号密码用户可使用当前邀请码 [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY)。
+3. 为当前机器启用远端控制，或直接选择另一台在线设备并控制它。
+4. 进入已有 Workspace，或浏览远端目录后打开 Workspace；使用 **退出** 回到本地并停止转发。
 
 ## Directory browsing / 目录浏览
 
@@ -98,16 +98,18 @@ Install the npm package for the `web` profile:
 dsh plugin --profile web add ds-harness-remote
 ```
 
+npm / npm 包地址：<https://www.npmjs.com/package/ds-harness-remote>
+
 Alternatively, install the pinned GitHub release in DSH Desktop or with the CLI:
 
 也可以在 DSH Desktop 中安装固定版本的 GitHub Release，或使用命令行安装：
 
 ```text
-github:liguobao/deepseek-harness-remote#v0.3.14
+github:liguobao/deepseek-harness-remote#v0.3.15
 ```
 
 ```sh
-dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.14"
+dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.15"
 ```
 
 GitHub / 项目地址：<https://github.com/liguobao/deepseek-harness-remote>

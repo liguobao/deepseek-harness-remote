@@ -27,24 +27,27 @@ Install the plugin on the computer where Harness and your projects run.
 In DSH Desktop, open **Extensions → Manage plugins…** and install:
 
 ```text
-github:liguobao/deepseek-harness-remote#v0.3.14
+ds-harness-remote
 ```
 
 Or install it for the `web` profile:
 
 ```sh
-dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.14"
+dsh plugin --profile web add ds-harness-remote
 ```
 
-Restart Harness, then open **Settings → Plugins → Plugin configuration → DeepSeek Remote Connection**.
+Package: [npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-## Link your computer
+To pin a GitHub release instead, install `github:liguobao/deepseek-harness-remote#v0.3.15`.
 
-Create an account with invitation code [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY), then:
+Restart Harness after installation.
 
-1. Sign in and generate a one-time link code.
-2. Enter the code in the Host plugin.
-3. When the computer appears online, open it from Remote.
+## Sign in and connect
+
+1. Open **Remote** from the Harness sidebar.
+2. Sign in with Zhihu authorization, or use your account and password. New password accounts can register with invitation code [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY).
+3. Enable remote control for the current computer to make it available from your other devices, or select another online computer to control it directly.
+4. Choose an existing workspace or browse remote directories to open one.
 
 > **Note:** A self-hosted relay node option will be provided later.
 
