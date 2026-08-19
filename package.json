@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "description": "DeepSeek 远程连接",
   "license": "MIT",
   "private": true,

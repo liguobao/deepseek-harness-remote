@@ -27,13 +27,13 @@ Install the plugin on the computer where Harness and your projects run.
 In DSH Desktop, open **Extensions → Manage plugins…** and install:
 
 ```text
-github:liguobao/deepseek-harness-remote#v0.2.23
+github:liguobao/deepseek-harness-remote#v0.3.14
 ```
 
 Or install it for the `web` profile:
 
 ```sh
-dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.2.23"
+dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.14"
 ```
 
 Restart Harness, then open **Settings → Plugins → Plugin configuration → DeepSeek Remote Connection**.

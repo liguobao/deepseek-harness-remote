@@ -27,13 +27,13 @@
 在 DSH Desktop 中打开 **扩展 → 管理插件…**，安装：
 
 ```text
-github:liguobao/deepseek-harness-remote#v0.2.23
+github:liguobao/deepseek-harness-remote#v0.3.14
 ```
 
 也可以为 `web` profile 使用命令行安装：
 
 ```sh
-dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.2.23"
+dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.14"
 ```
 
 重启 Harness，然后打开 **设置 → 插件 → 插件配置 → DeepSeek 远程连接**。
