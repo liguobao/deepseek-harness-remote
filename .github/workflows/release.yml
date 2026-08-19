@@ -88,7 +88,7 @@ jobs:
           if npm view "$PACKAGE_NAME"@"$VERSION" >/dev/null 2>&1; then
             echo "Version already exists on npm, skip publish."
           else
-            (cd packages/plugin && npm publish --no-git-checks)
+            (cd packages/plugin && npm publish)
           fi
 
       - name: Publish GitHub Release

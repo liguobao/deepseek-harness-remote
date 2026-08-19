@@ -1,7 +1,11 @@
 {
   "name": "ds-harness-remote",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "description": "DeepSeek 远程连接",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liguobao/deepseek-harness-remote.git"
+  },
   "publishConfig": {
     "access": "public",
     "provenance": true
