@@ -3,7 +3,7 @@
 # and load the repository directly as a bundle.
 - insert:
     - id: dsh-remote
-      name: dsh-remote
+      name: ds-harness-remote
       config:
         enabled: true
         role: host
