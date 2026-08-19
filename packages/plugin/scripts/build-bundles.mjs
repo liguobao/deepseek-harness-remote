@@ -15,7 +15,7 @@ await build({
 })
 
 for (const [moduleId, outfile] of [
-  ['@dsh-remote/plugin', 'client.js'],
+  ['ds-harness-remote', 'client.js'],
   ['dsh-remote', 'client.github.js'],
 ]) {
   await build({

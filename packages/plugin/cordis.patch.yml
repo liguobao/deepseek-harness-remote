@@ -1,6 +1,6 @@
 - insert:
     - id: dsh-remote
-      name: '@dsh-remote/plugin'
+      name: 'ds-harness-remote'
       config:
         enabled: true
         role: host

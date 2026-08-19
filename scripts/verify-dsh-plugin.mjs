@@ -6,6 +6,7 @@ import { runInNewContext } from 'node:vm'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+const pluginManifest = JSON.parse(readFileSync(join(root, 'packages/plugin/package.json'), 'utf8'))
 
 assert.equal(manifest.name, 'dsh-remote', 'root package must keep the stable DSH installation id')
 assert.equal(manifest.description, 'DeepSeek 远程连接', 'root package must expose the Chinese plugin name')
@@ -30,7 +31,11 @@ for (const file of [
 
 const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
 assert.match(patch, /^\s*- id:\s*dsh-remote\s*$/m, 'root patch must keep the stable Cordis instance id')
-assert.match(patch, new RegExp(`name:\\s*['\"]?${manifest.name.replaceAll('-', '\\-')}['\"]?`), 'root patch must load the installed root package')
+assert.match(
+  patch,
+  new RegExp(`name:\\s*['"]?${pluginManifest.name.replaceAll('-', '\\-')}['"]?`),
+  'root patch must load the nested package',
+)
 
 const rootHostEntry = readFileSync(join(root, 'index.js'), 'utf8')
 assert.match(rootHostEntry, /packages\/plugin\/dist\/index\.js/, 'root Host entry must forward to the committed bundle')
@@ -60,6 +65,6 @@ let npmClient
 runInNewContext(npmClientBundle, {
   window: { __ModuleLoader__: { load: handoff => { npmClient = handoff } } },
 })
-assert.equal(npmClient?.id, '@dsh-remote/plugin', 'npm client module id must match the nested package name')
+assert.equal(npmClient?.id, pluginManifest.name, 'npm client module id must match the nested package name')
 
 console.log(`Verified DSH bundle package ${manifest.name}@${manifest.version}`)

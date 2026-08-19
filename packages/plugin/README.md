@@ -1,4 +1,4 @@
-# @dsh-remote/plugin
+# ds-harness-remote
 
 DeepSeek Harness 的 Host + Remote 工作区插件。一次安装同时提供：
 
@@ -75,9 +75,9 @@ github:liguobao/deepseek-harness-remote#v0.2.23
 本地验证：
 
 ```sh
-pnpm --filter @dsh-remote/plugin check
-pnpm --filter @dsh-remote/plugin test
-pnpm --filter @dsh-remote/plugin build
+pnpm --filter ds-harness-remote check
+pnpm --filter ds-harness-remote test
+pnpm --filter ds-harness-remote build
 ```
 
 根包提供 GitHub Bundle manifest；本包是 npm 发布和 CI artifact 边界。构建会生成 `dist/index.js`、`dist/client.js` 和 GitHub client bundle。
@@ -95,8 +95,8 @@ pnpm --filter @dsh-remote/plugin build
 建议发布步骤：
 
 1. 同步更新上述三个版本号。
-2. 运行 `pnpm --filter @dsh-remote/plugin check`。
-3. 通过后再执行 `pnpm --filter @dsh-remote/plugin build` 与 `test`。
+2. 运行 `pnpm --filter ds-harness-remote check`。
+3. 通过后再执行 `pnpm --filter ds-harness-remote build` 与 `test`。
 
 ## 兼容边界
 

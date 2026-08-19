@@ -12,7 +12,7 @@ declare const DSH_REMOTE_CLIENT_MODULE_ID: string | undefined
 
 const clientModuleId = typeof DSH_REMOTE_CLIENT_MODULE_ID === 'string'
   ? DSH_REMOTE_CLIENT_MODULE_ID
-  : '@dsh-remote/plugin'
+  : 'ds-harness-remote'
 
 interface ControlResult<T = unknown> {
   ok: boolean

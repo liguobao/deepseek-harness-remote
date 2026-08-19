@@ -76,7 +76,21 @@ jobs:
       - name: Stage release assets
         run: |
           cd release-assets
-          sha256sum dsh-remote-plugin-*.tgz > SHA256SUMS.txt
+          sha256sum *.tgz > SHA256SUMS.txt
+
+      - name: Publish npm plugin
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_NAME="$(node -p "JSON.parse(require('fs').readFileSync('packages/plugin/package.json', 'utf8')).name")"
+          echo "Checking if version already exists on npm..."
+          if npm view "$PACKAGE_NAME"@"$VERSION" >/dev/null 2>&1; then
+            echo "Version already exists on npm, skip publish."
+          else
+            echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
+            pnpm --dir packages/plugin publish --access public --no-git-checks
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

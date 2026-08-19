@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-remote/plugin",
+  "name": "ds-harness-remote",
   "version": "0.3.8",
   "description": "DeepSeek 远程连接",
   "type": "module",

@@ -1,5 +1,5 @@
 /**
- * Version of the `@dsh-remote/plugin` distribution.
+ * Version of the `ds-harness-remote` distribution.
  *
  * This is reported to the Server during device registration (`clientVersion`
  * in the Device Descriptor) and again in the WebSocket `hello` frame, so the
