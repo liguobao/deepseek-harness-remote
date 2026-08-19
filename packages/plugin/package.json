@@ -1,7 +1,11 @@
 {
   "name": "ds-harness-remote",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "DeepSeek 远程连接",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./public.d.ts",
