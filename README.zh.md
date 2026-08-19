@@ -55,6 +55,26 @@ dsh plugin --profile web add ds-harness-remote
 
 > **注意：** 自建中转节点方案将在稍后提供。
 
+### 界面导览
+
+在 Remote 设置中启用**允许控制当前设备**，即可将当前电脑作为 Host 供其他设备连接。
+
+<p align="center">
+  <img src="docs/images/setting.png" alt="已完成授权并在线的 Remote Host 设置" width="520">
+</p>
+
+在另一台电脑上打开 **Remote**，选择在线 Host，再选择已有 Workspace 或浏览远端目录。
+
+<p align="center">
+  <img src="docs/images/host-list.png" alt="列出在线 Host 的远端工作区选择界面" width="900">
+</p>
+
+Workspace 会在 Harness 原生界面中打开，顶部会显示当前 Host 和端到端加密连接状态。
+
+<p align="center">
+  <img src="docs/images/remote.png" alt="通过端到端加密远程连接运行的 Harness 会话" width="900">
+</p>
+
 ## 安全连接，边界清晰
 
 - Host 只主动向外连接，不开放公网端口。

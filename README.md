@@ -55,6 +55,26 @@ Restart Harness after installation.
 
 > **Note:** A self-hosted relay node option will be provided later.
 
+### A quick tour
+
+Enable **Allow control of this device** in Remote settings to make the current computer available as a Host.
+
+<p align="center">
+  <img src="docs/images/setting.png" alt="Remote settings showing an authorized and online Host" width="520">
+</p>
+
+Open **Remote** on another computer, select an online Host, then choose or browse for a workspace.
+
+<p align="center">
+  <img src="docs/images/host-list.png" alt="Remote workspace picker listing online Hosts" width="900">
+</p>
+
+The workspace opens in the native Harness interface, with the active Host and encrypted connection status shown in the header.
+
+<p align="center">
+  <img src="docs/images/remote.png" alt="A Harness conversation running through an encrypted remote connection" width="900">
+</p>
+
 ## Secure by design
 
 - The Host makes outbound connections only. No public port is opened.
