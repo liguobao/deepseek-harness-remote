@@ -125,6 +125,7 @@ function adaptDataChannel(raw: RTCDataChannel): RtcDataChannel {
     get readyState() { return raw.readyState },
     get bufferedAmount(): number { return raw.bufferedAmount },
     get binaryType(): string { return raw.binaryType },
+    set binaryType(value: string) { raw.binaryType = value as typeof raw.binaryType },
     set onopen(value) { raw.onopen = value },
     get onopen() { return raw.onopen as (() => void) | null },
     set onmessage(value) { raw.onmessage = value },

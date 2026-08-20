@@ -16,6 +16,7 @@
     "expo-device": "~57.0.1",
     "expo-haptics": "~57.0.1",
     "expo-secure-store": "~57.0.1",
+    "expo-splash-screen": "~57.0.6",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.2",
     "lucide-react-native": "^1.31.0",

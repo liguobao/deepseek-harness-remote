@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { AppState, BackHandler, Linking, StyleSheet, Text, View } from 'react-native'
+import { AppState, BackHandler, Image, Linking, StyleSheet, Text, View } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
-import { Bot } from 'lucide-react-native'
 import { ChatScreen } from './src/screens/chat-screen'
 import { DeviceDetailScreen, DevicesScreen, SessionsScreen } from './src/screens/device-screens'
 import { ServerSetupScreen, SettingsScreen } from './src/screens/setup-screens'
 import { WorkspacesScreen } from './src/screens/workspaces-screen'
 import { useAppStore } from './src/state/store'
+import { networkRouteForNativeType, type NetworkRoute } from './src/lib/network-route'
 import { Button, ErrorBanner } from './src/ui/components'
 import { colors, radius, spacing, type } from './src/ui/theme'
 import zhCN from './src/locales/zh-CN'
@@ -45,6 +45,7 @@ function AppNavigator() {
   const clearError = useAppStore(state => state.clearError)
   const [routes, setRoutes] = useState<Route[]>([{ name: 'server' }])
   const didChooseInitialRoute = useRef(false)
+  const networkRoute = useRef<NetworkRoute | undefined>(undefined)
   const route = routes[routes.length - 1]!
 
   const push = (next: Route) => setRoutes(current => [...current, next])
@@ -102,8 +103,24 @@ function AppNavigator() {
   }, [routes.length])
 
   useEffect(() => NetInfo.addEventListener(state => {
-    if (state.isConnected === false) setOffline()
-    else if (useAppStore.getState().connection.phase === 'offline' && useAppStore.getState().selectedDevice !== undefined) void reconnect()
+    const nextRoute = networkRouteForNativeType(state.type)
+    const previousRoute = networkRoute.current
+    networkRoute.current = nextRoute
+    if (state.isConnected === false) {
+      setOffline()
+      return
+    }
+    const app = useAppStore.getState()
+    if (app.connection.phase === 'offline' && app.selectedDevice !== undefined) {
+      void reconnect()
+      return
+    }
+    // A move onto/off the local network needs a fresh ICE negotiation. Without
+    // it an existing Relay channel remains selected even after Wi-Fi is ready.
+    if (previousRoute !== undefined && previousRoute !== nextRoute
+      && app.connection.phase === 'connected' && app.selectedDevice !== undefined) {
+      void reconnect()
+    }
   }), [reconnect, setOffline])
 
   useEffect(() => {
@@ -138,7 +155,7 @@ function AppNavigator() {
 function LoadingScreen() {
   return (
     <View style={styles.center}>
-      <View style={styles.logo}><Bot size={27} color={colors.primary} /></View>
+      <Image source={require('./assets/icon.png')} style={styles.logo} resizeMode="contain" />
       <Text style={styles.loadingTitle}>DSH Remote</Text>
       <Text style={styles.loadingBody}>{zhCN.app.loadingIdentity}</Text>
     </View>
@@ -169,7 +186,7 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl, backgroundColor: colors.background },
-  logo: { width: 58, height: 58, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft, marginBottom: spacing.md },
+  logo: { width: 72, height: 72, borderRadius: radius.lg, marginBottom: spacing.md },
   loadingTitle: { ...type.title, color: colors.ink, textAlign: 'center' },
   loadingBody: { ...type.body, color: colors.muted, textAlign: 'center', marginTop: spacing.xs },
   retry: { alignSelf: 'stretch', marginTop: spacing.xl },

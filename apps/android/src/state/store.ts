@@ -7,6 +7,7 @@ import { RemoteServerApi } from '../services/api'
 import { createNativeRpcId } from '../services/api-proxy'
 import { AndroidRemoteConnection } from '../services/connection'
 import { reconcileTrustedDevices } from '../services/device-directory'
+import { resolveAutomaticPreferredTransports } from '../services/network-route'
 import { serverSession } from '../services/server-session'
 import {
   clearLocalData,
@@ -266,7 +267,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? ['relay'] as const
         : preference === 'turn'
           ? ['turn', 'relay'] as const
-          : undefined
+          : await resolveAutomaticPreferredTransports()
       await connection.connect(
         config.baseUrl,
         identity,
@@ -275,7 +276,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         frame => get().handleMuxFrame(frame),
         {
           fetchIceServers: async connectionId => api.turnCredentials(connectionId),
-          ...(preferredTransports === undefined ? {} : { preferredTransports: [...preferredTransports] }),
+          preferredTransports: [...preferredTransports],
           onClose: () => {
             if (get().connection.phase === 'connected' || get().connection.phase === 'reconnecting') {
               set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: zhCN.runtime.hostClosed } })

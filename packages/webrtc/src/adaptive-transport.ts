@@ -342,7 +342,12 @@ export class AdaptiveTransport extends BaseTransport {
       this.bytesReceived += data.byteLength
       this.emit(data)
     })
-    rtc.onClose(() => this.emitClose())
+    rtc.onClose(() => {
+      // A negotiation failure closes the provisional data channel before this
+      // transport switches to Relay. That is not a loss of the established
+      // Adaptive transport, so only surface closes from an active WebRTC path.
+      if (this.rtc === rtc && this.dataMode === 'webrtc') this.emitClose()
+    })
     try {
       await rtc.connect()
     } catch (error) {
