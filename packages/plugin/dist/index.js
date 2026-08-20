@@ -13353,6 +13353,7 @@ function requireRecord(value, name2) {
 }
 
 // src/typert-gateway-switch.ts
+var REMOTE_COMMAND_METHODS = ["execute", "list"];
 var TypertGatewaySwitch = class {
   constructor(gateway) {
     this.gateway = gateway;
@@ -13369,7 +13370,7 @@ var TypertGatewaySwitch = class {
   }
   install() {
     if (this.installed) return;
-    this.gateway.invoke = (request) => request.namespace === "commands" && request.method === "execute" ? (this.remoteInvoke ?? this.localInvoke)(request) : this.localInvoke(request);
+    this.gateway.invoke = (request) => request.namespace === "commands" && isRemoteCommandMethod(request.method) ? (this.remoteInvoke ?? this.localInvoke)(request) : this.localInvoke(request);
     this.installed = true;
   }
   selectRemote(invoke) {
@@ -13386,6 +13387,9 @@ var TypertGatewaySwitch = class {
     this.installed = false;
   }
 };
+function isRemoteCommandMethod(method) {
+  return REMOTE_COMMAND_METHODS.includes(method);
+}
 
 // src/client-runtime.ts
 var ClientModeRuntime = class {
@@ -15285,10 +15289,15 @@ var streamOpenSchema = external_exports.object({
   }).strict()
 }).strict();
 var streamCloseSchema = external_exports.object({ streamId: external_exports.string().min(1).max(128) }).strict();
-var permissionCommandSchema = external_exports.object({
+var commandExecuteSchema = external_exports.object({
   agentId: external_exports.string().min(1).max(128),
-  line: external_exports.string().regex(/^\/permission [a-z0-9]+(?:-[a-z0-9]+)*$/)
+  line: external_exports.string().min(1).max(2048)
 }).strict();
+var commandListSchema = external_exports.object({
+  agentId: external_exports.string().min(1).max(128)
+}).strict();
+var REMOTE_COMMAND_NAMES = ["goal", "compact", "feedback", "permission"];
+var commandLinePattern = /^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/u;
 var HARNESS_API_ALLOWLIST = [
   "session.list",
   "session.search",
@@ -15325,6 +15334,7 @@ var HARNESS_API_ALLOWLIST = [
   "goal.complete",
   "goal.clear",
   "commands.execute",
+  "commands.list",
   "llm.providers",
   "llm.models"
 ];
@@ -15481,14 +15491,25 @@ function createMethodMap(api, typertGateway) {
   const domains = api;
   const methods = /* @__PURE__ */ new Map();
   for (const method of HARNESS_API_ALLOWLIST) {
-    if (method === "commands.execute") {
+    if (method === "commands.execute" || method === "commands.list") {
       if (typertGateway === void 0) continue;
+      const [namespace, commandMethod] = method.split(".");
       const implementation2 = async (request, signal) => {
-        const args = permissionCommandSchema.parse(request.payload);
-        const [namespace, commandMethod] = method.split(".");
+        if (commandMethod === "execute") {
+          const args2 = commandExecuteSchema.parse(request.payload);
+          assertRemoteCommandAllowed(args2.line);
+          const value2 = await typertGateway.invoke({
+            namespace,
+            method: "execute",
+            args: args2,
+            ...signal === void 0 ? {} : { signal }
+          });
+          return { rpcId: request.rpcId, result: { ok: true, value: value2 } };
+        }
+        const args = commandListSchema.parse(request.payload);
         const value = await typertGateway.invoke({
           namespace,
-          method: commandMethod,
+          method: "list",
           args,
           ...signal === void 0 ? {} : { signal }
         });
@@ -15515,6 +15536,16 @@ function domainProperty(wireDomain) {
 }
 function deniedMethod(method) {
   return new RpcError("METHOD_NOT_ALLOWED", `Harness API method ${JSON.stringify(method)} is not available in remote mode.`);
+}
+function assertRemoteCommandAllowed(line) {
+  const match = commandLinePattern.exec(line);
+  const name2 = match === null ? void 0 : match[1];
+  if (name2 === void 0) {
+    throw new RpcError("METHOD_NOT_ALLOWED", "Only whitelisted slash commands are available in remote mode.");
+  }
+  if (!REMOTE_COMMAND_NAMES.includes(name2)) {
+    throw new RpcError("METHOD_NOT_ALLOWED", `Command /${name2} is not available in remote mode.`);
+  }
 }
 function diagnosticReason4(error) {
   const message = error instanceof Error ? error.message : String(error);

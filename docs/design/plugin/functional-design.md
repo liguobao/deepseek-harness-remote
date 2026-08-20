@@ -82,6 +82,9 @@ Remote 业务 RPC 只有：
 
 `harness.api.call` 的 `method` 必须命中代码内固定 allowlist。当前允许会话、子 Agent、
 Workspace、Skill、Agent Preset、Goal、Host 描述和只读 LLM 目录等原生 UI 所需操作。
+`commands.list` 与 `commands.execute` 经官方 Typert gateway 分发，以覆盖原生 UI 的
+"+" 命令菜单；`execute` 只放行白名单内的已知安全原生命令（`goal`/`compact`/
+`feedback`/`permission`），未知命令 fail closed，不构成通用命令执行入口。
 
 `host.listDirectory` 是 Workspace picker 的唯一文件系统相关能力。优先转发 Harness browse
 capability；若桌面 Harness 只提供 native picker，则 bridge 以只读实现返回同形状的单层目录

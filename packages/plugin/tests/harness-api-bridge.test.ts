@@ -55,36 +55,55 @@ describe('HarnessApiBridge', () => {
     await expect(bridge.call({ method: 'host.createDirectory', rpcId: 'native-4', payload: {} })).rejects.toBeInstanceOf(RpcError)
   })
 
-  it('exposes only the permission command through the Typert gateway', async () => {
+  it('forwards whitelisted commands through the Typert gateway and fails closed otherwise', async () => {
     const denied = new HarnessApiBridge(api({}), vi.fn(async () => undefined))
-    await expect(denied.call({ method: 'commands.execute', rpcId: 'cmd-denied', payload: { agentId: 'session-1', line: '/permission danger-full-access' } }))
+    await expect(denied.call({ method: 'commands.execute', rpcId: 'cmd-denied', payload: { agentId: 'session-1', line: '/goal complete' } }))
       .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
     await expect(denied.call({ method: 'commands.list', rpcId: 'list-denied', payload: { agentId: 'session-1' } }))
       .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
 
-    const invoke = vi.fn(async () => ({
-      commandId: 'cmd-1',
-      result: { kind: 'success' as const, text: 'preset danger-full-access' },
-    }))
+    const invoke = vi.fn(async (request: { namespace: string; method: string }) => {
+      if (request.method === 'execute') return { commandId: 'cmd-1', result: { kind: 'success' as const, text: 'ok' } }
+      return [{ name: 'goal', description: 'Manage goals' }]
+    })
     const bridged = new HarnessApiBridge(api({}), vi.fn(async () => undefined), 3, undefined, { invoke })
+
+    // Whitelisted native commands execute on the Host.
     await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-goal', payload: { agentId: 'session-1', line: '/goal complete' } }))
-      .rejects.toBeDefined()
-    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-injection', payload: { agentId: 'session-1', line: '/permission danger-full-access\n/goal complete' } }))
-      .rejects.toBeDefined()
-    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-extra', payload: { agentId: 'session-1', line: '/permission danger-full-access', extra: true } }))
-      .rejects.toBeDefined()
-    expect(invoke).not.toHaveBeenCalled()
-    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-ok', payload: { agentId: 'session-1', line: '/permission danger-full-access' } }))
-      .resolves.toMatchObject({
-        rpcId: 'cmd-ok',
-        result: { ok: true, value: { commandId: 'cmd-1' } },
-      })
+      .resolves.toMatchObject({ rpcId: 'cmd-goal', result: { ok: true, value: { commandId: 'cmd-1' } } })
+    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-permission', payload: { agentId: 'session-1', line: '/permission agent-1' } }))
+      .resolves.toMatchObject({ rpcId: 'cmd-permission', result: { ok: true } })
+    // Multiline raw input is forwarded verbatim: the Host parses only the
+    // first command name, so a trailing line cannot smuggle another command.
+    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-multiline', payload: { agentId: 'session-1', line: '/goal complete\n/goal edit x' } }))
+      .resolves.toMatchObject({ rpcId: 'cmd-multiline', result: { ok: true } })
+    expect(invoke).toHaveBeenCalledTimes(3)
     expect(invoke).toHaveBeenCalledWith({
       namespace: 'commands',
       method: 'execute',
-      args: { agentId: 'session-1', line: '/permission danger-full-access' },
+      args: { agentId: 'session-1', line: '/goal complete' },
       signal: expect.any(AbortSignal),
     })
+
+    // Unknown, malformed, and extra-field lines stay denied (fail-closed).
+    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-bash', payload: { agentId: 'session-1', line: '/bash echo hi' } }))
+      .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
+    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-noslash', payload: { agentId: 'session-1', line: 'goal complete' } }))
+      .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
+    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-extra', payload: { agentId: 'session-1', line: '/goal complete', extra: true } }))
+      .rejects.toBeDefined()
+    expect(invoke).toHaveBeenCalledTimes(3)
+
+    // The remote command catalog comes from the Host, not the local machine.
+    await expect(bridged.call({ method: 'commands.list', rpcId: 'list-ok', payload: { agentId: 'session-1' } }))
+      .resolves.toMatchObject({ rpcId: 'list-ok', result: { ok: true, value: [{ name: 'goal' }] } })
+    expect(invoke).toHaveBeenCalledWith({
+      namespace: 'commands',
+      method: 'list',
+      args: { agentId: 'session-1' },
+      signal: expect.any(AbortSignal),
+    })
+    expect(invoke).toHaveBeenCalledTimes(4)
   })
 
   it('publishes native stream frames and an explicit terminal event', async () => {

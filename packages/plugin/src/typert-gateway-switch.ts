@@ -2,7 +2,10 @@ import type { TypertGatewayLike } from './harness-api-bridge.js'
 
 type RemoteInvoke = (request: Parameters<TypertGatewayLike['invoke']>[0]) => Promise<unknown>
 
-/** Keeps the native gateway identity stable while command execution follows the selected Host. */
+/** Typert `commands` methods that follow the selected Host (catalog + execution). */
+const REMOTE_COMMAND_METHODS = ['execute', 'list'] as const
+
+/** Keeps the native gateway identity stable while command catalog and execution follow the selected Host. */
 export class TypertGatewaySwitch {
   private readonly originalInvoke: TypertGatewayLike['invoke']
   private readonly localInvoke: TypertGatewayLike['invoke']
@@ -21,7 +24,7 @@ export class TypertGatewaySwitch {
 
   install(): void {
     if (this.installed) return
-    this.gateway.invoke = request => request.namespace === 'commands' && request.method === 'execute'
+    this.gateway.invoke = request => request.namespace === 'commands' && isRemoteCommandMethod(request.method)
       ? (this.remoteInvoke ?? this.localInvoke)(request)
       : this.localInvoke(request)
     this.installed = true
@@ -42,4 +45,8 @@ export class TypertGatewaySwitch {
     this.gateway.invoke = this.originalInvoke
     this.installed = false
   }
+}
+
+function isRemoteCommandMethod(method: string): boolean {
+  return (REMOTE_COMMAND_METHODS as readonly string[]).includes(method)
 }

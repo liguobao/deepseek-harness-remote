@@ -3,7 +3,7 @@ import type { TypertGatewayLike } from '../src/harness-api-bridge.js'
 import { TypertGatewaySwitch } from '../src/typert-gateway-switch.js'
 
 describe('TypertGatewaySwitch', () => {
-  it('routes command execution to the selected Host while leaving other calls local', async () => {
+  it('routes command catalog and execution to the selected Host while leaving other calls local', async () => {
     const localInvoke = vi.fn(async () => 'local')
     const remoteInvoke = vi.fn(async () => 'remote')
     const gateway: TypertGatewayLike = { invoke: localInvoke }
@@ -12,13 +12,15 @@ describe('TypertGatewaySwitch', () => {
 
     target.install()
     await expect(gateway.invoke(command())).resolves.toBe('local')
+    await expect(gateway.invoke(commandList())).resolves.toBe('local')
     target.selectRemote(remoteInvoke)
     await expect(gateway.invoke(command())).resolves.toBe('remote')
-    await expect(gateway.invoke({ namespace: 'commands', method: 'list', args: { agentId: 's1' } })).resolves.toBe('local')
+    await expect(gateway.invoke(commandList())).resolves.toBe('remote')
+    await expect(gateway.invoke({ namespace: 'goals', method: 'create', args: { agentId: 's1' } })).resolves.toBe('local')
     await expect(alwaysLocal.invoke(command())).resolves.toBe('local')
     target.selectLocal()
     await expect(gateway.invoke(command())).resolves.toBe('local')
-    expect(remoteInvoke).toHaveBeenCalledOnce()
+    expect(remoteInvoke).toHaveBeenCalledTimes(2)
   })
 
   it('restores the original gateway method', () => {
@@ -33,4 +35,8 @@ describe('TypertGatewaySwitch', () => {
 
 function command(): Parameters<TypertGatewayLike['invoke']>[0] {
   return { namespace: 'commands', method: 'execute', args: { agentId: 's1', line: '/permission danger-full-access' } }
+}
+
+function commandList(): Parameters<TypertGatewayLike['invoke']>[0] {
+  return { namespace: 'commands', method: 'list', args: { agentId: 's1' } }
 }

@@ -56,16 +56,32 @@ const streamOpenSchema = z.object({
 
 const streamCloseSchema = z.object({ streamId: z.string().min(1).max(128) }).strict()
 
-const permissionCommandSchema = z.object({
+const commandExecuteSchema = z.object({
   agentId: z.string().min(1).max(128),
-  line: z.string().regex(/^\/permission [a-z0-9]+(?:-[a-z0-9]+)*$/),
+  line: z.string().min(1).max(2048),
 }).strict()
+
+const commandListSchema = z.object({
+  agentId: z.string().min(1).max(128),
+}).strict()
+
+/**
+ * Commands a remote peer may execute on the Host. Only commands whose Host
+ * handlers are known-safe native UI commands belong here: session-scoped,
+ * non-privileged, and without a shell/PTY/file/OS surface. Unknown commands
+ * fail closed until explicitly reviewed and added.
+ */
+const REMOTE_COMMAND_NAMES = ['goal', 'compact', 'feedback', 'permission'] as const
+
+/** Mirrors the Host `parseCommand` name token so the whitelist cannot be bypassed. */
+const commandLinePattern = /^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/u
 
 /**
  * Harness API methods that are safe to expose to an authenticated remote UI.
  * Settings, credentials, native open/picker calls, directory mutation, file
  * contents, downloads, and attachment upload intentionally remain outside
  * this bridge. Directory listing exposes metadata only for workspace picking.
+ * `commands.*` additionally passes the command-name whitelist at call time.
  */
 export const HARNESS_API_ALLOWLIST = [
   'session.list',
@@ -103,6 +119,7 @@ export const HARNESS_API_ALLOWLIST = [
   'goal.complete',
   'goal.clear',
   'commands.execute',
+  'commands.list',
   'llm.providers',
   'llm.models',
 ] as const
@@ -332,17 +349,28 @@ function createMethodMap(api: ApiProxy, typertGateway?: TypertGatewayLike): Read
   const domains = api as unknown as Record<string, Record<string, NativeMethod>>
   const methods = new Map<string, NativeMethod>()
   for (const method of HARNESS_API_ALLOWLIST) {
-    if (method === 'commands.execute') {
-      // Commands live behind the official Typert registry (no ApiProxy
-      // `commands` domain). Dispatch them through the gateway when it is
+    if (method === 'commands.execute' || method === 'commands.list') {
+      // Commands live behind the official Typert registry (the ApiProxy has
+      // no `commands` domain). Dispatch them through the gateway when it is
       // available; without it the method stays denied (fail-closed).
       if (typertGateway === undefined) continue
+      const [namespace, commandMethod] = method.split('.') as [string, string]
       const implementation: NativeMethod = async (request, signal) => {
-        const args = permissionCommandSchema.parse(request.payload)
-        const [namespace, commandMethod] = method.split('.') as [string, string]
+        if (commandMethod === 'execute') {
+          const args = commandExecuteSchema.parse(request.payload)
+          assertRemoteCommandAllowed(args.line)
+          const value = await typertGateway.invoke({
+            namespace,
+            method: 'execute',
+            args,
+            ...(signal === undefined ? {} : { signal }),
+          })
+          return { rpcId: request.rpcId, result: { ok: true, value } }
+        }
+        const args = commandListSchema.parse(request.payload)
         const value = await typertGateway.invoke({
           namespace,
-          method: commandMethod,
+          method: 'list',
           args,
           ...(signal === undefined ? {} : { signal }),
         })
@@ -371,6 +399,17 @@ function domainProperty(wireDomain: string): string {
 
 function deniedMethod(method: string): RpcError {
   return new RpcError('METHOD_NOT_ALLOWED', `Harness API method ${JSON.stringify(method)} is not available in remote mode.`)
+}
+
+function assertRemoteCommandAllowed(line: string): void {
+  const match = commandLinePattern.exec(line)
+  const name = match === null ? undefined : match[1]
+  if (name === undefined) {
+    throw new RpcError('METHOD_NOT_ALLOWED', 'Only whitelisted slash commands are available in remote mode.')
+  }
+  if (!(REMOTE_COMMAND_NAMES as readonly string[]).includes(name)) {
+    throw new RpcError('METHOD_NOT_ALLOWED', `Command /${name} is not available in remote mode.`)
+  }
 }
 
 function diagnosticReason(error: unknown): string {
