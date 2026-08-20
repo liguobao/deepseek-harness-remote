@@ -18,6 +18,7 @@
     "android": {
       "package": "io.github.liguobao.dshremote",
       "versionCode": 8,
+      "softwareKeyboardLayoutMode": "resize",
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW"
       ],
