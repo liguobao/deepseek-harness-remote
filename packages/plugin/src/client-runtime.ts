@@ -1,6 +1,6 @@
 import type { ApiProxy, RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RemoteClientCore } from '@dsh-remote/client-core'
-import { AdaptiveTransport } from '@dsh-remote/webrtc'
+import { AdaptiveTransport, type RtcPeerConnectionFactory } from '@dsh-remote/webrtc'
 import { ApiProxySwitch, type HarnessMode } from './api-proxy-switch.js'
 import { ClientSecureTransport } from './client-secure-transport.js'
 import type { ResolvedConfig } from './config.js'
@@ -11,10 +11,12 @@ import type { SafeLogger } from './logging.js'
 import { RemoteHarnessApiProxy } from './remote-api-proxy.js'
 import { ClientServerApi, ServerApiError, type AuthorizedPeerDevice, type ServerHostDevice } from './server-api.js'
 import { TypertGatewaySwitch } from './typert-gateway-switch.js'
+import { loadWeriftFactory } from './werift-rtc.js'
 
 interface ConnectedRemote {
   client: RemoteClientCore
   target: TrustedPeer
+  transport: AdaptiveTransport
 }
 
 export interface RemoteDirectoryEntry {
@@ -92,6 +94,7 @@ export class ClientModeRuntime {
     typertGateway: TypertGatewayLike,
     private readonly logger: SafeLogger,
     private readonly host?: HostAuthorizationControl,
+    private readonly rtcFactoryProvider: () => Promise<RtcPeerConnectionFactory | undefined> = loadWeriftFactory,
   ) {
     this.proxySwitch = new ApiProxySwitch(apiProxy)
     this.gatewaySwitch = new TypertGatewaySwitch(typertGateway)
@@ -126,6 +129,29 @@ export class ClientModeRuntime {
       transport: this.connected?.client.getStats().mode ?? 'Disconnected',
       hostAuthorizationAvailable: this.host !== undefined,
       ...(this.host === undefined ? {} : { host: this.host.hostStatus() }),
+    }
+  }
+
+  private async detailedStatus(): Promise<Record<string, unknown>> {
+    const connected = this.connected
+    if (connected === undefined || this.identity === undefined) return this.status()
+    const details = await connected.transport.connectionDetails()
+    if (this.connected !== connected) return this.status()
+    return {
+      ...this.status(),
+      network: {
+        ...details,
+        local: {
+          deviceId: this.identity.deviceId,
+          name: this.identity.name,
+          platform: process.platform,
+        },
+        remote: {
+          deviceId: connected.target.deviceId,
+          name: connected.target.name,
+          platform: connected.target.platform,
+        },
+      },
     }
   }
 
@@ -276,19 +302,49 @@ export class ClientModeRuntime {
     const presence = await this.server.presenceFor(targetDeviceId)
     if (!presence.online) throw new ClientModeError('HOST_OFFLINE', 'The selected Host is offline.', true)
     const credentials = await this.server.authenticate(identity)
-    const transport = new AdaptiveTransport(websocketUrl(this.server.baseUrl), {
-      role: 'client',
-      deviceId: identity.deviceId,
-      accessToken: credentials.accessToken,
-      targetDeviceId,
-      forceRelay: this.config.forceRelay,
-      preferredTransports: this.config.forceRelay ? ['relay'] : ['p2p', 'turn', 'relay'],
-      fetchIceServers: async connectionId => this.server.turnCredentials(connectionId),
-    })
-    const client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 60_000)
+    const rtcFactory = this.config.forceRelay
+      ? undefined
+      : await this.rtcFactoryProvider().catch(() => undefined)
+    let webRtcFallback = false
+    const createTransport = (relayOnly: boolean): AdaptiveTransport => new AdaptiveTransport(
+      websocketUrl(this.server.baseUrl),
+      {
+        role: 'client',
+        deviceId: identity.deviceId,
+        accessToken: credentials.accessToken,
+        targetDeviceId,
+        forceRelay: this.config.forceRelay || relayOnly,
+        preferredTransports: this.config.forceRelay || relayOnly ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
+        ...(rtcFactory === undefined || relayOnly ? {} : { rtcFactory }),
+        fetchIceServers: async connectionId => this.server.turnCredentials(connectionId),
+        onWebRtcFallback: error => {
+          webRtcFallback = true
+          this.logger.warn('remote Harness WebRTC failed; using relay', {
+            targetDeviceId: shortId(target.deviceId),
+            reason: diagnosticReason(error),
+          })
+        },
+      },
+    )
+    let transport = createTransport(false)
+    let client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 60_000)
     try {
       await client.connect()
       signal?.throwIfAborted()
+      if (webRtcFallback) {
+        // Older Hosts can keep the timed-out RTC responder attached to this
+        // logical connection and later tear down an already-working Relay
+        // channel. Reconnect with a fresh Relay-only connection id so fallback
+        // remains compatible without requiring a coordinated Host upgrade.
+        await client.close()
+        transport = createTransport(true)
+        client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 60_000)
+        await client.connect()
+        signal?.throwIfAborted()
+        this.logger.info('remote Harness relay fallback re-established', {
+          targetDeviceId: shortId(target.deviceId),
+        })
+      }
       client.onClose(() => {
         if (this.connected?.client !== client) return
         this.connected = undefined
@@ -299,7 +355,11 @@ export class ClientModeRuntime {
           targetDeviceId: shortId(target.deviceId),
         })
       })
-      return { client, target }
+      this.logger.info('remote Harness transport ready', {
+        targetDeviceId: shortId(target.deviceId),
+        transport: client.getStats().mode,
+      })
+      return { client, target, transport }
     } catch (error) {
       await client.close().catch(() => undefined)
       throw error
@@ -317,7 +377,7 @@ export class ClientModeRuntime {
 
   async handleControl(endpoint: string, payload: unknown, signal: AbortSignal): Promise<RpcResult<unknown>> {
     try {
-      if (endpoint === 'status') return ok(this.status())
+      if (endpoint === 'status') return ok(await this.detailedStatus())
       if (endpoint === 'devices') return ok(await this.devices())
       if (endpoint === 'client.account.login') {
         const value = record(payload)
@@ -494,3 +554,9 @@ function fail(error: unknown): RpcResult<unknown> {
 }
 
 function shortId(value: string): string { return value.length <= 12 ? value : `${value.slice(0, 8)}…${value.slice(-4)}` }
+
+function diagnosticReason(error: Error): string {
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : undefined
+  const message = error.message.replace(/[\r\n\t]+/g, ' ').slice(0, 240)
+  return code === undefined ? message : `${code}: ${message}`
+}

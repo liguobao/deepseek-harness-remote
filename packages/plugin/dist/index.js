@@ -4803,6 +4803,7 @@ var RtcDataChannelTransport = class {
   bytesSent = 0;
   bytesReceived = 0;
   selected;
+  selectedMode;
   lastBufferedAmount = 0;
   constructor(options) {
     this.role = options.role;
@@ -4879,10 +4880,27 @@ var RtcDataChannelTransport = class {
   selectedTransport() {
     return this.selected;
   }
+  selectedPathMode() {
+    return this.selectedMode;
+  }
+  async connectionDetails() {
+    let statsDetails = {};
+    try {
+      statsDetails = inspectSelectedPath(await this.pc.getStats());
+    } catch {
+    }
+    return {
+      ...statsDetails,
+      mode: statsDetails.mode ?? this.selectedMode,
+      connectionState: this.pc.connectionState,
+      iceConnectionState: this.pc.iceConnectionState,
+      dataChannelState: this.channel?.readyState
+    };
+  }
   getStats() {
     const connected = this.channel?.readyState === "open";
     return {
-      mode: !connected ? "Disconnected" : this.selected === "turn" ? "TURN" : "P2P",
+      mode: !connected ? "Disconnected" : this.selectedMode ?? (this.selected === "turn" ? "TURN" : "P2P"),
       connected,
       bytesSent: this.bytesSent,
       bytesReceived: this.bytesReceived
@@ -5043,9 +5061,12 @@ var RtcDataChannelTransport = class {
   }
   async resolveSelectedTransport() {
     try {
-      this.selected = detectSelectedTransport(await this.pc.getStats());
+      const selected = inspectSelectedPath(await this.pc.getStats());
+      this.selected = selected?.transport;
+      this.selectedMode = selected?.mode;
     } catch {
       this.selected = void 0;
+      this.selectedMode = void 0;
     }
   }
   checkConnectionState() {
@@ -5119,28 +5140,73 @@ var RtcConnectError = class extends Error {
     this.code = code;
   }
 };
-function detectSelectedTransport(stats) {
-  const candidateTypes = /* @__PURE__ */ new Map();
+function inspectSelectedPath(stats) {
+  const candidates = /* @__PURE__ */ new Map();
+  const candidatePairs = /* @__PURE__ */ new Map();
   const selectedPairs = [];
-  for (const [, entry] of stats) {
+  const selectedPairIds = /* @__PURE__ */ new Set();
+  for (const [reportId, entry] of stats) {
     if (entry.type === "local-candidate" || entry.type === "remote-candidate") {
       if (typeof entry.candidateType === "string" && entry.id !== void 0) {
-        candidateTypes.set(String(entry.id), entry.candidateType);
+        candidates.set(String(entry.id), entry);
       }
-    } else if (entry.type === "candidate-pair" || entry.type === "transport") {
+    } else if (entry.type === "candidate-pair") {
+      candidatePairs.set(String(entry.id ?? reportId), entry);
       if (entry.selected === true || entry.nominated === true)
         selectedPairs.push(entry);
+    } else if (entry.type === "transport" && typeof entry.selectedCandidatePairId === "string") {
+      selectedPairIds.add(entry.selectedCandidatePairId);
     }
   }
-  for (const pair of selectedPairs) {
-    const local = candidateTypes.get(String(pair.localCandidateId));
-    const remote = candidateTypes.get(String(pair.remoteCandidateId));
-    if (local === "relay" || remote === "relay")
-      return "turn";
-    if (local !== void 0 || remote !== void 0)
-      return "p2p";
+  const pairs = [
+    ...[...selectedPairIds].map((id) => candidatePairs.get(id)).filter((pair) => pair !== void 0),
+    ...selectedPairs
+  ];
+  for (const pair of pairs) {
+    const local = candidates.get(String(pair.localCandidateId));
+    const remote = candidates.get(String(pair.remoteCandidateId));
+    const localType = local?.candidateType;
+    const remoteType = remote?.candidateType;
+    let selected;
+    if (localType === "relay" || remoteType === "relay")
+      selected = { transport: "turn", mode: "TURN" };
+    if (local === void 0 && remote === void 0)
+      continue;
+    selected ??= {
+      transport: "p2p",
+      mode: localType === "host" && remoteType === "host" ? "LAN" : "P2P"
+    };
+    const currentRoundTripTime = numberStat(pair, "currentRoundTripTime");
+    return {
+      ...selected,
+      localCandidateType: stringStat(local, "candidateType"),
+      remoteCandidateType: stringStat(remote, "candidateType"),
+      localAddress: candidateAddress(local),
+      remoteAddress: candidateAddress(remote),
+      protocol: stringStat(local, "protocol") ?? stringStat(remote, "protocol"),
+      relayProtocol: stringStat(local, "relayProtocol") ?? stringStat(remote, "relayProtocol"),
+      currentRoundTripTimeMs: currentRoundTripTime === void 0 ? void 0 : Math.round(currentRoundTripTime * 1e3),
+      availableOutgoingBitrate: numberStat(pair, "availableOutgoingBitrate"),
+      bytesSent: numberStat(pair, "bytesSent"),
+      bytesReceived: numberStat(pair, "bytesReceived")
+    };
   }
-  return void 0;
+  return {};
+}
+function candidateAddress(candidate) {
+  const address = stringStat(candidate, "address") ?? stringStat(candidate, "ip");
+  if (address === void 0)
+    return void 0;
+  const port = numberStat(candidate, "port");
+  return port === void 0 ? address : `${address}:${port}`;
+}
+function stringStat(entry, key) {
+  const value = entry?.[key];
+  return typeof value === "string" && value.length > 0 ? value : void 0;
+}
+function numberStat(entry, key) {
+  const value = entry?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
 }
 function requireSdp(description) {
   if (typeof description.sdp !== "string" || description.sdp.length === 0) {
@@ -5159,7 +5225,7 @@ function asError(error) {
 
 // ../webrtc/dist/adaptive-transport.js
 var DEFAULT_CAPABILITIES = ["transport.p2p", "transport.turn", "transport.relay", "harness.api.v1"];
-var DEFAULT_PREFERRED_TRANSPORTS = ["p2p", "turn", "relay"];
+var DEFAULT_PREFERRED_TRANSPORTS = ["lan", "p2p", "turn", "relay"];
 var AdaptiveTransport = class extends BaseTransport {
   url;
   options;
@@ -5177,6 +5243,7 @@ var AdaptiveTransport = class extends BaseTransport {
   handshakeTimer;
   webrtcEnabled = true;
   serverNegotiateTimeoutMs;
+  connectedAt;
   constructor(url, options) {
     super();
     this.url = url;
@@ -5246,6 +5313,16 @@ var AdaptiveTransport = class extends BaseTransport {
       remoteDeviceId: this.options.targetDeviceId
     };
   }
+  async connectionDetails() {
+    return {
+      ...this.connectionId === void 0 ? {} : { connectionId: this.connectionId },
+      ...this.connectedAt === void 0 ? {} : { connectedAt: this.connectedAt },
+      controlChannelUrl: this.url,
+      controlChannelState: socketState(this.socket?.readyState),
+      preferredTransports: this.options.forceRelay === true ? ["relay"] : [...this.options.preferredTransports ?? DEFAULT_PREFERRED_TRANSPORTS],
+      ...this.rtc === void 0 ? {} : { webRtc: await this.rtc.connectionDetails() }
+    };
+  }
   async sendHandshake(step, data) {
     if (this.socket?.readyState !== WebSocket.OPEN || this.connectionId === void 0) {
       throw new Error("adaptive transport has not been authorized");
@@ -5276,10 +5353,9 @@ var AdaptiveTransport = class extends BaseTransport {
     let mode = "Disconnected";
     if (this.selected === "relay")
       mode = relayConnected ? "Relay" : "Disconnected";
-    else if (this.selected === "turn")
-      mode = webrtcConnected ? "TURN" : "Disconnected";
-    else if (this.selected === "p2p")
-      mode = webrtcConnected ? "P2P" : "Disconnected";
+    else if (this.selected === "turn" || this.selected === "p2p") {
+      mode = webrtcConnected ? this.rtc.getStats().mode : "Disconnected";
+    }
     return { mode, connected, bytesSent: this.bytesSent, bytesReceived: this.bytesReceived };
   }
   async handleSocketMessage(raw) {
@@ -5365,14 +5441,19 @@ var AdaptiveTransport = class extends BaseTransport {
     if (this.connectionId === void 0)
       return;
     const preferred = this.options.preferredTransports ?? [...DEFAULT_PREFERRED_TRANSPORTS];
-    const wantWebRtc = !this.options.forceRelay && this.webrtcEnabled && (preferred.includes("p2p") || preferred.includes("turn"));
+    const wantWebRtc = !this.options.forceRelay && this.webrtcEnabled && (preferred.includes("lan") || preferred.includes("p2p") || preferred.includes("turn"));
     let selected = "relay";
     if (wantWebRtc) {
       try {
         const rtcSelected = await this.tryWebRtc();
         this.dataMode = "webrtc";
         selected = rtcSelected;
-      } catch {
+      } catch (error) {
+        const reason = error instanceof Error ? error : new Error("WebRTC negotiation failed.");
+        try {
+          this.options.onWebRtcFallback?.(reason);
+        } catch {
+        }
         await this.rtc?.close();
         this.rtc = void 0;
         this.dataMode = "relay";
@@ -5457,6 +5538,7 @@ var AdaptiveTransport = class extends BaseTransport {
   }
   finishConnection() {
     this.clearHandshake();
+    this.connectedAt ??= Date.now();
     this.readyResolve?.();
     this.readyResolve = void 0;
     this.readyReject = void 0;
@@ -5486,6 +5568,15 @@ function adaptiveControlCloseError(event) {
 }
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function socketState(readyState) {
+  if (readyState === 0)
+    return "connecting";
+  if (readyState === 1)
+    return "open";
+  if (readyState === 2)
+    return "closing";
+  return "closed";
 }
 
 // src/api-proxy-switch.ts
@@ -13396,14 +13487,208 @@ function isRemoteCommandMethod(method) {
   return REMOTE_COMMAND_METHODS.includes(method);
 }
 
+// src/werift-rtc.ts
+import { networkInterfaces } from "node:os";
+var cachedFactory;
+async function loadWeriftFactory() {
+  if (cachedFactory !== void 0) return cachedFactory;
+  try {
+    const werift = await import("werift");
+    cachedFactory = buildWeriftFactory(werift);
+    return cachedFactory;
+  } catch {
+    return void 0;
+  }
+}
+function buildWeriftFactory(werift) {
+  return {
+    create(configuration) {
+      const hostIpv4 = detectHostIpv4();
+      const raw = new werift.RTCPeerConnection({
+        iceServers: configuration.iceServers ?? [],
+        iceUseIpv6: false,
+        iceUseLinkLocalAddress: false,
+        ...hostIpv4 === void 0 ? {} : { iceInterfaceAddresses: { udp4: hostIpv4 } }
+      });
+      let onIceCandidate = null;
+      let onDataChannel = null;
+      raw.onicecandidate = (event) => {
+        if (onIceCandidate === null) return;
+        onIceCandidate({ candidate: event.candidate === void 0 ? null : event.candidate.toJSON() });
+      };
+      raw.ondatachannel = (event) => {
+        if (onDataChannel === null) return;
+        onDataChannel({ channel: adaptDataChannel2(event.channel) });
+      };
+      const pc = {
+        get connectionState() {
+          return raw.connectionState;
+        },
+        get iceConnectionState() {
+          return raw.iceConnectionState;
+        },
+        get iceGatheringState() {
+          return raw.iceGatheringState;
+        },
+        get signalingState() {
+          return raw.signalingState;
+        },
+        set onconnectionstatechange(value) {
+          raw.onconnectionstatechange = value;
+        },
+        get onconnectionstatechange() {
+          return raw.onconnectionstatechange;
+        },
+        set oniceconnectionstatechange(value) {
+          raw.oniceconnectionstatechange = value;
+        },
+        get oniceconnectionstatechange() {
+          return raw.oniceconnectionstatechange;
+        },
+        set onicegatheringstatechange(value) {
+          raw.onicegatheringstatechange = value;
+        },
+        get onicegatheringstatechange() {
+          return raw.onicegatheringstatechange;
+        },
+        set onicecandidate(value) {
+          onIceCandidate = value;
+        },
+        get onicecandidate() {
+          return onIceCandidate;
+        },
+        set ondatachannel(value) {
+          onDataChannel = value;
+        },
+        get ondatachannel() {
+          return onDataChannel;
+        },
+        createDataChannel(label, options) {
+          return adaptDataChannel2(raw.createDataChannel(label, { ordered: options?.ordered ?? true }));
+        },
+        createOffer() {
+          return raw.createOffer();
+        },
+        createAnswer() {
+          return raw.createAnswer();
+        },
+        setLocalDescription(description) {
+          return raw.setLocalDescription(description).then(() => void 0);
+        },
+        setRemoteDescription(description) {
+          return raw.setRemoteDescription(description);
+        },
+        addIceCandidate(candidate) {
+          return raw.addIceCandidate(candidate);
+        },
+        getStats() {
+          return raw.getStats();
+        },
+        close() {
+          void raw.close().catch(() => void 0);
+        }
+      };
+      return pc;
+    }
+  };
+}
+function adaptDataChannel2(raw) {
+  return {
+    get label() {
+      return raw.label;
+    },
+    get ordered() {
+      return raw.ordered;
+    },
+    get readyState() {
+      return raw.readyState;
+    },
+    get bufferedAmount() {
+      return raw.bufferedAmount;
+    },
+    binaryType: "arraybuffer",
+    set onopen(value) {
+      raw.onopen = value;
+    },
+    get onopen() {
+      return raw.onopen;
+    },
+    set onmessage(value) {
+      raw.onmessage = value === null ? null : (event) => value({ data: toArrayBuffer2(event.data) });
+    },
+    get onmessage() {
+      return null;
+    },
+    set onclose(value) {
+      raw.onclose = value;
+    },
+    get onclose() {
+      return raw.onclose;
+    },
+    set onerror(value) {
+      raw.onerror = value;
+    },
+    get onerror() {
+      return raw.onerror;
+    },
+    onbufferedamountlow: null,
+    send(data) {
+      const bytes = typeof data === "string" ? Buffer.byteLength(data) : data.byteLength;
+      try {
+        raw.send(typeof data === "string" ? data : Buffer.from(data));
+      } catch (error) {
+        console.error("[werift-send-error] bytes=" + bytes, error instanceof Error ? error.message : error);
+        throw error;
+      }
+    },
+    close() {
+      raw.close();
+    }
+  };
+}
+function toArrayBuffer2(data) {
+  if (typeof data === "string") return data;
+  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+}
+function detectHostIpv4() {
+  const preferred = [];
+  const fallback = [];
+  for (const [name2, addresses] of Object.entries(networkInterfaces())) {
+    if (isVirtualInterface(name2)) continue;
+    for (const address of addresses ?? []) {
+      if (address.internal || address.family !== "IPv4") continue;
+      const ip = address.address;
+      if (ip.startsWith("127.") || ip.startsWith("169.254.") || isCgnat(ip)) continue;
+      if (isPrivate(ip)) preferred.push(ip);
+      else fallback.push(ip);
+    }
+  }
+  return preferred[0] ?? fallback[0];
+}
+function isVirtualInterface(name2) {
+  return /^(utun|ppp|bridge|awdl|llw|gif|stf|anpi|ap\d|en[1-9]\d*$)/i.test(name2);
+}
+function isCgnat(ip) {
+  const parts = ip.split(".").map(Number);
+  return parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
+}
+function isPrivate(ip) {
+  const parts = ip.split(".").map(Number);
+  if (parts.length !== 4) return false;
+  if (parts[0] === 10) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  return parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31;
+}
+
 // src/client-runtime.ts
 var ClientModeRuntime = class {
-  constructor(config, identities, server, apiProxy, typertGateway, logger, host) {
+  constructor(config, identities, server, apiProxy, typertGateway, logger, host, rtcFactoryProvider = loadWeriftFactory) {
     this.config = config;
     this.identities = identities;
     this.server = server;
     this.logger = logger;
     this.host = host;
+    this.rtcFactoryProvider = rtcFactoryProvider;
     this.proxySwitch = new ApiProxySwitch(apiProxy);
     this.gatewaySwitch = new TypertGatewaySwitch(typertGateway);
   }
@@ -13439,6 +13724,28 @@ var ClientModeRuntime = class {
       transport: this.connected?.client.getStats().mode ?? "Disconnected",
       hostAuthorizationAvailable: this.host !== void 0,
       ...this.host === void 0 ? {} : { host: this.host.hostStatus() }
+    };
+  }
+  async detailedStatus() {
+    const connected = this.connected;
+    if (connected === void 0 || this.identity === void 0) return this.status();
+    const details = await connected.transport.connectionDetails();
+    if (this.connected !== connected) return this.status();
+    return {
+      ...this.status(),
+      network: {
+        ...details,
+        local: {
+          deviceId: this.identity.deviceId,
+          name: this.identity.name,
+          platform: process.platform
+        },
+        remote: {
+          deviceId: connected.target.deviceId,
+          name: connected.target.name,
+          platform: connected.target.platform
+        }
+      }
     };
   }
   async devices() {
@@ -13577,19 +13884,43 @@ var ClientModeRuntime = class {
     const presence = await this.server.presenceFor(targetDeviceId);
     if (!presence.online) throw new ClientModeError("HOST_OFFLINE", "The selected Host is offline.", true);
     const credentials = await this.server.authenticate(identity);
-    const transport = new AdaptiveTransport(websocketUrl(this.server.baseUrl), {
-      role: "client",
-      deviceId: identity.deviceId,
-      accessToken: credentials.accessToken,
-      targetDeviceId,
-      forceRelay: this.config.forceRelay,
-      preferredTransports: this.config.forceRelay ? ["relay"] : ["p2p", "turn", "relay"],
-      fetchIceServers: async (connectionId) => this.server.turnCredentials(connectionId)
-    });
-    const client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 6e4);
+    const rtcFactory = this.config.forceRelay ? void 0 : await this.rtcFactoryProvider().catch(() => void 0);
+    let webRtcFallback = false;
+    const createTransport = (relayOnly) => new AdaptiveTransport(
+      websocketUrl(this.server.baseUrl),
+      {
+        role: "client",
+        deviceId: identity.deviceId,
+        accessToken: credentials.accessToken,
+        targetDeviceId,
+        forceRelay: this.config.forceRelay || relayOnly,
+        preferredTransports: this.config.forceRelay || relayOnly ? ["relay"] : ["lan", "p2p", "turn", "relay"],
+        ...rtcFactory === void 0 || relayOnly ? {} : { rtcFactory },
+        fetchIceServers: async (connectionId) => this.server.turnCredentials(connectionId),
+        onWebRtcFallback: (error) => {
+          webRtcFallback = true;
+          this.logger.warn("remote Harness WebRTC failed; using relay", {
+            targetDeviceId: shortId(target.deviceId),
+            reason: diagnosticReason(error)
+          });
+        }
+      }
+    );
+    let transport = createTransport(false);
+    let client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 6e4);
     try {
       await client.connect();
       signal?.throwIfAborted();
+      if (webRtcFallback) {
+        await client.close();
+        transport = createTransport(true);
+        client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 6e4);
+        await client.connect();
+        signal?.throwIfAborted();
+        this.logger.info("remote Harness relay fallback re-established", {
+          targetDeviceId: shortId(target.deviceId)
+        });
+      }
       client.onClose(() => {
         if (this.connected?.client !== client) return;
         this.connected = void 0;
@@ -13600,7 +13931,11 @@ var ClientModeRuntime = class {
           targetDeviceId: shortId(target.deviceId)
         });
       });
-      return { client, target };
+      this.logger.info("remote Harness transport ready", {
+        targetDeviceId: shortId(target.deviceId),
+        transport: client.getStats().mode
+      });
+      return { client, target, transport };
     } catch (error) {
       await client.close().catch(() => void 0);
       throw error;
@@ -13616,7 +13951,7 @@ var ClientModeRuntime = class {
   }
   async handleControl(endpoint, payload, signal) {
     try {
-      if (endpoint === "status") return ok(this.status());
+      if (endpoint === "status") return ok(await this.detailedStatus());
       if (endpoint === "devices") return ok(await this.devices());
       if (endpoint === "client.account.login") {
         const value = record(payload);
@@ -13775,6 +14110,11 @@ function fail(error) {
 }
 function shortId(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
+}
+function diagnosticReason(error) {
+  const code = "code" in error && typeof error.code === "string" ? error.code : void 0;
+  const message = error.message.replace(/[\r\n\t]+/g, " ").slice(0, 240);
+  return code === void 0 ? message : `${code}: ${message}`;
 }
 
 // src/control-runtime.ts
@@ -14396,7 +14736,7 @@ var ConnectionController = class {
     } catch (error) {
       this.logger?.warn("peer message handling failed; disconnecting", {
         peerDeviceId: shortId2(connection.channel.peerDeviceId),
-        reason: diagnosticReason(error)
+        reason: diagnosticReason2(error)
       });
       await this.disconnect(connection);
     }
@@ -14414,7 +14754,7 @@ var ConnectionController = class {
       this.logger?.warn("peer send failed; disconnecting", {
         peerDeviceId: shortId2(connection.channel.peerDeviceId),
         messageType: message.type,
-        reason: diagnosticReason(error)
+        reason: diagnosticReason2(error)
       });
       await this.disconnect(connection);
     }
@@ -14444,7 +14784,7 @@ var ConnectionRejectedError = class extends Error {
     this.code = code;
   }
 };
-function diagnosticReason(error) {
+function diagnosticReason2(error) {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/[\r\n]+/g, " ").slice(0, 160) || "Unknown peer connection failure.";
 }
@@ -14500,7 +14840,7 @@ var RpcRouter = class {
         durationMs: Math.round(performance.now() - startedAt),
         code: response.payload.code,
         retryable: response.payload.retryable,
-        reason: diagnosticReason2(error)
+        reason: diagnosticReason3(error)
       });
       return response;
     } finally {
@@ -14535,7 +14875,7 @@ function errorResponse(requestId, error) {
   if (error instanceof external_exports.ZodError) return createRpcError(requestId, "INVALID_MESSAGE", "The RPC parameters are invalid.");
   return createRpcError(requestId, "INTERNAL_ERROR", "The Host could not complete the request.");
 }
-function diagnosticReason2(error) {
+function diagnosticReason3(error) {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/[\r\n]+/g, " ").slice(0, 160) || "Unknown Host request failure.";
 }
@@ -14701,7 +15041,7 @@ var HostServerConnection = class {
           this.terminalError = code;
           this.logger.error("server control frame failed", {
             code,
-            reason: diagnosticReason3(error)
+            reason: diagnosticReason4(error)
           });
           socket.close(4008, "invalid control frame");
         });
@@ -14850,7 +15190,7 @@ var HostServerConnection = class {
     if (!tunnel.noise.complete) throw new ControlConnectionError("SECURE_CHANNEL_FAILED", "Noise IK handshake did not complete.");
     const viaWebRtc = tunnel.rtc !== void 0 && (tunnel.transport === "p2p" || tunnel.transport === "turn");
     if (!viaWebRtc && tunnel.transport === "negotiating") tunnel.transport = "relay";
-    const mode = viaWebRtc ? tunnel.transport === "turn" ? "TURN" : "P2P" : "Relay";
+    const mode = viaWebRtc ? tunnel.transportMode ?? (tunnel.transport === "turn" ? "TURN" : "P2P") : "Relay";
     const transmit = viaWebRtc ? (ciphertext) => tunnel.rtc.send(ciphertext) : (ciphertext) => this.sendRelay(tunnel, ciphertext);
     const channel = new ServerNoiseChannel(tunnel, transmit, () => {
       if (this.tunnels.get(tunnel.connectionId) === tunnel) this.tunnels.delete(tunnel.connectionId);
@@ -14960,19 +15300,20 @@ var HostServerConnection = class {
   handleRtcOpened(tunnel, selected) {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc === void 0) return;
     tunnel.transport = selected;
+    tunnel.transportMode = tunnel.rtc.selectedPathMode();
     this.sendTransportSelected(tunnel, selected);
     this.logger.info("webrtc data channel ready", {
       connectionId: shortId3(tunnel.connectionId),
       peerDeviceId: shortId3(tunnel.peer.deviceId),
-      transport: selected
+      transport: tunnel.transportMode ?? selected
     });
   }
   async handleRtcFailed(tunnel, rtc, error) {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc !== rtc) return;
-    if (tunnel.channel !== void 0 || tunnel.transport === "p2p" || tunnel.transport === "turn") {
+    if (tunnel.transport === "p2p" || tunnel.transport === "turn") {
       this.logger.warn("webrtc data channel failed; disconnecting peer", {
         connectionId: shortId3(tunnel.connectionId),
-        reason: diagnosticReason3(error)
+        reason: diagnosticReason4(error)
       });
       await this.dropTunnel(tunnel.connectionId, "CONNECTION_FAILED");
       return;
@@ -14982,7 +15323,7 @@ var HostServerConnection = class {
     await rtc.close();
     this.logger.warn("webrtc negotiation failed; falling back to relay", {
       connectionId: shortId3(tunnel.connectionId),
-      reason: diagnosticReason3(error)
+      reason: diagnosticReason4(error)
     });
   }
   sendTransportSelected(tunnel, transport) {
@@ -15026,7 +15367,7 @@ var HostServerConnection = class {
     } catch (error) {
       this.logger.warn("remote connection RTC cleanup failed", {
         connectionId: shortId3(connectionId),
-        reason: diagnosticReason3(error)
+        reason: diagnosticReason4(error)
       });
     }
     if (tunnel.channel !== void 0) {
@@ -15037,7 +15378,7 @@ var HostServerConnection = class {
         await tunnel.channel.close(code).catch(() => void 0);
         this.logger.warn("remote connection channel cleanup failed", {
           connectionId: shortId3(connectionId),
-          reason: diagnosticReason3(error)
+          reason: diagnosticReason4(error)
         });
       }
     } else {
@@ -15205,7 +15546,7 @@ function shortId3(value) {
 function asError2(error) {
   return error instanceof Error ? error : new Error("Unknown Server connection error.");
 }
-function diagnosticReason3(error) {
+function diagnosticReason4(error) {
   const message = asError2(error).message.replace(/[\r\n]+/g, " ").slice(0, 160);
   return message || "Unknown Server connection error.";
 }
@@ -15395,7 +15736,7 @@ var HarnessApiBridge = class {
         method: params.method,
         durationMs,
         timedOut: signal.aborted,
-        reason: diagnosticReason4(error)
+        reason: diagnosticReason5(error)
       });
       throw error;
     }
@@ -15539,7 +15880,7 @@ function domainProperty(wireDomain) {
 function deniedMethod(method) {
   return new RpcError("METHOD_NOT_ALLOWED", `Harness API method ${JSON.stringify(method)} is not available in remote mode.`);
 }
-function diagnosticReason4(error) {
+function diagnosticReason5(error) {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/[\r\n]+/g, " ").slice(0, 160) || "Unknown Harness API failure.";
 }
@@ -15616,199 +15957,6 @@ function withTimeout(promise, ms, message) {
 }
 function shortId4(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
-}
-
-// src/werift-rtc.ts
-import { networkInterfaces } from "node:os";
-var cachedFactory;
-async function loadWeriftFactory() {
-  if (cachedFactory !== void 0) return cachedFactory;
-  try {
-    const werift = await import("werift");
-    cachedFactory = buildWeriftFactory(werift);
-    return cachedFactory;
-  } catch {
-    return void 0;
-  }
-}
-function buildWeriftFactory(werift) {
-  return {
-    create(configuration) {
-      const hostIpv4 = detectHostIpv4();
-      const raw = new werift.RTCPeerConnection({
-        iceServers: configuration.iceServers ?? [],
-        iceUseIpv6: false,
-        iceUseLinkLocalAddress: false,
-        ...hostIpv4 === void 0 ? {} : { iceInterfaceAddresses: { udp4: hostIpv4 } }
-      });
-      let onIceCandidate = null;
-      let onDataChannel = null;
-      raw.onicecandidate = (event) => {
-        if (onIceCandidate === null) return;
-        onIceCandidate({ candidate: event.candidate === void 0 ? null : event.candidate.toJSON() });
-      };
-      raw.ondatachannel = (event) => {
-        if (onDataChannel === null) return;
-        onDataChannel({ channel: adaptDataChannel2(event.channel) });
-      };
-      const pc = {
-        get connectionState() {
-          return raw.connectionState;
-        },
-        get iceConnectionState() {
-          return raw.iceConnectionState;
-        },
-        get iceGatheringState() {
-          return raw.iceGatheringState;
-        },
-        get signalingState() {
-          return raw.signalingState;
-        },
-        set onconnectionstatechange(value) {
-          raw.onconnectionstatechange = value;
-        },
-        get onconnectionstatechange() {
-          return raw.onconnectionstatechange;
-        },
-        set oniceconnectionstatechange(value) {
-          raw.oniceconnectionstatechange = value;
-        },
-        get oniceconnectionstatechange() {
-          return raw.oniceconnectionstatechange;
-        },
-        set onicegatheringstatechange(value) {
-          raw.onicegatheringstatechange = value;
-        },
-        get onicegatheringstatechange() {
-          return raw.onicegatheringstatechange;
-        },
-        set onicecandidate(value) {
-          onIceCandidate = value;
-        },
-        get onicecandidate() {
-          return onIceCandidate;
-        },
-        set ondatachannel(value) {
-          onDataChannel = value;
-        },
-        get ondatachannel() {
-          return onDataChannel;
-        },
-        createDataChannel(label, options) {
-          return adaptDataChannel2(raw.createDataChannel(label, { ordered: options?.ordered ?? true }));
-        },
-        createOffer() {
-          return raw.createOffer();
-        },
-        createAnswer() {
-          return raw.createAnswer();
-        },
-        setLocalDescription(description) {
-          return raw.setLocalDescription(description).then(() => void 0);
-        },
-        setRemoteDescription(description) {
-          return raw.setRemoteDescription(description);
-        },
-        addIceCandidate(candidate) {
-          return raw.addIceCandidate(candidate);
-        },
-        getStats() {
-          return raw.getStats();
-        },
-        close() {
-          void raw.close().catch(() => void 0);
-        }
-      };
-      return pc;
-    }
-  };
-}
-function adaptDataChannel2(raw) {
-  return {
-    get label() {
-      return raw.label;
-    },
-    get ordered() {
-      return raw.ordered;
-    },
-    get readyState() {
-      return raw.readyState;
-    },
-    get bufferedAmount() {
-      return raw.bufferedAmount;
-    },
-    binaryType: "arraybuffer",
-    set onopen(value) {
-      raw.onopen = value;
-    },
-    get onopen() {
-      return raw.onopen;
-    },
-    set onmessage(value) {
-      raw.onmessage = value === null ? null : (event) => value({ data: toArrayBuffer2(event.data) });
-    },
-    get onmessage() {
-      return null;
-    },
-    set onclose(value) {
-      raw.onclose = value;
-    },
-    get onclose() {
-      return raw.onclose;
-    },
-    set onerror(value) {
-      raw.onerror = value;
-    },
-    get onerror() {
-      return raw.onerror;
-    },
-    onbufferedamountlow: null,
-    send(data) {
-      const bytes = typeof data === "string" ? Buffer.byteLength(data) : data.byteLength;
-      try {
-        raw.send(typeof data === "string" ? data : Buffer.from(data));
-      } catch (error) {
-        console.error("[werift-send-error] bytes=" + bytes, error instanceof Error ? error.message : error);
-        throw error;
-      }
-    },
-    close() {
-      raw.close();
-    }
-  };
-}
-function toArrayBuffer2(data) {
-  if (typeof data === "string") return data;
-  return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
-}
-function detectHostIpv4() {
-  const preferred = [];
-  const fallback = [];
-  for (const [name2, addresses] of Object.entries(networkInterfaces())) {
-    if (isVirtualInterface(name2)) continue;
-    for (const address of addresses ?? []) {
-      if (address.internal || address.family !== "IPv4") continue;
-      const ip = address.address;
-      if (ip.startsWith("127.") || ip.startsWith("169.254.") || isCgnat(ip)) continue;
-      if (isPrivate(ip)) preferred.push(ip);
-      else fallback.push(ip);
-    }
-  }
-  return preferred[0] ?? fallback[0];
-}
-function isVirtualInterface(name2) {
-  return /^(utun|ppp|bridge|awdl|llw|gif|stf|anpi|ap\d|en[1-9]\d*$)/i.test(name2);
-}
-function isCgnat(ip) {
-  const parts = ip.split(".").map(Number);
-  return parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
-}
-function isPrivate(ip) {
-  const parts = ip.split(".").map(Number);
-  if (parts.length !== 4) return false;
-  if (parts[0] === 10) return true;
-  if (parts[0] === 192 && parts[1] === 168) return true;
-  return parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31;
 }
 
 // src/service.ts

@@ -7,7 +7,13 @@ import type {
   RtcStats,
   RtcStatsEntry,
 } from '../src/rtc-adapter.js'
-import { detectSelectedTransport, RtcConnectError, RtcDataChannelTransport } from '../src/rtc-data-channel.js'
+import {
+  detectSelectedPath,
+  detectSelectedTransport,
+  inspectSelectedPath,
+  RtcConnectError,
+  RtcDataChannelTransport,
+} from '../src/rtc-data-channel.js'
 
 const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0))
 
@@ -80,6 +86,18 @@ function p2pStats(): RtcStatsEntry[] {
   ]
 }
 
+function lanStats(): RtcStatsEntry[] {
+  return [
+    { type: 'local-candidate', candidateType: 'host', address: '192.168.1.20', port: 51_001, protocol: 'udp', id: 'lc' },
+    { type: 'remote-candidate', candidateType: 'host', address: '192.168.1.30', port: 51_002, protocol: 'udp', id: 'rc' },
+    {
+      type: 'candidate-pair', id: 'cp', state: 'succeeded', localCandidateId: 'lc', remoteCandidateId: 'rc',
+      currentRoundTripTime: 0.0124, availableOutgoingBitrate: 8_500_000, bytesSent: 2_048, bytesReceived: 4_096,
+    },
+    { type: 'transport', selectedCandidatePairId: 'cp' },
+  ]
+}
+
 function turnStats(): RtcStatsEntry[] {
   return [
     { type: 'local-candidate', candidateType: 'relay', id: 'lc' },
@@ -89,6 +107,22 @@ function turnStats(): RtcStatsEntry[] {
 }
 
 describe('detectSelectedTransport', () => {
+  it('classifies a selected private host-to-host pair as LAN while retaining p2p signaling', () => {
+    expect(detectSelectedPath(asStats(lanStats()))).toEqual({ transport: 'p2p', mode: 'LAN' })
+    expect(detectSelectedTransport(asStats(lanStats()))).toBe('p2p')
+    expect(inspectSelectedPath(asStats(lanStats()))).toMatchObject({
+      localCandidateType: 'host',
+      remoteCandidateType: 'host',
+      localAddress: '192.168.1.20:51001',
+      remoteAddress: '192.168.1.30:51002',
+      protocol: 'udp',
+      currentRoundTripTimeMs: 12,
+      availableOutgoingBitrate: 8_500_000,
+      bytesSent: 2_048,
+      bytesReceived: 4_096,
+    })
+  })
+
   it('detects p2p from a selected host/srflx candidate pair', () => {
     expect(detectSelectedTransport(asStats(p2pStats()))).toBe('p2p')
   })
@@ -103,6 +137,35 @@ describe('detectSelectedTransport', () => {
 })
 
 describe('RtcDataChannelTransport initiator', () => {
+  it('reports LAN for a private host-to-host data path', async () => {
+    const pc = new FakePeerConnection()
+    pc.stats = lanStats()
+    const transport = new RtcDataChannelTransport({
+      role: 'initiator',
+      factory: factoryFor(pc),
+      onSignal: () => undefined,
+    })
+    const connecting = transport.connect()
+    await flush()
+    transport.handleSignal({ type: 'answer', sdp: 'v=0 answer' })
+    await flush()
+    pc.channels[0]!.open()
+    await connecting
+    expect(transport.selectedTransport()).toBe('p2p')
+    expect(transport.selectedPathMode()).toBe('LAN')
+    expect(transport.getStats().mode).toBe('LAN')
+    await expect(transport.connectionDetails()).resolves.toMatchObject({
+      mode: 'LAN',
+      connectionState: 'new',
+      iceConnectionState: 'new',
+      dataChannelState: 'open',
+      localAddress: '192.168.1.20:51001',
+      remoteAddress: '192.168.1.30:51002',
+      currentRoundTripTimeMs: 12,
+    })
+    await transport.close()
+  })
+
   it('creates an offer and resolves with p2p once the data channel opens', async () => {
     const pc = new FakePeerConnection()
     pc.stats = p2pStats()

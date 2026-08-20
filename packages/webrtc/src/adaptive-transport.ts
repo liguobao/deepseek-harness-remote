@@ -11,7 +11,13 @@ import {
   type TransportStats,
 } from '@dsh-remote/protocol'
 import { browserRtcFactory, type RtcIceServer, type RtcPeerConnectionFactory } from './rtc-adapter.js'
-import { RtcConnectError, RtcDataChannelTransport, type RtcSelectedTransport, type RtcSignal } from './rtc-data-channel.js'
+import {
+  RtcConnectError,
+  RtcDataChannelTransport,
+  type RtcConnectionDetails,
+  type RtcSelectedTransport,
+  type RtcSignal,
+} from './rtc-data-channel.js'
 import { BaseTransport } from './transport.js'
 import { fromBase64Url, socketText, toBase64Url } from './util.js'
 
@@ -27,10 +33,20 @@ export interface AdaptiveTransportOptions {
   negotiateTimeoutMs?: number
   rtcFactory?: RtcPeerConnectionFactory
   fetchIceServers?: (connectionId: string) => Promise<RtcIceServer[]>
+  onWebRtcFallback?: (error: Error) => void
+}
+
+export interface AdaptiveConnectionDetails {
+  connectionId?: string
+  connectedAt?: number
+  controlChannelUrl: string
+  controlChannelState: 'connecting' | 'open' | 'closing' | 'closed'
+  preferredTransports: Array<'lan' | 'p2p' | 'turn' | 'relay'>
+  webRtc?: RtcConnectionDetails
 }
 
 const DEFAULT_CAPABILITIES = ['transport.p2p', 'transport.turn', 'transport.relay', 'harness.api.v1']
-const DEFAULT_PREFERRED_TRANSPORTS = ['p2p', 'turn', 'relay'] as const
+const DEFAULT_PREFERRED_TRANSPORTS = ['lan', 'p2p', 'turn', 'relay'] as const
 
 /**
  * Client-side adaptive transport: `p2p -> turn -> relay` (webrtc plan §4/§6.4).
@@ -57,6 +73,7 @@ export class AdaptiveTransport extends BaseTransport {
   private handshakeTimer?: ReturnType<typeof setTimeout>
   private webrtcEnabled = true
   private serverNegotiateTimeoutMs?: number
+  private connectedAt?: number
 
   constructor(
     private readonly url: string,
@@ -127,6 +144,19 @@ export class AdaptiveTransport extends BaseTransport {
     }
   }
 
+  async connectionDetails(): Promise<AdaptiveConnectionDetails> {
+    return {
+      ...(this.connectionId === undefined ? {} : { connectionId: this.connectionId }),
+      ...(this.connectedAt === undefined ? {} : { connectedAt: this.connectedAt }),
+      controlChannelUrl: this.url,
+      controlChannelState: socketState(this.socket?.readyState),
+      preferredTransports: this.options.forceRelay === true
+        ? ['relay']
+        : [...(this.options.preferredTransports ?? DEFAULT_PREFERRED_TRANSPORTS)],
+      ...(this.rtc === undefined ? {} : { webRtc: await this.rtc.connectionDetails() }),
+    }
+  }
+
   async sendHandshake(step: number, data: Uint8Array): Promise<void> {
     if (this.socket?.readyState !== WebSocket.OPEN || this.connectionId === undefined) {
       throw new Error('adaptive transport has not been authorized')
@@ -161,8 +191,9 @@ export class AdaptiveTransport extends BaseTransport {
     const connected = webrtcConnected || relayConnected
     let mode: TransportStats['mode'] = 'Disconnected'
     if (this.selected === 'relay') mode = relayConnected ? 'Relay' : 'Disconnected'
-    else if (this.selected === 'turn') mode = webrtcConnected ? 'TURN' : 'Disconnected'
-    else if (this.selected === 'p2p') mode = webrtcConnected ? 'P2P' : 'Disconnected'
+    else if (this.selected === 'turn' || this.selected === 'p2p') {
+      mode = webrtcConnected ? this.rtc!.getStats().mode : 'Disconnected'
+    }
     return { mode, connected, bytesSent: this.bytesSent, bytesReceived: this.bytesReceived }
   }
 
@@ -255,14 +286,16 @@ export class AdaptiveTransport extends BaseTransport {
     if (this.connectionId === undefined) return
     const preferred = this.options.preferredTransports ?? [...DEFAULT_PREFERRED_TRANSPORTS]
     const wantWebRtc = !this.options.forceRelay && this.webrtcEnabled
-      && (preferred.includes('p2p') || preferred.includes('turn'))
+      && (preferred.includes('lan') || preferred.includes('p2p') || preferred.includes('turn'))
     let selected: SelectedTransport = 'relay'
     if (wantWebRtc) {
       try {
         const rtcSelected = await this.tryWebRtc()
         this.dataMode = 'webrtc'
         selected = rtcSelected
-      } catch {
+      } catch (error) {
+        const reason = error instanceof Error ? error : new Error('WebRTC negotiation failed.')
+        try { this.options.onWebRtcFallback?.(reason) } catch { /* diagnostics must not block fallback */ }
         await this.rtc?.close()
         this.rtc = undefined
         this.dataMode = 'relay'
@@ -350,6 +383,7 @@ export class AdaptiveTransport extends BaseTransport {
 
   private finishConnection(): void {
     this.clearHandshake()
+    this.connectedAt ??= Date.now()
     this.readyResolve?.()
     this.readyResolve = undefined
     this.readyReject = undefined
@@ -384,4 +418,11 @@ function adaptiveControlCloseError(event: CloseEvent): Error {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function socketState(readyState: number | undefined): AdaptiveConnectionDetails['controlChannelState'] {
+  if (readyState === 0) return 'connecting'
+  if (readyState === 1) return 'open'
+  if (readyState === 2) return 'closing'
+  return 'closed'
 }

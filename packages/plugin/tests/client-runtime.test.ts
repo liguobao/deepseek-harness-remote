@@ -17,6 +17,71 @@ afterEach(async () => {
 })
 
 describe('ClientModeRuntime Host account control', () => {
+  it('exposes Web-compatible network path details for the active Remote Client', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-client-network-'))
+    directories.push(directory)
+    const runtime = new ClientModeRuntime(
+      config(),
+      new IdentityStore({ directory }),
+      { bindIdentity: vi.fn() } as unknown as ClientServerApi,
+      apiProxy(),
+      gateway(),
+      logger(),
+    )
+    await runtime.start()
+    const deviceId = runtime.status().deviceId as string
+    const connectionDetails = vi.fn(async () => ({
+      connectionId: 'connection-1',
+      connectedAt: 1_786_000_000_000,
+      controlChannelUrl: 'wss://dsh.r2049.cn/ws/v1/connect',
+      controlChannelState: 'open' as const,
+      preferredTransports: ['lan', 'p2p', 'turn', 'relay'] as const,
+      webRtc: {
+        mode: 'LAN' as const,
+        connectionState: 'connected',
+        iceConnectionState: 'connected',
+        dataChannelState: 'open' as const,
+        localCandidateType: 'host',
+        remoteCandidateType: 'host',
+        localAddress: '192.168.1.20:51001',
+        remoteAddress: '192.168.1.30:51002',
+        protocol: 'udp',
+        currentRoundTripTimeMs: 12,
+      },
+    }))
+    ;(runtime as unknown as { connected: unknown }).connected = {
+      client: { getStats: () => ({ mode: 'LAN', connected: true }) },
+      target: {
+        deviceId: 'host-device-1',
+        name: 'Workstation',
+        platform: 'linux',
+        publicKey: 'peer-key',
+        fingerprint: 'PEER',
+        trustedAt: 1,
+      },
+      transport: { connectionDetails },
+    }
+
+    await expect(runtime.handleControl('status', {}, new AbortController().signal)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        connected: true,
+        transport: 'LAN',
+        network: {
+          connectionId: 'connection-1',
+          local: { deviceId, platform: process.platform },
+          remote: { deviceId: 'host-device-1', platform: 'linux' },
+          webRtc: {
+            localAddress: '192.168.1.20:51001',
+            remoteAddress: '192.168.1.30:51002',
+            currentRoundTripTimeMs: 12,
+          },
+        },
+      },
+    })
+    expect(connectionDetails).toHaveBeenCalledOnce()
+  })
+
   it('exposes Host authorization status and forwards login only through loopback control', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-client-runtime-'))
     directories.push(directory)

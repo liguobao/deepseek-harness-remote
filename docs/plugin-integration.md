@@ -344,7 +344,7 @@ Client 发起 `connect.request` 且 Host 在线时，Host WebSocket 收到：
     "clientDeviceId": "0198...",
     "clientIdentityKey": "base64url-x25519-public-key",
     "authorization": "account",
-    "preferredTransports": ["p2p", "turn", "relay"]
+    "preferredTransports": ["lan", "p2p", "turn", "relay"]
   }
 }
 ```

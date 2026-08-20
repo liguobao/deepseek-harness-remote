@@ -56,6 +56,7 @@ interface PendingTunnel {
   peer: TrustedPeer
   noise: NoiseIkSession
   transport: 'negotiating' | SelectedTransport
+  transportMode?: 'LAN' | 'P2P' | 'TURN'
   rtc?: RtcDataChannelTransport
   channel?: ServerNoiseChannel
 }
@@ -381,7 +382,7 @@ export class HostServerConnection {
     if (!tunnel.noise.complete) throw new ControlConnectionError('SECURE_CHANNEL_FAILED', 'Noise IK handshake did not complete.')
     const viaWebRtc = tunnel.rtc !== undefined && (tunnel.transport === 'p2p' || tunnel.transport === 'turn')
     if (!viaWebRtc && tunnel.transport === 'negotiating') tunnel.transport = 'relay'
-    const mode = viaWebRtc ? (tunnel.transport === 'turn' ? 'TURN' : 'P2P') : 'Relay'
+    const mode = viaWebRtc ? tunnel.transportMode ?? (tunnel.transport === 'turn' ? 'TURN' : 'P2P') : 'Relay'
     const transmit = viaWebRtc
       ? (ciphertext: Uint8Array) => tunnel.rtc!.send(ciphertext)
       : (ciphertext: Uint8Array) => this.sendRelay(tunnel, ciphertext)
@@ -506,11 +507,12 @@ export class HostServerConnection {
   private handleRtcOpened(tunnel: PendingTunnel, selected: RtcSelectedTransport): void {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc === undefined) return
     tunnel.transport = selected
+    tunnel.transportMode = tunnel.rtc.selectedPathMode()
     this.sendTransportSelected(tunnel, selected)
     this.logger.info('webrtc data channel ready', {
       connectionId: shortId(tunnel.connectionId),
       peerDeviceId: shortId(tunnel.peer.deviceId),
-      transport: selected,
+      transport: tunnel.transportMode ?? selected,
     })
   }
 
@@ -520,7 +522,7 @@ export class HostServerConnection {
     error: Error,
   ): Promise<void> {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc !== rtc) return
-    if (tunnel.channel !== undefined || tunnel.transport === 'p2p' || tunnel.transport === 'turn') {
+    if (tunnel.transport === 'p2p' || tunnel.transport === 'turn') {
       this.logger.warn('webrtc data channel failed; disconnecting peer', {
         connectionId: shortId(tunnel.connectionId),
         reason: diagnosticReason(error),
@@ -623,7 +625,7 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
   readonly security
   readonly peerDeviceId: string
   readonly peerIdentityKey: string
-  readonly mode: 'P2P' | 'TURN' | 'Relay'
+  readonly mode: 'LAN' | 'P2P' | 'TURN' | 'Relay'
   private readonly handlers = new Set<(message: RemoteMessage) => void>()
   private readonly incoming = new SecureMessageCodec()
   private readonly outgoing = new SecureMessageCodec()
@@ -633,7 +635,7 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
     private readonly tunnel: PendingTunnel,
     private readonly transmit: (ciphertext: Uint8Array) => Promise<void>,
     private readonly onClose: () => void,
-    mode: 'P2P' | 'TURN' | 'Relay',
+    mode: 'LAN' | 'P2P' | 'TURN' | 'Relay',
   ) {
     this.mode = mode
     this.security = {

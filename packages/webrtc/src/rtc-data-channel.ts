@@ -14,6 +14,33 @@ import { RtcChunkCodec, RTC_CHUNK_MAX_MESSAGE_BYTES } from './rtc-chunking.js'
 
 export type RtcRole = 'initiator' | 'responder'
 export type RtcSelectedTransport = 'p2p' | 'turn'
+export type RtcPathMode = 'LAN' | 'P2P' | 'TURN'
+
+export interface RtcSelectedPath {
+  transport: RtcSelectedTransport
+  mode: RtcPathMode
+}
+
+export interface RtcPathDetails {
+  transport?: RtcSelectedTransport
+  mode?: RtcPathMode
+  localCandidateType?: string
+  remoteCandidateType?: string
+  localAddress?: string
+  remoteAddress?: string
+  protocol?: string
+  relayProtocol?: string
+  currentRoundTripTimeMs?: number
+  availableOutgoingBitrate?: number
+  bytesSent?: number
+  bytesReceived?: number
+}
+
+export interface RtcConnectionDetails extends RtcPathDetails {
+  connectionState: string
+  iceConnectionState: string
+  dataChannelState?: RtcDataChannel['readyState']
+}
 
 export type RtcSignal =
   | { type: 'offer'; sdp: string }
@@ -75,6 +102,7 @@ export class RtcDataChannelTransport {
   private bytesSent = 0
   private bytesReceived = 0
   private selected?: RtcSelectedTransport
+  private selectedMode?: RtcPathMode
   private lastBufferedAmount = 0
 
   constructor(options: RtcDataChannelTransportOptions) {
@@ -154,10 +182,30 @@ export class RtcDataChannelTransport {
     return this.selected
   }
 
+  selectedPathMode(): RtcPathMode | undefined {
+    return this.selectedMode
+  }
+
+  async connectionDetails(): Promise<RtcConnectionDetails> {
+    let statsDetails: RtcPathDetails = {}
+    try {
+      statsDetails = inspectSelectedPath(await this.pc.getStats())
+    } catch {
+      // Peer/DataChannel state remains useful if the RTC backend withholds stats.
+    }
+    return {
+      ...statsDetails,
+      mode: statsDetails.mode ?? this.selectedMode,
+      connectionState: this.pc.connectionState,
+      iceConnectionState: this.pc.iceConnectionState,
+      dataChannelState: this.channel?.readyState,
+    }
+  }
+
   getStats(): TransportStats {
     const connected = this.channel?.readyState === 'open'
     return {
-      mode: !connected ? 'Disconnected' : this.selected === 'turn' ? 'TURN' : 'P2P',
+      mode: !connected ? 'Disconnected' : this.selectedMode ?? (this.selected === 'turn' ? 'TURN' : 'P2P'),
       connected,
       bytesSent: this.bytesSent,
       bytesReceived: this.bytesReceived,
@@ -306,9 +354,12 @@ export class RtcDataChannelTransport {
 
   private async resolveSelectedTransport(): Promise<void> {
     try {
-      this.selected = detectSelectedTransport(await this.pc.getStats())
+      const selected = inspectSelectedPath(await this.pc.getStats())
+      this.selected = selected?.transport
+      this.selectedMode = selected?.mode
     } catch {
       this.selected = undefined
+      this.selectedMode = undefined
     }
   }
 
@@ -382,26 +433,86 @@ export class RtcConnectError extends Error {
 }
 
 export function detectSelectedTransport(stats: RtcStats): RtcSelectedTransport | undefined {
+  return detectSelectedPath(stats)?.transport
+}
+
+export function detectSelectedPath(stats: RtcStats): RtcSelectedPath | undefined {
+  const details = inspectSelectedPath(stats)
+  return details.transport === undefined || details.mode === undefined
+    ? undefined
+    : { transport: details.transport, mode: details.mode }
+}
+
+export function inspectSelectedPath(stats: RtcStats): RtcPathDetails {
   // candidate-pair `localCandidateId`/`remoteCandidateId` reference the `id`
   // member of the local/remote-candidate stats (not the report map key).
-  const candidateTypes = new Map<string, string>()
+  const candidates = new Map<string, RtcStatsEntry>()
+  const candidatePairs = new Map<string, RtcStatsEntry>()
   const selectedPairs: RtcStatsEntry[] = []
-  for (const [, entry] of stats) {
+  const selectedPairIds = new Set<string>()
+  for (const [reportId, entry] of stats) {
     if (entry.type === 'local-candidate' || entry.type === 'remote-candidate') {
       if (typeof entry.candidateType === 'string' && entry.id !== undefined) {
-        candidateTypes.set(String(entry.id), entry.candidateType)
+        candidates.set(String(entry.id), entry)
       }
-    } else if (entry.type === 'candidate-pair' || entry.type === 'transport') {
+    } else if (entry.type === 'candidate-pair') {
+      candidatePairs.set(String(entry.id ?? reportId), entry)
       if (entry.selected === true || entry.nominated === true) selectedPairs.push(entry)
+    } else if (entry.type === 'transport' && typeof entry.selectedCandidatePairId === 'string') {
+      selectedPairIds.add(entry.selectedCandidatePairId)
     }
   }
-  for (const pair of selectedPairs) {
-    const local = candidateTypes.get(String(pair.localCandidateId))
-    const remote = candidateTypes.get(String(pair.remoteCandidateId))
-    if (local === 'relay' || remote === 'relay') return 'turn'
-    if (local !== undefined || remote !== undefined) return 'p2p'
+  const pairs = [
+    ...[...selectedPairIds].map(id => candidatePairs.get(id)).filter((pair): pair is RtcStatsEntry => pair !== undefined),
+    ...selectedPairs,
+  ]
+  for (const pair of pairs) {
+    const local = candidates.get(String(pair.localCandidateId))
+    const remote = candidates.get(String(pair.remoteCandidateId))
+    const localType = local?.candidateType
+    const remoteType = remote?.candidateType
+    let selected: RtcSelectedPath | undefined
+    if (localType === 'relay' || remoteType === 'relay') selected = { transport: 'turn', mode: 'TURN' }
+    if (local === undefined && remote === undefined) continue
+    selected ??= {
+      transport: 'p2p',
+      mode: localType === 'host' && remoteType === 'host' ? 'LAN' : 'P2P',
+    }
+    const currentRoundTripTime = numberStat(pair, 'currentRoundTripTime')
+    return {
+      ...selected,
+      localCandidateType: stringStat(local, 'candidateType'),
+      remoteCandidateType: stringStat(remote, 'candidateType'),
+      localAddress: candidateAddress(local),
+      remoteAddress: candidateAddress(remote),
+      protocol: stringStat(local, 'protocol') ?? stringStat(remote, 'protocol'),
+      relayProtocol: stringStat(local, 'relayProtocol') ?? stringStat(remote, 'relayProtocol'),
+      currentRoundTripTimeMs: currentRoundTripTime === undefined
+        ? undefined
+        : Math.round(currentRoundTripTime * 1000),
+      availableOutgoingBitrate: numberStat(pair, 'availableOutgoingBitrate'),
+      bytesSent: numberStat(pair, 'bytesSent'),
+      bytesReceived: numberStat(pair, 'bytesReceived'),
+    }
   }
-  return undefined
+  return {}
+}
+
+function candidateAddress(candidate: RtcStatsEntry | undefined): string | undefined {
+  const address = stringStat(candidate, 'address') ?? stringStat(candidate, 'ip')
+  if (address === undefined) return undefined
+  const port = numberStat(candidate, 'port')
+  return port === undefined ? address : `${address}:${port}`
+}
+
+function stringStat(entry: RtcStatsEntry | undefined, key: string): string | undefined {
+  const value = entry?.[key]
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+function numberStat(entry: RtcStatsEntry | undefined, key: string): number | undefined {
+  const value = entry?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 function requireSdp(description: { type: 'offer' | 'answer'; sdp?: string }): string {

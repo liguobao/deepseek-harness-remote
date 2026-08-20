@@ -294,7 +294,7 @@ describe('HostServerConnection', () => {
     expect(internals.tunnels.has(tunnel.connectionId)).toBe(false)
   })
 
-  it('keeps relay fallback only for WebRTC failures before transport selection', async () => {
+  it('keeps an authenticated Relay fallback when the parallel WebRTC negotiation later fails', async () => {
     const keys = generateKeyPair(new Uint8Array(32).fill(16))
     const closeConnection = vi.fn(async () => true)
     const rtc = { close: vi.fn(async () => undefined) }
@@ -303,8 +303,9 @@ describe('HostServerConnection', () => {
       membershipId: 'membership-negotiating',
       peer: { deviceId: 'client-negotiating' },
       noise: { destroy: vi.fn() },
-      transport: 'negotiating',
+      transport: 'relay',
       rtc,
+      channel: {},
     }
     const server = new HostServerConnection(
       config(),
@@ -328,6 +329,7 @@ describe('HostServerConnection', () => {
     expect(rtc.close).toHaveBeenCalledOnce()
     expect(closeConnection).not.toHaveBeenCalled()
     expect(internals.tunnels.get(tunnel.connectionId)).toBe(tunnel)
+    expect(tunnel.channel).toEqual({})
   })
 })
 
