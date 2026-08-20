@@ -5,6 +5,7 @@ import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore } from './identity-store.js'
 import type { SafeLogger } from './logging.js'
 import { RpcRouter } from './rpc-router.js'
+import { RemoteFileViewerBridge, type FileViewerHostServiceLike } from './file-viewer-bridge.js'
 import { HostServerApi, ServerApiError, type DeviceAuthorization } from './server-api.js'
 import { HostServerConnection } from './server-connection.js'
 import { ServerCredentialStore } from './server-credentials.js'
@@ -37,6 +38,7 @@ export class HostPluginRuntime {
     apiProxy: ApiProxy,
     private readonly logger: SafeLogger,
     typertGateway?: () => TypertGatewayLike | undefined,
+    private readonly fileViewerHost?: () => FileViewerHostServiceLike | undefined,
   ) {
     this.connections = new ConnectionController(this.identities, (_context, send) => {
       const harnessApi = new HarnessApiBridge(
@@ -46,7 +48,11 @@ export class HostPluginRuntime {
         this.logger,
         typertGateway?.(),
       )
-      return new RpcRouter(harnessApi, undefined, this.logger)
+      const fileViewer = new RemoteFileViewerBridge(
+        () => this.fileViewerHost?.(),
+        this.logger,
+      )
+      return new RpcRouter(harnessApi, undefined, this.logger, fileViewer)
     }, this.logger)
     if (config.serverUrl !== undefined) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory))
@@ -194,6 +200,9 @@ export class HostPluginRuntime {
       this.logger,
       undefined,
       this.config.forceRelay ? undefined : loadWeriftFactory,
+      () => this.fileViewerHost?.() === undefined
+        ? ['harness.api.v1']
+        : ['harness.api.v1', 'fileviewer.read.v1'],
     )
   }
 }

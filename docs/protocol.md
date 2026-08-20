@@ -555,7 +555,8 @@ Control-only 类型（hello, signaling, relay）禁止出现在 secure channel �
 ## 16. RPC
 
 Plugin Host 的业务路由只接受 ApiProxy tunnel：`harness.api.call`、
-`harness.api.respond`、`harness.api.stream.open` 和 `harness.api.stream.close`。
+`harness.api.respond`、`harness.api.stream.open`、`harness.api.stream.close`，以及在
+`fileviewer.read.v1` capability 下的 `fileviewer.call`。
 旧 `system.info`、`workspace.get`、`sessions.*`、`session.*`、
 `permissions.respond`、`connection.ping` 与 `sync.from` 已退出 Plugin 协议，Host 必须返回
 `METHOD_NOT_FOUND`。Android 旧原型不是兼容目标。
@@ -624,7 +625,8 @@ Host handshake 的 capability 例子：
 ```json
 [
   "transport.relay",
-  "harness.api.v1"
+  "harness.api.v1",
+  "fileviewer.read.v1"
 ]
 ```
 
@@ -889,7 +891,7 @@ Result 是 Harness `ApiProxy` 的原生 `RpcResponse`，必须回显内层 `rpcI
 - `commands.list`、`commands.execute`（经官方 Typert gateway 分发，使用 Host 对当前 Agent 的有效注册命令）
 - LLM provider/model list
 
-明确禁止 credentials、settings 写入、model endpoint discovery、native path open/picker、目录创建、文件内容读取、attachment、download 以及任何未列出方法。`host.listDirectory` 只返回单层目录元数据。Host 应优先调用官方 ApiProxy browse capability；当桌面 Harness 只组合 `native` picker 时，Plugin 可在已认证的 Host bridge 内提供等价的只读元数据实现。该兜底必须限制结果数量，只返回目录名、绝对路径、面包屑、Home 路径和 hidden 标志，不得读取文件内容、写入文件系统或扩展为通用文件系统 RPC。`commands.list` 与 `commands.execute` 不是通用方法调用入口：Bridge 必须要求 payload 仅含 `agentId`（`execute` 另含长度受限的 `line`），并经官方 Typert gateway 使用 Host 对当前 Agent 解析出的有效命令目录和 handler。命令语法、名称解析、Agent scoped shadowing、参数校验和执行语义均由 Host 命令注册表负责，与本地 Harness UI 一致；未注册命令不会进入 handler。额外字段、缺失参数和超长输入在 Bridge 边界 fail closed。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
+明确禁止 credentials、settings 写入、model endpoint discovery、native path open/picker、目录创建、绕过 File Viewer provider 的文件读取、attachment、download 以及任何未列出方法。`host.listDirectory` 只返回单层目录元数据。Host 应优先调用官方 ApiProxy browse capability；当桌面 Harness 只组合 `native` picker 时，Plugin 可在已认证的 Host bridge 内提供等价的只读元数据实现。该兜底必须限制结果数量，只返回目录名、绝对路径、面包屑、Home 路径和 hidden 标志，不得读取文件内容、写入文件系统或扩展为通用文件系统 RPC。`commands.list` 与 `commands.execute` 不是通用方法调用入口：Bridge 必须要求 payload 仅含 `agentId`（`execute` 另含长度受限的 `line`），并经官方 Typert gateway 使用 Host 对当前 Agent 解析出的有效命令目录和 handler。命令语法、名称解析、Agent scoped shadowing、参数校验和执行语义均由 Host 命令注册表负责，与本地 Harness UI 一致；未注册命令不会进入 handler。额外字段、缺失参数和超长输入在 Bridge 边界 fail closed。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
 
 #### `harness.api.respond`
 
@@ -909,6 +911,36 @@ Open Params：
 ```
 
 `stream` 仅允许 `mux | host`，每条 peer connection 最多同时打开三个原生流：常驻的 host/mux 各一条，加一条 mux 切换缓冲。mux 流的 `payload` 可携带可选 `sessionId`（focus）：提供后 Host 只转发该 session 的 mux 帧（`session/event`、approval、question 等），其余 session 的流量不进入 tunnel；省略时转发全部。Remote Web 每次只关注一个 session，用 focus 避免把其他活跃 session 的大事件流（可能达数 MB）推过 WebRTC/relay 数据面。切换 session 时 Client 先打开新 mux，成功后立即关闭旧 mux；新流失败时保留旧流。Close Params：`{ "streamId": "client-stream-id" }`。`streamId` namespace、三条流上限和生命周期都属于发起它的 `connectionId`；不同 Client 可使用相同 `streamId`，不得互相关闭或接收对方的 tunnel event。连接替换、撤销或断开时 Host 只取消该 connection 的全部流。
+
+### File Viewer read bridge
+
+`fileviewer.read.v1` 仅用于把已安装 `dsh-file-viewer` 的现有只读能力带到 Remote UI，
+不构成通用文件系统 RPC。业务方法只有 `fileviewer.call`：
+
+```json
+{
+  "endpoint": "readRange",
+  "payload": {
+    "path": "/workspace/report.csv",
+    "offset": 0,
+    "length": 524288
+  }
+}
+```
+
+`endpoint` 只允许：
+
+- `stat`：payload `{ "path": locator }`；
+- `readRange`：payload `{ "path": locator, "offset": nonNegativeInteger, "length": 1..524288 }`；
+- `list`：payload `{ "path": locator }`，返回最多 1000 项。
+
+Host 必须调用 `fileViewerHost` 服务，让被选中的 File Viewer provider 执行根目录或 locator
+授权；Remote 不得直接调用 Node filesystem 绕过该边界。Host 必须再次验证返回 schema 和
+大小。Client 可把多个不超过 512 KiB 的 range 拼成 File Viewer 所需的较大读取。
+
+禁止 `readHead`（Client 以 offset 0 的 `readRange` 实现）、`openExternal`、写入、上传、删除、
+重命名、执行和任意 endpoint。Host 未安装 File Viewer、请求超限、provider 拒绝或返回异常时
+必须 fail closed。错误不得回显 Host 内部路径或原始 filesystem 异常。
 
 ## 20. Events
 
@@ -1133,6 +1165,8 @@ pong 回显 nonce。Heartbeat 不能携带业务数据。
 | Control JSON frame | 64 KiB |
 | Relay ciphertext frame | 1 MiB |
 | Reassembled secure message | 4 MiB |
+| File Viewer range / RPC | 512 KiB |
+| File Viewer directory entries / RPC | 1,000 |
 | RPC text input | 64 KiB |
 | 同连接 pending RPC | 128 |
 | 同 session pending permission | 16 |

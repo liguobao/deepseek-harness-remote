@@ -3,9 +3,10 @@
 状态：Draft v0.2
 目标项目：`packages/plugin`
 
-## 1. 唯一业务接入面
+## 1. 受控业务接入面
 
-Plugin 只使用官方 `@deepseek-ai/dsh-host-apiproxy/api`。它不读取或解释
+Harness 会话业务只使用官方 `@deepseek-ai/dsh-host-apiproxy/api`；可选文件预览只使用
+`dsh-file-viewer` 暴露的 `fileViewerHost` 只读服务。Plugin 不读取或解释
 `SessionStore`、`AgentRegistry`、Workspace 或 Approval 内部对象，也不把 Harness
 事件重新投影成另一套 Remote Session/Message/Tool/Permission 模型。
 
@@ -36,6 +37,8 @@ packages/plugin/src/
   connection-controller.ts    单一认证 peer 与业务通道
   rpc-router.ts               仅接受 ApiProxy tunnel RPC
   harness-api-bridge.ts       Host ApiProxy allowlist 与原生流
+  file-viewer-bridge.ts       File Viewer 只读方法白名单与传输限制
+  remote-file-content-provider.ts Client 侧远端内容 provider
   remote-directory-browser.ts native picker 场景的只读目录元数据兜底
   remote-api-proxy.ts         Client 侧 ApiProxy 实现
   api-proxy-switch.ts         Local/Remote 目标切换
@@ -79,6 +82,7 @@ Remote 业务 RPC 只有：
 - `harness.api.respond`
 - `harness.api.stream.open`
 - `harness.api.stream.close`
+- `fileviewer.call`（仅在 `fileviewer.read.v1` capability 下）
 
 `harness.api.call` 的 `method` 必须命中代码内固定 allowlist。当前允许会话、子 Agent、
 Workspace、Skill、Agent Preset、Goal、Host 描述和只读 LLM 目录等原生 UI 所需操作。
@@ -90,11 +94,16 @@ Workspace、Skill、Agent Preset、Goal、Host 描述和只读 LLM 目录等原�
 capability；若桌面 Harness 只提供 native picker，则 bridge 以只读实现返回同形状的单层目录
 元数据。结果有数量上限，不包含文件内容，也不允许目录写入。
 
+安装 `dsh-file-viewer` 后，`fileviewer.call` 复用它的 `fileViewerHost` 服务，只允许
+`stat | readRange | list`。单次传输读取最多 512 KiB，目录最多 1000 项；Host 返回值再次做
+schema 与大小校验。路径根与 locator 权限由 File Viewer provider 执行，Remote 不绕过该边界。
+
 明确禁止：
 
 - credentials 和 settings 读写；
 - native path open/picker；
-- 文件内容访问、目录创建/修改/删除或通用文件系统 RPC；
+- 绕过 File Viewer provider 的文件访问、目录创建/修改/删除或通用文件系统 RPC；
+- File Viewer `openExternal`、文件写入、上传与执行；
 - attachment、download；
 - 任意 Cordis service、Harness tool 或反射调用。
 
@@ -151,6 +160,7 @@ ApiProxy 拒绝。连接断开会关闭原生流，
 - 未认证、错误 identity/membership、篡改和重放 fail closed。
 - peer 替换或断开时关闭全部原生流。
 - Local/Remote switch 可逆，远端断开回落 Local。
+- File Viewer 只允许 stat/list/受限 range read，超限和未安装依赖 fail closed。
 - Host/Client account token 与 device token 隔离，主机匹配码单次消费，refresh single-flight。
 
 Android 使用相同 ApiProxy-only 数据面；其 UI 和生命周期独立，不构成 Desktop Plugin 的组件兼容要求。

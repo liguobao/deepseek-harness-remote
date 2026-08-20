@@ -92,13 +92,20 @@ describe('HostServerConnection', () => {
       connections,
       logger(),
       () => socket,
+      undefined,
+      () => ['harness.api.v1', 'fileviewer.read.v1'],
     )
     server.start()
     await flush()
     socket.open()
     expect(JSON.parse(socket.sent[0]!)).toMatchObject({
       type: 'hello',
-      payload: { role: 'host', deviceId: 'host-1', clientVersion: PLUGIN_VERSION },
+      payload: {
+        role: 'host',
+        deviceId: 'host-1',
+        clientVersion: PLUGIN_VERSION,
+        capabilities: ['transport.relay', 'harness.api.v1', 'fileviewer.read.v1'],
+      },
     })
     socket.receive(createControlFrame('hello.ack', {
       protocol: 1,

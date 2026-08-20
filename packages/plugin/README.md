@@ -28,11 +28,29 @@ No Client mode switch is required. Choosing a remote workspace keeps the local U
 
 - Calls remote `host.listDirectory` first.
 - Returns read-only metadata only: one-level children, absolute path, breadcrumbs, Home, hidden flag.
-- No file contents, no file writes, no directory create/rename/delete.
+- The picker does not read file contents and never writes or mutates directories.
 
 - 默认先调用远端 `host.listDirectory`。
 - 仅返回只读元数据：单层子目录、绝对路径、面包屑、Home、隐藏标记。
-- 不读文件内容，不改文件系统，不建/改/删目录。
+- Workspace 选择器不读取文件内容，也不改文件系统、不建/改/删目录。
+
+## Remote File Viewer / 远端文件查看
+
+Install `dsh-file-viewer` on the Host and Client profiles to reuse its in-app
+renderers for remote workspace files. Remote exposes only `stat`, bounded
+`readRange`, and directory `list` over the authenticated encrypted channel.
+Each transport read is capped at 512 KiB and larger viewer reads are assembled
+from multiple chunks. Provider root/locator authorization remains in File Viewer.
+
+在 Host 与 Client profile 中安装 `dsh-file-viewer` 后，可复用其内置渲染器查看远端
+Workspace 文件。Remote 仅在认证加密通道中开放 `stat`、受限 `readRange` 与目录 `list`；
+每个传输分块最多 512 KiB，更大的读取由客户端自动拼接。根目录与 locator 权限继续由
+File Viewer provider 校验。
+
+Remote preview never exposes write/delete/upload/execute, `openExternal`, or a
+general filesystem RPC.
+
+远端预览不开放写入、删除、上传、执行、`openExternal` 或通用文件系统 RPC。
 
 ## Architecture / 架构
 
@@ -43,7 +61,7 @@ Local Harness UI
   -> Adaptive transport (LAN / P2P / TURN / Relay)
   -> Noise IK secure channel
   -> HarnessApiBridge allowlist
-  -> Remote Harness ApiProxy
+  -> Remote Harness ApiProxy / FileViewerHost read-only bridge
 ```
 
 ```text
@@ -53,7 +71,7 @@ Local Harness UI
   -> 自适应传输（LAN / P2P / TURN / Relay）
   -> Noise IK 安全通道
   -> HarnessApiBridge allowlist
-  -> 远端 Harness ApiProxy
+  -> 远端 Harness ApiProxy / FileViewerHost 只读桥
 ```
 
 ## Key modules / 核心模块
@@ -62,6 +80,7 @@ Local Harness UI
 - `client-runtime.ts`: device list, connection, workspace actions / 设备列表、连接、工作区操作
 - `client.ts`: settings UI, remote modal, sidebar, remote header / 设置卡片、Remote 弹窗、侧边栏、远端 Header
 - `harness-api-bridge.ts`: ApiProxy allowlist and stream bridge / ApiProxy 白名单与 stream 桥接
+- `file-viewer-bridge.ts`: bounded File Viewer read bridge / 受限 File Viewer 读取桥
 - `identity-store.ts` / `server-credentials.ts`: account-scoped identity and credentials / 账号隔离的身份与凭证
 
 ## Security model / 安全模型
@@ -69,15 +88,15 @@ Local Harness UI
 - Host only makes outbound HTTPS/WSS connections.
 - Host/Client authenticate with long-lived X25519 keys using Noise IK.
 - ApiProxy methods are allowlist-driven (fail-closed).
-- Directory browsing is metadata-only.
-- Sensitive capabilities are disabled, including shell, PTY, remote desktop, and file operations.
+- Workspace-picker browsing is metadata-only. Optional File Viewer preview is read-only, bounded, and provider-authorized.
+- Sensitive capabilities are disabled, including shell, PTY, remote desktop, and file mutation or execution.
 - Data is stored under `$DSH_HOME/remote/servers/<origin-hash>/{host,client}`. Unix private keys must be `0600`.
 
 - Host 仅发起外连 HTTPS/WSS，不开放公网监听。
 - Host/Client 使用长期 X25519 key + Noise IK 进行相互认证。
 - ApiProxy 仅允许白名单方法（未命中即拒绝）。
-- 目录浏览仅返回元数据，不涉及文件读写。
-- Shell、PTY、远程桌面、文件操作等高风险能力已禁用。
+- Workspace 选择器目录浏览仅返回元数据；可选的 File Viewer 预览只读、分块且继续执行 provider 授权。
+- Shell、PTY、远程桌面、文件修改与执行等高风险能力已禁用。
 - 数据位于 `$DSH_HOME/remote/servers/<origin-hash>/{host,client}`，私钥权限需 `0600`。
 
 ## Configuration and install / 配置与安装
@@ -105,11 +124,11 @@ Alternatively, install the pinned GitHub release in DSH Desktop or with the CLI:
 也可以在 DSH Desktop 中安装固定版本的 GitHub Release，或使用命令行安装：
 
 ```text
-github:liguobao/deepseek-harness-remote#v0.3.16
+github:liguobao/deepseek-harness-remote#v0.3.17
 ```
 
 ```sh
-dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.16"
+dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.17"
 ```
 
 GitHub / 项目地址：<https://github.com/liguobao/deepseek-harness-remote>

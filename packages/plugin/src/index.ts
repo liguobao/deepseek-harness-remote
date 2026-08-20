@@ -11,6 +11,7 @@ import { ClientServerApi } from './server-api.js'
 import { ServerCredentialStore } from './server-credentials.js'
 import type { TypertGatewayLike } from './harness-api-bridge.js'
 import { TypertGatewaySwitch } from './typert-gateway-switch.js'
+import type { FileViewerHostServiceLike } from './file-viewer-bridge.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -58,7 +59,14 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
   // activation dependency so a peer bridge never silently omits commands.
   const nativeTypertGateway = ctx.get('typertGateway') as TypertGatewayLike
   const localTypertGateway = new TypertGatewaySwitch(nativeTypertGateway).local()
-  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger, () => localTypertGateway)
+  const runtime = new HostPluginRuntime(
+    config,
+    hostIdentities,
+    apiProxy,
+    logger,
+    () => localTypertGateway,
+    () => ctx.get('fileViewerHost') as FileViewerHostServiceLike | undefined,
+  )
 
   let clientRuntime: ClientModeRuntime | undefined
   const hostControl = runtime
@@ -130,5 +138,7 @@ export { PluginControlRuntime } from './control-runtime.js'
 export { ClientSecureTransport } from './client-secure-transport.js'
 export { HARNESS_API_ALLOWLIST, HarnessApiBridge } from './harness-api-bridge.js'
 export { RemoteHarnessApiProxy } from './remote-api-proxy.js'
+export { RemoteFileViewerBridge } from './file-viewer-bridge.js'
+export { createRemoteFileContentProvider } from './remote-file-content-provider.js'
 export { TypertGatewaySwitch } from './typert-gateway-switch.js'
 export type { AuthenticatedPeerChannel } from './types.js'

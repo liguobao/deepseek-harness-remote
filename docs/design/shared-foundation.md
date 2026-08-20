@@ -4,8 +4,9 @@
 
 ## 1. 目的
 
-统一 Desktop 双角色 Plugin 与外部 Server 的身份、加密、连接和传输边界。业务层以
-Harness 官方 `ApiProxy` 为唯一事实来源，不再维护平行的 Remote Session/Event 协议。
+统一 Desktop 双角色 Plugin 与外部 Server 的身份、加密、连接和传输边界。Harness 业务层以
+官方 `ApiProxy` 为唯一事实来源；可选文件预览以 `dsh-file-viewer` provider 为唯一授权来源，
+不再维护平行的 Remote Session/Event 或文件系统协议。
 Android 源码暂时保留，但在迁移到 ApiProxy 前不属于当前可用链路。
 
 ## 2. 包边界
@@ -16,7 +17,7 @@ Android 源码暂时保留，但在迁移到 ApiProxy 前不属于当前可用�
 | `@dsh-remote/crypto` | 设备密钥、Noise IK、AEAD counter | 设备授权、传输选择 |
 | `@dsh-remote/webrtc` | Relay、LAN、WebRTC/TURN transport 抽象 | ApiProxy、会话状态 |
 | `@dsh-remote/client-core` | 隧道 RPC 关联和事件分发 | Harness 业务 reducer、UI |
-| `@dsh-remote/plugin` | 账号设备接入、peer pinning、secure channel、ApiProxy allowlist 和 Local/Remote switch | Server runtime、Harness 业务重建 |
+| `@dsh-remote/plugin` | 账号设备接入、peer pinning、secure channel、ApiProxy allowlist、File Viewer 只读桥和 Local/Remote switch | Server runtime、Harness 业务重建、通用文件系统访问 |
 
 ## 3. 端到端边界
 
@@ -44,7 +45,7 @@ membership 保护的详情固定 Host key；Host 对 `connect.incoming.authoriza
 再次查询 Client descriptor 后写入本地 pinned trust。Server membership 与本地 trust
 必须同时成立，既有 deviceId 的 key 变化必须 fail closed。
 
-## 5. 唯一业务协议
+## 5. 受控业务协议
 
 Secure channel 中只接受：
 
@@ -52,11 +53,15 @@ Secure channel 中只接受：
 - `harness.api.respond`
 - `harness.api.stream.open`
 - `harness.api.stream.close`
+- `fileviewer.call`（Host 宣告 `fileviewer.read.v1` 时，仅 stat/readRange/list）
 - 对应 response/error 与 `harness.api.frame`、`harness.api.stream.closed`
 
 Session、Message、Tool、Approval、Question、Workspace 和 Goal 的结构全部沿用对应版本
 的官方 ApiProxy contract。Plugin 不复制其 schema，也不提供旧 `sessions.*`、
 `session.send`、`permissions.respond` 或 `sync.from`。
+
+`fileviewer.call` 不承载 Harness 业务对象，只把 File Viewer provider 已授权的只读内容以
+不超过 512 KiB 的分块传输；禁止 openExternal、文件修改与任意 endpoint。
 
 Client 与 Host Plugin 作为同一发布物安装，不做旧业务协议兼容。真正的跨版本协商只保留
 在 Control/Relay 层；ApiProxy contract 变化由 Plugin 版本一起升级。
@@ -79,7 +84,7 @@ Plugin 不维护第二套 seq replay buffer 或 full-resync 机制。
 
 - Plugin 只建立出站连接，不监听公网端口。
 - 业务 payload 只能进入完成 Noise IK 和 membership/trust 校验的 channel。
-- Host 以固定 allowlist 代理 ApiProxy，禁止 credentials/settings、任意目录、native open、附件和下载。
+- Host 以固定 allowlist 代理 ApiProxy；File Viewer 使用独立的 stat/readRange/list allowlist。禁止 credentials/settings、任意目录访问、native open、附件、下载和文件写入。
 - 未知 method、错误 target、重放、counter gap、identity mismatch 全部 fail closed。
 - token、私钥、主机匹配码、prompt、源码、工具输出和 ciphertext 不写日志。
 

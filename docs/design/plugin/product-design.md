@@ -31,13 +31,15 @@ Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新�
 - Settings 插件卡片、Remote 模态框、远程状态 Header 和脱敏诊断。
 - 主机列表过滤本机，并显示 OS、Harness 版本、Plugin 版本与在线状态。
 - 已有 Workspace 选择与只读远端目录浏览。
+- 配合 `dsh-file-viewer` 的受限远端文件预览（stat、分块读取、目录列表）。
 
 ## 4. 非目标
 
 - Android Client 复用协议，但其真实设备 E2E 验收独立进行。
 - 不兼容旧 `sessions.* / session.* / permissions.respond / sync.from` 业务协议。
 - 不启动公网监听端口。
-- 不提供 PTY、SSH、远程桌面、文件内容访问或任意 Harness tool RPC。
+- 不提供 PTY、SSH、远程桌面、任意文件系统访问或任意 Harness tool RPC；文件内容仅可由
+  `dsh-file-viewer` provider 在其授权根/locator 内通过受限只读预览桥访问。
 - 不代理 credentials、settings、native path open/picker、目录写入、附件或下载 API。
 - 不在本仓库实现 Server、Remote Web 或 Admin runtime。
 

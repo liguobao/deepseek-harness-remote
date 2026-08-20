@@ -11,6 +11,7 @@ import type { SafeLogger } from './logging.js'
 import { RemoteHarnessApiProxy } from './remote-api-proxy.js'
 import { ClientServerApi, ServerApiError, type AuthorizedPeerDevice, type ServerHostDevice } from './server-api.js'
 import { TypertGatewaySwitch } from './typert-gateway-switch.js'
+import type { RemoteFileViewerEndpoint } from './file-viewer-contract.js'
 import { loadWeriftFactory } from './werift-rtc.js'
 
 interface ConnectedRemote {
@@ -291,6 +292,18 @@ export class ClientModeRuntime {
     this.gatewaySwitch.restore()
   }
 
+  private async callRemoteFileViewer(
+    endpoint: RemoteFileViewerEndpoint,
+    payload: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const remote = this.connected
+    if (remote === undefined || this.proxySwitch.status().mode !== 'remote') {
+      throw new ClientModeError('REMOTE_NOT_CONNECTED', 'No Remote Host is selected.', true)
+    }
+    return remote.client.rpc('fileviewer.call', { endpoint, payload }, signal)
+  }
+
   private async connect(targetDeviceId: string, signal?: AbortSignal): Promise<ConnectedRemote> {
     signal?.throwIfAborted()
     const identity = this.requireIdentity()
@@ -414,6 +427,12 @@ export class ClientModeRuntime {
           throw new ClientModeError('INVALID_MESSAGE', 'A Host and working directory are required.')
         }
         return ok(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal))
+      }
+      if (endpoint === 'fileviewer.stat' || endpoint === 'fileviewer.readRange' || endpoint === 'fileviewer.list') {
+        const method = endpoint === 'fileviewer.stat'
+          ? 'stat'
+          : endpoint === 'fileviewer.readRange' ? 'readRange' : 'list'
+        return ok(await this.callRemoteFileViewer(method, payload, signal))
       }
       if (endpoint === 'host.account.login') {
         if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')

@@ -6,6 +6,7 @@ import {
   type RpcRequestPayload,
 } from '@dsh-remote/protocol'
 import { z } from 'zod'
+import type { RemoteFileViewerBridge } from './file-viewer-bridge.js'
 import type { HarnessApiBridge } from './harness-api-bridge.js'
 import type { SafeLogger } from './logging.js'
 
@@ -15,9 +16,10 @@ const apiMethods = new Set([
   'harness.api.respond',
   'harness.api.stream.open',
   'harness.api.stream.close',
+  'fileviewer.call',
 ])
 
-export const HOST_CAPABILITIES = ['harness.api.v1'] as const
+export const HOST_CAPABILITIES = ['harness.api.v1', 'fileviewer.read.v1'] as const
 
 export class RpcRouter {
   private active = 0
@@ -26,6 +28,7 @@ export class RpcRouter {
     private readonly harnessApi: HarnessApiBridge,
     private readonly maxPending = 128,
     private readonly logger?: SafeLogger,
+    private readonly fileViewer?: RemoteFileViewerBridge,
   ) {}
 
   closePeerStreams(): Promise<void> { return this.harnessApi.closeAll() }
@@ -73,6 +76,12 @@ export class RpcRouter {
       case 'harness.api.respond': return this.harnessApi.respond(params)
       case 'harness.api.stream.open': return this.harnessApi.openStream(params)
       case 'harness.api.stream.close': return this.harnessApi.closeStream(params)
+      case 'fileviewer.call': {
+        if (this.fileViewer === undefined) {
+          throw new RpcError('FILE_VIEWER_UNAVAILABLE', 'The Remote Host does not have DSH File Viewer available.')
+        }
+        return this.fileViewer.call(params)
+      }
       default: throw new RpcError('METHOD_NOT_FOUND', 'The requested method does not exist.')
     }
   }

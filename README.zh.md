@@ -16,6 +16,7 @@
 - 发送新的指令，或调整任务方向
 - 回答问题，处理权限请求
 - 打开任意已连接电脑上的工作区
+- 配合可选的 `dsh-file-viewer` 插件预览远端工作区文件
 - 在设备之间切换，而无需迁移工作
 
 你可以在浏览器中打开 Remote，也可以从另一台电脑的 Harness 进入 **Remote** 工作区。
@@ -42,7 +43,7 @@ dsh plugin --profile web add ds-harness-remote
 
 项目地址：[npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.16`。
+如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.17`。
 
 安装后请重启 Harness。
 
@@ -80,7 +81,8 @@ Workspace 会在 Harness 原生界面中打开，顶部会显示当前 Host 和�
 - Host 只主动向外连接，不开放公网端口。
 - 会话流量经过端到端加密；服务端只中继密文，不保存会话明文或设备私钥。
 - Remote 仅开放界面所需的 Harness 能力，不提供 Shell 或远程桌面。
-- 目录浏览只能列出文件夹，不能读取文件或修改文件系统。
+- Workspace 选择器仍只列出文件夹；两端安装 `dsh-file-viewer` 后，可通过受限、加密的分块读取在原有只读查看器中预览文件。
+- 远端文件预览不能写入、删除、上传、执行文件，也不能调用远端系统的“外部打开”；允许根目录与 locator 授权仍由 File Viewer provider 执行。
 - 移除设备后，对应的 Remote 访问立即失效。
 
 实现细节请参阅[插件说明](packages/plugin/README.md)、[文档索引](docs/README.md)和[远程协议](docs/protocol.md)。

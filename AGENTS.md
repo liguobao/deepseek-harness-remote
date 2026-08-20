@@ -54,7 +54,7 @@ docs/
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
 | Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
-| Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；Remote 模态框支持本机过滤、主机/版本信息、已有 Workspace 和远端目录浏览，随后复用原生 Harness UI | 真实 dsh-desktop 跨机 E2E、断线重连、页面级导航接口 |
+| Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；Remote 模态框支持本机过滤、主机/版本信息、已有 Workspace、远端目录浏览，以及配合 dsh-file-viewer 的受限只读文件预览，随后复用原生 Harness UI | 真实 dsh-desktop 跨机 E2E、断线重连、页面级导航接口 |
 | Android | 已迁移到 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、harness.api tunnel 与 mux frame 聊天 | 真机 E2E 与 Server 联调、重连后 mux 重开与 history baseline、WebRTC 走通验证 |
 | VS Code | Extension 基础已实现：SecretStorage 身份/凭证、账号/扫码登录、Host 指纹固定、Adaptive transport + Noise、Host→Workspace→Session 导航与编辑区会话面板 | Extension Host 跨机 E2E、实时流式更新、approval/question 与重连恢复 |
 | Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 完整 Zod schema、limits、golden vectors |
@@ -112,9 +112,9 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 3. Remote business message 只能进入已认证的加密 channel；明文、未知 connection、错误 target、重放和 identity mismatch 必须 fail closed。
 4. Server membership 与 Host 本地 trusted peer 必须同时成立。
 5. v1 permission decision 只允许 `allow_once | deny`，禁止恢复 `allow_session`。
-6. 不提供 Shell、PTY、文件内容或目录写入、远程桌面或通用 Harness tool RPC；Remote picker 仅可返回受限的只读目录元数据。
+6. 不提供 Shell、PTY、目录写入、远程桌面或通用 Harness tool RPC；Remote picker 仅可返回受限的只读目录元数据。文件内容只能通过 dsh-file-viewer provider 授权后的 `fileviewer.read.v1` 只读分块桥访问，禁止 openExternal、写入、上传和执行。
 7. Token、私钥、主机匹配码、prompt、源码和工具输出不得写日志。
-8. Harness 业务层只使用官方 `ApiProxy`；禁止恢复 session/agent/workspace/permission adapter 或另一套 wire format。
+8. Harness 业务层只使用官方 `ApiProxy`；可选文件预览只使用 dsh-file-viewer 的 provider 授权服务。禁止恢复 session/agent/workspace/permission adapter、另一套 Harness wire format 或通用文件系统协议。
 9. 不修改用户已有变更，不提交 `node_modules`、Expo cache、Android build 产物或个人 Agent 配置；唯一允许提交的 `dist` 是根 DSH GitHub Bundle 所需的 `packages/plugin/dist/index.js` 与 `client.github.js`，另需保留根 Host 入口 `index.js`。
 
 ## Test Policy

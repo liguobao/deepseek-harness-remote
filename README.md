@@ -16,6 +16,7 @@ Return to the same Harness session from whichever device is with you. Harness ke
 - Send new instructions or change direction
 - Answer questions and respond to permission requests
 - Open workspaces from any connected computer
+- Preview files from a remote workspace with the optional `dsh-file-viewer` plugin
 - Move between devices without moving your work
 
 Remote is available in a browser and through the **Remote** workspace entry in Harness on another computer.
@@ -42,7 +43,7 @@ dsh plugin --profile web add ds-harness-remote
 
 Package: [npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-To pin a GitHub release instead, install `github:liguobao/deepseek-harness-remote#v0.3.16`.
+To pin a GitHub release instead, install `github:liguobao/deepseek-harness-remote#v0.3.17`.
 
 Restart Harness after installation.
 
@@ -80,7 +81,8 @@ The workspace opens in the native Harness interface, with the active Host and en
 - The Host makes outbound connections only. No public port is opened.
 - Session traffic is end-to-end encrypted. The service relays ciphertext without storing session plaintext or device private keys.
 - Remote exposes only the Harness capabilities required by the interface. It does not provide a shell or remote desktop.
-- Folder browsing lists directories only; it cannot read files or change the filesystem.
+- The workspace picker lists folders only. When `dsh-file-viewer` is installed on both devices, its existing read-only viewer can additionally preview files through bounded, encrypted range reads.
+- Remote file preview cannot write, delete, upload, execute, or open a path in an external application. File Viewer providers continue to enforce their own allowed roots and locator authorization.
 - Removing a device immediately revokes its Remote access.
 
 For implementation details, see the [Plugin guide](packages/plugin/README.md), [documentation index](docs/README.md), and [Remote Protocol](docs/protocol.md).

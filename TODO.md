@@ -21,6 +21,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [x] Host ApiProxy allowlist bridge、mux/host stream 与后台 Local/Remote ApiProxy switch
 - [x] Remote 模态框、主机自过滤、OS/Harness/Plugin 版本展示、远端 Workspace 与目录选择
 - [x] Remote Header、LAN/P2P/TURN/Relay 链路、端到端加密状态与退出入口
+- [x] 配合 dsh-file-viewer 的远端只读文件 stat/list/分块预览桥与 Client provider
 - [x] 不同 Web Client 同时连接一个 Host；RPC、stream 与断开清理按 connectionId 隔离
 - [x] 删除自定义 Session/Agent/Workspace/Permission adapters、event replay 和旧 Host RPC 路由
 
@@ -30,7 +31,8 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [ ] 用两台真实 Harness + 外部 Server 跑通同账号授权、选择 Remote、创建/继续会话
 - [ ] 验证原生 mux/host stream、approval/question respond 与断线关闭行为
 - [ ] 用手机 Web 与电脑 Web 同时连接一个真实 Host，验证并发操作、同设备重连和流隔离
-- [ ] 验证 allowlist 覆盖官方 UI 的必需方法，并保持 credentials/settings/native path/目录写入/文件内容/附件/download 禁止
+- [ ] 验证 allowlist 覆盖官方 UI 的必需方法，并保持 credentials/settings/native path/目录写入/任意文件访问/附件/download 禁止
+- [ ] 用两台真实 Harness 验证 dsh-file-viewer 文本、图片、PDF、大文件分块与断线回落
 - [ ] 在 macOS、Windows、Linux 验证 native picker 只读目录兜底、symlink、权限错误和大目录截断
 - [ ] 完善账号过期、`DEVICE_OWNERSHIP_REQUIRED` 和 legacy owner 的显式恢复体验
 - [ ] 增加 transport 关闭后 pending unary/stream 的确定错误与可诊断状态
@@ -102,7 +104,7 @@ ApiProxy contract，不得在 Plugin Host 恢复 `sessions.*`、`session.send`�
 ## 不在本仓库实现
 
 - Server、Remote Web、Admin runtime 及其数据库、队列和部署代码
-- Shell、PTY、任意文件读写、远程桌面或通用 Harness tool RPC
+- Shell、PTY、绕过 dsh-file-viewer provider 的任意文件访问、文件写入、远程桌面或通用 Harness tool RPC
 - 绕过 ApiProxy allowlist 的 Cordis service 反射
 
 ## 第一版完成标准

@@ -29,6 +29,7 @@ describe('protocol envelope', () => {
   it('advertises the native Harness bridge as closed protocol methods and events', () => {
     expect(rpcMethods).toContain('harness.api.call')
     expect(rpcMethods).toContain('harness.api.stream.open')
+    expect(rpcMethods).toContain('fileviewer.call')
     expect(remoteEvents).toContain('harness.api.frame')
     expect(remoteEvents).toContain('harness.api.stream.closed')
   })

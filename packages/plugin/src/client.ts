@@ -1,4 +1,5 @@
 import QRCode from 'qrcode'
+import { createRemoteFileContentProvider, type RemoteFileContentProvider } from './remote-file-content-provider.js'
 
 declare global {
   interface Window {
@@ -18,6 +19,10 @@ interface ControlResult<T = unknown> {
   ok: boolean
   value?: T
   error?: { message?: string }
+}
+
+interface FileViewerClientServiceLike {
+  registerContentProvider(provider: RemoteFileContentProvider): () => void
 }
 
 interface RemoteStatus {
@@ -1672,6 +1677,11 @@ window.__ModuleLoader__.load({
     function apply(ctx: {
       connection: { rpc: { call(channel: string, endpoint: string, payload: unknown): Promise<ControlResult> } }
       effect(effect: () => (() => void), label: string): void
+      inject(services: string[], callback: (ctx: {
+        effect(effect: () => (() => void), label: string): void
+        get<T = unknown>(name: string): T | undefined
+      }) => void): void
+      get<T = unknown>(name: string): T | undefined
       locale: {
         bind(namespace: string): Translate
         register(namespace: string, dictionaries: { zh: typeof zh; en: typeof en }): () => void
@@ -1699,6 +1709,39 @@ window.__ModuleLoader__.load({
         if (!result.ok) throw new Error(result.error?.message ?? t('remoteRequestFailed'))
         return result.value as T
       }
+      ctx.inject(['fileViewer'], fileViewerContext => {
+        const viewer = fileViewerContext.get<FileViewerClientServiceLike>('fileViewer')
+        if (viewer === undefined) return
+        fileViewerContext.effect(() => {
+          let active = true
+          let unregister: (() => void) | undefined
+          const sync = async (): Promise<void> => {
+            try {
+              const status = await control<RemoteStatus>('status')
+              if (!active) return
+              if (status.mode === 'remote' && unregister === undefined) {
+                unregister = viewer.registerContentProvider(createRemoteFileContentProvider(
+                  (endpoint, payload) => control(endpoint, payload),
+                ))
+              } else if (status.mode === 'local' && unregister !== undefined) {
+                unregister()
+                unregister = undefined
+              }
+            } catch {
+              // Keep the last known registration while the loopback control
+              // route is temporarily unavailable. Remote calls still fail
+              // closed at the authenticated Host bridge.
+            }
+          }
+          void sync()
+          const timer = window.setInterval(() => { void sync() }, 1_500)
+          return () => {
+            active = false
+            window.clearInterval(timer)
+            unregister?.()
+          }
+        }, 'dsh-remote: remote file viewer provider')
+      })
       ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), 'dsh-remote: dictionaries')
       ctx.effect(installStyle, 'dsh-remote: client styles')
       ctx.slots.inject('shell.overlay', () => ctx.slots.register({

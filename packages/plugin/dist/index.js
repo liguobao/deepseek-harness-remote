@@ -4083,7 +4083,8 @@ var rpcMethods = [
   "harness.api.call",
   "harness.api.respond",
   "harness.api.stream.open",
-  "harness.api.stream.close"
+  "harness.api.stream.close",
+  "fileviewer.call"
 ];
 var rpcMethodSchema = external_exports.enum(rpcMethods);
 var messageTypeSchema = external_exports.enum(messageTypes);
@@ -13064,7 +13065,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.16";
+var PLUGIN_VERSION = "0.3.17";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -13873,6 +13874,13 @@ var ClientModeRuntime = class {
     this.proxySwitch.restore();
     this.gatewaySwitch.restore();
   }
+  async callRemoteFileViewer(endpoint, payload, signal) {
+    const remote = this.connected;
+    if (remote === void 0 || this.proxySwitch.status().mode !== "remote") {
+      throw new ClientModeError("REMOTE_NOT_CONNECTED", "No Remote Host is selected.", true);
+    }
+    return remote.client.rpc("fileviewer.call", { endpoint, payload }, signal);
+  }
   async connect(targetDeviceId, signal) {
     signal?.throwIfAborted();
     const identity = this.requireIdentity();
@@ -13988,6 +13996,10 @@ var ClientModeRuntime = class {
           throw new ClientModeError("INVALID_MESSAGE", "A Host and working directory are required.");
         }
         return ok(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal));
+      }
+      if (endpoint === "fileviewer.stat" || endpoint === "fileviewer.readRange" || endpoint === "fileviewer.list") {
+        const method = endpoint === "fileviewer.stat" ? "stat" : endpoint === "fileviewer.readRange" ? "readRange" : "list";
+        return ok(await this.callRemoteFileViewer(method, payload, signal));
       }
       if (endpoint === "host.account.login") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
@@ -14798,14 +14810,16 @@ var apiMethods = /* @__PURE__ */ new Set([
   "harness.api.call",
   "harness.api.respond",
   "harness.api.stream.open",
-  "harness.api.stream.close"
+  "harness.api.stream.close",
+  "fileviewer.call"
 ]);
-var HOST_CAPABILITIES = ["harness.api.v1"];
+var HOST_CAPABILITIES = ["harness.api.v1", "fileviewer.read.v1"];
 var RpcRouter = class {
-  constructor(harnessApi, maxPending = 128, logger) {
+  constructor(harnessApi, maxPending = 128, logger, fileViewer) {
     this.harnessApi = harnessApi;
     this.maxPending = maxPending;
     this.logger = logger;
+    this.fileViewer = fileViewer;
   }
   active = 0;
   closePeerStreams() {
@@ -14857,6 +14871,12 @@ var RpcRouter = class {
         return this.harnessApi.openStream(params);
       case "harness.api.stream.close":
         return this.harnessApi.closeStream(params);
+      case "fileviewer.call": {
+        if (this.fileViewer === void 0) {
+          throw new RpcError("FILE_VIEWER_UNAVAILABLE", "The Remote Host does not have DSH File Viewer available.");
+        }
+        return this.fileViewer.call(params);
+      }
       default:
         throw new RpcError("METHOD_NOT_FOUND", "The requested method does not exist.");
     }
@@ -14880,10 +14900,130 @@ function diagnosticReason3(error) {
   return message.replace(/[\r\n]+/g, " ").slice(0, 160) || "Unknown Host request failure.";
 }
 
+// src/file-viewer-contract.ts
+var REMOTE_FILE_CHUNK_BYTES = 512 * 1024;
+var MAX_REMOTE_FILE_LOCATOR_CHARS = 4096;
+var MAX_REMOTE_DIRECTORY_ENTRIES = 1e3;
+
+// src/file-viewer-bridge.ts
+var locatorSchema = external_exports.string().min(1).max(MAX_REMOTE_FILE_LOCATOR_CHARS);
+var callSchema = external_exports.discriminatedUnion("endpoint", [
+  external_exports.object({
+    endpoint: external_exports.literal("stat"),
+    payload: external_exports.object({ path: locatorSchema }).strict()
+  }).strict(),
+  external_exports.object({
+    endpoint: external_exports.literal("readRange"),
+    payload: external_exports.object({
+      path: locatorSchema,
+      offset: external_exports.number().int().nonnegative().safe(),
+      length: external_exports.number().int().positive().max(REMOTE_FILE_CHUNK_BYTES)
+    }).strict()
+  }).strict(),
+  external_exports.object({
+    endpoint: external_exports.literal("list"),
+    payload: external_exports.object({ path: locatorSchema }).strict()
+  }).strict()
+]);
+var statResultSchema = external_exports.object({
+  path: locatorSchema,
+  name: external_exports.string().min(1).max(1024),
+  ext: external_exports.string().max(128),
+  mime: external_exports.string().min(1).max(256),
+  size: external_exports.number().int().nonnegative().safe(),
+  mtimeMs: external_exports.number().nonnegative().optional(),
+  isDirectory: external_exports.boolean(),
+  exists: external_exports.boolean()
+}).strict();
+var rangeResultSchema = external_exports.object({
+  data: external_exports.string().max(Math.ceil(REMOTE_FILE_CHUNK_BYTES / 3) * 4 + 4),
+  offset: external_exports.number().int().nonnegative().safe(),
+  size: external_exports.number().int().nonnegative().safe(),
+  eof: external_exports.boolean()
+}).strict();
+var directoryEntrySchema = external_exports.object({
+  name: external_exports.string().min(1).max(1024),
+  path: locatorSchema,
+  isDirectory: external_exports.boolean(),
+  size: external_exports.number().int().nonnegative().safe().optional(),
+  mtimeMs: external_exports.number().nonnegative().optional()
+}).strict();
+var listResultSchema = external_exports.object({
+  path: locatorSchema,
+  entries: external_exports.array(directoryEntrySchema).max(MAX_REMOTE_DIRECTORY_ENTRIES)
+}).strict();
+var RemoteFileViewerBridge = class {
+  constructor(service, logger) {
+    this.service = service;
+    this.logger = logger;
+  }
+  async call(input) {
+    const params = callSchema.parse(input);
+    const service = this.service();
+    if (service === void 0) {
+      throw new RpcError("FILE_VIEWER_UNAVAILABLE", "The Remote Host does not have DSH File Viewer available.");
+    }
+    const startedAt = performance.now();
+    const signal = AbortSignal.timeout(3e4);
+    let raw;
+    try {
+      raw = await service.handle(params.endpoint, params.payload, signal);
+    } catch {
+      this.logger?.warn("remote file viewer service failed", { endpoint: params.endpoint });
+      throw new RpcError("FILE_VIEWER_ERROR", "The Remote File Viewer could not complete the request.");
+    }
+    const result = parseHostResult(raw);
+    if (!result.ok) throw hostFailure(result);
+    try {
+      const value = params.endpoint === "stat" ? statResultSchema.parse(result.value) : params.endpoint === "readRange" ? rangeResultSchema.parse(result.value) : listResultSchema.parse(result.value);
+      this.logger?.debug("remote file viewer call ok", {
+        endpoint: params.endpoint,
+        durationMs: Math.round(performance.now() - startedAt)
+      });
+      return value;
+    } catch (error) {
+      if (error instanceof external_exports.ZodError && params.endpoint === "list" && isOversizedListing(result.value)) {
+        throw new RpcError(
+          "RESPONSE_TOO_LARGE",
+          `The remote directory contains more than ${MAX_REMOTE_DIRECTORY_ENTRIES} entries.`,
+          { maxEntries: MAX_REMOTE_DIRECTORY_ENTRIES },
+          true
+        );
+      }
+      throw error;
+    }
+  }
+};
+function parseHostResult(input) {
+  if (typeof input !== "object" || input === null || !("ok" in input) || typeof input.ok !== "boolean") {
+    throw new RpcError("FILE_VIEWER_INVALID_RESPONSE", "The Remote Host File Viewer returned an invalid response.");
+  }
+  return input;
+}
+function hostFailure(result) {
+  const message = result.error?.message ?? "";
+  if (/access denied/i.test(message)) {
+    return new RpcError("ACCESS_DENIED", "The Remote File Viewer denied access to this locator.");
+  }
+  if (/does not exist|not exist|not found/i.test(message)) {
+    return new RpcError("NOT_FOUND", "The requested remote file does not exist.");
+  }
+  if (result.error?.code === "cancelled") {
+    return new RpcError("CANCELLED", "The Remote File Viewer request was cancelled.", void 0, true);
+  }
+  if (result.error?.code === "bad-request") {
+    return new RpcError("INVALID_MESSAGE", "The Remote File Viewer request is invalid.");
+  }
+  return new RpcError("FILE_VIEWER_ERROR", "The Remote File Viewer could not complete the request.");
+}
+function isOversizedListing(value) {
+  return typeof value === "object" && value !== null && "entries" in value && Array.isArray(value.entries) && value.entries.length > MAX_REMOTE_DIRECTORY_ENTRIES;
+}
+
 // src/server-connection.ts
 var DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 8e3;
 var HostServerConnection = class {
-  constructor(config, identity, identities, api, connections, logger, createWebSocket = (url) => new WebSocket(url), rtcFactoryProvider) {
+  constructor(config, identity, identities, api, connections, logger, createWebSocket = (url) => new WebSocket(url), rtcFactoryProvider, hostCapabilities = () => ["harness.api.v1"]) {
     this.config = config;
     this.identity = identity;
     this.identities = identities;
@@ -14892,6 +15032,7 @@ var HostServerConnection = class {
     this.logger = logger;
     this.createWebSocket = createWebSocket;
     this.rtcFactoryProvider = rtcFactoryProvider;
+    this.hostCapabilities = hostCapabilities;
   }
   socket;
   running;
@@ -15015,7 +15156,7 @@ var HostServerConnection = class {
           accessToken: credentials.accessToken,
           protocols: [PROTOCOL_VERSION],
           clientVersion: PLUGIN_VERSION,
-          capabilities: this.rtcFactoryProvider === void 0 || this.config.forceRelay ? ["transport.relay", "harness.api.v1"] : ["transport.p2p", "transport.turn", "transport.relay", "harness.api.v1"]
+          capabilities: this.rtcFactoryProvider === void 0 || this.config.forceRelay ? ["transport.relay", ...this.hostCapabilities()] : ["transport.p2p", "transport.turn", "transport.relay", ...this.hostCapabilities()]
         });
       };
       socket.onmessage = (event) => {
@@ -15610,7 +15751,7 @@ function crumbs(path) {
 }
 
 // src/harness-api-bridge.ts
-var callSchema = external_exports.object({
+var callSchema2 = external_exports.object({
   method: external_exports.string().min(1).max(80),
   rpcId: external_exports.string().min(1).max(128),
   payload: external_exports.unknown()
@@ -15702,7 +15843,7 @@ var HarnessApiBridge = class {
   host;
   answer;
   async call(input) {
-    const params = callSchema.parse(input);
+    const params = callSchema2.parse(input);
     const method = this.methods.get(params.method);
     if (method === void 0) throw deniedMethod(params.method);
     const startedAt = performance.now();
@@ -15961,10 +16102,11 @@ function shortId4(value) {
 
 // src/service.ts
 var HostPluginRuntime = class {
-  constructor(config, identities, apiProxy, logger, typertGateway) {
+  constructor(config, identities, apiProxy, logger, typertGateway, fileViewerHost) {
     this.config = config;
     this.identities = identities;
     this.logger = logger;
+    this.fileViewerHost = fileViewerHost;
     this.connections = new ConnectionController(this.identities, (_context, send) => {
       const harnessApi = new HarnessApiBridge(
         apiProxy,
@@ -15973,7 +16115,11 @@ var HostPluginRuntime = class {
         this.logger,
         typertGateway?.()
       );
-      return new RpcRouter(harnessApi, void 0, this.logger);
+      const fileViewer = new RemoteFileViewerBridge(
+        () => this.fileViewerHost?.(),
+        this.logger
+      );
+      return new RpcRouter(harnessApi, void 0, this.logger, fileViewer);
     }, this.logger);
     if (config.serverUrl !== void 0) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory));
@@ -16110,12 +16256,74 @@ var HostPluginRuntime = class {
       this.connections,
       this.logger,
       void 0,
-      this.config.forceRelay ? void 0 : loadWeriftFactory
+      this.config.forceRelay ? void 0 : loadWeriftFactory,
+      () => this.fileViewerHost?.() === void 0 ? ["harness.api.v1"] : ["harness.api.v1", "fileviewer.read.v1"]
     );
   }
 };
 function shortId5(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
+}
+
+// src/remote-file-content-provider.ts
+function createRemoteFileContentProvider(call) {
+  return {
+    id: "dsh-remote-files",
+    priority: 1e4,
+    supports: () => true,
+    async stat(locator, signal) {
+      const value = await call("fileviewer.stat", { path: locator }, signal);
+      if (!value.exists) return void 0;
+      return {
+        name: value.name,
+        size: value.isDirectory ? 0 : value.size,
+        mime: value.mime,
+        mtimeMs: value.mtimeMs,
+        isDirectory: value.isDirectory
+      };
+    },
+    async read(locator, request) {
+      if (!Number.isInteger(request.offset) || request.offset < 0) throw new Error("A non-negative integer offset is required.");
+      if (!Number.isInteger(request.length) || request.length <= 0) throw new Error("A positive integer length is required.");
+      const chunks = [];
+      let received = 0;
+      while (received < request.length) {
+        request.signal.throwIfAborted();
+        const length = Math.min(REMOTE_FILE_CHUNK_BYTES, request.length - received);
+        const offset = request.offset + received;
+        const range = await call("fileviewer.readRange", { path: locator, offset, length }, request.signal);
+        if (range.offset !== offset) throw new Error("The Remote Host returned a mismatched file range.");
+        const bytes = decodeBase64(range.data);
+        if (bytes.byteLength > length) throw new Error("The Remote Host returned more file bytes than requested.");
+        chunks.push(bytes);
+        received += bytes.byteLength;
+        if (range.eof || bytes.byteLength === 0) break;
+      }
+      const merged = new Uint8Array(received);
+      let cursor = 0;
+      for (const chunk of chunks) {
+        merged.set(chunk, cursor);
+        cursor += chunk.byteLength;
+      }
+      return merged;
+    },
+    async list(locator, signal) {
+      const value = await call("fileviewer.list", { path: locator }, signal);
+      return value.entries.map((entry) => ({
+        locator: entry.path,
+        name: entry.name,
+        size: entry.isDirectory ? 0 : entry.size ?? 0,
+        mtimeMs: entry.mtimeMs,
+        isDirectory: entry.isDirectory
+      }));
+    }
+  };
+}
+function decodeBase64(value) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
 }
 
 // src/index.ts
@@ -16160,7 +16368,14 @@ async function activate(ctx, input) {
   const connection = ctx.get("connection");
   const nativeTypertGateway = ctx.get("typertGateway");
   const localTypertGateway = new TypertGatewaySwitch(nativeTypertGateway).local();
-  const runtime = new HostPluginRuntime(config, hostIdentities, apiProxy, logger, () => localTypertGateway);
+  const runtime = new HostPluginRuntime(
+    config,
+    hostIdentities,
+    apiProxy,
+    logger,
+    () => localTypertGateway,
+    () => ctx.get("fileViewerHost")
+  );
   let clientRuntime;
   const hostControl = runtime;
   if (config.serverUrl !== void 0 && apiProxy !== void 0 && connection !== void 0) {
@@ -16224,6 +16439,7 @@ export {
   IdentityInvalidError,
   IdentityStore,
   PluginControlRuntime,
+  RemoteFileViewerBridge,
   RemoteHarnessApiProxy,
   RpcError,
   RpcRouter,
@@ -16232,6 +16448,7 @@ export {
   ServerCredentialsInvalidError,
   TypertGatewaySwitch,
   apply,
+  createRemoteFileContentProvider,
   fingerprint,
   name,
   resolveConfig,

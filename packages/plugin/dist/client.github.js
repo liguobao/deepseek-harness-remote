@@ -1620,7 +1620,61 @@ Minimum version required to store current data is: ` + bestVersion + `.
   });
 
   // src/client.ts
-  var import_qrcode = __toESM(require_browser(), 1), clientModuleId = "dsh-remote", localeNamespace = "dsh-remote", en = {
+  var import_qrcode = __toESM(require_browser(), 1);
+
+  // src/remote-file-content-provider.ts
+  function createRemoteFileContentProvider(call) {
+    return {
+      id: "dsh-remote-files",
+      priority: 1e4,
+      supports: () => !0,
+      async stat(locator, signal) {
+        let value = await call("fileviewer.stat", { path: locator }, signal);
+        if (value.exists)
+          return {
+            name: value.name,
+            size: value.isDirectory ? 0 : value.size,
+            mime: value.mime,
+            mtimeMs: value.mtimeMs,
+            isDirectory: value.isDirectory
+          };
+      },
+      async read(locator, request) {
+        if (!Number.isInteger(request.offset) || request.offset < 0) throw new Error("A non-negative integer offset is required.");
+        if (!Number.isInteger(request.length) || request.length <= 0) throw new Error("A positive integer length is required.");
+        let chunks = [], received = 0;
+        for (; received < request.length; ) {
+          request.signal.throwIfAborted();
+          let length = Math.min(524288, request.length - received), offset = request.offset + received, range = await call("fileviewer.readRange", { path: locator, offset, length }, request.signal);
+          if (range.offset !== offset) throw new Error("The Remote Host returned a mismatched file range.");
+          let bytes = decodeBase64(range.data);
+          if (bytes.byteLength > length) throw new Error("The Remote Host returned more file bytes than requested.");
+          if (chunks.push(bytes), received += bytes.byteLength, range.eof || bytes.byteLength === 0) break;
+        }
+        let merged = new Uint8Array(received), cursor = 0;
+        for (let chunk of chunks)
+          merged.set(chunk, cursor), cursor += chunk.byteLength;
+        return merged;
+      },
+      async list(locator, signal) {
+        return (await call("fileviewer.list", { path: locator }, signal)).entries.map((entry) => ({
+          locator: entry.path,
+          name: entry.name,
+          size: entry.isDirectory ? 0 : entry.size ?? 0,
+          mtimeMs: entry.mtimeMs,
+          isDirectory: entry.isDirectory
+        }));
+      }
+    };
+  }
+  function decodeBase64(value) {
+    let binary = atob(value), bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  }
+
+  // src/client.ts
+  var clientModuleId = "dsh-remote", localeNamespace = "dsh-remote", en = {
     pluginTitle: "DeepSeek Remote",
     pluginDescription: "Connect once. Available anytime.",
     expandSettings: "Show settings: {name}",
@@ -3041,7 +3095,28 @@ Minimum version required to store current data is: ` + bestVersion + `.
           if (!result.ok) throw new Error(result.error?.message ?? t("remoteRequestFailed"));
           return result.value;
         };
-        ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), "dsh-remote: dictionaries"), ctx.effect(installStyle, "dsh-remote: client styles"), ctx.slots.inject("shell.overlay", () => ctx.slots.register({
+        ctx.inject(["fileViewer"], (fileViewerContext) => {
+          let viewer = fileViewerContext.get("fileViewer");
+          viewer !== void 0 && fileViewerContext.effect(() => {
+            let active = !0, unregister, sync = async () => {
+              try {
+                let status = await control("status");
+                if (!active) return;
+                status.mode === "remote" && unregister === void 0 ? unregister = viewer.registerContentProvider(createRemoteFileContentProvider(
+                  (endpoint, payload) => control(endpoint, payload)
+                )) : status.mode === "local" && unregister !== void 0 && (unregister(), unregister = void 0);
+              } catch {
+              }
+            };
+            sync();
+            let timer = window.setInterval(() => {
+              sync();
+            }, 1500);
+            return () => {
+              active = !1, window.clearInterval(timer), unregister?.();
+            };
+          }, "dsh-remote: remote file viewer provider");
+        }), ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), "dsh-remote: dictionaries"), ctx.effect(installStyle, "dsh-remote: client styles"), ctx.slots.inject("shell.overlay", () => ctx.slots.register({
           name: "shell.overlay",
           id: "dsh-remote-global-context",
           order: 20,

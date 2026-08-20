@@ -39,6 +39,7 @@ export const rpcMethods = [
   'harness.api.respond',
   'harness.api.stream.open',
   'harness.api.stream.close',
+  'fileviewer.call',
 ] as const
 
 export const remoteEvents = [

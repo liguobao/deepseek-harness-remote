@@ -1,6 +1,7 @@
 import { createRpcRequest } from '@dsh-remote/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { HarnessApiBridge } from '../src/harness-api-bridge.js'
+import type { RemoteFileViewerBridge } from '../src/file-viewer-bridge.js'
 import { RpcRouter } from '../src/rpc-router.js'
 
 describe('RpcRouter', () => {
@@ -29,9 +30,23 @@ describe('RpcRouter', () => {
     await router.closePeerStreams()
     expect(closeAll).toHaveBeenCalledOnce()
   })
+
+  it('routes only the explicit File Viewer call through its bridge', async () => {
+    const fileViewer = { call: vi.fn(async () => ({ exists: true })) } as unknown as RemoteFileViewerBridge
+    const router = createRouter({}, fileViewer)
+    const response = await router.handle({
+      v: 1,
+      id: 'fileviewer-request',
+      type: 'rpc.request',
+      timestamp: Date.now(),
+      payload: { method: 'fileviewer.call', params: { endpoint: 'stat', payload: { path: '/workspace/report.md' } } },
+    })
+    expect(fileViewer.call).toHaveBeenCalledWith({ endpoint: 'stat', payload: { path: '/workspace/report.md' } })
+    expect(response).toMatchObject({ type: 'rpc.response', payload: { result: { exists: true } } })
+  })
 })
 
-function createRouter(overrides: Record<string, unknown> = {}): RpcRouter {
+function createRouter(overrides: Record<string, unknown> = {}, fileViewer?: RemoteFileViewerBridge): RpcRouter {
   return new RpcRouter({
     call: vi.fn(),
     respond: vi.fn(),
@@ -39,5 +54,5 @@ function createRouter(overrides: Record<string, unknown> = {}): RpcRouter {
     closeStream: vi.fn(),
     closeAll: vi.fn(async () => undefined),
     ...overrides,
-  } as unknown as HarnessApiBridge)
+  } as unknown as HarnessApiBridge, undefined, undefined, fileViewer)
 }
