@@ -6,6 +6,7 @@ import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { HostAuthorizationControl, HostConnectionHandle } from '../src/client-runtime.js'
 import { resolveConfig, type Config } from '../src/config.js'
+import { CONTROL_RPC_PREFIX } from '../src/control-route.js'
 import { PluginControlRuntime } from '../src/control-runtime.js'
 import { serverStorageDirectory } from '../src/identity-store.js'
 
@@ -17,6 +18,28 @@ afterEach(async () => {
 })
 
 describe('PluginControlRuntime settings setup', () => {
+  it('coexists with a Remote Web UI that already owns /remote', async () => {
+    const channels = new Set(['/remote'])
+    const connection = {
+      rpc: {
+        handle: vi.fn((channel: string) => {
+          if (channels.has(channel)) throw new Error(`webserver: duplicate prefix route "${channel}"`)
+          channels.add(channel)
+          return async () => { channels.delete(channel) }
+        }),
+      },
+    } as unknown as HostConnectionHandle
+    const runtime = new PluginControlRuntime(
+      resolveConfig(), '/unused', undefined, undefined, undefined,
+    )
+
+    const dispose = runtime.register(connection)
+
+    expect(channels).toEqual(new Set(['/remote', CONTROL_RPC_PREFIX]))
+    await dispose()
+    expect(channels).toEqual(new Set(['/remote']))
+  })
+
   it('updates the Server address without creating a separate authorization', async () => {
     const directory = await temporaryDirectory()
     const settings = settingsScope({ serverUrl: 'https://old.example.com', role: 'client' })
@@ -243,14 +266,17 @@ describe('PluginControlRuntime settings setup', () => {
 
 function register(runtime: PluginControlRuntime) {
   let handler: ((endpoint: string, payload: unknown, signal: AbortSignal) => Promise<RpcResult<unknown>>) | undefined
+  let channel: string | undefined
   runtime.register({
     rpc: {
-      handle: (_channel, next) => {
+      handle: (registeredChannel, next) => {
+        channel = registeredChannel
         handler = next
         return async () => undefined
       },
     },
   } satisfies HostConnectionHandle)
+  expect(channel).toBe(CONTROL_RPC_PREFIX)
   if (handler === undefined) throw new Error('control handler was not registered')
   return handler
 }

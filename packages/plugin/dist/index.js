@@ -12793,6 +12793,9 @@ async function waitForResponder(inner, noise) {
   });
 }
 
+// src/control-route.ts
+var CONTROL_RPC_PREFIX = "/ds-harness-remote";
+
 // src/ids.ts
 import { randomBytes as randomBytes6 } from "node:crypto";
 function uuidV7(now = Date.now()) {
@@ -13065,7 +13068,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.18";
+var PLUGIN_VERSION = "0.3.19";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -13723,7 +13726,7 @@ var ClientModeRuntime = class {
     });
   }
   registerControl(connection) {
-    return connection.rpc.handle("/remote", (endpoint, payload, signal) => this.handleControl(endpoint, payload, signal), {
+    return connection.rpc.handle(CONTROL_RPC_PREFIX, (endpoint, payload, signal) => this.handleControl(endpoint, payload, signal), {
       authority: "loopback"
     });
   }
@@ -14427,7 +14430,7 @@ var PluginControlRuntime = class {
     this.host = host;
   }
   register(connection) {
-    return connection.rpc.handle("/remote", (endpoint, payload, signal) => this.handle(endpoint, payload, signal), {
+    return connection.rpc.handle(CONTROL_RPC_PREFIX, (endpoint, payload, signal) => this.handle(endpoint, payload, signal), {
       authority: "loopback"
     });
   }

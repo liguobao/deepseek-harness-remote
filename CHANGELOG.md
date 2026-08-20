@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.19
+
+- Namespaces the plugin's loopback Web RPC route as `/ds-harness-remote` so it can run
+  alongside Remote Web UI plugins that own the public `/remote` route.
+
 ## 0.3.18
 
 - Restores compatibility with legacy `0.3.15` Hosts: Remote workspaces and

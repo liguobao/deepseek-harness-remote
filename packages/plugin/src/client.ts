@@ -4,6 +4,7 @@ import {
   shouldUseRemoteFileViewer,
   type RemoteFileContentProvider,
 } from './remote-file-content-provider.js'
+import { CONTROL_RPC_PREFIX } from './control-route.js'
 
 declare global {
   interface Window {
@@ -1701,11 +1702,11 @@ window.__ModuleLoader__.load({
         let result: ControlResult
         for (let attempt = 0; ; attempt += 1) {
           try {
-            result = await ctx.connection.rpc.call('/remote', endpoint, payload)
+            result = await ctx.connection.rpc.call(CONTROL_RPC_PREFIX, endpoint, payload)
             break
           } catch (reason) {
             // The browser face can mount one turn before the injected Host
-            // runtime has registered /remote. A 405 comes from the static Web
+            // runtime has registered its control route. A 405 comes from the static Web
             // fallback, so the RPC was not dispatched and is safe to retry.
             if (attempt >= 19 || !isPendingControlRoute(reason)) throw reason
             await delay(100)
@@ -1775,7 +1776,9 @@ window.__ModuleLoader__.load({
     }
 
     function isPendingControlRoute(reason: unknown): boolean {
-      return reason instanceof Error && /transport failure for \/remote\/[^:]+: HTTP 405$/.test(reason.message)
+      return reason instanceof Error
+        && reason.message.startsWith(`transport failure for ${CONTROL_RPC_PREFIX}/`)
+        && reason.message.endsWith(': HTTP 405')
     }
 
     function delay(ms: number): Promise<void> {

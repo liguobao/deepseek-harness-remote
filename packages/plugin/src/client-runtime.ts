@@ -4,6 +4,7 @@ import { AdaptiveTransport, type RtcPeerConnectionFactory } from '@dsh-remote/we
 import { ApiProxySwitch, type HarnessMode } from './api-proxy-switch.js'
 import { ClientSecureTransport } from './client-secure-transport.js'
 import type { ResolvedConfig } from './config.js'
+import { CONTROL_RPC_PREFIX } from './control-route.js'
 import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
 import type { TypertGatewayLike } from './harness-api-bridge.js'
 import { uuidV7 } from './ids.js'
@@ -123,7 +124,7 @@ export class ClientModeRuntime {
   }
 
   registerControl(connection: HostConnectionHandle): () => Promise<void> {
-    return connection.rpc.handle('/remote', (endpoint, payload, signal) => this.handleControl(endpoint, payload, signal), {
+    return connection.rpc.handle(CONTROL_RPC_PREFIX, (endpoint, payload, signal) => this.handleControl(endpoint, payload, signal), {
       authority: 'loopback',
     })
   }

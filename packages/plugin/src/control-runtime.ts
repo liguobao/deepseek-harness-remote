@@ -11,6 +11,7 @@ import {
 import { IdentityStore, serverStorageDirectory } from './identity-store.js'
 import { ClientServerApi, HostServerApi } from './server-api.js'
 import { ServerCredentialStore } from './server-credentials.js'
+import { CONTROL_RPC_PREFIX } from './control-route.js'
 
 export interface PluginSettingsView {
   config: Config
@@ -37,7 +38,7 @@ export class PluginControlRuntime {
   ) {}
 
   register(connection: HostConnectionHandle): () => Promise<void> {
-    return connection.rpc.handle('/remote', (endpoint, payload, signal) => this.handle(endpoint, payload, signal), {
+    return connection.rpc.handle(CONTROL_RPC_PREFIX, (endpoint, payload, signal) => this.handle(endpoint, payload, signal), {
       authority: 'loopback',
     })
   }

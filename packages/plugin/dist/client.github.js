@@ -1676,6 +1676,9 @@ Minimum version required to store current data is: ` + bestVersion + `.
     return bytes;
   }
 
+  // src/control-route.ts
+  var CONTROL_RPC_PREFIX = "/ds-harness-remote";
+
   // src/client.ts
   var clientModuleId = "dsh-remote", localeNamespace = "dsh-remote", en = {
     pluginTitle: "DeepSeek Remote",
@@ -3089,7 +3092,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           let result;
           for (let attempt = 0; ; attempt += 1)
             try {
-              result = await ctx.connection.rpc.call("/remote", endpoint, payload);
+              result = await ctx.connection.rpc.call(CONTROL_RPC_PREFIX, endpoint, payload);
               break;
             } catch (reason) {
               if (attempt >= 19 || !isPendingControlRoute(reason)) throw reason;
@@ -3142,7 +3145,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
         }, RemotePluginOptions));
       }
       function isPendingControlRoute(reason) {
-        return reason instanceof Error && /transport failure for \/remote\/[^:]+: HTTP 405$/.test(reason.message);
+        return reason instanceof Error && reason.message.startsWith(`transport failure for ${CONTROL_RPC_PREFIX}/`) && reason.message.endsWith(": HTTP 405");
       }
       function delay(ms) {
         return new Promise((resolve) => window.setTimeout(resolve, ms));

@@ -11,6 +11,7 @@ import {
   type HostConnectionHandle,
 } from '../src/client-runtime.js'
 import type { ResolvedConfig } from '../src/config.js'
+import { CONTROL_RPC_PREFIX } from '../src/control-route.js'
 import { IdentityStore } from '../src/identity-store.js'
 import type { SafeLogger } from '../src/logging.js'
 import type { ClientServerApi } from '../src/server-api.js'
@@ -140,6 +141,9 @@ describe('ClientModeRuntime Host account control', () => {
       },
     } as unknown as HostConnectionHandle
     const dispose = runtime.registerControl(connection)
+    expect(connection.rpc.handle).toHaveBeenCalledWith(CONTROL_RPC_PREFIX, expect.any(Function), {
+      authority: 'loopback',
+    })
     const signal = new AbortController().signal
 
     await expect(handler?.('status', {}, signal)).resolves.toMatchObject({
