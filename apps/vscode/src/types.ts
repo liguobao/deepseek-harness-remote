@@ -52,7 +52,7 @@ export interface HistoryEntry {
 }
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'reasoning' | 'tool'
+  role: 'user' | 'assistant' | 'tool'
   text: string
   toolCallId?: string
   toolState?: 'running' | 'completed' | 'failed'

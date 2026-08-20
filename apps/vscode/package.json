@@ -4,7 +4,7 @@
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
   "icon": "media/icon.png",
-  "version": "0.3.16",
+  "version": "0.3.15",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -16,73 +16,25 @@
   "bugs": {
     "url": "https://github.com/liguobao/deepseek-harness-remote/issues"
   },
-  "keywords": [
-    "deepseek",
-    "harness",
-    "remote",
-    "agent",
-    "webrtc"
-  ],
+  "keywords": ["deepseek", "harness", "remote", "agent", "webrtc"],
   "engines": {
     "vscode": "^1.96.0"
   },
-  "categories": [
-    "Other"
-  ],
-  "activationEvents": [
-    "onView:dshRemote.login",
-    "onView:dshRemote.hosts"
-  ],
+  "categories": ["Other"],
+  "activationEvents": ["onView:dshRemote.login", "onView:dshRemote.hosts"],
   "main": "./dist/extension.cjs",
   "contributes": {
     "commands": [
-      {
-        "command": "dshRemote.signIn",
-        "title": "%command.signIn%"
-      },
-      {
-        "command": "dshRemote.signOut",
-        "title": "%command.signOut%"
-      },
-      {
-        "command": "dshRemote.settings",
-        "title": "%command.settings%",
-        "icon": "$(gear)"
-      },
-      {
-        "command": "dshRemote.openSettings",
-        "title": "%command.openSettings%"
-      },
-      {
-        "command": "dshRemote.refresh",
-        "title": "%command.refresh%",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "dshRemote.connect",
-        "title": "%command.connect%",
-        "icon": "$(plug)"
-      },
-      {
-        "command": "dshRemote.disconnect",
-        "title": "%command.disconnect%",
-        "icon": "$(debug-disconnect)"
-      },
-      {
-        "command": "dshRemote.addWorkspace",
-        "title": "%command.addWorkspace%",
-        "icon": "$(new-folder)"
-      },
-      {
-        "command": "dshRemote.newSession",
-        "title": "%command.newSession%",
-        "icon": "$(add)"
-      },
-      {
-        "command": "dshRemote.openSession",
-        "title": "%command.openSession%",
-        "icon": "$(open-preview)"
-      }
+      { "command": "dshRemote.signIn", "title": "%command.signIn%" },
+      { "command": "dshRemote.signOut", "title": "%command.signOut%" },
+      { "command": "dshRemote.settings", "title": "%command.settings%", "icon": "$(gear)" },
+      { "command": "dshRemote.openSettings", "title": "%command.openSettings%" },
+      { "command": "dshRemote.refresh", "title": "%command.refresh%", "icon": "$(refresh)" },
+      { "command": "dshRemote.connect", "title": "%command.connect%", "icon": "$(plug)" },
+      { "command": "dshRemote.disconnect", "title": "%command.disconnect%", "icon": "$(debug-disconnect)" },
+      { "command": "dshRemote.addWorkspace", "title": "%command.addWorkspace%", "icon": "$(new-folder)" },
+      { "command": "dshRemote.newSession", "title": "%command.newSession%", "icon": "$(add)" },
+      { "command": "dshRemote.openSession", "title": "%command.openSession%", "icon": "$(open-preview)" }
     ],
     "configuration": {
       "title": "%extension.displayName%",
@@ -100,63 +52,28 @@
       }
     },
     "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "dshRemote",
-          "title": "%extension.displayName%",
-          "icon": "media/whale.svg"
-        }
-      ]
+      "activitybar": [{
+        "id": "dshRemote",
+        "title": "%extension.displayName%",
+        "icon": "media/whale.svg"
+      }]
     },
     "views": {
       "dshRemote": [
-        {
-          "id": "dshRemote.login",
-          "name": "%view.signIn%",
-          "type": "webview",
-          "when": "!dshRemote.signedIn"
-        },
-        {
-          "id": "dshRemote.hosts",
-          "name": "",
-          "when": "dshRemote.signedIn"
-        }
+        { "id": "dshRemote.login", "name": "%view.signIn%", "type": "webview", "when": "!dshRemote.signedIn" },
+        { "id": "dshRemote.hosts", "name": "", "when": "dshRemote.signedIn" }
       ]
     },
     "menus": {
       "view/title": [
-        {
-          "command": "dshRemote.refresh",
-          "when": "view == dshRemote.hosts",
-          "group": "navigation@1"
-        },
-        {
-          "command": "dshRemote.settings",
-          "when": "view == dshRemote.hosts",
-          "group": "navigation@2"
-        }
+        { "command": "dshRemote.refresh", "when": "view == dshRemote.hosts", "group": "navigation@1" },
+        { "command": "dshRemote.settings", "when": "view == dshRemote.hosts", "group": "navigation@2" }
       ],
       "view/item/context": [
-        {
-          "command": "dshRemote.connect",
-          "when": "view == dshRemote.hosts && viewItem == dshRemote.host",
-          "group": "inline"
-        },
-        {
-          "command": "dshRemote.addWorkspace",
-          "when": "view == dshRemote.hosts && viewItem == dshRemote.host",
-          "group": "inline@2"
-        },
-        {
-          "command": "dshRemote.newSession",
-          "when": "view == dshRemote.hosts && viewItem == dshRemote.workspace",
-          "group": "inline"
-        },
-        {
-          "command": "dshRemote.openSession",
-          "when": "view == dshRemote.hosts && viewItem == dshRemote.session",
-          "group": "inline"
-        }
+        { "command": "dshRemote.connect", "when": "view == dshRemote.hosts && viewItem == dshRemote.host", "group": "inline" },
+        { "command": "dshRemote.addWorkspace", "when": "view == dshRemote.hosts && viewItem == dshRemote.host", "group": "inline@2" },
+        { "command": "dshRemote.newSession", "when": "view == dshRemote.hosts && viewItem == dshRemote.workspace", "group": "inline" },
+        { "command": "dshRemote.openSession", "when": "view == dshRemote.hosts && viewItem == dshRemote.session", "group": "inline" }
       ]
     }
   },
@@ -167,21 +84,6 @@
     "package": "vsce package --no-dependencies"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.1",
-    "@deepseek-ai/dsh-api-gateway": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-api-remotes": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-locale": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-commands": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-conversation": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-input-trigger": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-model-selection": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-permission-presets": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-settings": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-theme": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-tool": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-typert-registry": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-web-frontend": "0.1.0-rc.6",
     "@dsh-remote/client-core": "workspace:*",
     "@dsh-remote/crypto": "workspace:*",
     "@dsh-remote/protocol": "workspace:*",
@@ -191,9 +93,9 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.10.7",
     "@types/qrcode": "^1.5.5",
+    "@types/markdown-it": "^14.1.2",
     "@types/vscode": "^1.96.0",
     "@types/ws": "^8.5.13",
     "@vscode/vsce": "^3.2.1",
