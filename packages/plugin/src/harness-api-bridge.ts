@@ -66,22 +66,12 @@ const commandListSchema = z.object({
 }).strict()
 
 /**
- * Commands a remote peer may execute on the Host. Only commands whose Host
- * handlers are known-safe native UI commands belong here: session-scoped,
- * non-privileged, and without a shell/PTY/file/OS surface. Unknown commands
- * fail closed until explicitly reviewed and added.
- */
-const REMOTE_COMMAND_NAMES = ['goal', 'compact', 'feedback', 'permission'] as const
-
-/** Mirrors the Host `parseCommand` name token so the whitelist cannot be bypassed. */
-const commandLinePattern = /^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/u
-
-/**
  * Harness API methods that are safe to expose to an authenticated remote UI.
  * Settings, credentials, native open/picker calls, directory mutation, file
  * contents, downloads, and attachment upload intentionally remain outside
  * this bridge. Directory listing exposes metadata only for workspace picking.
- * `commands.*` additionally passes the command-name whitelist at call time.
+ * `commands.*` follows the official Host registry so the authenticated Remote
+ * UI sees the same effective command catalog and handlers as the local UI.
  */
 export const HARNESS_API_ALLOWLIST = [
   'session.list',
@@ -358,7 +348,6 @@ function createMethodMap(api: ApiProxy, typertGateway?: TypertGatewayLike): Read
       const implementation: NativeMethod = async (request, signal) => {
         if (commandMethod === 'execute') {
           const args = commandExecuteSchema.parse(request.payload)
-          assertRemoteCommandAllowed(args.line)
           const value = await typertGateway.invoke({
             namespace,
             method: 'execute',
@@ -399,17 +388,6 @@ function domainProperty(wireDomain: string): string {
 
 function deniedMethod(method: string): RpcError {
   return new RpcError('METHOD_NOT_ALLOWED', `Harness API method ${JSON.stringify(method)} is not available in remote mode.`)
-}
-
-function assertRemoteCommandAllowed(line: string): void {
-  const match = commandLinePattern.exec(line)
-  const name = match === null ? undefined : match[1]
-  if (name === undefined) {
-    throw new RpcError('METHOD_NOT_ALLOWED', 'Only whitelisted slash commands are available in remote mode.')
-  }
-  if (!(REMOTE_COMMAND_NAMES as readonly string[]).includes(name)) {
-    throw new RpcError('METHOD_NOT_ALLOWED', `Command /${name} is not available in remote mode.`)
-  }
 }
 
 function diagnosticReason(error: unknown): string {

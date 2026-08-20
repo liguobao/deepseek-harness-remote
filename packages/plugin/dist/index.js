@@ -5205,10 +5205,10 @@ var AdaptiveTransport = class extends BaseTransport {
         });
       };
       socket.onerror = () => this.failConnection(new Error(`AdaptiveTransport failed to connect to ${this.url}`));
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         const pending = this.readyReject !== void 0;
         if (pending)
-          this.failConnection(new Error("Adaptive control channel closed before it was ready"));
+          this.failConnection(adaptiveControlCloseError(event));
         this.socket = void 0;
         this.connectionId = void 0;
         this.emitClose();
@@ -5479,6 +5479,11 @@ var AdaptiveTransport = class extends BaseTransport {
     this.handshakeTimer = void 0;
   }
 };
+function adaptiveControlCloseError(event) {
+  const reason = event.reason.trim().slice(0, 300);
+  const detail = reason.length > 0 ? `${reason} (WebSocket ${event.code})` : `WebSocket closed with code ${event.code}`;
+  return new Error(`Adaptive control channel closed before it was ready: ${detail}`);
+}
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -12968,7 +12973,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.15";
+var PLUGIN_VERSION = "0.3.16";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -15296,8 +15301,6 @@ var commandExecuteSchema = external_exports.object({
 var commandListSchema = external_exports.object({
   agentId: external_exports.string().min(1).max(128)
 }).strict();
-var REMOTE_COMMAND_NAMES = ["goal", "compact", "feedback", "permission"];
-var commandLinePattern = /^\/([a-z][a-z0-9_-]*)(?=$|[\t\n\r ])/u;
 var HARNESS_API_ALLOWLIST = [
   "session.list",
   "session.search",
@@ -15497,7 +15500,6 @@ function createMethodMap(api, typertGateway) {
       const implementation2 = async (request, signal) => {
         if (commandMethod === "execute") {
           const args2 = commandExecuteSchema.parse(request.payload);
-          assertRemoteCommandAllowed(args2.line);
           const value2 = await typertGateway.invoke({
             namespace,
             method: "execute",
@@ -15536,16 +15538,6 @@ function domainProperty(wireDomain) {
 }
 function deniedMethod(method) {
   return new RpcError("METHOD_NOT_ALLOWED", `Harness API method ${JSON.stringify(method)} is not available in remote mode.`);
-}
-function assertRemoteCommandAllowed(line) {
-  const match = commandLinePattern.exec(line);
-  const name2 = match === null ? void 0 : match[1];
-  if (name2 === void 0) {
-    throw new RpcError("METHOD_NOT_ALLOWED", "Only whitelisted slash commands are available in remote mode.");
-  }
-  if (!REMOTE_COMMAND_NAMES.includes(name2)) {
-    throw new RpcError("METHOD_NOT_ALLOWED", `Command /${name2} is not available in remote mode.`);
-  }
 }
 function diagnosticReason4(error) {
   const message = error instanceof Error ? error.message : String(error);

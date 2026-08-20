@@ -42,7 +42,7 @@ dsh plugin --profile web add ds-harness-remote
 
 Package: [npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-To pin a GitHub release instead, install `github:liguobao/deepseek-harness-remote#v0.3.15`.
+To pin a GitHub release instead, install `github:liguobao/deepseek-harness-remote#v0.3.16`.
 
 Restart Harness after installation.
 
