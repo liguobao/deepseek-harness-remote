@@ -160,7 +160,7 @@ export class HarnessApiBridge {
   constructor(
     private readonly api: ApiProxy,
     private readonly publish: PublishFrame,
-    private readonly maxStreams = 3,
+    private readonly maxStreams = 8,
     private readonly logger?: SafeLogger,
     typertGateway?: TypertGatewayLike,
   ) {

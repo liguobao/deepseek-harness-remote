@@ -109,7 +109,7 @@ export class RemoteHarnessApiProxy {
     if (String(response.rpcId) !== String(request.rpcId) || typeof response.result !== 'object' || response.result === null) {
       throw new Error('The remote Host returned an invalid Harness API response.')
     }
-    return response
+    return normalizeLegacyResponse(method, response)
   }
 
   private async respond(message: ClientResponse): Promise<Awaited<ReturnType<ApiProxy['respond']>>> {
@@ -150,6 +150,22 @@ export class RemoteHarnessApiProxy {
       queue.close()
       await this.client.rpc('harness.api.stream.close', { streamId }).catch(() => undefined)
     }
+  }
+}
+
+/** RC7 host.describe did not include the home field made mandatory by RC8. */
+function normalizeLegacyResponse(method: string, response: NativeResponse): NativeResponse {
+  if (method !== 'host.describe' || !response.result.ok) return response
+  const value = response.result.value
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return response
+  const description = value as Record<string, unknown>
+  if (typeof description.home === 'string' || typeof description.cwd !== 'string') return response
+  return {
+    ...response,
+    result: {
+      ...response.result,
+      value: { ...description, home: description.cwd },
+    },
   }
 }
 

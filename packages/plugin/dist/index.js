@@ -12908,7 +12908,7 @@ var RemoteHarnessApiProxy = class {
     if (String(response.rpcId) !== String(request.rpcId) || typeof response.result !== "object" || response.result === null) {
       throw new Error("The remote Host returned an invalid Harness API response.");
     }
-    return response;
+    return normalizeLegacyResponse(method, response);
   }
   async respond(message) {
     return this.client.rpc("harness.api.respond", { message });
@@ -12941,6 +12941,20 @@ var RemoteHarnessApiProxy = class {
     }
   }
 };
+function normalizeLegacyResponse(method, response) {
+  if (method !== "host.describe" || !response.result.ok) return response;
+  const value = response.result.value;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return response;
+  const description = value;
+  if (typeof description.home === "string" || typeof description.cwd !== "string") return response;
+  return {
+    ...response,
+    result: {
+      ...response.result,
+      value: { ...description, home: description.cwd }
+    }
+  };
+}
 function isRemoteDisconnect(error) {
   return error instanceof Error && (error.message === "remote transport closed" || error.message === "remote client closed");
 }
@@ -15870,7 +15884,7 @@ var HARNESS_API_ALLOWLIST = [
 var NATIVE_CALL_TIMEOUT_MS = 3e4;
 var SESSION_HISTORY_PAGE_SIZES = [50, 30, 20, 12, 6, 3, 1];
 var HarnessApiBridge = class {
-  constructor(api, publish, maxStreams = 3, logger, typertGateway) {
+  constructor(api, publish, maxStreams = 8, logger, typertGateway) {
     this.api = api;
     this.publish = publish;
     this.maxStreams = maxStreams;

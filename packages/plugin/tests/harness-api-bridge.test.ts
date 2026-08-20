@@ -183,7 +183,7 @@ describe('HarnessApiBridge', () => {
     })
   })
 
-  it('allows one replacement stream per peer while keeping the limit isolated', () => {
+  it('allows reconnect generations to overlap while keeping a bounded per-peer limit', () => {
     const stalled = {
       [Symbol.asyncIterator]: () => ({
         next: () => new Promise<IteratorResult<never>>(() => undefined),
@@ -198,16 +198,15 @@ describe('HarnessApiBridge', () => {
     const firstPeer = new HarnessApiBridge(streamApi, vi.fn(async () => undefined))
     const secondPeer = new HarnessApiBridge(streamApi, vi.fn(async () => undefined))
 
-    firstPeer.openStream({ streamId: 'mux-old', stream: 'mux', rpcId: 'open-1', payload: {} })
-    firstPeer.openStream({ streamId: 'host', stream: 'host', rpcId: 'open-2', payload: {} })
-    expect(firstPeer.openStream({ streamId: 'mux-new', stream: 'mux', rpcId: 'open-3', payload: {} })).toEqual({
-      opened: true,
-      streamId: 'mux-new',
-    })
-    expect(() => firstPeer.openStream({ streamId: 'fourth', stream: 'mux', rpcId: 'open-4', payload: {} }))
+    for (let index = 1; index <= 8; index += 1) {
+      const streamId = `overlap-${index}`
+      expect(firstPeer.openStream({ streamId, stream: index % 2 === 0 ? 'host' : 'mux', rpcId: `open-${index}`, payload: {} }))
+        .toEqual({ opened: true, streamId })
+    }
+    expect(() => firstPeer.openStream({ streamId: 'ninth', stream: 'mux', rpcId: 'open-9', payload: {} }))
       .toThrow('Too many Harness event streams are open.')
 
-    expect(secondPeer.openStream({ streamId: 'independent', stream: 'host', rpcId: 'open-5', payload: {} })).toEqual({
+    expect(secondPeer.openStream({ streamId: 'independent', stream: 'host', rpcId: 'open-10', payload: {} })).toEqual({
       opened: true,
       streamId: 'independent',
     })
