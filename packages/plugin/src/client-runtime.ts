@@ -18,7 +18,16 @@ interface ConnectedRemote {
   client: RemoteClientCore
   target: TrustedPeer
   transport: AdaptiveTransport
+  features: RemoteHostFeatures
 }
+
+export interface RemoteHostFeatures {
+  commandList: boolean
+  fileViewer: boolean
+}
+
+const REMOTE_COMMAND_LIST_MIN_VERSION = [0, 3, 16] as const
+const REMOTE_FILE_VIEWER_MIN_VERSION = [0, 3, 17] as const
 
 export interface RemoteDirectoryEntry {
   name: string
@@ -128,6 +137,7 @@ export class ClientModeRuntime {
       ...this.proxySwitch.status(),
       connected: this.connected !== undefined,
       transport: this.connected?.client.getStats().mode ?? 'Disconnected',
+      remoteFeatures: this.connected?.features ?? remoteHostFeatures(),
       hostAuthorizationAvailable: this.host !== undefined,
       ...(this.host === undefined ? {} : { host: this.host.hostStatus() }),
     }
@@ -239,7 +249,7 @@ export class ClientModeRuntime {
     this.connected = next
     const remoteApi = new RemoteHarnessApiProxy(next.client).api
     this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name })
-    this.gatewaySwitch.selectRemote(request => invokeRemoteCommand(next.client, request))
+    this.selectRemoteCommands(next)
     await previous?.client.close().catch(() => undefined)
     this.logger.info('Harness target switched', { mode: 'remote', targetDeviceId: shortId(next.target.deviceId) })
     return this.status()
@@ -276,7 +286,7 @@ export class ClientModeRuntime {
     })
     const workspace = unwrapNativeResult<{ workspace: unknown; created: boolean }>(response)
     this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name })
-    this.gatewaySwitch.selectRemote(request => invokeRemoteCommand(remote.client, request))
+    this.selectRemoteCommands(remote)
     this.logger.info('Remote workspace opened', { targetDeviceId: shortId(remote.target.deviceId) })
     return { ...this.status(), workspace }
   }
@@ -301,7 +311,17 @@ export class ClientModeRuntime {
     if (remote === undefined || this.proxySwitch.status().mode !== 'remote') {
       throw new ClientModeError('REMOTE_NOT_CONNECTED', 'No Remote Host is selected.', true)
     }
+    if (!remote.features.fileViewer) {
+      throw new ClientModeError('FEATURE_NOT_SUPPORTED', 'The selected Remote Host does not support remote file viewing.')
+    }
     return remote.client.rpc('fileviewer.call', { endpoint, payload }, signal)
+  }
+
+  private selectRemoteCommands(remote: ConnectedRemote): void {
+    this.gatewaySwitch.selectRemote(request => invokeRemoteCommand(remote.client, request), {
+      execute: true,
+      list: remote.features.commandList,
+    })
   }
 
   private async connect(targetDeviceId: string, signal?: AbortSignal): Promise<ConnectedRemote> {
@@ -372,7 +392,7 @@ export class ClientModeRuntime {
         targetDeviceId: shortId(target.deviceId),
         transport: client.getStats().mode,
       })
-      return { client, target, transport }
+      return { client, target, transport, features: remoteHostFeatures(serverDevice.clientVersion) }
     } catch (error) {
       await client.close().catch(() => undefined)
       throw error
@@ -573,6 +593,27 @@ function fail(error: unknown): RpcResult<unknown> {
 }
 
 function shortId(value: string): string { return value.length <= 12 ? value : `${value.slice(0, 8)}…${value.slice(-4)}` }
+
+/** Conservative feature profile for Hosts that predate fine-grained capability discovery. */
+export function remoteHostFeatures(clientVersion?: string): RemoteHostFeatures {
+  return {
+    commandList: isVersionAtLeast(clientVersion, REMOTE_COMMAND_LIST_MIN_VERSION),
+    fileViewer: isVersionAtLeast(clientVersion, REMOTE_FILE_VIEWER_MIN_VERSION),
+  }
+}
+
+function isVersionAtLeast(value: string | undefined, minimum: readonly [number, number, number]): boolean {
+  const match = value?.match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/)
+  if (match === undefined || match === null) return false
+  const version = match.slice(1, 4).map(part => Number(part))
+  for (let index = 0; index < minimum.length; index += 1) {
+    const part = version[index] ?? 0
+    const expected = minimum[index] ?? 0
+    if (part > expected) return true
+    if (part < expected) return false
+  }
+  return true
+}
 
 function diagnosticReason(error: Error): string {
   const code = 'code' in error && typeof error.code === 'string' ? error.code : undefined

@@ -1,5 +1,9 @@
 import QRCode from 'qrcode'
-import { createRemoteFileContentProvider, type RemoteFileContentProvider } from './remote-file-content-provider.js'
+import {
+  createRemoteFileContentProvider,
+  shouldUseRemoteFileViewer,
+  type RemoteFileContentProvider,
+} from './remote-file-content-provider.js'
 
 declare global {
   interface Window {
@@ -32,6 +36,7 @@ interface RemoteStatus {
   serverUrl?: string
   connected?: boolean
   transport?: 'LAN' | 'P2P' | 'TURN' | 'Relay' | 'Disconnected'
+  remoteFeatures?: { commandList: boolean; fileViewer: boolean }
   network?: RemoteNetworkDetails
   hostAuthorizationAvailable: boolean
   host?: {
@@ -1719,11 +1724,12 @@ window.__ModuleLoader__.load({
             try {
               const status = await control<RemoteStatus>('status')
               if (!active) return
-              if (status.mode === 'remote' && unregister === undefined) {
+              const supported = shouldUseRemoteFileViewer(status)
+              if (supported && unregister === undefined) {
                 unregister = viewer.registerContentProvider(createRemoteFileContentProvider(
                   (endpoint, payload) => control(endpoint, payload),
                 ))
-              } else if (status.mode === 'local' && unregister !== undefined) {
+              } else if (!supported && unregister !== undefined) {
                 unregister()
                 unregister = undefined
               }

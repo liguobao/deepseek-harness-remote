@@ -124,11 +124,11 @@ Alternatively, install the pinned GitHub release in DSH Desktop or with the CLI:
 也可以在 DSH Desktop 中安装固定版本的 GitHub Release，或使用命令行安装：
 
 ```text
-github:liguobao/deepseek-harness-remote#v0.3.17
+github:liguobao/deepseek-harness-remote#v0.3.18
 ```
 
 ```sh
-dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.17"
+dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.18"
 ```
 
 GitHub / 项目地址：<https://github.com/liguobao/deepseek-harness-remote>

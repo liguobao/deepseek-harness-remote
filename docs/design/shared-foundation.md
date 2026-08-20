@@ -63,8 +63,10 @@ Session、Message、Tool、Approval、Question、Workspace 和 Goal 的结构全
 `fileviewer.call` 不承载 Harness 业务对象，只把 File Viewer provider 已授权的只读内容以
 不超过 512 KiB 的分块传输；禁止 openExternal、文件修改与任意 endpoint。
 
-Client 与 Host Plugin 作为同一发布物安装，不做旧业务协议兼容。真正的跨版本协商只保留
-在 Control/Relay 层；ApiProxy contract 变化由 Plugin 版本一起升级。
+Client 与 Host Plugin 推荐安装同一发布物。对已经发布的 Host，新增业务 endpoint 必须
+保留加法兼容：Client 先依据 Host capability（旧 Server 暂用 `clientVersion`）判断，旧版
+不支持时回退已有本地行为或禁用可选能力，不能让 Workspace/Session 基线失效。ApiProxy
+本身的破坏性 schema 变化仍需要提升协议版本，不能只依赖 Plugin 版本字符串。
 
 ## 6. 传输与恢复
 

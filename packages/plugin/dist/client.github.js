@@ -1623,6 +1623,9 @@ Minimum version required to store current data is: ` + bestVersion + `.
   var import_qrcode = __toESM(require_browser(), 1);
 
   // src/remote-file-content-provider.ts
+  function shouldUseRemoteFileViewer(status) {
+    return status.mode === "remote" && status.remoteFeatures?.fileViewer === !0;
+  }
   function createRemoteFileContentProvider(call) {
     return {
       id: "dsh-remote-files",
@@ -3102,9 +3105,10 @@ Minimum version required to store current data is: ` + bestVersion + `.
               try {
                 let status = await control("status");
                 if (!active) return;
-                status.mode === "remote" && unregister === void 0 ? unregister = viewer.registerContentProvider(createRemoteFileContentProvider(
+                let supported = shouldUseRemoteFileViewer(status);
+                supported && unregister === void 0 ? unregister = viewer.registerContentProvider(createRemoteFileContentProvider(
                   (endpoint, payload) => control(endpoint, payload)
-                )) : status.mode === "local" && unregister !== void 0 && (unregister(), unregister = void 0);
+                )) : !supported && unregister !== void 0 && (unregister(), unregister = void 0);
               } catch {
               }
             };

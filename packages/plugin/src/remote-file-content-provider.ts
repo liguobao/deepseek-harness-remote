@@ -34,6 +34,16 @@ export type RemoteFileControlCall = <T>(
   signal?: AbortSignal,
 ) => Promise<T>
 
+export interface RemoteFileViewerStatus {
+  mode: 'local' | 'remote'
+  remoteFeatures?: { fileViewer: boolean }
+}
+
+/** Fail closed for legacy/unknown Hosts that predate remote file-viewer support. */
+export function shouldUseRemoteFileViewer(status: RemoteFileViewerStatus): boolean {
+  return status.mode === 'remote' && status.remoteFeatures?.fileViewer === true
+}
+
 interface RemoteStatWire {
   path: string
   name: string

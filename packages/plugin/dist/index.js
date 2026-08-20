@@ -13065,7 +13065,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.17";
+var PLUGIN_VERSION = "0.3.18";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -13451,6 +13451,7 @@ function requireRecord(value, name2) {
 
 // src/typert-gateway-switch.ts
 var REMOTE_COMMAND_METHODS = ["execute", "list"];
+var ALL_REMOTE_COMMANDS = { execute: true, list: true };
 var TypertGatewaySwitch = class {
   constructor(gateway) {
     this.gateway = gateway;
@@ -13460,6 +13461,7 @@ var TypertGatewaySwitch = class {
   originalInvoke;
   localInvoke;
   remoteInvoke;
+  remoteSupport = { execute: false, list: false };
   installed = false;
   /** A facade that always invokes the original local gateway. */
   local() {
@@ -13467,15 +13469,24 @@ var TypertGatewaySwitch = class {
   }
   install() {
     if (this.installed) return;
-    this.gateway.invoke = (request) => request.namespace === "commands" && isRemoteCommandMethod(request.method) ? (this.remoteInvoke ?? this.localInvoke)(request) : this.localInvoke(request);
+    this.gateway.invoke = (request) => {
+      if (request.namespace !== "commands" || !isRemoteCommandMethod(request.method) || this.remoteInvoke === void 0) {
+        return this.localInvoke(request);
+      }
+      if (this.remoteSupport[request.method]) return this.remoteInvoke(request);
+      if (request.method === "list") return Promise.resolve([]);
+      return this.localInvoke(request);
+    };
     this.installed = true;
   }
-  selectRemote(invoke) {
+  selectRemote(invoke, support = ALL_REMOTE_COMMANDS) {
     if (!this.installed) throw new Error("The Typert gateway switch is not installed.");
     this.remoteInvoke = invoke;
+    this.remoteSupport = { ...support };
   }
   selectLocal() {
     this.remoteInvoke = void 0;
+    this.remoteSupport = { execute: false, list: false };
   }
   restore() {
     if (!this.installed) return;
@@ -13682,6 +13693,8 @@ function isPrivate(ip) {
 }
 
 // src/client-runtime.ts
+var REMOTE_COMMAND_LIST_MIN_VERSION = [0, 3, 16];
+var REMOTE_FILE_VIEWER_MIN_VERSION = [0, 3, 17];
 var ClientModeRuntime = class {
   constructor(config, identities, server, apiProxy, typertGateway, logger, host, rtcFactoryProvider = loadWeriftFactory) {
     this.config = config;
@@ -13723,6 +13736,7 @@ var ClientModeRuntime = class {
       ...this.proxySwitch.status(),
       connected: this.connected !== void 0,
       transport: this.connected?.client.getStats().mode ?? "Disconnected",
+      remoteFeatures: this.connected?.features ?? remoteHostFeatures(),
       hostAuthorizationAvailable: this.host !== void 0,
       ...this.host === void 0 ? {} : { host: this.host.hostStatus() }
     };
@@ -13826,7 +13840,7 @@ var ClientModeRuntime = class {
     this.connected = next;
     const remoteApi = new RemoteHarnessApiProxy(next.client).api;
     this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name });
-    this.gatewaySwitch.selectRemote((request) => invokeRemoteCommand(next.client, request));
+    this.selectRemoteCommands(next);
     await previous?.client.close().catch(() => void 0);
     this.logger.info("Harness target switched", { mode: "remote", targetDeviceId: shortId(next.target.deviceId) });
     return this.status();
@@ -13860,7 +13874,7 @@ var ClientModeRuntime = class {
     });
     const workspace = unwrapNativeResult(response);
     this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name });
-    this.gatewaySwitch.selectRemote((request) => invokeRemoteCommand(remote.client, request));
+    this.selectRemoteCommands(remote);
     this.logger.info("Remote workspace opened", { targetDeviceId: shortId(remote.target.deviceId) });
     return { ...this.status(), workspace };
   }
@@ -13879,7 +13893,16 @@ var ClientModeRuntime = class {
     if (remote === void 0 || this.proxySwitch.status().mode !== "remote") {
       throw new ClientModeError("REMOTE_NOT_CONNECTED", "No Remote Host is selected.", true);
     }
+    if (!remote.features.fileViewer) {
+      throw new ClientModeError("FEATURE_NOT_SUPPORTED", "The selected Remote Host does not support remote file viewing.");
+    }
     return remote.client.rpc("fileviewer.call", { endpoint, payload }, signal);
+  }
+  selectRemoteCommands(remote) {
+    this.gatewaySwitch.selectRemote((request) => invokeRemoteCommand(remote.client, request), {
+      execute: true,
+      list: remote.features.commandList
+    });
   }
   async connect(targetDeviceId, signal) {
     signal?.throwIfAborted();
@@ -13943,7 +13966,7 @@ var ClientModeRuntime = class {
         targetDeviceId: shortId(target.deviceId),
         transport: client.getStats().mode
       });
-      return { client, target, transport };
+      return { client, target, transport, features: remoteHostFeatures(serverDevice.clientVersion) };
     } catch (error) {
       await client.close().catch(() => void 0);
       throw error;
@@ -14122,6 +14145,24 @@ function fail(error) {
 }
 function shortId(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
+}
+function remoteHostFeatures(clientVersion) {
+  return {
+    commandList: isVersionAtLeast(clientVersion, REMOTE_COMMAND_LIST_MIN_VERSION),
+    fileViewer: isVersionAtLeast(clientVersion, REMOTE_FILE_VIEWER_MIN_VERSION)
+  };
+}
+function isVersionAtLeast(value, minimum) {
+  const match = value?.match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  if (match === void 0 || match === null) return false;
+  const version = match.slice(1, 4).map((part) => Number(part));
+  for (let index = 0; index < minimum.length; index += 1) {
+    const part = version[index] ?? 0;
+    const expected = minimum[index] ?? 0;
+    if (part > expected) return true;
+    if (part < expected) return false;
+  }
+  return true;
 }
 function diagnosticReason(error) {
   const code = "code" in error && typeof error.code === "string" ? error.code : void 0;

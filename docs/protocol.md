@@ -630,7 +630,20 @@ Host handshake 的 capability 例子：
 ]
 ```
 
-ApiProxy contract 随同一 Desktop Plugin 发布物升级，不维护旧业务 RPC 兼容矩阵。
+ApiProxy contract 仍随 Desktop Plugin 发布物升级，但新增的可选业务能力必须保持加法兼容。
+在 Server 设备列表尚未暴露细粒度 capability 前，Desktop Client 使用 Host
+`clientVersion` 做保守降级：无法识别版本时不得调用新增 endpoint。
+
+当前最低兼容矩阵：
+
+| Host Plugin | Remote Workspace / Session | `commands.list` | `fileviewer.read.v1` |
+| --- | --- | --- | --- |
+| `0.3.15` | 支持 | Client 返回空兼容目录 | 不支持，provider 不注册 |
+| `0.3.16` | 支持 | 支持 | 不支持，provider 不注册 |
+| `0.3.17+` | 支持 | 支持 | Host 同时提供 dsh-file-viewer 服务时支持 |
+
+未知版本按 `0.3.15` 之前的能力处理。未来 Server 暴露 Host capability 后，应优先使用
+capability，`clientVersion` 仅保留为旧 Server 的兼容路径。
 
 ## 18. 数据结构
 

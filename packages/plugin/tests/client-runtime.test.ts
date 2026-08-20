@@ -4,7 +4,12 @@ import { join } from 'node:path'
 import type { ApiProxy, RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { generateKeyPair } from '@dsh-remote/crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ClientModeRuntime, type HostAuthorizationControl, type HostConnectionHandle } from '../src/client-runtime.js'
+import {
+  ClientModeRuntime,
+  remoteHostFeatures,
+  type HostAuthorizationControl,
+  type HostConnectionHandle,
+} from '../src/client-runtime.js'
 import type { ResolvedConfig } from '../src/config.js'
 import { IdentityStore } from '../src/identity-store.js'
 import type { SafeLogger } from '../src/logging.js'
@@ -17,6 +22,15 @@ afterEach(async () => {
 })
 
 describe('ClientModeRuntime Host account control', () => {
+  it('uses a conservative compatibility profile for legacy and unknown Hosts', () => {
+    expect(remoteHostFeatures()).toEqual({ commandList: false, fileViewer: false })
+    expect(remoteHostFeatures('not-semver')).toEqual({ commandList: false, fileViewer: false })
+    expect(remoteHostFeatures('0.3.15')).toEqual({ commandList: false, fileViewer: false })
+    expect(remoteHostFeatures('0.3.16')).toEqual({ commandList: true, fileViewer: false })
+    expect(remoteHostFeatures('v0.3.17')).toEqual({ commandList: true, fileViewer: true })
+    expect(remoteHostFeatures('0.4.0-beta.1')).toEqual({ commandList: true, fileViewer: true })
+  })
+
   it('exposes Web-compatible network path details for the active Remote Client', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-client-network-'))
     directories.push(directory)
@@ -60,6 +74,7 @@ describe('ClientModeRuntime Host account control', () => {
         trustedAt: 1,
       },
       transport: { connectionDetails },
+      features: { commandList: false, fileViewer: false },
     }
 
     await expect(runtime.handleControl('status', {}, new AbortController().signal)).resolves.toMatchObject({
@@ -67,6 +82,7 @@ describe('ClientModeRuntime Host account control', () => {
       value: {
         connected: true,
         transport: 'LAN',
+        remoteFeatures: { commandList: false, fileViewer: false },
         network: {
           connectionId: 'connection-1',
           local: { deviceId, platform: process.platform },

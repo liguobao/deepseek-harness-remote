@@ -1,8 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
 import { REMOTE_FILE_CHUNK_BYTES } from '../src/file-viewer-bridge.js'
-import { createRemoteFileContentProvider, type RemoteFileControlCall } from '../src/remote-file-content-provider.js'
+import {
+  createRemoteFileContentProvider,
+  shouldUseRemoteFileViewer,
+  type RemoteFileControlCall,
+} from '../src/remote-file-content-provider.js'
 
 describe('remote File Viewer content provider', () => {
+  it('enables the provider only for a selected Host with file-viewer support', () => {
+    expect(shouldUseRemoteFileViewer({ mode: 'local', remoteFeatures: { fileViewer: true } })).toBe(false)
+    expect(shouldUseRemoteFileViewer({ mode: 'remote' })).toBe(false)
+    expect(shouldUseRemoteFileViewer({ mode: 'remote', remoteFeatures: { fileViewer: false } })).toBe(false)
+    expect(shouldUseRemoteFileViewer({ mode: 'remote', remoteFeatures: { fileViewer: true } })).toBe(true)
+  })
+
   it('maps remote metadata and directory entries to the File Viewer contract', async () => {
     const call: RemoteFileControlCall = vi.fn(async (endpoint) => {
       if (endpoint === 'fileviewer.stat') {

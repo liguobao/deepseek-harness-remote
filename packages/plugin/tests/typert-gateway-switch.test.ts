@@ -23,6 +23,21 @@ describe('TypertGatewaySwitch', () => {
     expect(remoteInvoke).toHaveBeenCalledTimes(2)
   })
 
+  it('returns an empty command catalog for legacy Hosts while forwarding execution', async () => {
+    const localInvoke = vi.fn(async () => 'local')
+    const remoteInvoke = vi.fn(async () => 'remote')
+    const gateway: TypertGatewayLike = { invoke: localInvoke }
+    const target = new TypertGatewaySwitch(gateway)
+
+    target.install()
+    target.selectRemote(remoteInvoke, { execute: true, list: false })
+
+    await expect(gateway.invoke(command())).resolves.toBe('remote')
+    await expect(gateway.invoke(commandList())).resolves.toEqual([])
+    expect(remoteInvoke).toHaveBeenCalledOnce()
+    expect(localInvoke).not.toHaveBeenCalled()
+  })
+
   it('restores the original gateway method', () => {
     const invoke = vi.fn(async () => undefined)
     const gateway: TypertGatewayLike = { invoke }
