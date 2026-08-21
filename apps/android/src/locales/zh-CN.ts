@@ -17,6 +17,7 @@ const zhCN = {
   settings: {
     title: '设置', thisPhone: '此手机', androidDevice: 'Android 设备', connection: '连接', server: '服务器', account: '账号', loginMethod: '登录方式', protocol: '协议', notConfigured: '未配置', notSignedIn: '未登录',
     transport: '连接方式', transportNote: '更改后会重新连接。直接连接失败时，将自动改用服务器转发。', identity: '此手机的身份', deviceId: '设备 ID', publicKey: '安全密钥', keyNote: '安全密钥由 Android 系统加密保存，不会离开此手机。',
+    aboutAndUpdates: '关于与更新', appVersion: '当前版本', sourceCodeUrl: '开源地址', updateUrl: '更新地址', linkFailedTitle: '无法打开链接', linkFailedBody: '请检查网络或复制地址后在浏览器中打开。',
     signOut: '退出登录', resetLocal: '清除本地数据', resetTitle: '清除此手机上的数据？', resetBody: '将删除服务设置、登录信息和已信任的设备。之后需要重新登录，此操作无法撤销。', reset: '清除数据', signOutTitle: '退出当前账号？', signOutBody: '退出后，需要重新登录才能访问设备。',
   },
   devices: {

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.26
+
+- Adds an Android About & Updates section with the installed app/build version,
+  the full open-source repository URL, and the latest GitHub Release URL.
+- Keeps plugin-injected instructions and other model-facing context out of the
+  Android transcript by requiring the authoritative human `source.kind = user`
+  marker for both historical and live `user/message` events.
+- Updates the Android app to `0.3.10` (`versionCode 10`).
+
+`0.3.25` was superseded by `0.3.26`; its Release and tag were withdrawn because
+Android could display plugin-injected model context as user conversation rows.
+
 ## 0.3.25
 
 - Adds Android photo-picker image prompts with previews, Host-projected image

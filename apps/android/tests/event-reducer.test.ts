@@ -95,7 +95,7 @@ describe('remote mux frame reducer', () => {
     const events = [
       sessionEvent({
         type: 'user/message',
-        data: { message: { id: 'u1', role: 'user', content: [{ type: 'text', text: 'Check the repo' }] } },
+        data: { message: { id: 'u1', role: 'user', content: [{ type: 'text', text: 'Check the repo' }], source: { kind: 'user' } } },
       }),
       sessionEvent({ type: 'tool/call', data: { callId: 'c1', name: 'bash', arguments: '{"command":"git status"}' } }),
     ]
@@ -109,7 +109,7 @@ describe('remote mux frame reducer', () => {
   it('keeps image-only user prompts visible in history', () => {
     const event = sessionEvent({
       type: 'user/message',
-      data: { message: { id: 'u-image', role: 'user', content: [{ type: 'image', attachmentId: 'attachment-1', name: 'diagram.png' }] } },
+      data: { message: { id: 'u-image', role: 'user', content: [{ type: 'image', attachmentId: 'attachment-1', name: 'diagram.png' }], source: { kind: 'user' } } },
     })
 
     expect(foldHistory([{ event }], 's1')).toEqual([
@@ -121,6 +121,27 @@ describe('remote mux frame reducer', () => {
         images: [{ name: 'diagram.png' }],
       }),
     ])
+  })
+
+  it('hides plugin-injected system context from history and live conversation rows', () => {
+    const injected = sessionEvent({
+      type: 'user/message',
+      data: {
+        message: {
+          id: 'system-context-1',
+          role: 'user',
+          content: [{ type: 'text', text: '<system-reminder>private instructions</system-reminder>' }],
+          source: { kind: 'plugin', plugin: 'agent-instructions', form: 'instructions' },
+        },
+      },
+    })
+
+    expect(foldHistory([{ event: injected }], 's1')).toEqual([])
+    expect(applyMuxFrame([], frame('', {
+      type: 'session/event',
+      sessionId: 's1',
+      event: injected,
+    }))).toEqual([])
   })
 
   it('merges a tool result using message.source.callId and uses native views', () => {

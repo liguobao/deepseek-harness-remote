@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import * as Application from 'expo-application'
 import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
-import { Check, KeyRound, LockKeyhole, RotateCcw, Settings } from 'lucide-react-native'
+import { Check, ExternalLink, KeyRound, LockKeyhole, RotateCcw, Settings } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import { Button, Field, KeyValue, Screen, TopBar } from '../ui/components'
 import { TRANSPORT_PREFERENCE_OPTIONS } from '../types'
@@ -9,6 +10,8 @@ import zhCN from '../locales/zh-CN'
 
 /** Default DSH Remote Server; a build can override it via EXPO_PUBLIC_DSH_REMOTE_SERVER. */
 const defaultServerUrl = 'https://dsh.r2049.cn'
+const sourceCodeUrl = 'https://github.com/liguobao/deepseek-harness-remote'
+const updateUrl = 'https://github.com/liguobao/deepseek-harness-remote/releases/latest'
 
 export function ServerSetupScreen({ onComplete, onBack }: { onComplete: () => void; onBack?: () => void }) {
   const config = useAppStore(state => state.config)
@@ -86,6 +89,9 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
   const setPreference = useAppStore(state => state.setTransportPreference)
   const reset = useAppStore(state => state.resetLocalData)
   const signOut = useAppStore(state => state.signOut)
+  const appVersion = Application.nativeApplicationVersion ?? zhCN.common.unavailable
+  const buildVersion = Application.nativeBuildVersion
+  const versionLabel = buildVersion === null ? appVersion : `${appVersion} (${buildVersion})`
 
   const confirmReset = () => Alert.alert(
     zhCN.settings.resetTitle,
@@ -152,6 +158,13 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
           <View style={styles.keyNote}><KeyRound size={17} color={colors.muted} /><Text style={styles.keyNoteText}>{zhCN.settings.keyNote}</Text></View>
         </View>
 
+        <Text style={styles.groupLabel}>{zhCN.settings.aboutAndUpdates}</Text>
+        <View style={styles.group}>
+          <KeyValue label={zhCN.settings.appVersion} value={versionLabel} />
+          <SettingsLink label={zhCN.settings.sourceCodeUrl} url={sourceCodeUrl} />
+          <SettingsLink label={zhCN.settings.updateUrl} url={updateUrl} />
+        </View>
+
         <View style={styles.resetArea}>
           <Button label={zhCN.settings.signOut} variant="secondary" onPress={confirmSignOut} />
           <View style={styles.resetGap} />
@@ -159,6 +172,31 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
         </View>
       </Screen>
     </View>
+  )
+}
+
+function SettingsLink({ label, url }: { label: string; url: string }) {
+  const open = async () => {
+    try {
+      await Linking.openURL(url)
+    } catch {
+      Alert.alert(zhCN.settings.linkFailedTitle, zhCN.settings.linkFailedBody)
+    }
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={`${label}：${url}`}
+      onPress={() => void open()}
+      style={({ pressed }) => [styles.settingsLink, pressed && styles.settingsLinkPressed]}
+    >
+      <View style={styles.settingsLinkCopy}>
+        <Text style={styles.settingsLinkLabel}>{label}</Text>
+        <Text style={styles.settingsLinkUrl}>{url}</Text>
+      </View>
+      <ExternalLink size={18} color={colors.primary} />
+    </Pressable>
   )
 }
 
@@ -205,6 +243,11 @@ const styles = StyleSheet.create({
   preferenceNote: { ...type.caption, color: colors.muted, marginTop: spacing.xs },
   keyNote: { flexDirection: 'row', gap: spacing.xs, paddingVertical: spacing.md },
   keyNoteText: { ...type.small, color: colors.muted, flex: 1 },
+  settingsLink: { minHeight: 68, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
+  settingsLinkPressed: { opacity: 0.68 },
+  settingsLinkCopy: { flex: 1, gap: 3 },
+  settingsLinkLabel: { ...type.smallStrong, color: colors.ink },
+  settingsLinkUrl: { ...type.caption, color: colors.primary },
   resetArea: { marginTop: spacing.xxxl },
   resetGap: { height: spacing.sm },
 })

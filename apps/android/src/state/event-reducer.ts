@@ -65,6 +65,10 @@ function applyNativeEvent(
 }
 
 function addUserMessage(current: ChatItem[], data: UnknownRecord, sessionId: string): ChatItem[] {
+  // Harness also records model-facing plugin context (instructions, snapshots,
+  // notices, and similar injected material) as `user/message`. Only the
+  // explicit human source belongs in the conversation transcript.
+  if (!isHumanUserMessage(data)) return current
   const id = messageId(data)
   const text = messageText(data)
   const persistedImages = messageImages(data)
@@ -87,6 +91,12 @@ function addUserMessage(current: ChatItem[], data: UnknownRecord, sessionId: str
   const existing = current.find(item => item.id === id)
   if (existing !== undefined) return current
   return [...current, message]
+}
+
+function isHumanUserMessage(data: UnknownRecord): boolean {
+  const message = isRecord(data.message) ? data.message : data
+  const source = isRecord(message.source) ? message.source : undefined
+  return source?.kind === 'user'
 }
 
 function addAssistantMessage(current: ChatItem[], data: UnknownRecord, sessionId: string, event: NativeSessionEvent): ChatItem[] {
