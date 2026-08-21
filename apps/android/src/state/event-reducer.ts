@@ -1,12 +1,14 @@
-import type { HistoryEntry, ApprovalOutcome, ChatItem, ChatMessage, MuxStreamFrame, NativeSessionEvent, ToolActivity } from '../types'
+import type { HistoryEntry, ApprovalOutcome, ChatItem, ChatMessage, MuxStreamFrame, NativeSessionEvent, ToolActivity, ToolDisplayDetail } from '../types'
 
 type UnknownRecord = Record<string, unknown>
+
+const MAX_TOOL_DETAIL_CHARS = 64_000
 
 /** Fold a native history event window into ordered chat items. */
 export function foldHistory(events: HistoryEntry[], sessionId: string): ChatItem[] {
   let items: ChatItem[] = []
   for (const entry of events) {
-    items = applyNativeEvent(items, entry.event, sessionId)
+    items = applyNativeEvent(items, entry.event, sessionId, entry.view)
   }
   return items
 }
@@ -17,7 +19,7 @@ export function applyMuxFrame(current: ChatItem[], frame: MuxStreamFrame): ChatI
   if (payload.type === 'session/event' && isRecord(payload.event)) {
     const sessionId = stringValue(payload.sessionId)
     if (sessionId === undefined) return current
-    return applyNativeEvent(current, payload.event as NativeSessionEvent, sessionId)
+    return applyNativeEvent(current, payload.event as NativeSessionEvent, sessionId, historyView(payload.view))
   }
   if (payload.type === 'approval/requested') {
     return addApproval(current, payload as unknown as UnknownRecord, frame.rpcId)
@@ -47,13 +49,18 @@ export function applyMuxFrameToMessages(
   }
 }
 
-function applyNativeEvent(current: ChatItem[], event: NativeSessionEvent, sessionId: string): ChatItem[] {
+function applyNativeEvent(
+  current: ChatItem[],
+  event: NativeSessionEvent,
+  sessionId: string,
+  view?: HistoryEntry['view'],
+): ChatItem[] {
   const data = isRecord(event.data) ? event.data : {}
   if (event.type === 'user/message') return addUserMessage(current, data, sessionId)
   if (event.type === 'assistant/message') return addAssistantMessage(current, data, sessionId, event)
   if (event.type === 'assistant/chunk') return applyAssistantChunk(current, data, sessionId, event)
-  if (event.type === 'tool/call') return applyToolCall(current, data, sessionId, 'running')
-  if (event.type === 'tool/result') return applyToolCall(current, data, sessionId, 'finished')
+  if (event.type === 'tool/call') return applyToolCall(current, data, sessionId, 'running', view)
+  if (event.type === 'tool/result') return applyToolCall(current, data, sessionId, 'finished', view)
   return current
 }
 
@@ -80,6 +87,20 @@ function addAssistantMessage(current: ChatItem[], data: UnknownRecord, sessionId
   const key = stepKey(event)
   const streamingIndex = current.findIndex(item =>
     item.kind === 'message' && item.streaming === true && item.id === `stream:${key}`)
+  if (!hasVisibleMessageText(text)) {
+    // Native assistant messages may contain only tool/content metadata. They
+    // are not chat text and must not leave an empty avatar/"Remote" row.
+    // If a text stream preceded this event, finalize the streamed text rather
+    // than replacing it with an empty message.
+    if (streamingIndex < 0) return current
+    const streamed = current[streamingIndex]
+    if (streamed?.kind !== 'message' || !hasVisibleMessageText(streamed.text)) {
+      return current.filter((_, index) => index !== streamingIndex)
+    }
+    return current.map((item, index) => index === streamingIndex && item.kind === 'message'
+      ? { ...item, id, streaming: undefined }
+      : item)
+  }
   const message: ChatMessage = { kind: 'message', id, sessionId, role: 'assistant', text, createdAt: now(data) }
   if (streamingIndex >= 0) {
     return current.map((item, index) => index === streamingIndex ? message : item)
@@ -103,6 +124,9 @@ function applyAssistantChunk(
   const streamId = `stream:${key}`
   const index = current.findIndex(item => item.id === streamId && item.kind === 'message')
   if (index < 0) {
+    // Whitespace and format-control-only chunks are framing noise. Waiting for
+    // visible text avoids creating an empty avatar/"Remote" row.
+    if (!hasVisibleMessageText(delta)) return current
     return [...current, {
       kind: 'message', id: streamId, sessionId, role: 'assistant', text: delta, streaming: true, createdAt: now(data),
     } satisfies ChatMessage]
@@ -112,16 +136,32 @@ function applyAssistantChunk(
     : item)
 }
 
+/** True when text contains something that can produce visible chat content. */
+export function hasVisibleMessageText(text: string): boolean {
+  return text.replace(/[\s\u00AD\u034F\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/gu, '').length > 0
+}
+
 function applyToolCall(
   current: ChatItem[],
   data: UnknownRecord,
   sessionId: string,
   state: ToolActivity['state'],
+  entryView?: HistoryEntry['view'],
 ): ChatItem[] {
-  const id = stringValue(data.callId) ?? stringValue(data.id) ?? localId('tool')
-  const name = stringValue(data.name) ?? stringValue(data.toolName) ?? 'Tool'
+  // Harness places the correlation id for a result on message.source. Using
+  // only data.callId creates a second anonymous "Tool" row for every result.
+  const message = isRecord(data.message) ? data.message : {}
+  const source = isRecord(message.source) ? message.source : {}
+  const id = stringValue(source.callId) ?? stringValue(data.callId) ?? stringValue(data.id) ?? localId('tool')
+  const expectedView = state === 'running' ? 'call' : 'result'
+  const view = entryView?.for === expectedView && isRecord(entryView.view) ? entryView.view : undefined
+  const name = stringValue(view?.title) ?? stringValue(data.name) ?? stringValue(data.toolName) ?? 'Tool'
   const argumentsText = stringValue(data.arguments) ?? stringValue(data.argumentsDelta) ?? ''
-  const summary = stringValue(data.summary) ?? toolResultText(data)
+  const summary = stringValue(view?.description) ?? stringValue(view?.cwd) ?? stringValue(data.summary)
+  const detail = state === 'running'
+    ? toolCallDetail(view, argumentsText)
+    : toolResultDetail(view, data)
+  const failed = state === 'finished' && toolResultFailed(data)
   const next: ToolActivity = {
     kind: 'tool',
     id,
@@ -129,13 +169,197 @@ function applyToolCall(
     toolName: name,
     ...(argumentsText.length > 0 ? { arguments: argumentsText } : {}),
     ...(summary === undefined ? {} : { summary }),
-    state: state === 'finished' && isRecord(data.content) ? 'finished' : state,
+    ...(state === 'running' && detail !== undefined ? { callDetail: detail } : {}),
+    ...(state === 'finished' && detail !== undefined ? { resultDetail: detail } : {}),
+    state: failed ? 'failed' : state,
     createdAt: now(data),
   }
-  const exists = current.some(item => item.id === id)
-  return exists
-    ? current.map(item => item.id === id ? { ...next, createdAt: item.createdAt } : item)
-    : [...current, next]
+  const existing = current.find(item => item.id === id)
+  if (existing?.kind !== 'tool') return [...current, next]
+  return current.map(item => item.id === id && item.kind === 'tool'
+    ? {
+        ...item,
+        toolName: name === 'Tool' ? item.toolName : name,
+        ...(summary === undefined ? {} : { summary }),
+        ...(next.callDetail === undefined ? {} : { callDetail: next.callDetail }),
+        ...(next.resultDetail === undefined ? {} : { resultDetail: next.resultDetail }),
+        state: next.state,
+      }
+    : item)
+}
+
+function toolCallDetail(view: UnknownRecord | undefined, argumentsText: string): ToolDisplayDetail | undefined {
+  if (view !== undefined) {
+    const card = stringValue(view.card)
+    if (card === 'terminal') {
+      const command = stringValue(view.title)
+      const cwd = stringValue(view.cwd)
+      const text = [cwd === undefined ? undefined : `cwd: ${cwd}`, command === undefined ? undefined : `$ ${command}`]
+        .filter((value): value is string => value !== undefined).join('\n')
+      const detail = boundedToolDetail(text, 'code')
+      if (detail !== undefined) return detail
+    }
+    if (card === 'diff') {
+      const detail = boundedToolDetail(formatDiffs(view.diffs), 'code')
+      if (detail !== undefined) return detail
+    }
+    if (card === 'generic') {
+      const rawInput = displayJson(view.rawInput)
+      const content = contentBlocksText(view.content)
+      const detail = boundedToolDetail([rawInput, content].filter(isVisibleString).join('\n\n'), content === undefined ? 'code' : 'markdown')
+      if (detail !== undefined) return detail
+    }
+  }
+  return boundedToolDetail(prettyJsonString(argumentsText), 'code')
+}
+
+function toolResultDetail(view: UnknownRecord | undefined, data: UnknownRecord): ToolDisplayDetail | undefined {
+  if (view !== undefined) {
+    const card = stringValue(view.card)
+    if (card === 'terminal') {
+      const output = stringValue(view.output)
+      const exitCode = typeof view.exitCode === 'number' ? `exit: ${view.exitCode}` : undefined
+      const signal = stringValue(view.signal)
+      const detail = boundedToolDetail([output, exitCode, signal === undefined ? undefined : `signal: ${signal}`]
+        .filter((value): value is string => value !== undefined).join('\n'), 'code')
+      if (detail !== undefined) return detail
+    }
+    if (card === 'diff') {
+      const detail = boundedToolDetail(formatDiffs(view.diffs), 'code')
+      if (detail !== undefined) return detail
+    }
+    if (card === 'search') {
+      const detail = boundedToolDetail(formatSearchResult(view), 'code')
+      if (detail !== undefined) return detail
+    }
+    if (card === 'read') {
+      const detail = boundedToolDetail(formatReadResult(view), 'code')
+        ?? boundedToolDetail(contentBlocksText(view.content), 'markdown')
+      if (detail !== undefined) return detail
+    }
+    if (card === 'web') {
+      const detail = boundedToolDetail(formatWebResult(view), 'markdown')
+      if (detail !== undefined) return detail
+    }
+    if (card === 'generic') {
+      const detail = boundedToolDetail(contentBlocksText(view.content), 'markdown')
+      if (detail !== undefined) return detail
+    }
+  }
+  return boundedToolDetail(toolResultContentText(data), 'markdown')
+}
+
+function toolResultContentText(data: UnknownRecord): string | undefined {
+  const message = isRecord(data.message) ? data.message : {}
+  const blocks = Array.isArray(message.content) ? message.content : []
+  const nested = blocks.flatMap(block => isRecord(block) && block.type === 'tool-result' && Array.isArray(block.content)
+    ? block.content
+    : [block])
+  return contentBlocksText(nested)
+}
+
+function toolResultFailed(data: UnknownRecord): boolean {
+  if (isRecord(data.error) || data.isError === true) return true
+  const message = isRecord(data.message) ? data.message : {}
+  const blocks = Array.isArray(message.content) ? message.content : []
+  return blocks.some(block => isRecord(block) && block.type === 'tool-result' && block.isError === true)
+}
+
+function contentBlocksText(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined
+  const chunks = value.flatMap(block => {
+    if (!isRecord(block)) return []
+    if ((block.type === 'text' || block.type === 'reasoning') && typeof block.text === 'string') return [block.text]
+    if (block.type === 'image') return ['[图片]']
+    if (block.type === 'tool-result') return [contentBlocksText(block.content) ?? '']
+    const fallback = displayJson(block)
+    return fallback === undefined ? [] : [fallback]
+  }).filter(isVisibleString)
+  return chunks.length === 0 ? undefined : chunks.join('\n\n')
+}
+
+function formatDiffs(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined
+  const diffs = value.flatMap(item => {
+    if (!isRecord(item)) return []
+    const path = stringValue(item.path)
+    const newText = stringValue(item.newText)
+    if (path === undefined || newText === undefined) return []
+    const oldText = item.oldText === null ? '(新文件)' : stringValue(item.oldText) ?? ''
+    return [`文件: ${path}\n\n--- 修改前 ---\n${oldText}\n\n+++ 修改后 +++\n${newText}`]
+  })
+  return diffs.length === 0 ? undefined : diffs.join('\n\n')
+}
+
+function formatSearchResult(view: UnknownRecord): string | undefined {
+  if (view.shape === 'paths' && Array.isArray(view.paths)) {
+    return view.paths.filter((path): path is string => typeof path === 'string').join('\n')
+  }
+  if (view.shape !== 'matches' || !Array.isArray(view.files)) return undefined
+  const files = view.files.flatMap(file => {
+    if (!isRecord(file) || typeof file.path !== 'string' || !Array.isArray(file.matches)) return []
+    const matches = file.matches.flatMap(match => isRecord(match) && typeof match.line === 'string'
+      ? [`${typeof match.lineNumber === 'number' ? `${match.lineNumber}: ` : ''}${match.line}`]
+      : [])
+    return [`${file.path}\n${matches.join('\n')}`]
+  })
+  return files.length === 0 ? undefined : files.join('\n\n')
+}
+
+function formatReadResult(view: UnknownRecord): string | undefined {
+  if (!Array.isArray(view.lines)) return undefined
+  const path = stringValue(view.path)
+  const lines = view.lines.flatMap(line => isRecord(line) && typeof line.text === 'string'
+    ? [`${typeof line.number === 'number' ? `${line.number} | ` : ''}${line.text}`]
+    : [])
+  const header = [path, typeof view.totalLines === 'number' ? `共 ${view.totalLines} 行` : undefined]
+    .filter((value): value is string => value !== undefined).join(' · ')
+  return [header, lines.join('\n')].filter(isVisibleString).join('\n')
+}
+
+function formatWebResult(view: UnknownRecord): string | undefined {
+  if (view.kind === 'fetch') {
+    const url = stringValue(view.url)
+    const status = typeof view.statusCode === 'number' ? `HTTP ${view.statusCode}` : undefined
+    return [status, url].filter((value): value is string => value !== undefined).join('\n')
+  }
+  if (view.kind !== 'search' || !Array.isArray(view.sources)) return undefined
+  const answer = stringValue(view.answer)
+  const sources = view.sources.flatMap(source => {
+    if (!isRecord(source) || typeof source.url !== 'string') return []
+    return [[stringValue(source.title), source.url, stringValue(source.snippet)]
+      .filter((value): value is string => value !== undefined).join('\n')]
+  })
+  return [answer, ...sources].filter(isVisibleString).join('\n\n')
+}
+
+function prettyJsonString(value: string): string | undefined {
+  if (!isVisibleString(value)) return undefined
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2)
+  } catch {
+    return value
+  }
+}
+
+function displayJson(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function boundedToolDetail(text: string | undefined, format: ToolDisplayDetail['format']): ToolDisplayDetail | undefined {
+  if (!isVisibleString(text)) return undefined
+  if (text.length <= MAX_TOOL_DETAIL_CHARS) return { text, format }
+  return { text: text.slice(0, MAX_TOOL_DETAIL_CHARS), format, truncated: true }
+}
+
+function isVisibleString(value: string | undefined): value is string {
+  return value !== undefined && hasVisibleMessageText(value)
 }
 
 function addApproval(current: ChatItem[], payload: UnknownRecord, frameRpcId: string): ChatItem[] {
@@ -212,12 +436,9 @@ function messageRequestRpcId(data: UnknownRecord): string | undefined {
   return source?.kind === 'user' ? stringValue(source.rpcId) : undefined
 }
 
-function toolResultText(data: UnknownRecord): string | undefined {
-  const content = Array.isArray(data.content) ? data.content : []
-  const text = content.flatMap(block => isRecord(block) && block.type === 'text' && typeof block.text === 'string'
-    ? [block.text]
-    : []).join('\n')
-  return text.length === 0 ? undefined : text
+function historyView(value: unknown): HistoryEntry['view'] | undefined {
+  if (!isRecord(value) || (value.for !== 'call' && value.for !== 'result')) return undefined
+  return { for: value.for, view: value.view }
 }
 
 function stepKey(event: NativeSessionEvent): string {

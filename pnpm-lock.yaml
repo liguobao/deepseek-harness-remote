@@ -111,6 +111,9 @@ importers:
       lucide-react-native:
         specifier: ^1.31.0
         version: 1.31.0(react-native-svg@15.15.4(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3))(react@19.2.3))(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
+      markdown-it:
+        specifier: ^14.1.0
+        version: 14.3.0
       react:
         specifier: 19.2.3
         version: 19.2.3
@@ -130,6 +133,9 @@ importers:
         specifier: ^5.0.15
         version: 5.0.15(@types/react@19.2.18)(immer@10.2.0)(react@19.2.3)(use-sync-external-store@1.2.0(react@19.2.3))
     devDependencies:
+      '@types/markdown-it':
+        specifier: ^14.1.2
+        version: 14.2.0
       '@types/node':
         specifier: ^22.10.7
         version: 22.20.1

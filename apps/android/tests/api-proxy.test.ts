@@ -137,6 +137,17 @@ describe('Remote ApiProxy tunnel client', () => {
     await close()
   })
 
+  it('can detach a stale mux stream without sending a close RPC', async () => {
+    const core = fakeCore()
+    const proxy = new RemoteApiProxy(core)
+    const close = await proxy.openMuxStream(() => undefined)
+    core.rpcCalls.mockClear()
+
+    await close(false)
+
+    expect(core.rpcCalls).not.toHaveBeenCalled()
+  })
+
   it('answers approvals and questions through harness.api.respond', async () => {
     const core = fakeCore()
     const proxy = new RemoteApiProxy(core)

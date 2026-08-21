@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics'
 import { create } from 'zustand'
 import zhCN from '../locales/zh-CN'
-import { friendlyError } from '../lib/errors'
+import { friendlyError, isRpcTimeoutError } from '../lib/errors'
 import { normalizeServerUrl } from '../lib/server-url'
 import { RemoteServerApi } from '../services/api'
 import { createNativeRpcId } from '../services/api-proxy'
@@ -76,8 +76,8 @@ interface AppState {
   refreshDevices(): Promise<void>
   trustDevice(device: RemoteDevice): Promise<boolean>
   forgetDevice(deviceId: string): Promise<boolean>
-  connectDevice(device: RemoteDevice): Promise<boolean>
-  reconnect(): Promise<void>
+  connectDevice(device: RemoteDevice, options?: { forceRelay?: boolean }): Promise<boolean>
+  reconnect(options?: { forceRelay?: boolean }): Promise<boolean>
   disconnect(): Promise<void>
   openSession(session: RemoteSession): Promise<boolean>
   sendMessage(text: string): Promise<boolean>
@@ -249,7 +249,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     return true
   },
 
-  async connectDevice(device) {
+  async connectDevice(device, options = {}) {
     const { config, identity } = get()
     if (config === undefined || identity === undefined) return false
     set({
@@ -263,7 +263,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const { api, credentials } = await serverSession.authenticate(config.baseUrl, identity)
       const preference = get().transportPreference
-      const preferredTransports = preference === 'relay'
+      const forceRelay = options.forceRelay === true || preference === 'relay'
+      const preferredTransports = forceRelay
         ? ['relay'] as const
         : preference === 'turn'
           ? ['turn', 'relay'] as const
@@ -277,6 +278,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         {
           fetchIceServers: async connectionId => api.turnCredentials(connectionId),
           preferredTransports: [...preferredTransports],
+          forceRelay,
           onClose: () => {
             if (get().connection.phase === 'connected' || get().connection.phase === 'reconnecting') {
               set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: zhCN.runtime.hostClosed } })
@@ -306,11 +308,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async reconnect() {
+  async reconnect(options = {}) {
     const device = get().selectedDevice
-    if (device === undefined || get().connection.phase === 'connecting') return
+    if (device === undefined || get().connection.phase === 'connecting') return false
     set(state => ({ connection: { ...state.connection, phase: 'reconnecting', error: undefined } }))
-    await get().connectDevice(device)
+    return get().connectDevice(device, options)
   },
 
   async disconnect() {
@@ -332,9 +334,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async openSession(session) {
     set({ busyAction: `session:${session.sessionId}`, error: undefined })
-    try {
-      const proxy = connection.requireProxy()
-      const history = await proxy.sessionHistory(session.sessionId)
+    const load = async () => {
+      const history = await connection.requireProxy().sessionHistory(session.sessionId)
       const items = foldHistory(history.events, session.sessionId)
       set(state => ({
         selectedSession: session,
@@ -347,8 +348,29 @@ export const useAppStore = create<AppState>((set, get) => ({
         busyAction: undefined,
       }))
       void refreshSessionModels(session.sessionId)
+    }
+    try {
+      await load()
       return true
     } catch (error) {
+      if (isRpcTimeoutError(error)) {
+        // session.history is read-only, so it is safe to recover the stale
+        // path with a fresh Relay-only connection and retry exactly once.
+        // Mutating ApiProxy calls deliberately do not use this path because a
+        // timeout leaves their result unknown.
+        const recovered = await get().reconnect({ forceRelay: true })
+        if (recovered) {
+          try {
+            await load()
+            return true
+          } catch (retryError) {
+            set({ busyAction: undefined, error: friendlyError(retryError) })
+            return false
+          }
+        }
+        set({ busyAction: undefined })
+        return false
+      }
       set({ busyAction: undefined, error: friendlyError(error) })
       return false
     }

@@ -193,7 +193,15 @@ export interface ToolActivity extends ChatItemBase {
   toolName: string
   arguments?: string
   summary?: string
+  callDetail?: ToolDisplayDetail
+  resultDetail?: ToolDisplayDetail
   state: 'running' | 'finished' | 'failed'
+}
+
+export interface ToolDisplayDetail {
+  text: string
+  format: 'code' | 'markdown'
+  truncated?: boolean
 }
 
 export interface ApprovalActivity extends ChatItemBase {

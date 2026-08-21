@@ -51,6 +51,46 @@ describe('remote mux frame reducer', () => {
     expect(items[0]).not.toHaveProperty('streaming')
   })
 
+  it('does not render empty assistant messages around tool activity', () => {
+    const empty = sessionEvent({
+      type: 'assistant/message',
+      data: { turn: 1, step: 1, message: { id: 'm-empty', role: 'assistant', content: [{ type: 'text', text: '\n  ' }, { type: 'tool-call', callId: 'c1' }] } },
+    })
+    const tool = sessionEvent({ type: 'tool/call', data: { callId: 'c1', name: 'bash' } })
+
+    expect(foldHistory([{ event: empty }, { event: tool }], 's1')).toEqual([
+      expect.objectContaining({ kind: 'tool', id: 'c1', toolName: 'bash' }),
+    ])
+  })
+
+  it('does not create or finalize a Remote row for invisible streaming text', () => {
+    const invisibleChunks = [' \n\t', '\u200B\u2060\uFEFF'].map(text => sessionEvent({
+      type: 'assistant/chunk',
+      data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text } },
+    }))
+    const emptyFinal = sessionEvent({
+      type: 'assistant/message',
+      data: { turn: 1, step: 1, message: { id: 'm-empty', role: 'assistant', content: [] } },
+    })
+
+    expect(foldHistory([...invisibleChunks, emptyFinal].map(event => ({ event })), 's1')).toEqual([])
+  })
+
+  it('keeps visible streamed text when the final assistant event has no text', () => {
+    const visibleChunk = sessionEvent({
+      type: 'assistant/chunk',
+      data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '完成' } },
+    })
+    const emptyFinal = sessionEvent({
+      type: 'assistant/message',
+      data: { turn: 1, step: 1, message: { id: 'm1', role: 'assistant', content: [{ type: 'tool-call', callId: 'c1' }] } },
+    })
+
+    expect(foldHistory([{ event: visibleChunk }, { event: emptyFinal }], 's1')).toEqual([
+      expect.objectContaining({ kind: 'message', id: 'm1', text: '完成' }),
+    ])
+  })
+
   it('adds user messages and tool activities from history events', () => {
     const events = [
       sessionEvent({
@@ -64,6 +104,68 @@ describe('remote mux frame reducer', () => {
       { kind: 'message', id: 'u1', role: 'user', text: 'Check the repo' },
       { kind: 'tool', id: 'c1', toolName: 'bash', state: 'running' },
     ])
+  })
+
+  it('merges a tool result using message.source.callId and uses native views', () => {
+    const call = sessionEvent({
+      type: 'tool/call',
+      data: { callId: 'c1', name: 'run_code', arguments: '{"code":"long input"}' },
+    })
+    const result = sessionEvent({
+      type: 'tool/result',
+      data: { message: { source: { callId: 'c1' } }, content: [{ type: 'text', text: 'private output' }] },
+    })
+    const items = foldHistory([
+      { event: call, view: { for: 'call', view: { title: '运行代码', description: '检查 PowerShell 脚本' } } },
+      { event: result, view: { for: 'result', view: { title: '运行代码' } } },
+    ], 's1')
+
+    expect(items).toEqual([expect.objectContaining({
+      kind: 'tool', id: 'c1', toolName: '运行代码', summary: '检查 PowerShell 脚本', state: 'finished',
+    })])
+  })
+
+  it('keeps expandable terminal call and result details from native views', () => {
+    const call = sessionEvent({
+      type: 'tool/call',
+      data: { callId: 'terminal-1', name: 'bash', arguments: '{"command":"pnpm test"}' },
+    })
+    const result = sessionEvent({
+      type: 'tool/result',
+      data: {
+        message: {
+          source: { callId: 'terminal-1' },
+          content: [{ type: 'tool-result', isError: false, content: [{ type: 'text', text: 'fallback output' }] }],
+        },
+      },
+    })
+    const items = foldHistory([
+      { event: call, view: { for: 'call', view: { card: 'terminal', title: 'pnpm test', cwd: '/workspace' } } },
+      { event: result, view: { for: 'result', view: { card: 'terminal', output: '49 tests passed', exitCode: 0 } } },
+    ], 's1')
+
+    expect(items).toEqual([expect.objectContaining({
+      kind: 'tool', id: 'terminal-1', toolName: 'pnpm test', state: 'finished',
+      callDetail: { text: 'cwd: /workspace\n$ pnpm test', format: 'code' },
+      resultDetail: { text: '49 tests passed\nexit: 0', format: 'code' },
+    })])
+  })
+
+  it('falls back to the raw nested tool result when no result view is available', () => {
+    const result = sessionEvent({
+      type: 'tool/result',
+      data: {
+        message: {
+          source: { callId: 'generic-1' },
+          content: [{ type: 'tool-result', isError: true, content: [{ type: 'text', text: '**command failed**' }] }],
+        },
+      },
+    })
+
+    expect(foldHistory([{ event: result }], 's1')).toEqual([expect.objectContaining({
+      kind: 'tool', id: 'generic-1', state: 'failed',
+      resultDetail: { text: '**command failed**', format: 'markdown' },
+    })])
   })
 
   it('reconciles an optimistic user message through the native prompt rpcId', () => {

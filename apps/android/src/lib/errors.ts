@@ -20,8 +20,12 @@ export function friendlyError(error: unknown): string {
     if (/network request failed|failed to fetch|websocket/i.test(error.message)) {
       return zhCN.errors.serverUnreachable
     }
-    if (/timed out/i.test(error.message)) return friendlyByCode.RPC_TIMEOUT!
+    if (isRpcTimeoutError(error)) return friendlyByCode.RPC_TIMEOUT!
     return error.message
   }
   return zhCN.errors.unknown
+}
+
+export function isRpcTimeoutError(error: unknown): boolean {
+  return error instanceof Error && /timed?\s*out|timeout/i.test(error.message)
 }

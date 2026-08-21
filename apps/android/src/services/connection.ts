@@ -18,7 +18,7 @@ export interface AndroidConnectionOptions {
 export class AndroidRemoteConnection {
   private core?: RemoteClientCore
   private proxy?: RemoteApiProxy
-  private closeMux?: () => Promise<void>
+  private closeMux?: (notifyRemote?: boolean) => Promise<void>
   private unsubscribeClose?: () => void
   private muxHandler?: MuxFrameHandler
 
@@ -30,6 +30,8 @@ export class AndroidRemoteConnection {
     onFrame: MuxFrameHandler,
     options: AndroidConnectionOptions = {},
   ): Promise<void> {
+    // Replacing a connection must not wait for a graceful stream-close RPC:
+    // the old data path may be exactly what is being recovered from.
     await this.close()
     this.muxHandler = onFrame
     let webRtcFallback = false
@@ -52,10 +54,15 @@ export class AndroidRemoteConnection {
     })
     const connectCore = async (relayOnly: boolean) => {
       const transport = createTransport(relayOnly)
-      const core = new RemoteClientCore(new SecureTransport(transport, identity, host), 60_000)
+      // Host-side ApiProxy calls are capped at 30s. Leave a small delivery
+      // margin, then treat silence as an unhealthy business channel.
+      const core = new RemoteClientCore(new SecureTransport(transport, identity, host), 35_000)
       this.core = core
       this.unsubscribeClose = core.onClose(() => {
-        this.closeMux?.()
+        // A late close from a replaced connection must not tear down the new
+        // connection that may already be stored on this instance.
+        if (this.core !== core) return
+        void this.closeMux?.(false)
         this.closeMux = undefined
         this.core = undefined
         this.proxy = undefined
@@ -102,7 +109,10 @@ export class AndroidRemoteConnection {
     this.muxHandler = undefined
     const mux = this.closeMux
     this.closeMux = undefined
-    if (mux !== undefined) await mux().catch(() => undefined)
+    // Closing the whole transport makes a remote stream-close redundant.
+    // Only remove the local subscription here so a half-open RTC path cannot
+    // add another RPC timeout before recovery begins.
+    if (mux !== undefined) await mux(false).catch(() => undefined)
     this.unsubscribeClose?.()
     this.unsubscribeClose = undefined
     const core = this.core

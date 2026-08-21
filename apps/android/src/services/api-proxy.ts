@@ -106,7 +106,7 @@ export class RemoteApiProxy {
    * this stream to the handler. Returns a close function; the stream is
    * re-opened after reconnect, so callers must re-subscribe on connect.
    */
-  async openMuxStream(handler: (frame: MuxStreamFrame) => void): Promise<() => Promise<void>> {
+  async openMuxStream(handler: (frame: MuxStreamFrame) => void): Promise<(notifyRemote?: boolean) => Promise<void>> {
     const streamId = createNativeRpcId()
     this.streams.set(streamId, handler)
     const unsubscribe = this.core.onEvent(event => this.routeEvent(event, streamId))
@@ -122,10 +122,10 @@ export class RemoteApiProxy {
       unsubscribe()
       throw error
     }
-    return async () => {
+    return async (notifyRemote = true) => {
       this.streams.delete(streamId)
       unsubscribe()
-      await this.core.rpc('harness.api.stream.close', { streamId }).catch(() => undefined)
+      if (notifyRemote) await this.core.rpc('harness.api.stream.close', { streamId }).catch(() => undefined)
     }
   }
 

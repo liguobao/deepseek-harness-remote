@@ -20,6 +20,7 @@
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.2",
     "lucide-react-native": "^1.31.0",
+    "markdown-it": "^14.1.0",
     "react": "19.2.3",
     "react-native": "0.86.2",
     "react-native-safe-area-context": "~5.7.0",
@@ -28,6 +29,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "@types/react": "~19.2.2",
     "@types/node": "^22.10.7",
     "typescript": "~6.0.3",

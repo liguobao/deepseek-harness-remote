@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { ChevronRight, CirclePlus, Eye, EyeOff, Folder, FolderOpen, MessageSquareText, MoreVertical, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import type { DirectoryListing, RemoteSession, WorkspaceView } from '../types'
@@ -96,16 +96,24 @@ export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; on
                   </View>
                   {workspaceSessions.length === 0
                     ? <Pressable onPress={() => void createInWorkspace(workspace.workspaceId)} style={styles.noSessions}><Text style={styles.noSessionsText}>{zhCN.workspaces.noSessions}</Text></Pressable>
-                    : workspaceSessions.map(session => (
-                        <Pressable key={session.sessionId} accessibilityRole="button" onPress={() => void open(session)} style={({ pressed }) => [styles.sessionRow, pressed && styles.workspaceRowPressed]}>
-                          <MessageSquareText size={17} color={colors.muted} />
+                    : workspaceSessions.map(session => {
+                        const opening = busy === `session:${session.sessionId}`
+                        return <Pressable
+                          key={session.sessionId}
+                          accessibilityRole="button"
+                          accessibilityState={{ busy: opening, disabled: busy !== undefined && !opening }}
+                          disabled={busy !== undefined}
+                          onPress={() => void open(session)}
+                          style={({ pressed }) => [styles.sessionRow, pressed && styles.workspaceRowPressed, busy !== undefined && !opening && styles.disabled]}
+                        >
+                          {opening ? <ActivityIndicator size="small" color={colors.primary} /> : <MessageSquareText size={17} color={colors.muted} />}
                           <View style={styles.sessionCopy}>
                           <Text style={styles.sessionTitle} numberOfLines={1}>{resolveSessionTitle(session)}</Text>
                             <Text style={styles.sessionMeta}>{session.running ? zhCN.status.running : relativeTime(session.updatedAt)}</Text>
                           </View>
                           <ChevronRight size={17} color={colors.subtle} />
                         </Pressable>
-                      ))}
+                      })}
                 </View>
               )
             })}</View>}
@@ -339,6 +347,7 @@ const styles = StyleSheet.create({
   subtitle: { ...type.small, color: colors.muted, marginTop: 2 },
   workspaceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
   workspaceRowPressed: { opacity: 0.7 },
+  disabled: { opacity: 0.55 },
   workspaceIcon: { width: 38, height: 38, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   workspaceCopy: { flex: 1, gap: 2 },
   workspaceTitle: { ...type.bodyStrong, color: colors.ink },
