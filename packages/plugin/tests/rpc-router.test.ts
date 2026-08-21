@@ -31,6 +31,22 @@ describe('RpcRouter', () => {
     expect(closeAll).toHaveBeenCalledOnce()
   })
 
+  it('routes only the explicit bounded Harness API transfer operations', async () => {
+    const openTransfer = vi.fn(() => ({ opened: true, transferId: 'image-1' }))
+    const appendTransfer = vi.fn(() => ({ accepted: true, transferId: 'image-1', index: 0 }))
+    const router = createRouter({ openTransfer, appendTransfer })
+    const opened = await router.handle(createRpcRequest('harness.api.transfer.open', {
+      transferId: 'image-1', totalBytes: 3, totalChunks: 1,
+    }))
+    const chunked = await router.handle(createRpcRequest('harness.api.transfer.chunk', {
+      transferId: 'image-1', index: 0, data: 'YWJj',
+    }))
+    expect(openTransfer).toHaveBeenCalledOnce()
+    expect(appendTransfer).toHaveBeenCalledOnce()
+    expect(opened).toMatchObject({ type: 'rpc.response', payload: { result: { opened: true } } })
+    expect(chunked).toMatchObject({ type: 'rpc.response', payload: { result: { accepted: true } } })
+  })
+
   it('routes only the explicit File Viewer call through its bridge', async () => {
     const fileViewer = { call: vi.fn(async () => ({ exists: true })) } as unknown as RemoteFileViewerBridge
     const router = createRouter({}, fileViewer)
@@ -52,6 +68,11 @@ function createRouter(overrides: Record<string, unknown> = {}, fileViewer?: Remo
     respond: vi.fn(),
     openStream: vi.fn(),
     closeStream: vi.fn(),
+    openTransfer: vi.fn(),
+    appendTransfer: vi.fn(),
+    commitTransfer: vi.fn(),
+    readTransfer: vi.fn(),
+    closeTransfer: vi.fn(),
     closeAll: vi.fn(async () => undefined),
     ...overrides,
   } as unknown as HarnessApiBridge, undefined, undefined, fileViewer)

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.24
+
+- Adapts the Remote ApiProxy bridge to DeepSeek Harness `dsh-v0.1.1-rc.2`
+  image prompts and Host-side image preprocessing / Files API reuse.
+- Allows the native read-only `session.attachment` lookup so sent and
+  historical session images can render on the Remote Client.
+- Adds bounded, ordered, per-connection chunk transport for large native
+  ApiProxy requests and responses without raising the 4 MiB secure-message
+  limit or exposing a separate upload/filesystem API.
+
 ## 0.3.23
 
 - Adds progress details while the DSH Client connects to a remote Host and

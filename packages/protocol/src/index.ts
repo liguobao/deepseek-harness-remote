@@ -3,6 +3,14 @@ import { z } from 'zod'
 export const PROTOCOL_VERSION = 1
 export const SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024
 export const MAX_SECURE_MESSAGE_BYTES = 4 * 1024 * 1024
+/** Decoded bytes carried by one authenticated Harness ApiProxy transfer chunk. */
+export const HARNESS_API_TRANSFER_CHUNK_BYTES = 512 * 1024
+/**
+ * Bounded transfer size for rc.2 image prompts. The upstream default admits
+ * up to 200 MiB of source images; their base64 JSON envelope needs roughly
+ * 267 MiB, so 288 MiB leaves room for the native request structure.
+ */
+export const MAX_HARNESS_API_TRANSFER_BYTES = 288 * 1024 * 1024
 
 const SECURE_FRAGMENT_MAGIC = new Uint8Array([0x44, 0x53, 0x48, 0x46]) // DSHF
 const SECURE_FRAGMENT_VERSION = 1
@@ -36,6 +44,11 @@ export const controlFrameTypes = [
 
 export const rpcMethods = [
   'harness.api.call',
+  'harness.api.transfer.open',
+  'harness.api.transfer.chunk',
+  'harness.api.transfer.commit',
+  'harness.api.transfer.read',
+  'harness.api.transfer.close',
   'harness.api.respond',
   'harness.api.stream.open',
   'harness.api.stream.close',
@@ -250,6 +263,41 @@ export interface HarnessApiCallParams {
   method: string
   rpcId: string
   payload: unknown
+}
+
+export interface HarnessApiTransferOpenParams {
+  transferId: string
+  totalBytes: number
+  totalChunks: number
+}
+
+export interface HarnessApiTransferChunkParams {
+  transferId: string
+  index: number
+  data: string
+}
+
+export interface HarnessApiTransferCommitParams {
+  transferId: string
+}
+
+export interface HarnessApiTransferReadParams {
+  transferId: string
+  index: number
+}
+
+export interface HarnessApiTransferCloseParams {
+  transferId: string
+}
+
+export type HarnessApiTransferCommitResult =
+  | { kind: 'inline'; response: unknown }
+  | { kind: 'chunked'; transferId: string; totalBytes: number; totalChunks: number }
+
+export interface HarnessApiTransferReadResult {
+  transferId: string
+  index: number
+  data: string
 }
 
 /** Response to an answerable native Harness server request (approval/question). */

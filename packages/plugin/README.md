@@ -24,6 +24,18 @@ No Client mode switch is required. Choosing a remote workspace keeps the local U
 3. 为当前机器启用远端控制，或直接选择另一台在线设备并控制它。
 4. 进入已有 Workspace，或浏览远端目录后打开 Workspace；使用 **退出** 回到本地并停止转发。
 
+## Harness rc.2 images / Harness rc.2 图片
+
+With DSH `dsh-v0.1.1-rc.2`, the native conversation UI can send images through
+`session.prompt` and render them through the read-only `session.attachment`
+lookup. Large native ApiProxy envelopes use bounded 512 KiB transfer chunks;
+image preprocessing, DeepSeek Files API upload, and file-id reuse stay on the
+Host in the official adapter.
+
+使用 DSH `dsh-v0.1.1-rc.2` 时，原生会话 UI 可通过 `session.prompt` 发送图片，并通过只读
+`session.attachment` 回读显示。较大的原生 ApiProxy envelope 使用受限的 512 KiB 分块；
+图片预处理、DeepSeek Files API 上传与 file-id 复用仍由 Host 官方 adapter 完成。
+
 ## Directory browsing / 目录浏览
 
 - Calls remote `host.listDirectory` first.

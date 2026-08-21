@@ -4052,6 +4052,8 @@ var NEVER = INVALID;
 var PROTOCOL_VERSION = 1;
 var SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024;
 var MAX_SECURE_MESSAGE_BYTES = 4 * 1024 * 1024;
+var HARNESS_API_TRANSFER_CHUNK_BYTES = 512 * 1024;
+var MAX_HARNESS_API_TRANSFER_BYTES = 288 * 1024 * 1024;
 var SECURE_FRAGMENT_MAGIC = new Uint8Array([68, 83, 72, 70]);
 var SECURE_FRAGMENT_VERSION = 1;
 var SECURE_FRAGMENT_HEADER_BYTES = 17;
@@ -4081,6 +4083,11 @@ var controlFrameTypes = [
 ];
 var rpcMethods = [
   "harness.api.call",
+  "harness.api.transfer.open",
+  "harness.api.transfer.chunk",
+  "harness.api.transfer.commit",
+  "harness.api.transfer.read",
+  "harness.api.transfer.close",
   "harness.api.respond",
   "harness.api.stream.open",
   "harness.api.stream.close",
@@ -12854,6 +12861,7 @@ function uuidV7(now = Date.now()) {
 }
 
 // src/remote-api-proxy.ts
+var DIRECT_API_CALL_BYTES = 2 * 1024 * 1024;
 var RemoteHarnessApiProxy = class {
   constructor(client) {
     this.client = client;
@@ -12939,15 +12947,75 @@ var RemoteHarnessApiProxy = class {
   }
   api;
   async call(method, request, signal) {
-    const response = await this.client.rpc("harness.api.call", {
+    const params = {
       method,
       rpcId: String(request.rpcId),
       payload: request.payload
-    }, signal);
+    };
+    const encoded = new TextEncoder().encode(JSON.stringify(params));
+    const response = method === "session.attachment" || encoded.byteLength > DIRECT_API_CALL_BYTES ? await this.callTransferred(encoded, signal) : await this.client.rpc("harness.api.call", params, signal);
     if (String(response.rpcId) !== String(request.rpcId) || typeof response.result !== "object" || response.result === null) {
       throw new Error("The remote Host returned an invalid Harness API response.");
     }
     return normalizeLegacyResponse(method, response);
+  }
+  async callTransferred(encoded, signal) {
+    if (encoded.byteLength > MAX_HARNESS_API_TRANSFER_BYTES) {
+      throw new Error("The Harness API request exceeds the remote image transfer limit.");
+    }
+    const transferId = uuidV7();
+    const totalChunks = Math.ceil(encoded.byteLength / HARNESS_API_TRANSFER_CHUNK_BYTES);
+    let opened = false;
+    try {
+      await this.client.rpc("harness.api.transfer.open", {
+        transferId,
+        totalBytes: encoded.byteLength,
+        totalChunks
+      }, signal);
+      opened = true;
+      for (let index = 0; index < totalChunks; index += 1) {
+        const start = index * HARNESS_API_TRANSFER_CHUNK_BYTES;
+        const chunk = encoded.subarray(start, Math.min(start + HARNESS_API_TRANSFER_CHUNK_BYTES, encoded.byteLength));
+        await this.client.rpc("harness.api.transfer.chunk", {
+          transferId,
+          index,
+          data: bytesToBase64(chunk)
+        }, signal);
+      }
+      const committed = await this.client.rpc(
+        "harness.api.transfer.commit",
+        { transferId },
+        signal
+      );
+      if (committed.kind === "inline") return committed.response;
+      if (committed.transferId !== transferId || committed.totalBytes <= 0 || committed.totalBytes > MAX_HARNESS_API_TRANSFER_BYTES || committed.totalChunks !== Math.ceil(committed.totalBytes / HARNESS_API_TRANSFER_CHUNK_BYTES)) {
+        throw new Error("The remote Host returned an invalid Harness API transfer descriptor.");
+      }
+      const responseBytes = new Uint8Array(committed.totalBytes);
+      let offset = 0;
+      for (let index = 0; index < committed.totalChunks; index += 1) {
+        const result = await this.client.rpc(
+          "harness.api.transfer.read",
+          { transferId, index },
+          signal
+        );
+        if (result.transferId !== transferId || result.index !== index) {
+          throw new Error("The remote Host returned an out-of-order Harness API transfer chunk.");
+        }
+        const chunk = base64ToBytes(result.data);
+        const expectedBytes = Math.min(HARNESS_API_TRANSFER_CHUNK_BYTES, committed.totalBytes - offset);
+        if (chunk.byteLength !== expectedBytes) {
+          throw new Error("The remote Host returned an invalid Harness API transfer chunk.");
+        }
+        responseBytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(responseBytes));
+    } finally {
+      if (opened) {
+        await this.client.rpc("harness.api.transfer.close", { transferId }).catch(() => void 0);
+      }
+    }
   }
   async respond(message) {
     return this.client.rpc("harness.api.respond", { message });
@@ -13037,6 +13105,27 @@ function routeStreamEvent(event, streamId, queue) {
     if (data.streamId === streamId) queue.close();
   }
 }
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (let offset = 0; offset < bytes.byteLength; offset += 32768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 32768, bytes.byteLength)));
+  }
+  return btoa(binary);
+}
+function base64ToBytes(value) {
+  let binary;
+  try {
+    binary = atob(value);
+  } catch {
+    throw new Error("The remote Host returned a malformed Harness API transfer chunk.");
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  if (bytesToBase64(bytes) !== value) {
+    throw new Error("The remote Host returned a non-canonical Harness API transfer chunk.");
+  }
+  return bytes;
+}
 
 // src/server-api.ts
 import { platform } from "node:os";
@@ -13121,7 +13210,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.23";
+var PLUGIN_VERSION = "0.3.24";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -14977,12 +15066,17 @@ async function readHarnessDistributionVersion(entrypoint = process.argv[1]) {
 var wireRequestSchema = external_exports.object({ method: external_exports.string().min(1), params: external_exports.unknown() }).strict();
 var apiMethods = /* @__PURE__ */ new Set([
   "harness.api.call",
+  "harness.api.transfer.open",
+  "harness.api.transfer.chunk",
+  "harness.api.transfer.commit",
+  "harness.api.transfer.read",
+  "harness.api.transfer.close",
   "harness.api.respond",
   "harness.api.stream.open",
   "harness.api.stream.close",
   "fileviewer.call"
 ]);
-var HOST_CAPABILITIES = ["harness.api.v1", "fileviewer.read.v1"];
+var HOST_CAPABILITIES = ["harness.api.v1", "harness.api.transfer.v1", "fileviewer.read.v1"];
 var RpcRouter = class {
   constructor(harnessApi, maxPending = 128, logger, fileViewer) {
     this.harnessApi = harnessApi;
@@ -15034,6 +15128,16 @@ var RpcRouter = class {
     switch (method) {
       case "harness.api.call":
         return this.harnessApi.call(params);
+      case "harness.api.transfer.open":
+        return this.harnessApi.openTransfer(params);
+      case "harness.api.transfer.chunk":
+        return this.harnessApi.appendTransfer(params);
+      case "harness.api.transfer.commit":
+        return this.harnessApi.commitTransfer(params);
+      case "harness.api.transfer.read":
+        return this.harnessApi.readTransfer(params);
+      case "harness.api.transfer.close":
+        return this.harnessApi.closeTransfer(params);
       case "harness.api.respond":
         return this.harnessApi.respond(params);
       case "harness.api.stream.open":
@@ -15947,6 +16051,20 @@ var streamOpenSchema = external_exports.object({
   }).strict()
 }).strict();
 var streamCloseSchema = external_exports.object({ streamId: external_exports.string().min(1).max(128) }).strict();
+var transferIdSchema = external_exports.string().min(1).max(128);
+var transferOpenSchema = external_exports.object({
+  transferId: transferIdSchema,
+  totalBytes: external_exports.number().int().positive().max(MAX_HARNESS_API_TRANSFER_BYTES),
+  totalChunks: external_exports.number().int().positive().max(Math.ceil(MAX_HARNESS_API_TRANSFER_BYTES / HARNESS_API_TRANSFER_CHUNK_BYTES))
+}).strict();
+var transferChunkSchema = external_exports.object({
+  transferId: transferIdSchema,
+  index: external_exports.number().int().nonnegative(),
+  data: external_exports.string().max(Math.ceil(HARNESS_API_TRANSFER_CHUNK_BYTES / 3) * 4)
+}).strict();
+var transferCommitSchema = external_exports.object({ transferId: transferIdSchema }).strict();
+var transferReadSchema = external_exports.object({ transferId: transferIdSchema, index: external_exports.number().int().nonnegative() }).strict();
+var transferCloseSchema = external_exports.object({ transferId: transferIdSchema }).strict();
 var commandExecuteSchema = external_exports.object({
   agentId: external_exports.string().min(1).max(128),
   line: external_exports.string().min(1).max(2048)
@@ -15964,6 +16082,7 @@ var HARNESS_API_ALLOWLIST = [
   "session.rename",
   "session.fork",
   "session.prompt",
+  "session.attachment",
   "session.updateQueue",
   "session.cancel",
   "subagent.list",
@@ -15995,6 +16114,9 @@ var HARNESS_API_ALLOWLIST = [
   "llm.models"
 ];
 var NATIVE_CALL_TIMEOUT_MS = 3e4;
+var MAX_ACTIVE_API_TRANSFERS = 2;
+var API_TRANSFER_IDLE_MS = 2 * 6e4;
+var INLINE_TRANSFER_RESPONSE_BYTES = 2 * 1024 * 1024;
 var SESSION_HISTORY_PAGE_SIZES = [50, 30, 20, 12, 6, 3, 1];
 var HarnessApiBridge = class {
   constructor(api, publish, maxStreams = 8, logger, typertGateway) {
@@ -16010,6 +16132,8 @@ var HarnessApiBridge = class {
   methods;
   streams = /* @__PURE__ */ new Map();
   respondable = /* @__PURE__ */ new Map();
+  incomingTransfers = /* @__PURE__ */ new Map();
+  outgoingTransfers = /* @__PURE__ */ new Map();
   mux;
   host;
   answer;
@@ -16053,6 +16177,119 @@ var HarnessApiBridge = class {
       throw error;
     }
   }
+  openTransfer(input) {
+    this.pruneTransfers();
+    const params = transferOpenSchema.parse(input);
+    if (params.totalChunks !== Math.ceil(params.totalBytes / HARNESS_API_TRANSFER_CHUNK_BYTES)) {
+      throw new RpcError("INVALID_MESSAGE", "The Harness API transfer chunk count is invalid.");
+    }
+    if (this.incomingTransfers.has(params.transferId) || this.outgoingTransfers.has(params.transferId)) {
+      throw new RpcError("REQUEST_CONFLICT", "The Harness API transfer id is already active.");
+    }
+    if (this.incomingTransfers.size >= MAX_ACTIVE_API_TRANSFERS) {
+      throw new RpcError("RATE_LIMITED", "Too many Harness API transfers are active.", void 0, true);
+    }
+    this.incomingTransfers.set(params.transferId, {
+      totalBytes: params.totalBytes,
+      totalChunks: params.totalChunks,
+      chunks: [],
+      receivedBytes: 0,
+      touchedAt: Date.now()
+    });
+    return { opened: true, transferId: params.transferId };
+  }
+  appendTransfer(input) {
+    this.pruneTransfers();
+    const params = transferChunkSchema.parse(input);
+    const transfer = this.incomingTransfers.get(params.transferId);
+    if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness API transfer is not active.");
+    if (params.index !== transfer.chunks.length || params.index >= transfer.totalChunks) {
+      this.incomingTransfers.delete(params.transferId);
+      throw new RpcError("INVALID_MESSAGE", "Harness API transfer chunks must arrive exactly once and in order.");
+    }
+    let chunk;
+    try {
+      chunk = decodeCanonicalBase64(params.data);
+    } catch (error) {
+      this.incomingTransfers.delete(params.transferId);
+      throw error;
+    }
+    const expectedBytes = Math.min(
+      HARNESS_API_TRANSFER_CHUNK_BYTES,
+      transfer.totalBytes - params.index * HARNESS_API_TRANSFER_CHUNK_BYTES
+    );
+    if (chunk.byteLength !== expectedBytes) {
+      this.incomingTransfers.delete(params.transferId);
+      throw new RpcError("INVALID_MESSAGE", "The Harness API transfer chunk size is invalid.");
+    }
+    transfer.chunks.push(chunk);
+    transfer.receivedBytes += chunk.byteLength;
+    transfer.touchedAt = Date.now();
+    return { accepted: true, transferId: params.transferId, index: params.index };
+  }
+  async commitTransfer(input) {
+    this.pruneTransfers();
+    const params = transferCommitSchema.parse(input);
+    const transfer = this.incomingTransfers.get(params.transferId);
+    if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness API transfer is not active.");
+    this.incomingTransfers.delete(params.transferId);
+    if (transfer.chunks.length !== transfer.totalChunks || transfer.receivedBytes !== transfer.totalBytes) {
+      throw new RpcError("INVALID_MESSAGE", "The Harness API transfer is incomplete.");
+    }
+    let request;
+    try {
+      const bytes = concatChunks(transfer.chunks, transfer.totalBytes);
+      request = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    } catch {
+      throw new RpcError("INVALID_MESSAGE", "The Harness API transfer does not contain a valid request.");
+    }
+    const nativeRequest = callSchema2.parse(request);
+    const response = await this.call(nativeRequest);
+    const responseBytes = new TextEncoder().encode(JSON.stringify(response));
+    if (responseBytes.byteLength <= INLINE_TRANSFER_RESPONSE_BYTES) {
+      return { kind: "inline", response };
+    }
+    if (responseBytes.byteLength > MAX_HARNESS_API_TRANSFER_BYTES) {
+      throw new RpcError("RESPONSE_TOO_LARGE", "The Harness API response exceeds the bounded transfer limit.");
+    }
+    this.pruneTransfers();
+    if (this.outgoingTransfers.size >= MAX_ACTIVE_API_TRANSFERS) {
+      throw new RpcError("RATE_LIMITED", "Too many Harness API response transfers are active.", void 0, true);
+    }
+    const totalChunks = Math.ceil(responseBytes.byteLength / HARNESS_API_TRANSFER_CHUNK_BYTES);
+    this.outgoingTransfers.set(params.transferId, {
+      bytes: responseBytes,
+      totalChunks,
+      nextIndex: 0,
+      touchedAt: Date.now()
+    });
+    return { kind: "chunked", transferId: params.transferId, totalBytes: responseBytes.byteLength, totalChunks };
+  }
+  readTransfer(input) {
+    this.pruneTransfers();
+    const params = transferReadSchema.parse(input);
+    const transfer = this.outgoingTransfers.get(params.transferId);
+    if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness API response transfer is not active.");
+    if (params.index !== transfer.nextIndex || params.index >= transfer.totalChunks) {
+      this.outgoingTransfers.delete(params.transferId);
+      throw new RpcError("INVALID_MESSAGE", "Harness API response chunks must be read exactly once and in order.");
+    }
+    const start = params.index * HARNESS_API_TRANSFER_CHUNK_BYTES;
+    const end = Math.min(start + HARNESS_API_TRANSFER_CHUNK_BYTES, transfer.bytes.byteLength);
+    transfer.nextIndex += 1;
+    transfer.touchedAt = Date.now();
+    return {
+      transferId: params.transferId,
+      index: params.index,
+      data: Buffer.from(transfer.bytes.subarray(start, end)).toString("base64")
+    };
+  }
+  closeTransfer(input) {
+    const params = transferCloseSchema.parse(input);
+    const incoming = this.incomingTransfers.delete(params.transferId);
+    const outgoing = this.outgoingTransfers.delete(params.transferId);
+    return { closed: incoming || outgoing, transferId: params.transferId };
+  }
   async respond(input) {
     const params = respondSchema.parse(input);
     this.logger?.debug("harness api respond", { rpcId: shortId4(params.message.rpcId) });
@@ -16094,7 +16331,18 @@ var HarnessApiBridge = class {
     const streams = [...this.streams.values()];
     this.streams.clear();
     this.respondable.clear();
+    this.incomingTransfers.clear();
+    this.outgoingTransfers.clear();
     for (const stream of streams) stream.controller.abort(reason);
+  }
+  pruneTransfers() {
+    const cutoff = Date.now() - API_TRANSFER_IDLE_MS;
+    for (const [transferId, transfer] of this.incomingTransfers) {
+      if (transfer.touchedAt < cutoff) this.incomingTransfers.delete(transferId);
+    }
+    for (const [transferId, transfer] of this.outgoingTransfers) {
+      if (transfer.touchedAt < cutoff) this.outgoingTransfers.delete(transferId);
+    }
   }
   async pump(streamId, stream, signal, focusSessionId) {
     let reason = "completed";
@@ -16269,6 +16517,22 @@ function withTimeout(promise, ms, message) {
 }
 function shortId4(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
+}
+function decodeCanonicalBase64(value) {
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.toString("base64") !== value) {
+    throw new RpcError("INVALID_MESSAGE", "The Harness API transfer chunk is not canonical base64.");
+  }
+  return bytes;
+}
+function concatChunks(chunks, totalBytes) {
+  const result = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
 }
 
 // src/service.ts

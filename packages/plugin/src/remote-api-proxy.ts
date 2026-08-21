@@ -7,12 +7,23 @@ import type {
   RpcResponse,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RemoteClientError, type RemoteClientCore } from '@dsh-remote/client-core'
-import type { EventPayload, HarnessApiFrameData, HarnessApiStreamClosedData } from '@dsh-remote/protocol'
+import {
+  HARNESS_API_TRANSFER_CHUNK_BYTES,
+  MAX_HARNESS_API_TRANSFER_BYTES,
+  type EventPayload,
+  type HarnessApiCallParams,
+  type HarnessApiFrameData,
+  type HarnessApiStreamClosedData,
+  type HarnessApiTransferCommitResult,
+  type HarnessApiTransferReadResult,
+} from '@dsh-remote/protocol'
 import { uuidV7 } from './ids.js'
 
 type NativeRequest = RpcRequest<unknown>
 type NativeResponse = RpcResponse<unknown>
 type NativeCall = (request: NativeRequest, signal?: AbortSignal) => Promise<NativeResponse>
+
+const DIRECT_API_CALL_BYTES = 2 * 1024 * 1024
 
 /** ApiProxy-compatible face that preserves the native Harness envelopes over Remote RPC. */
 export class RemoteHarnessApiProxy {
@@ -101,15 +112,84 @@ export class RemoteHarnessApiProxy {
   }
 
   private async call(method: string, request: NativeRequest, signal?: AbortSignal): Promise<NativeResponse> {
-    const response = await this.client.rpc<NativeResponse>('harness.api.call', {
+    const params: HarnessApiCallParams = {
       method,
       rpcId: String(request.rpcId),
       payload: request.payload,
-    }, signal)
+    }
+    const encoded = new TextEncoder().encode(JSON.stringify(params))
+    const response = method === 'session.attachment' || encoded.byteLength > DIRECT_API_CALL_BYTES
+      ? await this.callTransferred(encoded, signal)
+      : await this.client.rpc<NativeResponse>('harness.api.call', params, signal)
     if (String(response.rpcId) !== String(request.rpcId) || typeof response.result !== 'object' || response.result === null) {
       throw new Error('The remote Host returned an invalid Harness API response.')
     }
     return normalizeLegacyResponse(method, response)
+  }
+
+  private async callTransferred(
+    encoded: Uint8Array,
+    signal?: AbortSignal,
+  ): Promise<NativeResponse> {
+    if (encoded.byteLength > MAX_HARNESS_API_TRANSFER_BYTES) {
+      throw new Error('The Harness API request exceeds the remote image transfer limit.')
+    }
+    const transferId = uuidV7()
+    const totalChunks = Math.ceil(encoded.byteLength / HARNESS_API_TRANSFER_CHUNK_BYTES)
+    let opened = false
+    try {
+      await this.client.rpc('harness.api.transfer.open', {
+        transferId,
+        totalBytes: encoded.byteLength,
+        totalChunks,
+      }, signal)
+      opened = true
+      for (let index = 0; index < totalChunks; index += 1) {
+        const start = index * HARNESS_API_TRANSFER_CHUNK_BYTES
+        const chunk = encoded.subarray(start, Math.min(start + HARNESS_API_TRANSFER_CHUNK_BYTES, encoded.byteLength))
+        await this.client.rpc('harness.api.transfer.chunk', {
+          transferId,
+          index,
+          data: bytesToBase64(chunk),
+        }, signal)
+      }
+      const committed = await this.client.rpc<HarnessApiTransferCommitResult>(
+        'harness.api.transfer.commit',
+        { transferId },
+        signal,
+      )
+      if (committed.kind === 'inline') return committed.response as NativeResponse
+      if (committed.transferId !== transferId
+        || committed.totalBytes <= 0
+        || committed.totalBytes > MAX_HARNESS_API_TRANSFER_BYTES
+        || committed.totalChunks !== Math.ceil(committed.totalBytes / HARNESS_API_TRANSFER_CHUNK_BYTES)) {
+        throw new Error('The remote Host returned an invalid Harness API transfer descriptor.')
+      }
+      const responseBytes = new Uint8Array(committed.totalBytes)
+      let offset = 0
+      for (let index = 0; index < committed.totalChunks; index += 1) {
+        const result = await this.client.rpc<HarnessApiTransferReadResult>(
+          'harness.api.transfer.read',
+          { transferId, index },
+          signal,
+        )
+        if (result.transferId !== transferId || result.index !== index) {
+          throw new Error('The remote Host returned an out-of-order Harness API transfer chunk.')
+        }
+        const chunk = base64ToBytes(result.data)
+        const expectedBytes = Math.min(HARNESS_API_TRANSFER_CHUNK_BYTES, committed.totalBytes - offset)
+        if (chunk.byteLength !== expectedBytes) {
+          throw new Error('The remote Host returned an invalid Harness API transfer chunk.')
+        }
+        responseBytes.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+      return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(responseBytes)) as NativeResponse
+    } finally {
+      if (opened) {
+        await this.client.rpc('harness.api.transfer.close', { transferId }).catch(() => undefined)
+      }
+    }
   }
 
   private async respond(message: ClientResponse): Promise<Awaited<ReturnType<ApiProxy['respond']>>> {
@@ -218,4 +298,27 @@ function routeStreamEvent<TFrame>(event: EventPayload, streamId: string, queue: 
     const data = event.data as Partial<HarnessApiStreamClosedData>
     if (data.streamId === streamId) queue.close()
   }
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.byteLength)))
+  }
+  return btoa(binary)
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  let binary: string
+  try {
+    binary = atob(value)
+  } catch {
+    throw new Error('The remote Host returned a malformed Harness API transfer chunk.')
+  }
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  if (bytesToBase64(bytes) !== value) {
+    throw new Error('The remote Host returned a non-canonical Harness API transfer chunk.')
+  }
+  return bytes
 }

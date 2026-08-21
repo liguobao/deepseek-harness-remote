@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RemoteClientCore, RemoteClientError, type RemoteClientErrorCode } from '@dsh-remote/client-core'
 import { createRpcResponse, decodeMessage, encodeMessage } from '@dsh-remote/protocol'
 import { BaseTransport } from '@dsh-remote/webrtc'
 import { RemoteHarnessApiProxy } from '../src/remote-api-proxy.js'
+import { HarnessApiBridge } from '../src/harness-api-bridge.js'
 
 class StreamTransport extends BaseTransport {
   readonly sent: Uint8Array[] = []
@@ -40,6 +42,49 @@ function clientThatReturns(response: unknown): RemoteClientCore {
 }
 
 describe('RemoteHarnessApiProxy', () => {
+  it('uses the bounded transfer path to read an rc.2 session image from the Host', async () => {
+    const imageData = 'A'.repeat(2 * 1024 * 1024)
+    const bridge = new HarnessApiBridge({
+      sessions: {
+        attachment: async (request: { rpcId: string }) => ({
+          rpcId: request.rpcId,
+          result: { ok: true, value: { mediaType: 'image/png', data: imageData } },
+        }),
+      },
+      subagents: {}, host: {}, workspace: {}, skills: {}, agentPresets: {}, goals: {}, settings: {}, credentials: {}, llm: {},
+      events: { mux: async function* () { return }, host: async function* () { return } },
+      downloads: {},
+      respond: async () => ({ accepted: true }),
+    } as unknown as ApiProxy, async () => undefined)
+    const calls: string[] = []
+    const client = {
+      rpc: async (method: string, params: unknown) => {
+        calls.push(method)
+        switch (method) {
+          case 'harness.api.transfer.open': return bridge.openTransfer(params)
+          case 'harness.api.transfer.chunk': return bridge.appendTransfer(params)
+          case 'harness.api.transfer.commit': return bridge.commitTransfer(params)
+          case 'harness.api.transfer.read': return bridge.readTransfer(params)
+          case 'harness.api.transfer.close': return bridge.closeTransfer(params)
+          default: throw new Error(`Unexpected method ${method}`)
+        }
+      },
+      onEvent: () => () => undefined,
+      onClose: () => () => undefined,
+    } as unknown as RemoteClientCore
+    const proxy = new RemoteHarnessApiProxy(client)
+
+    await expect(proxy.api.sessions.attachment({
+      rpcId: 'attachment-rpc-1' as never,
+      payload: { sessionId: 'session-1', attachmentId: 'attachment-1' } as never,
+    })).resolves.toMatchObject({
+      result: { ok: true, value: { mediaType: 'image/png', data: imageData } },
+    })
+    expect(calls[0]).toBe('harness.api.transfer.open')
+    expect(calls).toContain('harness.api.transfer.read')
+    expect(calls.at(-1)).toBe('harness.api.transfer.close')
+  })
+
   it('backfills the RC8 home field for an RC7 host.describe response', async () => {
     const proxy = new RemoteHarnessApiProxy(clientThatReturns({
       rpcId: 'describe-1',

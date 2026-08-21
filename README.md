@@ -13,7 +13,7 @@ Return to the same Harness session from whichever device is with you. Harness ke
 ## What you can do
 
 - Follow an active session and review its latest progress
-- Send new instructions or change direction
+- Send new instructions, including images on Harness `dsh-v0.1.1-rc.2`, or change direction
 - Answer questions and respond to permission requests
 - Open workspaces from any connected computer
 - Preview files from a remote workspace with the optional `dsh-file-viewer` plugin
@@ -43,14 +43,14 @@ dsh plugin --profile web add ds-harness-remote
 
 Package: [npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-To pin a GitHub release instead, install `github:liguobao/deepseek-harness-remote#v0.3.23`.
+To pin a GitHub release instead, install `github:liguobao/deepseek-harness-remote#v0.3.24`.
 
 Restart Harness after installation.
 
-The `0.3.23` Client remains compatible with `0.3.15` Hosts for Remote
+The `0.3.24` Client remains compatible with `0.3.15` Hosts for Remote
 workspaces and sessions. Features introduced later, such as the remote command
-catalog and file viewing, are enabled only when the selected Host supports
-them.
+catalog, file viewing, and chunked image transport, are enabled only when the
+selected Host supports them.
 
 ## Sign in and connect
 

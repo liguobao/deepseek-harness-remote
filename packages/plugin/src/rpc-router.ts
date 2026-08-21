@@ -13,13 +13,18 @@ import type { SafeLogger } from './logging.js'
 const wireRequestSchema = z.object({ method: z.string().min(1), params: z.unknown() }).strict()
 const apiMethods = new Set([
   'harness.api.call',
+  'harness.api.transfer.open',
+  'harness.api.transfer.chunk',
+  'harness.api.transfer.commit',
+  'harness.api.transfer.read',
+  'harness.api.transfer.close',
   'harness.api.respond',
   'harness.api.stream.open',
   'harness.api.stream.close',
   'fileviewer.call',
 ])
 
-export const HOST_CAPABILITIES = ['harness.api.v1', 'fileviewer.read.v1'] as const
+export const HOST_CAPABILITIES = ['harness.api.v1', 'harness.api.transfer.v1', 'fileviewer.read.v1'] as const
 
 export class RpcRouter {
   private active = 0
@@ -73,6 +78,11 @@ export class RpcRouter {
   private invoke(method: string, params: unknown): Promise<unknown> | unknown {
     switch (method) {
       case 'harness.api.call': return this.harnessApi.call(params)
+      case 'harness.api.transfer.open': return this.harnessApi.openTransfer(params)
+      case 'harness.api.transfer.chunk': return this.harnessApi.appendTransfer(params)
+      case 'harness.api.transfer.commit': return this.harnessApi.commitTransfer(params)
+      case 'harness.api.transfer.read': return this.harnessApi.readTransfer(params)
+      case 'harness.api.transfer.close': return this.harnessApi.closeTransfer(params)
       case 'harness.api.respond': return this.harnessApi.respond(params)
       case 'harness.api.stream.open': return this.harnessApi.openStream(params)
       case 'harness.api.stream.close': return this.harnessApi.closeStream(params)

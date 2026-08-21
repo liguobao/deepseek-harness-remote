@@ -3,6 +3,8 @@ import {
   PROTOCOL_VERSION,
   SECURE_FRAGMENT_CHUNK_BYTES,
   MAX_SECURE_MESSAGE_BYTES,
+  HARNESS_API_TRANSFER_CHUNK_BYTES,
+  MAX_HARNESS_API_TRANSFER_BYTES,
   SecureMessageCodec,
 } from '../src/index.js'
 
@@ -19,6 +21,12 @@ describe('protocol limit constants', () => {
 
   it('MAX_SECURE_MESSAGE_BYTES is 4 MiB', () => {
     expect(MAX_SECURE_MESSAGE_BYTES).toBe(4 * 1024 * 1024)
+  })
+
+  it('keeps image transfers bounded without raising the secure-message limit', () => {
+    expect(HARNESS_API_TRANSFER_CHUNK_BYTES).toBe(512 * 1024)
+    expect(MAX_HARNESS_API_TRANSFER_BYTES).toBe(288 * 1024 * 1024)
+    expect(HARNESS_API_TRANSFER_CHUNK_BYTES).toBeLessThan(MAX_SECURE_MESSAGE_BYTES)
   })
 })
 

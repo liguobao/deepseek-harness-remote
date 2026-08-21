@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { HARNESS_API_TRANSFER_CHUNK_BYTES } from '@dsh-remote/protocol'
 import { HarnessApiBridge } from '../src/harness-api-bridge.js'
 import { RpcError } from '../src/rpc-router.js'
 
@@ -28,6 +29,10 @@ describe('HarnessApiBridge', () => {
 
   it('forwards allowlisted native methods and read-only directory browsing while denying privileged methods', async () => {
     const list = vi.fn(async (request: { rpcId: string }) => ({ rpcId: request.rpcId, result: { ok: true, value: [] } }))
+    const attachment = vi.fn(async (request: { rpcId: string }) => ({
+      rpcId: request.rpcId,
+      result: { ok: true, value: { mediaType: 'image/png', data: 'aW1hZ2U=' } },
+    }))
     const listDirectory = vi.fn(async (request: { rpcId: string }) => ({
       rpcId: request.rpcId,
       result: {
@@ -35,7 +40,7 @@ describe('HarnessApiBridge', () => {
         value: { path: '/home/user', home: '/home/user', crumbs: [], entries: [], truncated: false },
       },
     }))
-    const bridge = new HarnessApiBridge(api({ sessions: { list }, host: { listDirectory } }), vi.fn(async () => undefined))
+    const bridge = new HarnessApiBridge(api({ sessions: { list, attachment }, host: { listDirectory } }), vi.fn(async () => undefined))
 
     await expect(bridge.call({ method: 'session.list', rpcId: 'native-1', payload: {} })).resolves.toMatchObject({
       rpcId: 'native-1',
@@ -49,10 +54,67 @@ describe('HarnessApiBridge', () => {
       { rpcId: 'native-2', payload: {} },
       expect.any(AbortSignal),
     )
+    await expect(bridge.call({
+      method: 'session.attachment',
+      rpcId: 'native-image',
+      payload: { sessionId: 'session-1', attachmentId: 'attachment-1' },
+    })).resolves.toMatchObject({ result: { ok: true, value: { mediaType: 'image/png', data: 'aW1hZ2U=' } } })
+    expect(attachment).toHaveBeenCalledOnce()
     await expect(bridge.call({ method: 'credentials.describe', rpcId: 'native-3', payload: {} })).rejects.toMatchObject({
       code: 'METHOD_NOT_ALLOWED',
     })
     await expect(bridge.call({ method: 'host.createDirectory', rpcId: 'native-4', payload: {} })).rejects.toBeInstanceOf(RpcError)
+  })
+
+  it('reassembles native image calls and chunks oversized attachment responses per peer', async () => {
+    const imageData = 'A'.repeat(2 * 1024 * 1024)
+    const attachment = vi.fn(async (request: { rpcId: string }) => ({
+      rpcId: request.rpcId,
+      result: { ok: true, value: { mediaType: 'image/png', data: imageData } },
+    }))
+    const bridge = new HarnessApiBridge(api({ sessions: { attachment } }), vi.fn(async () => undefined))
+    const request = new TextEncoder().encode(JSON.stringify({
+      method: 'session.attachment',
+      rpcId: 'native-large-image',
+      payload: { sessionId: 'session-1', attachmentId: 'attachment-1' },
+    }))
+    const transferId = 'transfer-image-1'
+    const totalChunks = Math.ceil(request.byteLength / HARNESS_API_TRANSFER_CHUNK_BYTES)
+    expect(bridge.openTransfer({ transferId, totalBytes: request.byteLength, totalChunks })).toEqual({
+      opened: true,
+      transferId,
+    })
+    for (let index = 0; index < totalChunks; index += 1) {
+      const start = index * HARNESS_API_TRANSFER_CHUNK_BYTES
+      bridge.appendTransfer({
+        transferId,
+        index,
+        data: Buffer.from(request.subarray(start, start + HARNESS_API_TRANSFER_CHUNK_BYTES)).toString('base64'),
+      })
+    }
+    const committed = await bridge.commitTransfer({ transferId })
+    expect(committed).toMatchObject({ kind: 'chunked', transferId })
+    if (committed.kind !== 'chunked') throw new Error('Expected a chunked attachment response.')
+    const chunks: Uint8Array[] = []
+    for (let index = 0; index < committed.totalChunks; index += 1) {
+      const result = bridge.readTransfer({ transferId, index })
+      chunks.push(Buffer.from(result.data, 'base64'))
+    }
+    const response = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    expect(response).toMatchObject({
+      rpcId: 'native-large-image',
+      result: { ok: true, value: { mediaType: 'image/png', data: imageData } },
+    })
+    expect(bridge.closeTransfer({ transferId })).toEqual({ closed: true, transferId })
+  })
+
+  it('fails closed on replayed or out-of-order image transfer chunks', () => {
+    const bridge = new HarnessApiBridge(api({}), vi.fn(async () => undefined))
+    bridge.openTransfer({ transferId: 'bad-order', totalBytes: 3, totalChunks: 1 })
+    expect(() => bridge.appendTransfer({ transferId: 'bad-order', index: 1, data: 'YWJj' }))
+      .toThrow('exactly once and in order')
+    expect(() => bridge.appendTransfer({ transferId: 'bad-order', index: 0, data: 'YWJj' }))
+      .toThrow('not active')
   })
 
   it('forwards the Host command registry through the Typert gateway with strict payload limits', async () => {

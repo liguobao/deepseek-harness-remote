@@ -12,10 +12,17 @@ import type {
   HarnessApiRespondParams,
   HarnessApiStreamClosedData,
   HarnessApiStreamOpenParams,
+  HarnessApiTransferChunkParams,
+  HarnessApiTransferCommitResult,
+  HarnessApiTransferOpenParams,
+  HarnessApiTransferReadParams,
+  HarnessApiTransferReadResult,
 } from '@dsh-remote/protocol'
 import {
   createRpcResponse,
   encodeMessage,
+  HARNESS_API_TRANSFER_CHUNK_BYTES,
+  MAX_HARNESS_API_TRANSFER_BYTES,
   MAX_SECURE_MESSAGE_BYTES,
 } from '@dsh-remote/protocol'
 import { z } from 'zod'
@@ -56,6 +63,21 @@ const streamOpenSchema = z.object({
 
 const streamCloseSchema = z.object({ streamId: z.string().min(1).max(128) }).strict()
 
+const transferIdSchema = z.string().min(1).max(128)
+const transferOpenSchema = z.object({
+  transferId: transferIdSchema,
+  totalBytes: z.number().int().positive().max(MAX_HARNESS_API_TRANSFER_BYTES),
+  totalChunks: z.number().int().positive().max(Math.ceil(MAX_HARNESS_API_TRANSFER_BYTES / HARNESS_API_TRANSFER_CHUNK_BYTES)),
+}).strict()
+const transferChunkSchema = z.object({
+  transferId: transferIdSchema,
+  index: z.number().int().nonnegative(),
+  data: z.string().max(Math.ceil(HARNESS_API_TRANSFER_CHUNK_BYTES / 3) * 4),
+}).strict()
+const transferCommitSchema = z.object({ transferId: transferIdSchema }).strict()
+const transferReadSchema = z.object({ transferId: transferIdSchema, index: z.number().int().nonnegative() }).strict()
+const transferCloseSchema = z.object({ transferId: transferIdSchema }).strict()
+
 const commandExecuteSchema = z.object({
   agentId: z.string().min(1).max(128),
   line: z.string().min(1).max(2048),
@@ -69,7 +91,9 @@ const commandListSchema = z.object({
  * Harness API methods that are safe to expose to an authenticated remote UI.
  * Settings, credentials, native open/picker calls, directory mutation, file
  * contents, downloads, and attachment upload intentionally remain outside
- * this bridge. Directory listing exposes metadata only for workspace picking.
+ * this bridge. `session.attachment` is the native read-only lookup used by
+ * Harness rc.2 to render an image already referenced by that same session.
+ * Directory listing exposes metadata only for workspace picking.
  * `commands.*` follows the official Host registry so the authenticated Remote
  * UI sees the same effective command catalog and handlers as the local UI.
  */
@@ -83,6 +107,7 @@ export const HARNESS_API_ALLOWLIST = [
   'session.rename',
   'session.fork',
   'session.prompt',
+  'session.attachment',
   'session.updateQueue',
   'session.cancel',
   'subagent.list',
@@ -123,6 +148,21 @@ interface ActiveStream {
   focusSessionId?: string
 }
 
+interface IncomingApiTransfer {
+  totalBytes: number
+  totalChunks: number
+  chunks: Uint8Array[]
+  receivedBytes: number
+  touchedAt: number
+}
+
+interface OutgoingApiTransfer {
+  bytes: Uint8Array
+  totalChunks: number
+  nextIndex: number
+  touchedAt: number
+}
+
 /**
  * Native Harness ApiProxy call timeout. The Remote Web frontend gives each
  * `harness.api.call` RPC a 60s window; this bridge must fail faster so the
@@ -131,6 +171,10 @@ interface ActiveStream {
  * Web-side 60s timer by a wide margin.
  */
 const NATIVE_CALL_TIMEOUT_MS = 30_000
+
+const MAX_ACTIVE_API_TRANSFERS = 2
+const API_TRANSFER_IDLE_MS = 2 * 60_000
+const INLINE_TRANSFER_RESPONSE_BYTES = 2 * 1024 * 1024
 
 const SESSION_HISTORY_PAGE_SIZES = [50, 30, 20, 12, 6, 3, 1] as const
 
@@ -153,6 +197,8 @@ export class HarnessApiBridge {
   private readonly methods: ReadonlyMap<string, NativeMethod>
   private readonly streams = new Map<string, ActiveStream>()
   private readonly respondable = new Map<string, string>()
+  private readonly incomingTransfers = new Map<string, IncomingApiTransfer>()
+  private readonly outgoingTransfers = new Map<string, OutgoingApiTransfer>()
   private readonly mux: ApiProxy['events']['mux']
   private readonly host: ApiProxy['events']['host']
   private readonly answer: ApiProxy['respond']
@@ -215,6 +261,126 @@ export class HarnessApiBridge {
     }
   }
 
+  openTransfer(input: unknown): { opened: true; transferId: string } {
+    this.pruneTransfers()
+    const params = transferOpenSchema.parse(input) as HarnessApiTransferOpenParams
+    if (params.totalChunks !== Math.ceil(params.totalBytes / HARNESS_API_TRANSFER_CHUNK_BYTES)) {
+      throw new RpcError('INVALID_MESSAGE', 'The Harness API transfer chunk count is invalid.')
+    }
+    if (this.incomingTransfers.has(params.transferId) || this.outgoingTransfers.has(params.transferId)) {
+      throw new RpcError('REQUEST_CONFLICT', 'The Harness API transfer id is already active.')
+    }
+    if (this.incomingTransfers.size >= MAX_ACTIVE_API_TRANSFERS) {
+      throw new RpcError('RATE_LIMITED', 'Too many Harness API transfers are active.', undefined, true)
+    }
+    this.incomingTransfers.set(params.transferId, {
+      totalBytes: params.totalBytes,
+      totalChunks: params.totalChunks,
+      chunks: [],
+      receivedBytes: 0,
+      touchedAt: Date.now(),
+    })
+    return { opened: true, transferId: params.transferId }
+  }
+
+  appendTransfer(input: unknown): { accepted: true; transferId: string; index: number } {
+    this.pruneTransfers()
+    const params = transferChunkSchema.parse(input) as HarnessApiTransferChunkParams
+    const transfer = this.incomingTransfers.get(params.transferId)
+    if (transfer === undefined) throw new RpcError('TRANSFER_NOT_FOUND', 'The Harness API transfer is not active.')
+    if (params.index !== transfer.chunks.length || params.index >= transfer.totalChunks) {
+      this.incomingTransfers.delete(params.transferId)
+      throw new RpcError('INVALID_MESSAGE', 'Harness API transfer chunks must arrive exactly once and in order.')
+    }
+    let chunk: Uint8Array
+    try {
+      chunk = decodeCanonicalBase64(params.data)
+    } catch (error) {
+      this.incomingTransfers.delete(params.transferId)
+      throw error
+    }
+    const expectedBytes = Math.min(
+      HARNESS_API_TRANSFER_CHUNK_BYTES,
+      transfer.totalBytes - params.index * HARNESS_API_TRANSFER_CHUNK_BYTES,
+    )
+    if (chunk.byteLength !== expectedBytes) {
+      this.incomingTransfers.delete(params.transferId)
+      throw new RpcError('INVALID_MESSAGE', 'The Harness API transfer chunk size is invalid.')
+    }
+    transfer.chunks.push(chunk)
+    transfer.receivedBytes += chunk.byteLength
+    transfer.touchedAt = Date.now()
+    return { accepted: true, transferId: params.transferId, index: params.index }
+  }
+
+  async commitTransfer(input: unknown): Promise<HarnessApiTransferCommitResult> {
+    this.pruneTransfers()
+    const params = transferCommitSchema.parse(input)
+    const transfer = this.incomingTransfers.get(params.transferId)
+    if (transfer === undefined) throw new RpcError('TRANSFER_NOT_FOUND', 'The Harness API transfer is not active.')
+    this.incomingTransfers.delete(params.transferId)
+    if (transfer.chunks.length !== transfer.totalChunks || transfer.receivedBytes !== transfer.totalBytes) {
+      throw new RpcError('INVALID_MESSAGE', 'The Harness API transfer is incomplete.')
+    }
+    let request: unknown
+    try {
+      const bytes = concatChunks(transfer.chunks, transfer.totalBytes)
+      request = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+    } catch {
+      throw new RpcError('INVALID_MESSAGE', 'The Harness API transfer does not contain a valid request.')
+    }
+    // Parse before dispatch so a transfer cannot bypass the exact same native
+    // envelope validation and method allowlist used by harness.api.call.
+    const nativeRequest = callSchema.parse(request) as HarnessApiCallParams
+    const response = await this.call(nativeRequest)
+    const responseBytes = new TextEncoder().encode(JSON.stringify(response))
+    if (responseBytes.byteLength <= INLINE_TRANSFER_RESPONSE_BYTES) {
+      return { kind: 'inline', response }
+    }
+    if (responseBytes.byteLength > MAX_HARNESS_API_TRANSFER_BYTES) {
+      throw new RpcError('RESPONSE_TOO_LARGE', 'The Harness API response exceeds the bounded transfer limit.')
+    }
+    this.pruneTransfers()
+    if (this.outgoingTransfers.size >= MAX_ACTIVE_API_TRANSFERS) {
+      throw new RpcError('RATE_LIMITED', 'Too many Harness API response transfers are active.', undefined, true)
+    }
+    const totalChunks = Math.ceil(responseBytes.byteLength / HARNESS_API_TRANSFER_CHUNK_BYTES)
+    this.outgoingTransfers.set(params.transferId, {
+      bytes: responseBytes,
+      totalChunks,
+      nextIndex: 0,
+      touchedAt: Date.now(),
+    })
+    return { kind: 'chunked', transferId: params.transferId, totalBytes: responseBytes.byteLength, totalChunks }
+  }
+
+  readTransfer(input: unknown): HarnessApiTransferReadResult {
+    this.pruneTransfers()
+    const params = transferReadSchema.parse(input) as HarnessApiTransferReadParams
+    const transfer = this.outgoingTransfers.get(params.transferId)
+    if (transfer === undefined) throw new RpcError('TRANSFER_NOT_FOUND', 'The Harness API response transfer is not active.')
+    if (params.index !== transfer.nextIndex || params.index >= transfer.totalChunks) {
+      this.outgoingTransfers.delete(params.transferId)
+      throw new RpcError('INVALID_MESSAGE', 'Harness API response chunks must be read exactly once and in order.')
+    }
+    const start = params.index * HARNESS_API_TRANSFER_CHUNK_BYTES
+    const end = Math.min(start + HARNESS_API_TRANSFER_CHUNK_BYTES, transfer.bytes.byteLength)
+    transfer.nextIndex += 1
+    transfer.touchedAt = Date.now()
+    return {
+      transferId: params.transferId,
+      index: params.index,
+      data: Buffer.from(transfer.bytes.subarray(start, end)).toString('base64'),
+    }
+  }
+
+  closeTransfer(input: unknown): { closed: boolean; transferId: string } {
+    const params = transferCloseSchema.parse(input)
+    const incoming = this.incomingTransfers.delete(params.transferId)
+    const outgoing = this.outgoingTransfers.delete(params.transferId)
+    return { closed: incoming || outgoing, transferId: params.transferId }
+  }
+
   async respond(input: unknown): Promise<unknown> {
     const params = respondSchema.parse(input) as HarnessApiRespondParams
     this.logger?.debug('harness api respond', { rpcId: shortId(params.message.rpcId) })
@@ -266,12 +432,24 @@ export class HarnessApiBridge {
     const streams = [...this.streams.values()]
     this.streams.clear()
     this.respondable.clear()
+    this.incomingTransfers.clear()
+    this.outgoingTransfers.clear()
     for (const stream of streams) stream.controller.abort(reason)
     // A native ApiProxy stream may not observe AbortSignal until its next
     // frame. Waiting for every pump here would block a replacement peer from
     // installing its message handler indefinitely. The detached pumps own
     // their errors and terminal event publication, so abort and release them
     // without holding up the authenticated connection handoff.
+  }
+
+  private pruneTransfers(): void {
+    const cutoff = Date.now() - API_TRANSFER_IDLE_MS
+    for (const [transferId, transfer] of this.incomingTransfers) {
+      if (transfer.touchedAt < cutoff) this.incomingTransfers.delete(transferId)
+    }
+    for (const [transferId, transfer] of this.outgoingTransfers) {
+      if (transfer.touchedAt < cutoff) this.outgoingTransfers.delete(transferId)
+    }
   }
 
   private async pump(
@@ -479,3 +657,21 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 }
 
 function shortId(value: string): string { return value.length <= 12 ? value : `${value.slice(0, 8)}…${value.slice(-4)}` }
+
+function decodeCanonicalBase64(value: string): Uint8Array {
+  const bytes = Buffer.from(value, 'base64')
+  if (bytes.toString('base64') !== value) {
+    throw new RpcError('INVALID_MESSAGE', 'The Harness API transfer chunk is not canonical base64.')
+  }
+  return bytes
+}
+
+function concatChunks(chunks: readonly Uint8Array[], totalBytes: number): Uint8Array {
+  const result = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    result.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return result
+}

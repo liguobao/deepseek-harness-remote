@@ -561,7 +561,8 @@ Control-only 类型（hello, signaling, relay）禁止出现在 secure channel �
 ## 16. RPC
 
 Plugin Host 的业务路由只接受 ApiProxy tunnel：`harness.api.call`、
-`harness.api.respond`、`harness.api.stream.open`、`harness.api.stream.close`，以及在
+`harness.api.transfer.open/chunk/commit/read/close`、`harness.api.respond`、
+`harness.api.stream.open`、`harness.api.stream.close`，以及在
 `fileviewer.read.v1` capability 下的 `fileviewer.call`。
 旧 `system.info`、`workspace.get`、`sessions.*`、`session.*`、
 `permissions.respond`、`connection.ping` 与 `sync.from` 已退出 Plugin 协议，Host 必须返回
@@ -632,6 +633,7 @@ Host handshake 的 capability 例子：
 [
   "transport.relay",
   "harness.api.v1",
+  "harness.api.transfer.v1",
   "fileviewer.read.v1"
 ]
 ```
@@ -642,11 +644,12 @@ ApiProxy contract 仍随 Desktop Plugin 发布物升级，但新增的可选业�
 
 当前最低兼容矩阵：
 
-| Host Plugin | Remote Workspace / Session | `commands.list` | `fileviewer.read.v1` |
-| --- | --- | --- | --- |
-| `0.3.15` | 支持 | Client 返回空兼容目录 | 不支持，provider 不注册 |
-| `0.3.16` | 支持 | 支持 | 不支持，provider 不注册 |
-| `0.3.17+` | 支持 | 支持 | Host 同时提供 dsh-file-viewer 服务时支持 |
+| Host Plugin | Remote Workspace / Session | `commands.list` | `fileviewer.read.v1` | rc.2 图片传输 |
+| --- | --- | --- | --- | --- |
+| `0.3.15` | 支持 | Client 返回空兼容目录 | 不支持，provider 不注册 | 不支持 |
+| `0.3.16` | 支持 | 支持 | 不支持，provider 不注册 | 不支持 |
+| `0.3.17–0.3.23` | 支持 | 支持 | Host 同时提供 dsh-file-viewer 服务时支持 | 不支持 |
+| `0.3.24+` | 支持 | 支持 | Host 同时提供 dsh-file-viewer 服务时支持 | 支持 `harness.api.transfer.v1` |
 
 未知版本按 `0.3.15` 之前的能力处理。未来 Server 暴露 Host capability 后，应优先使用
 capability，`clientVersion` 仅保留为旧 Server 的兼容路径。
@@ -901,7 +904,7 @@ Params：
 
 Result 是 Harness `ApiProxy` 的原生 `RpcResponse`，必须回显内层 `rpcId`。v1 allowlist 仅包括：
 
-- session list/search/create/history/models/selectModel/rename/fork/prompt/updateQueue/cancel
+- session list/search/create/history/models/selectModel/rename/fork/prompt/attachment/updateQueue/cancel
 - subagent list/history/prompt/interrupt
 - `host.describe`、`host.listDirectory`（只读目录元数据，用于远程 Workspace 选择器）
 - workspace list/create/rename/delete/reorder/attach/archive
@@ -910,7 +913,26 @@ Result 是 Harness `ApiProxy` 的原生 `RpcResponse`，必须回显内层 `rpcI
 - `commands.list`、`commands.execute`（经官方 Typert gateway 分发，使用 Host 对当前 Agent 的有效注册命令）
 - LLM provider/model list
 
-明确禁止 credentials、settings 写入、model endpoint discovery、native path open/picker、目录创建、绕过 File Viewer provider 的文件读取、attachment、download 以及任何未列出方法。`host.listDirectory` 只返回单层目录元数据。Host 应优先调用官方 ApiProxy browse capability；当桌面 Harness 只组合 `native` picker 时，Plugin 可在已认证的 Host bridge 内提供等价的只读元数据实现。该兜底必须限制结果数量，只返回目录名、绝对路径、面包屑、Home 路径和 hidden 标志，不得读取文件内容、写入文件系统或扩展为通用文件系统 RPC。`commands.list` 与 `commands.execute` 不是通用方法调用入口：Bridge 必须要求 payload 仅含 `agentId`（`execute` 另含长度受限的 `line`），并经官方 Typert gateway 使用 Host 对当前 Agent 解析出的有效命令目录和 handler。命令语法、名称解析、Agent scoped shadowing、参数校验和执行语义均由 Host 命令注册表负责，与本地 Harness UI 一致；未注册命令不会进入 handler。额外字段、缺失参数和超长输入在 Bridge 边界 fail closed。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
+`session.attachment` 只转发 Harness 原生的只读查询；Host ApiProxy 必须验证 attachment 已被指定 session 的持久化日志引用后才返回内容。它不能创建、上传、修改或枚举附件。明确禁止 credentials、settings 写入、model endpoint discovery、native path open/picker、目录创建、绕过 File Viewer provider 的文件读取、attachment upload、download 以及任何未列出方法。`host.listDirectory` 只返回单层目录元数据。Host 应优先调用官方 ApiProxy browse capability；当桌面 Harness 只组合 `native` picker 时，Plugin 可在已认证的 Host bridge 内提供等价的只读元数据实现。该兜底必须限制结果数量，只返回目录名、绝对路径、面包屑、Home 路径和 hidden 标志，不得读取文件内容、写入文件系统或扩展为通用文件系统 RPC。`commands.list` 与 `commands.execute` 不是通用方法调用入口：Bridge 必须要求 payload 仅含 `agentId`（`execute` 另含长度受限的 `line`），并经官方 Typert gateway 使用 Host 对当前 Agent 解析出的有效命令目录和 handler。命令语法、名称解析、Agent scoped shadowing、参数校验和执行语义均由 Host 命令注册表负责，与本地 Harness UI 一致；未注册命令不会进入 handler。额外字段、缺失参数和超长输入在 Bridge 边界 fail closed。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
+
+#### `harness.api.transfer.*`
+
+`harness.api.transfer.v1` 是 `harness.api.call` 的有界分块封装，用于 rc.2 图片 prompt 和
+`session.attachment` 响应超过单条 4 MiB secure message 的情况。分块重组后的内容仍必须是
+完全相同的 `{ method, rpcId, payload }` 原生 envelope，并再次经过固定 allowlist；它不是新的
+Harness 业务协议，也不能绕过 ApiProxy。Client 不直接调用 DeepSeek Files API，API key、图片
+预处理、上传与 file id 缓存仍只存在于 Host 的官方 adapter。
+
+- `open`: `{ transferId, totalBytes, totalChunks }`，每个 authenticated connection 最多两个活动输入 transfer。
+- `chunk`: `{ transferId, index, data }`，`data` 为 canonical base64，解码后每块最多 512 KiB，必须从 0 开始严格有序且恰好一次。
+- `commit`: `{ transferId }`，完整重组并调用原生 ApiProxy；小响应内联返回，大响应返回 `{ kind: "chunked", transferId, totalBytes, totalChunks }`。
+- `read`: `{ transferId, index }`，严格顺序读取响应分块。
+- `close`: `{ transferId }`，成功、取消或失败后释放输入/输出状态；连接断开时 Host 必须清除该连接的全部 transfer。
+
+单个 transfer 上限 288 MiB（容纳上游默认 200 MiB source image aggregate 的 base64
+envelope），空闲 2 分钟过期。任何重复 id、乱序、重放、非 canonical base64、声明长度不符、
+超限或跨 connection transfer id 都必须 fail closed。每个 chunk 仍作为独立 Remote RPC 经过
+Noise 加密、计数器防重放和 membership/trusted-peer 校验。
 
 #### `harness.api.respond`
 
@@ -1184,6 +1206,8 @@ pong 回显 nonce。Heartbeat 不能携带业务数据。
 | Control JSON frame | 64 KiB |
 | Relay ciphertext frame | 1 MiB |
 | Reassembled secure message | 4 MiB |
+| Harness ApiProxy transfer chunk（解码后） | 512 KiB |
+| Harness ApiProxy transfer | 288 MiB；每连接输入/输出各 2 个；2 min idle |
 | File Viewer range / RPC | 512 KiB |
 | File Viewer directory entries / RPC | 1,000 |
 | RPC text input | 64 KiB |

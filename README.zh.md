@@ -13,7 +13,7 @@
 ## 你可以
 
 - 跟进正在进行的会话，查看最新进展
-- 发送新的指令，或调整任务方向
+- 发送新的指令（包括 Harness `dsh-v0.1.1-rc.2` 图片），或调整任务方向
 - 回答问题，处理权限请求
 - 打开任意已连接电脑上的工作区
 - 配合可选的 `dsh-file-viewer` 插件预览远端工作区文件
@@ -43,11 +43,11 @@ dsh plugin --profile web add ds-harness-remote
 
 项目地址：[npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.23`。
+如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.24`。
 
 安装后请重启 Harness。
 
-`0.3.23` Client 继续兼容 `0.3.15` Host 的远端 Workspace 与会话；远端命令目录、文件查看等后续能力只会在所选 Host 支持时启用。
+`0.3.24` Client 继续兼容 `0.3.15` Host 的远端 Workspace 与会话；远端命令目录、文件查看、图片分块传输等后续能力只会在所选 Host 支持时启用。
 
 ## 登录与连接
 

@@ -54,7 +54,7 @@ docs/
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
 | Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
-| Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；Remote 模态框支持 GitHub/知乎扫码与账号密码登录、本机过滤、主机/版本信息、已有 Workspace、远端目录浏览，以及配合 dsh-file-viewer 的受限只读文件预览，随后复用原生 Harness UI | 真实 dsh-desktop 跨机 E2E、断线重连、页面级导航接口 |
+| Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；Remote 模态框支持 GitHub/知乎扫码与账号密码登录、本机过滤、主机/版本信息、已有 Workspace、远端目录浏览、Harness rc.2 图片 Prompt/回显，以及配合 dsh-file-viewer 的受限只读文件预览，随后复用原生 Harness UI | 真实 dsh-desktop 跨机 E2E、断线重连、页面级导航接口 |
 | Android | 已迁移到 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、harness.api tunnel 与 mux frame 聊天 | 真机 E2E 与 Server 联调、重连后 mux 重开与 history baseline、WebRTC 走通验证 |
 | VS Code | Extension 基础已实现：SecretStorage 身份/凭证、账号/扫码登录、Host 指纹固定、Adaptive transport + Noise、Host→Workspace→Session 导航与编辑区会话面板 | Extension Host 跨机 E2E、实时流式更新、approval/question 与重连恢复 |
 | Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 完整 Zod schema、limits、golden vectors |
@@ -96,10 +96,10 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 
 ## Validation Baseline
 
-截至 2026-08-16：
+截至 2026-08-22：
 
 - workspace check 与 DSH bundle 校验通过
-- Plugin test 通过：14 个测试文件、47 个测试；完整 workspace 数量以当前 CI 输出为准
+- Plugin test 通过：19 个测试文件、81 个测试；完整 workspace 数量以当前 CI 输出为准
 - workspace build 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 

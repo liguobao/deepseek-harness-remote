@@ -79,6 +79,7 @@ Plugin 不订阅 `session/created`、`session/event`、`agent/status` 或
 Remote 业务 RPC 只有：
 
 - `harness.api.call`
+- `harness.api.transfer.open/chunk/commit/read/close`（仅在 `harness.api.transfer.v1` capability 下）
 - `harness.api.respond`
 - `harness.api.stream.open`
 - `harness.api.stream.close`
@@ -94,6 +95,12 @@ Workspace、Skill、Agent Preset、Goal、Host 描述和只读 LLM 目录等原�
 capability；若桌面 Harness 只提供 native picker，则 bridge 以只读实现返回同形状的单层目录
 元数据。结果有数量上限，不包含文件内容，也不允许目录写入。
 
+Harness `dsh-v0.1.1-rc.2` 图片仍使用官方 ApiProxy：Client 将图片内容放入
+`session.prompt`，Host 持久化 attachment 并由 DeepSeek adapter 负责预处理、Files API 上传和
+file id 复用；Client 通过只读 `session.attachment` 回读已被该 session 日志引用的图片以显示。
+超过单条 secure message 限制的原生 request/response 走 `harness.api.transfer.v1`，每块 512 KiB，
+严格有序、按连接隔离并设置总量/并发/空闲期限，不扩大 4 MiB secure message 上限。
+
 安装 `dsh-file-viewer` 后，`fileviewer.call` 复用它的 `fileViewerHost` 服务，只允许
 `stat | readRange | list`。单次传输读取最多 512 KiB，目录最多 1000 项；Host 返回值再次做
 schema 与大小校验。路径根与 locator 权限由 File Viewer provider 执行，Remote 不绕过该边界。
@@ -104,7 +111,7 @@ schema 与大小校验。路径根与 locator 权限由 File Viewer provider 执
 - native path open/picker；
 - 绕过 File Viewer provider 的文件访问、目录创建/修改/删除或通用文件系统 RPC；
 - File Viewer `openExternal`、文件写入、上传与执行；
-- attachment、download；
+- attachment upload、download；`session.attachment` 只读回读除外；
 - 任意 Cordis service、Harness tool 或反射调用。
 
 Host 可同时服务来自不同 `clientDeviceId` 的连接；RPC pending、stream namespace 和 stream
@@ -117,6 +124,7 @@ Host 可同时服务来自不同 `clientDeviceId` 的连接；RPC pending、stre
 `RemoteHarnessApiProxy` 实现与本机相同形状的 `ApiProxy`：
 
 - unary method 转成 `harness.api.call`；
+- 大图片 prompt 和 attachment response 使用 transfer wrapper 分块搬运同一原生 envelope；
 - `respond()` 转成 `harness.api.respond`；
 - `events.mux()` / `events.host()` 转成远端 stream open/close；
 - 原生 `rpcId` 保持不变，Remote envelope id 只负责隧道层关联。
