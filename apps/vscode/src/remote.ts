@@ -2,7 +2,9 @@ import { RemoteClientCore } from '@dsh-remote/client-core'
 import { NoiseIkSession, createNoisePrologue } from '@dsh-remote/crypto'
 import { SecureMessageCodec, type HarnessApiCallParams } from '@dsh-remote/protocol'
 import { AdaptiveTransport, type RemoteTransport, type SecureHandshakeTransport } from '@dsh-remote/webrtc'
+import { ServerApi } from './server-api.js'
 import type { ChatMessage, DeviceIdentity, DirectoryListing, HistoryEntry, HostDescriptor, ModelSelection, MuxFrame, RemoteHost, RemoteSession, RemoteWorkspace, SessionModels } from './types.js'
+import { loadWeriftFactory } from './werift-rtc.js'
 
 type NativeResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 interface NativeResponse<T> { rpcId: string; result: NativeResult<T> }
@@ -19,12 +21,27 @@ export class RemoteConnection {
     await this.close()
     const wsUrl = new URL('/ws/v1/connect', serverUrl)
     wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:'
-    const transport = new AdaptiveTransport(wsUrl.toString(), {
-      role: 'client', deviceId: identity.deviceId, accessToken, targetDeviceId: host.deviceId,
-      forceRelay, preferredTransports: forceRelay ? ['relay'] : ['p2p', 'turn', 'relay'],
-    })
-    const core = new RemoteClientCore(new SecureTransport(transport, identity, host), 60_000)
+    const rtcFactory = forceRelay ? undefined : await loadWeriftFactory()
+    const server = new ServerApi(serverUrl, accessToken)
+    let webRtcFallback = false
+    const createCore = (relayOnly: boolean): RemoteClientCore => {
+      const transport = new AdaptiveTransport(wsUrl.toString(), {
+        role: 'client', deviceId: identity.deviceId, accessToken, targetDeviceId: host.deviceId,
+        forceRelay: forceRelay || relayOnly,
+        preferredTransports: forceRelay || relayOnly ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
+        ...(rtcFactory === undefined || relayOnly ? {} : { rtcFactory }),
+        fetchIceServers: connectionId => server.turnCredentials(connectionId),
+        onWebRtcFallback: () => { webRtcFallback = true },
+      })
+      return new RemoteClientCore(new SecureTransport(transport, identity, host), 60_000)
+    }
+    let core = createCore(false)
     await core.connect()
+    if (webRtcFallback) {
+      await core.close()
+      core = createCore(true)
+      await core.connect()
+    }
     this.core = core
     this.host = host
     this.closeMux = await this.openMuxStream(core)

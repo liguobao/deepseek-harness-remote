@@ -163,6 +163,9 @@ importers:
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
+      werift:
+        specifier: 0.24.4
+        version: 0.24.4
       ws:
         specifier: ^8.18.0
         version: 8.21.3

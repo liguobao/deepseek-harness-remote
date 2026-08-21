@@ -1,6 +1,7 @@
+import type { RtcIceServer } from '@dsh-remote/webrtc'
 import type { Credentials, DeviceIdentity, RemoteHost } from './types.js'
 
-const CLIENT_VERSION = '0.3.15'
+const CLIENT_VERSION = '0.3.17'
 
 interface TokenPair {
   accessToken: string
@@ -101,6 +102,14 @@ export class ServerApi {
     }
   }
 
+  async turnCredentials(connectionId: string): Promise<RtcIceServer[]> {
+    const body = record(await this.request(
+      `/api/v1/turn/credentials?connection_id=${encodeURIComponent(connectionId)}`,
+    ), 'TURN credentials')
+    if (!Array.isArray(body.iceServers)) return []
+    return body.iceServers.flatMap(parseIceServer)
+  }
+
   private async request(path: string, init: RequestInit = {}, authenticated = true, overrideToken?: string): Promise<unknown> {
     const token = overrideToken ?? this.token
     if (authenticated && token === undefined) throw new Error('Sign in first.')
@@ -129,6 +138,20 @@ function tokenPair(input: unknown): TokenPair {
   const body = record(input, 'device credentials')
   if (typeof body.accessToken !== 'string' || typeof body.refreshToken !== 'string' || typeof body.accessTokenExpiresAt !== 'number' || typeof body.refreshTokenExpiresAt !== 'number') throw new Error('Server returned invalid device credentials.')
   return body as unknown as TokenPair
+}
+function parseIceServer(input: unknown): RtcIceServer[] {
+  if (!isRecord(input)) return []
+  const urls = typeof input.urls === 'string'
+    ? input.urls
+    : Array.isArray(input.urls) && input.urls.every(value => typeof value === 'string')
+      ? input.urls as string[]
+      : undefined
+  if (urls === undefined) return []
+  return [{
+    urls,
+    ...(typeof input.username === 'string' ? { username: input.username } : {}),
+    ...(typeof input.credential === 'string' ? { credential: input.credential } : {}),
+  }]
 }
 function record(value: unknown, label: string): Record<string, unknown> { if (!isRecord(value)) throw new Error(`Server returned an invalid ${label}.`); return value }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }

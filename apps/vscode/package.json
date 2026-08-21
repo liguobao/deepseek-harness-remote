@@ -4,7 +4,7 @@
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
   "icon": "media/icon.png",
-  "version": "0.3.15",
+  "version": "0.3.17",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -90,6 +90,7 @@
     "@dsh-remote/webrtc": "workspace:*",
     "markdown-it": "^14.1.0",
     "qrcode": "^1.5.4",
+    "werift": "0.24.4",
     "ws": "^8.18.0"
   },
   "devDependencies": {
