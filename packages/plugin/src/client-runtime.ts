@@ -50,6 +50,11 @@ export interface RemoteWorkspaceView {
   title: string
 }
 
+interface RemoteWorkspaceSelection {
+  targetDeviceId: string
+  workspaceId: string
+}
+
 export interface RemoteDeviceView {
   deviceId: string
   name: string
@@ -93,6 +98,7 @@ export interface HostAuthorizationControl {
 export class ClientModeRuntime {
   private identity?: HostIdentity
   private connected?: ConnectedRemote
+  private pendingWorkspaceSelection?: RemoteWorkspaceSelection
   private readonly proxySwitch: ApiProxySwitch
   private readonly gatewaySwitch: TypertGatewaySwitch
   private closed = false
@@ -139,6 +145,9 @@ export class ClientModeRuntime {
       connected: this.connected !== undefined,
       transport: this.connected?.client.getStats().mode ?? 'Disconnected',
       remoteFeatures: this.connected?.features ?? remoteHostFeatures(),
+      ...(this.pendingWorkspaceSelection === undefined
+        ? {}
+        : { workspaceSelection: { ...this.pendingWorkspaceSelection } }),
       hostAuthorizationAvailable: this.host !== undefined,
       ...(this.host === undefined ? {} : { host: this.host.hostStatus() }),
     }
@@ -213,6 +222,7 @@ export class ClientModeRuntime {
   async clearClientAuthorization(): Promise<void> {
     const previous = this.connected
     this.connected = undefined
+    this.pendingWorkspaceSelection = undefined
     this.proxySwitch.selectLocal()
     this.gatewaySwitch.selectLocal()
     await previous?.client.close().catch(() => undefined)
@@ -238,6 +248,7 @@ export class ClientModeRuntime {
       this.gatewaySwitch.selectLocal()
       const previous = this.connected
       this.connected = undefined
+      this.pendingWorkspaceSelection = undefined
       await previous?.client.close().catch(() => undefined)
       this.logger.info('Harness target switched', { mode: 'local' })
       return this.status()
@@ -248,6 +259,7 @@ export class ClientModeRuntime {
     const next = await this.connect(targetDeviceId, signal)
     const previous = this.connected
     this.connected = next
+    this.pendingWorkspaceSelection = undefined
     const remoteApi = new RemoteHarnessApiProxy(next.client).api
     this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name })
     this.selectRemoteCommands(next)
@@ -288,8 +300,18 @@ export class ClientModeRuntime {
     const workspace = unwrapNativeResult<{ workspace: unknown; created: boolean }>(response)
     this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name })
     this.selectRemoteCommands(remote)
+    const workspaceId = workspaceRecordId(workspace.workspace)
+    this.pendingWorkspaceSelection = { targetDeviceId: remote.target.deviceId, workspaceId }
     this.logger.info('Remote workspace opened', { targetDeviceId: shortId(remote.target.deviceId) })
     return { ...this.status(), workspace }
+  }
+
+  private consumeWorkspaceSelection(selection: RemoteWorkspaceSelection): Record<string, unknown> {
+    const pending = this.pendingWorkspaceSelection
+    if (pending?.targetDeviceId === selection.targetDeviceId && pending.workspaceId === selection.workspaceId) {
+      this.pendingWorkspaceSelection = undefined
+    }
+    return this.status()
   }
 
   async close(): Promise<void> {
@@ -297,6 +319,7 @@ export class ClientModeRuntime {
     this.closed = true
     this.proxySwitch.selectLocal()
     this.gatewaySwitch.selectLocal()
+    this.pendingWorkspaceSelection = undefined
     await this.connected?.client.close().catch(() => undefined)
     this.connected = undefined
     this.proxySwitch.restore()
@@ -382,6 +405,7 @@ export class ClientModeRuntime {
       client.onClose(() => {
         if (this.connected?.client !== client) return
         this.connected = undefined
+        this.pendingWorkspaceSelection = undefined
         this.proxySwitch.selectLocal()
         this.gatewaySwitch.selectLocal()
         void client.close().catch(() => undefined)
@@ -448,6 +472,16 @@ export class ClientModeRuntime {
           throw new ClientModeError('INVALID_MESSAGE', 'A Host and working directory are required.')
         }
         return ok(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal))
+      }
+      if (endpoint === 'workspace.selection.consume') {
+        const value = record(payload)
+        if (typeof value.targetDeviceId !== 'string' || typeof value.workspaceId !== 'string') {
+          throw new ClientModeError('INVALID_MESSAGE', 'A Host and Workspace are required.')
+        }
+        return ok(this.consumeWorkspaceSelection({
+          targetDeviceId: value.targetDeviceId,
+          workspaceId: value.workspaceId,
+        }))
       }
       if (endpoint === 'fileviewer.stat' || endpoint === 'fileviewer.readRange' || endpoint === 'fileviewer.list') {
         const method = endpoint === 'fileviewer.stat'
@@ -573,6 +607,14 @@ function unwrapNativeResult<T>(response: { result: unknown }): T {
     throw new ClientModeError('REMOTE_API_ERROR', message)
   }
   return result.value as T
+}
+
+function workspaceRecordId(value: unknown): string {
+  if (typeof value !== 'object' || value === null || !('workspaceId' in value)
+    || typeof value.workspaceId !== 'string' || value.workspaceId.length === 0) {
+    throw new ClientModeError('INVALID_MESSAGE', 'The remote Host returned an invalid Workspace.')
+  }
+  return value.workspaceId
 }
 
 function fail(error: unknown): RpcResult<unknown> {

@@ -99,6 +99,71 @@ describe('ClientModeRuntime Host account control', () => {
     expect(connectionDetails).toHaveBeenCalledOnce()
   })
 
+  it('keeps the selected remote Workspace until the browser opens it', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-client-workspace-selection-'))
+    directories.push(directory)
+    const runtime = new ClientModeRuntime(
+      config(),
+      new IdentityStore({ directory }),
+      { bindIdentity: vi.fn() } as unknown as ClientServerApi,
+      apiProxy(),
+      gateway(),
+      logger(),
+    )
+    await runtime.start()
+    const rpc = vi.fn(async (_endpoint: string, payload: unknown) => {
+      const request = payload as { rpcId: string }
+      return {
+        rpcId: request.rpcId,
+        result: {
+          ok: true,
+          value: {
+            workspace: {
+              workspaceId: 'workspace-remote-1',
+              path: '/srv/project',
+              title: 'project',
+              sessionIds: [],
+            },
+            created: false,
+          },
+        },
+      }
+    })
+    const close = vi.fn(async () => undefined)
+    ;(runtime as unknown as { connected: unknown }).connected = {
+      client: { rpc, close, getStats: () => ({ mode: 'Relay', connected: true }) },
+      target: {
+        deviceId: 'host-device-1',
+        name: 'Workstation',
+        platform: 'linux',
+        publicKey: 'peer-key',
+        fingerprint: 'PEER',
+        trustedAt: 1,
+      },
+      transport: {},
+      features: { commandList: true, fileViewer: true },
+    }
+
+    await expect(runtime.openRemoteWorkspace('host-device-1', '/srv/project')).resolves.toMatchObject({
+      workspaceSelection: { targetDeviceId: 'host-device-1', workspaceId: 'workspace-remote-1' },
+    })
+    expect(runtime.status()).toMatchObject({
+      workspaceSelection: { targetDeviceId: 'host-device-1', workspaceId: 'workspace-remote-1' },
+    })
+
+    const signal = new AbortController().signal
+    await runtime.handleControl('workspace.selection.consume', {
+      targetDeviceId: 'host-device-1', workspaceId: 'another-workspace',
+    }, signal)
+    expect(runtime.status()).toHaveProperty('workspaceSelection')
+
+    await runtime.handleControl('workspace.selection.consume', {
+      targetDeviceId: 'host-device-1', workspaceId: 'workspace-remote-1',
+    }, signal)
+    expect(runtime.status()).not.toHaveProperty('workspaceSelection')
+    await runtime.close()
+  })
+
   it('exposes Host authorization status and forwards login only through loopback control', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-client-runtime-'))
     directories.push(directory)

@@ -33,6 +33,7 @@ interface FileViewerClientServiceLike {
 interface RemoteStatus {
   mode: 'local' | 'remote'
   target?: { deviceId: string; name: string }
+  workspaceSelection?: RemoteWorkspaceSelection
   available: boolean
   serverUrl?: string
   connected?: boolean
@@ -116,6 +117,26 @@ interface RemoteWorkspaceView {
   workspaceId: string
   path: string
   title: string
+}
+
+interface RemoteWorkspaceSelection {
+  targetDeviceId: string
+  workspaceId: string
+}
+
+interface WorkspacesClientServiceLike {
+  list: {
+    getSnapshot(): {
+      items: ReadonlyArray<{ workspaceId: string }>
+      baselinesReady: boolean
+    }
+    subscribe(listener: () => void): () => void
+  }
+  connectWorkspace(workspaceId: string): Promise<string>
+}
+
+interface SessionsClientServiceLike {
+  open(sessionId: string): void
 }
 
 interface PluginSettings {
@@ -575,7 +596,7 @@ window.__ModuleLoader__.load({
       useEffect(effect: () => void | (() => void), deps: unknown[]): void
       useState<T>(initial: T): [T, (value: T | ((previous: T) => T)) => void]
     }
-    const inject = ['connection', 'slots', 'locale']
+    const inject = ['connection', 'slots', 'locale', 'workspaces', 'sessions']
 
     function RemotePluginOptions(props: {
       control: <T>(endpoint: string, payload?: unknown) => Promise<T>
@@ -1688,6 +1709,8 @@ window.__ModuleLoader__.load({
         get<T = unknown>(name: string): T | undefined
       }) => void): void
       get<T = unknown>(name: string): T | undefined
+      workspaces: WorkspacesClientServiceLike
+      sessions: SessionsClientServiceLike
       locale: {
         bind(namespace: string): Translate
         register(namespace: string, dictionaries: { zh: typeof zh; en: typeof en }): () => void
@@ -1715,6 +1738,44 @@ window.__ModuleLoader__.load({
         if (!result.ok) throw new Error(result.error?.message ?? t('remoteRequestFailed'))
         return result.value as T
       }
+      ctx.effect(() => {
+        let disposed = false
+        let unsubscribe: (() => void) | undefined
+        let selection: RemoteWorkspaceSelection | undefined
+        let opening = false
+
+        const reconcile = (): void => {
+          if (disposed || opening || selection === undefined) return
+          const pending = selection
+          const snapshot = ctx.workspaces.list.getSnapshot()
+          if (!snapshot.baselinesReady
+            || !snapshot.items.some(workspace => workspace.workspaceId === pending.workspaceId)) return
+
+          opening = true
+          unsubscribe?.()
+          unsubscribe = undefined
+          void ctx.workspaces.connectWorkspace(pending.workspaceId).then(async sessionId => {
+            if (disposed) return
+            ctx.sessions.open(sessionId)
+            await control('workspace.selection.consume', pending).catch(() => undefined)
+          }).catch(reason => {
+            if (!disposed) console.warn('remote workspace selection failed:', reason)
+          })
+        }
+
+        void control<RemoteStatus>('status').then(status => {
+          if (disposed || status.mode !== 'remote' || status.workspaceSelection === undefined
+            || status.target?.deviceId !== status.workspaceSelection.targetDeviceId) return
+          selection = status.workspaceSelection
+          unsubscribe = ctx.workspaces.list.subscribe(reconcile)
+          reconcile()
+        }).catch(() => undefined)
+
+        return () => {
+          disposed = true
+          unsubscribe?.()
+        }
+      }, 'dsh-remote: resume selected workspace')
       ctx.inject(['fileViewer'], fileViewerContext => {
         const viewer = fileViewerContext.get<FileViewerClientServiceLike>('fileViewer')
         if (viewer === undefined) return

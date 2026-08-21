@@ -2045,7 +2045,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
   window.__ModuleLoader__.load({
     id: clientModuleId,
     factory: (require2) => {
-      let module = { exports: {} }, React = require2("react"), inject = ["connection", "slots", "locale"];
+      let module = { exports: {} }, React = require2("react"), inject = ["connection", "slots", "locale", "workspaces", "sessions"];
       function RemotePluginOptions(props) {
         let { t } = props, [open, setOpen] = React.useState(!1), [serverUrl, setServerUrl] = React.useState(""), role = "host", [registrationCode, setRegistrationCode] = React.useState(""), [associations, setAssociations] = React.useState({}), [loaded, setLoaded] = React.useState(!1), [writable, setWritable] = React.useState(!1), [busy, setBusy] = React.useState(!1), [reconnectBusy, setReconnectBusy] = React.useState(!1), [hostStatus, setHostStatus] = React.useState(void 0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0), [settingsView, setSettingsView] = React.useState(void 0), persistedServerUrl = settingsView?.config.serverUrl ?? "https://dsh.r2049.cn", association = associations.client ?? associations.host, serverDirty = settingsView !== void 0 && serverUrl !== persistedServerUrl, draftDirty = serverDirty, applyView = (view) => {
           setSettingsView(view), setServerUrl(view.config.serverUrl ?? "https://dsh.r2049.cn"), setAssociations(view.associations ?? (view.association === void 0 ? {} : { host: view.association })), setWritable(view.writable), setLoaded(!0);
@@ -3101,7 +3101,24 @@ Minimum version required to store current data is: ` + bestVersion + `.
           if (!result.ok) throw new Error(result.error?.message ?? t("remoteRequestFailed"));
           return result.value;
         };
-        ctx.inject(["fileViewer"], (fileViewerContext) => {
+        ctx.effect(() => {
+          let disposed = !1, unsubscribe, selection, opening = !1, reconcile = () => {
+            if (disposed || opening || selection === void 0) return;
+            let pending = selection, snapshot = ctx.workspaces.list.getSnapshot();
+            !snapshot.baselinesReady || !snapshot.items.some((workspace) => workspace.workspaceId === pending.workspaceId) || (opening = !0, unsubscribe?.(), unsubscribe = void 0, ctx.workspaces.connectWorkspace(pending.workspaceId).then(async (sessionId) => {
+              disposed || (ctx.sessions.open(sessionId), await control("workspace.selection.consume", pending).catch(() => {
+              }));
+            }).catch((reason) => {
+              disposed || console.warn("remote workspace selection failed:", reason);
+            }));
+          };
+          return control("status").then((status) => {
+            disposed || status.mode !== "remote" || status.workspaceSelection === void 0 || status.target?.deviceId !== status.workspaceSelection.targetDeviceId || (selection = status.workspaceSelection, unsubscribe = ctx.workspaces.list.subscribe(reconcile), reconcile());
+          }).catch(() => {
+          }), () => {
+            disposed = !0, unsubscribe?.();
+          };
+        }, "dsh-remote: resume selected workspace"), ctx.inject(["fileViewer"], (fileViewerContext) => {
           let viewer = fileViewerContext.get("fileViewer");
           viewer !== void 0 && fileViewerContext.effect(() => {
             let active = !0, unregister, sync = async () => {

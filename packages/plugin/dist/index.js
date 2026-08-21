@@ -13763,6 +13763,7 @@ var ClientModeRuntime = class {
   }
   identity;
   connected;
+  pendingWorkspaceSelection;
   proxySwitch;
   gatewaySwitch;
   closed = false;
@@ -13792,6 +13793,7 @@ var ClientModeRuntime = class {
       connected: this.connected !== void 0,
       transport: this.connected?.client.getStats().mode ?? "Disconnected",
       remoteFeatures: this.connected?.features ?? remoteHostFeatures(),
+      ...this.pendingWorkspaceSelection === void 0 ? {} : { workspaceSelection: { ...this.pendingWorkspaceSelection } },
       hostAuthorizationAvailable: this.host !== void 0,
       ...this.host === void 0 ? {} : { host: this.host.hostStatus() }
     };
@@ -13860,6 +13862,7 @@ var ClientModeRuntime = class {
   async clearClientAuthorization() {
     const previous = this.connected;
     this.connected = void 0;
+    this.pendingWorkspaceSelection = void 0;
     this.proxySwitch.selectLocal();
     this.gatewaySwitch.selectLocal();
     await previous?.client.close().catch(() => void 0);
@@ -13883,6 +13886,7 @@ var ClientModeRuntime = class {
       this.gatewaySwitch.selectLocal();
       const previous2 = this.connected;
       this.connected = void 0;
+      this.pendingWorkspaceSelection = void 0;
       await previous2?.client.close().catch(() => void 0);
       this.logger.info("Harness target switched", { mode: "local" });
       return this.status();
@@ -13893,6 +13897,7 @@ var ClientModeRuntime = class {
     const next = await this.connect(targetDeviceId, signal);
     const previous = this.connected;
     this.connected = next;
+    this.pendingWorkspaceSelection = void 0;
     const remoteApi = new RemoteHarnessApiProxy(next.client).api;
     this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name });
     this.selectRemoteCommands(next);
@@ -13930,14 +13935,24 @@ var ClientModeRuntime = class {
     const workspace = unwrapNativeResult(response);
     this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name });
     this.selectRemoteCommands(remote);
+    const workspaceId = workspaceRecordId(workspace.workspace);
+    this.pendingWorkspaceSelection = { targetDeviceId: remote.target.deviceId, workspaceId };
     this.logger.info("Remote workspace opened", { targetDeviceId: shortId(remote.target.deviceId) });
     return { ...this.status(), workspace };
+  }
+  consumeWorkspaceSelection(selection) {
+    const pending = this.pendingWorkspaceSelection;
+    if (pending?.targetDeviceId === selection.targetDeviceId && pending.workspaceId === selection.workspaceId) {
+      this.pendingWorkspaceSelection = void 0;
+    }
+    return this.status();
   }
   async close() {
     if (this.closed) return;
     this.closed = true;
     this.proxySwitch.selectLocal();
     this.gatewaySwitch.selectLocal();
+    this.pendingWorkspaceSelection = void 0;
     await this.connected?.client.close().catch(() => void 0);
     this.connected = void 0;
     this.proxySwitch.restore();
@@ -14010,6 +14025,7 @@ var ClientModeRuntime = class {
       client.onClose(() => {
         if (this.connected?.client !== client) return;
         this.connected = void 0;
+        this.pendingWorkspaceSelection = void 0;
         this.proxySwitch.selectLocal();
         this.gatewaySwitch.selectLocal();
         void client.close().catch(() => void 0);
@@ -14074,6 +14090,16 @@ var ClientModeRuntime = class {
           throw new ClientModeError("INVALID_MESSAGE", "A Host and working directory are required.");
         }
         return ok(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal));
+      }
+      if (endpoint === "workspace.selection.consume") {
+        const value = record(payload);
+        if (typeof value.targetDeviceId !== "string" || typeof value.workspaceId !== "string") {
+          throw new ClientModeError("INVALID_MESSAGE", "A Host and Workspace are required.");
+        }
+        return ok(this.consumeWorkspaceSelection({
+          targetDeviceId: value.targetDeviceId,
+          workspaceId: value.workspaceId
+        }));
       }
       if (endpoint === "fileviewer.stat" || endpoint === "fileviewer.readRange" || endpoint === "fileviewer.list") {
         const method = endpoint === "fileviewer.stat" ? "stat" : endpoint === "fileviewer.readRange" ? "readRange" : "list";
@@ -14184,6 +14210,12 @@ function unwrapNativeResult(response) {
     throw new ClientModeError("REMOTE_API_ERROR", message);
   }
   return result.value;
+}
+function workspaceRecordId(value) {
+  if (typeof value !== "object" || value === null || !("workspaceId" in value) || typeof value.workspaceId !== "string" || value.workspaceId.length === 0) {
+    throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid Workspace.");
+  }
+  return value.workspaceId;
 }
 function fail(error) {
   const source = error instanceof Error ? error : void 0;
