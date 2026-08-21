@@ -78,7 +78,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
     } else apply()
   }
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <TopBar
         title={sessionTitle(session)}
         onBack={onBack}
