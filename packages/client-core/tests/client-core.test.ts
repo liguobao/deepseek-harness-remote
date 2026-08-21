@@ -75,10 +75,14 @@ describe('RemoteClientCore', () => {
     transport.closeError = new Error('transport close failed')
     const client = new RemoteClientCore(transport)
     await client.connect()
+    const closed = vi.fn()
+    client.onClose(closed)
     const call = client.rpc('harness.api.call', {})
     const termination = expect(call).rejects.toMatchObject({ code: 'CLIENT_CLOSED' })
 
-    await expect(client.close()).rejects.toThrow('transport close failed')
+    const closing = client.close()
+    expect(closed).toHaveBeenCalledOnce()
+    await expect(closing).rejects.toThrow('transport close failed')
     await termination
   })
 
