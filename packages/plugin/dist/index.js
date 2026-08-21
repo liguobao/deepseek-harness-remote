@@ -4359,6 +4359,14 @@ function cryptoRandomId() {
 }
 
 // ../client-core/dist/index.js
+var RemoteClientError = class extends Error {
+  code;
+  constructor(code, message, options) {
+    super(message, options);
+    this.code = code;
+    this.name = "RemoteClientError";
+  }
+};
 var RemoteClientCore = class {
   transport;
   timeoutMs;
@@ -4387,23 +4395,24 @@ var RemoteClientCore = class {
     }
   }
   async rpc(method, params, signal) {
-    signal?.throwIfAborted();
+    if (signal?.aborted)
+      throw rpcAbortedError(method, signal.reason);
     const request = createRpcRequest(method, params);
     const result = new Promise((resolve2, reject) => {
       const timer = setTimeout(() => {
-        const pending2 = this.pending.get(request.id);
-        pending2?.removeAbort?.();
-        this.pending.delete(request.id);
-        reject(new Error(`RPC ${method} timed out`));
+        this.rejectPending(request.id, new RemoteClientError("RPC_TIMEOUT", `RPC ${method} timed out after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
-      const pending = { resolve: resolve2, reject, timer };
+      const pending = {
+        method,
+        resolve: resolve2,
+        reject,
+        timer
+      };
       if (signal !== void 0) {
         const onAbort = () => {
           if (this.pending.get(request.id) !== pending)
             return;
-          clearTimeout(timer);
-          this.pending.delete(request.id);
-          reject(signal.reason instanceof Error ? signal.reason : new Error("RPC was cancelled"));
+          this.rejectPending(request.id, rpcAbortedError(method, signal.reason));
         };
         signal.addEventListener("abort", onAbort, { once: true });
         pending.removeAbort = () => signal.removeEventListener("abort", onAbort);
@@ -4411,15 +4420,12 @@ var RemoteClientCore = class {
       this.pending.set(request.id, pending);
     });
     try {
-      await this.transport.send(encodeMessage(request));
+      const send = this.transport.send(encodeMessage(request));
+      void send.catch((error) => {
+        this.rejectPending(request.id, transportSendError(error));
+      });
     } catch (error) {
-      const pending = this.pending.get(request.id);
-      if (pending !== void 0) {
-        clearTimeout(pending.timer);
-        pending.removeAbort?.();
-      }
-      this.pending.delete(request.id);
-      throw error;
+      this.rejectPending(request.id, transportSendError(error));
     }
     return result;
   }
@@ -4439,21 +4445,11 @@ var RemoteClientCore = class {
     this.unsubscribeTransport = void 0;
     this.unsubscribeClose?.();
     this.unsubscribeClose = void 0;
+    this.rejectAllPending((pending) => new RemoteClientError("CLIENT_CLOSED", `RPC ${pending.method} terminated because the remote client closed`));
     await this.transport.close();
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.removeAbort?.();
-      pending.reject(new Error("remote client closed"));
-    }
-    this.pending.clear();
   }
   handleTransportClose() {
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.removeAbort?.();
-      pending.reject(new Error("remote transport closed"));
-    }
-    this.pending.clear();
+    this.rejectAllPending((pending) => new RemoteClientError("TRANSPORT_CLOSED", `RPC ${pending.method} terminated because the remote transport closed`));
     for (const handler of this.closeHandlers)
       handler();
   }
@@ -4470,24 +4466,47 @@ var RemoteClientCore = class {
     }
   }
   handleResponse(message) {
-    const pending = this.pending.get(message.payload.requestId);
+    const pending = this.takePending(message.payload.requestId);
     if (pending === void 0)
       return;
-    this.pending.delete(message.payload.requestId);
-    clearTimeout(pending.timer);
-    pending.removeAbort?.();
     pending.resolve(message.payload.result);
   }
   handleError(message) {
-    const pending = this.pending.get(message.payload.requestId);
+    const pending = this.takePending(message.payload.requestId);
     if (pending === void 0)
       return;
-    this.pending.delete(message.payload.requestId);
-    clearTimeout(pending.timer);
-    pending.removeAbort?.();
     pending.reject(Object.assign(new Error(message.payload.message), { code: message.payload.code }));
   }
+  takePending(requestId) {
+    const pending = this.pending.get(requestId);
+    if (pending === void 0)
+      return void 0;
+    this.pending.delete(requestId);
+    clearTimeout(pending.timer);
+    pending.removeAbort?.();
+    return pending;
+  }
+  rejectPending(requestId, error) {
+    const pending = this.takePending(requestId);
+    if (pending === void 0)
+      return false;
+    pending.reject(error);
+    return true;
+  }
+  rejectAllPending(createError) {
+    for (const requestId of [...this.pending.keys()]) {
+      const pending = this.takePending(requestId);
+      if (pending !== void 0)
+        pending.reject(createError(pending));
+    }
+  }
 };
+function rpcAbortedError(method, reason) {
+  return new RemoteClientError("RPC_ABORTED", `RPC ${method} was aborted`, reason === void 0 ? void 0 : { cause: reason });
+}
+function transportSendError(error) {
+  return error instanceof Error ? error : new Error("remote transport send failed", { cause: error });
+}
 
 // ../webrtc/dist/transport.js
 var BaseTransport = class {
@@ -12966,7 +12985,7 @@ function normalizeLegacyResponse(method, response) {
   };
 }
 function isRemoteDisconnect(error) {
-  return error instanceof Error && (error.message === "remote transport closed" || error.message === "remote client closed");
+  return error instanceof RemoteClientError && (error.code === "TRANSPORT_CLOSED" || error.code === "CLIENT_CLOSED");
 }
 var AsyncFrameQueue = class {
   values = [];
