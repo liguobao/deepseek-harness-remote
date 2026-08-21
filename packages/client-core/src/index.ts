@@ -42,11 +42,13 @@ export class RemoteClientCore {
   private unsubscribeTransport?: () => void
   private unsubscribeClose?: () => void
   private readonly closeHandlers = new Set<() => void>()
+  private closeNotified = false
 
   constructor(private readonly transport: RemoteTransport, private readonly timeoutMs = 30_000) {}
 
   async connect(): Promise<void> {
     if (this.unsubscribeTransport !== undefined) return
+    this.closeNotified = false
     this.unsubscribeTransport = this.transport.onMessage(data => this.handleMessage(data))
     this.unsubscribeClose = this.transport.onClose?.(() => this.handleTransportClose())
     try {
@@ -127,6 +129,7 @@ export class RemoteClientCore {
         `RPC ${pending.method} terminated because the remote client closed`,
       ),
     )
+    this.notifyClose()
     await this.transport.close()
   }
 
@@ -137,7 +140,7 @@ export class RemoteClientCore {
         `RPC ${pending.method} terminated because the remote transport closed`,
       ),
     )
-    for (const handler of this.closeHandlers) handler()
+    this.notifyClose()
   }
 
   private handleMessage(data: Uint8Array): void {
@@ -183,6 +186,12 @@ export class RemoteClientCore {
       const pending = this.takePending(requestId)
       if (pending !== undefined) pending.reject(createError(pending))
     }
+  }
+
+  private notifyClose(): void {
+    if (this.closeNotified) return
+    this.closeNotified = true
+    for (const handler of this.closeHandlers) handler()
   }
 }
 
