@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.22
+
+- Adds provider-aware GitHub and Zhihu QR sign-in while keeping password
+  sign-in available.
+- Uses version tags as GitHub Release titles.
+
 ## 0.3.21
 
 - Opens the workspace selected in the Remote picker instead of leaving the
