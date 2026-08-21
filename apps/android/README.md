@@ -25,6 +25,8 @@ React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness hos
   the bounded `harness.api.transfer.*` path. Image processing and provider upload remain on the Host.
 - Reconnect after Android network/app lifecycle changes. The connection transport can be
   pinned in Settings (Auto / TURN first / Relay only) and is applied on reconnect.
+- Show the interface in English or Simplified Chinese, follow Android's current locale by default,
+  and persist an explicit in-app language choice across launches.
 - Show the installed app/build version and the complete open-source repository and latest-release
   addresses in Settings; both addresses open in the system browser.
 

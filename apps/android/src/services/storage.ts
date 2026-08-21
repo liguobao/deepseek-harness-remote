@@ -3,6 +3,7 @@ import * as Application from 'expo-application'
 import * as Crypto from 'expo-crypto'
 import * as Device from 'expo-device'
 import * as SecureStore from 'expo-secure-store'
+import { isLanguagePreference, type LanguagePreference } from '../locales/i18n'
 import type { DeviceCredentials, DeviceIdentity, RemoteDevice, ServerConfig } from '../types'
 
 const KEYS = {
@@ -11,6 +12,7 @@ const KEYS = {
   credentials: 'dshremote.credentials.v1',
   trustedHosts: 'dshremote.trusted-hosts.v1',
   transportPreference: 'dshremote.transport-preference.v1',
+  languagePreference: 'dshremote.language-preference.v1',
 } as const
 
 const secureOptions: SecureStore.SecureStoreOptions = {
@@ -82,6 +84,15 @@ export async function loadTransportPreference(): Promise<import('../types').Tran
 
 export async function saveTransportPreference(value: import('../types').TransportPreference): Promise<void> {
   await writeJson(KEYS.transportPreference, { value })
+}
+
+export async function loadLanguagePreference(): Promise<LanguagePreference> {
+  const stored = await readJson<{ value: unknown }>(KEYS.languagePreference)
+  return isLanguagePreference(stored?.value) ? stored.value : 'system'
+}
+
+export async function saveLanguagePreference(value: LanguagePreference): Promise<void> {
+  await writeJson(KEYS.languagePreference, { value })
 }
 
 export async function clearLocalData(): Promise<void> {

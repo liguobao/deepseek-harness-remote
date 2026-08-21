@@ -5,7 +5,7 @@ import { useAppStore } from '../state/store'
 import type { DirectoryListing, RemoteSession, WorkspaceView } from '../types'
 import { Button, EmptyState, IconButton, Screen, TopBar } from '../ui/components'
 import { colors, radius, spacing, type } from '../ui/theme'
-import zhCN from '../locales/zh-CN'
+import { strings as zhCN } from '../locales/i18n'
 import { resolveSessionDisplayTitle } from './session-title'
 
 export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; onSession: (session: RemoteSession) => void }) {

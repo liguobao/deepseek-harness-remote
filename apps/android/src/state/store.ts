@@ -1,6 +1,13 @@
 import * as Haptics from 'expo-haptics'
 import { create } from 'zustand'
-import zhCN from '../locales/zh-CN'
+import {
+  applyLanguagePreference,
+  getActiveLanguage,
+  strings as zhCN,
+  updateSystemLocales,
+  type AppLanguage,
+  type LanguagePreference,
+} from '../locales/i18n'
 import { friendlyError, isRpcTimeoutError } from '../lib/errors'
 import { normalizeServerUrl } from '../lib/server-url'
 import { RemoteServerApi } from '../services/api'
@@ -13,9 +20,11 @@ import {
   clearLocalData,
   forgetHost,
   loadOrCreateIdentity,
+  loadLanguagePreference,
   loadServerConfig,
   loadTransportPreference,
   loadTrustedHosts,
+  saveLanguagePreference,
   saveServerConfig,
   saveTransportPreference,
   trustHost,
@@ -63,6 +72,8 @@ interface AppState {
   historyLoadingOlder: boolean
   oldestLoadedSeq?: number
   transportPreference: TransportPreference
+  languagePreference: LanguagePreference
+  language: AppLanguage
   pendingOAuthBaseUrl?: string
   authPhase: AuthPhase
   refreshing: boolean
@@ -96,6 +107,8 @@ interface AppState {
   workspaceMove(workspaceId: string, beforeWorkspaceId?: string): Promise<boolean>
   hostListDirectory(path?: string): Promise<import('../types').DirectoryListing | undefined>
   setTransportPreference(preference: TransportPreference): Promise<void>
+  setLanguagePreference(preference: LanguagePreference): Promise<void>
+  syncSystemLocales(localeTags: readonly string[]): void
   resetLocalData(): Promise<void>
   signOut(): Promise<void>
   setOffline(): void
@@ -123,18 +136,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   historyHasMore: false,
   historyLoadingOlder: false,
   transportPreference: 'auto',
+  languagePreference: 'system',
+  language: getActiveLanguage(),
   authPhase: 'idle',
   refreshing: false,
 
   async bootstrap() {
     set({ bootPhase: 'loading', error: undefined })
     try {
-      const [config, identity, transportPreference] = await Promise.all([
+      const [config, identity, transportPreference, languagePreference] = await Promise.all([
         loadServerConfig(),
         loadOrCreateIdentity(),
         loadTransportPreference(),
+        loadLanguagePreference(),
       ])
-      set({ config, identity, account: config?.account, transportPreference, bootPhase: 'ready' })
+      const language = applyLanguagePreference(languagePreference)
+      set({ config, identity, account: config?.account, transportPreference, languagePreference, language, bootPhase: 'ready' })
       if (config !== undefined) await get().refreshDevices()
     } catch (error) {
       set({ bootPhase: 'error', error: friendlyError(error) })
@@ -684,11 +701,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().disconnect()
     await clearLocalData()
     const identity = await loadOrCreateIdentity()
-    set({ ...initialData(), identity, bootPhase: 'ready' })
+    const language = applyLanguagePreference('system')
+    set({ ...initialData(), identity, languagePreference: 'system', language, bootPhase: 'ready' })
   },
 
   async signOut() {
-    const { config, identity } = get()
+    const { config, identity, languagePreference } = get()
     await get().disconnect()
     if (config !== undefined && identity !== undefined) {
       try {
@@ -699,6 +717,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
     await clearLocalData()
+    await saveLanguagePreference(languagePreference)
     const nextIdentity = await loadOrCreateIdentity()
     set({ ...initialData(), identity: nextIdentity, bootPhase: 'ready' })
   },
@@ -708,6 +727,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     const wasConnected = get().connection.phase === 'connected' || get().connection.phase === 'reconnecting'
     set({ transportPreference: preference })
     if (wasConnected) await get().reconnect()
+  },
+
+  async setLanguagePreference(languagePreference) {
+    await saveLanguagePreference(languagePreference)
+    const language = applyLanguagePreference(languagePreference)
+    set({ languagePreference, language })
+  },
+
+  syncSystemLocales(localeTags) {
+    const language = updateSystemLocales(localeTags)
+    if (language !== get().language) set({ language })
   },
 
   setOffline() {

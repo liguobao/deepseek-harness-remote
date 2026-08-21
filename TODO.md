@@ -86,7 +86,7 @@ Host 列表与 identity fingerprint 固定、Adaptive transport + Noise，以及
 固定、Adaptive transport + Noise secure channel、`harness.api.call/respond/stream.open/close`
 tunnel 与 mux frame 聊天。功能已对标 Web 端 Remote 控制台：新建/继续/归档会话、历史分页、
 模型目录与切换、相册图片 Prompt（Host limits 预检 + transfer 分块）、Workspace 管理（创建+只读目录浏览/重命名/删除/排序）、连接详情面板与
-传输偏好（Auto/TURN/Relay）。剩余工作：
+传输偏好（Auto/TURN/Relay），以及跟随系统/英文/简体中文语言设置。剩余工作：
 
 - [x] 数据面端到端联调（本地 Server + 真实插件 Host + smoke client）：账号授权、加密 Relay、
       mux 流、会话列表、`host.describe` 透传与 approval `client-response` 应答

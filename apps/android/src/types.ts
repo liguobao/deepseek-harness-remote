@@ -1,5 +1,5 @@
 import type { TransportStats } from '@dsh-remote/protocol'
-import zhCN from './locales/zh-CN'
+import { strings as zhCN } from './locales/i18n'
 
 export type ConnectionPhase =
   | 'disconnected'
@@ -330,8 +330,10 @@ export interface TransportPreferenceOption {
   description: string
 }
 
-export const TRANSPORT_PREFERENCE_OPTIONS: TransportPreferenceOption[] = [
-  { value: 'auto', name: zhCN.transport.auto, description: zhCN.transport.autoDescription },
-  { value: 'turn', name: zhCN.transport.turn, description: zhCN.transport.turnDescription },
-  { value: 'relay', name: zhCN.transport.relay, description: zhCN.transport.relayDescription },
-]
+export function transportPreferenceOptions(): TransportPreferenceOption[] {
+  return [
+    { value: 'auto', name: zhCN.transport.auto, description: zhCN.transport.autoDescription },
+    { value: 'turn', name: zhCN.transport.turn, description: zhCN.transport.turnDescription },
+    { value: 'relay', name: zhCN.transport.relay, description: zhCN.transport.relayDescription },
+  ]
+}

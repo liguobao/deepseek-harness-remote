@@ -1,6 +1,7 @@
 import { NoiseIkSession, createNoisePrologue } from '@dsh-remote/crypto'
 import { SecureMessageCodec } from '@dsh-remote/protocol'
 import type { RemoteTransport, SecureHandshakeTransport } from '@dsh-remote/webrtc'
+import { strings } from '../locales/i18n'
 import type { DeviceIdentity, RemoteDevice } from '../types'
 
 export class SecureTransport implements RemoteTransport {
@@ -15,7 +16,7 @@ export class SecureTransport implements RemoteTransport {
     private readonly identity: DeviceIdentity,
     private readonly host: RemoteDevice,
   ) {
-    if (host.identityKey.length === 0) throw new Error('The host has no encryption key. Trust the host first.')
+    if (host.identityKey.length === 0) throw new Error(strings.runtime.hostMissingKey)
   }
 
   async connect(): Promise<void> {
@@ -26,7 +27,7 @@ export class SecureTransport implements RemoteTransport {
     const info = this.inner.connectionInfo()
     if (info.localDeviceId !== this.identity.deviceId || info.remoteDeviceId !== this.host.deviceId) {
       await this.inner.close()
-      throw new Error('The relay connection is bound to an unexpected device.')
+      throw new Error(strings.runtime.unexpectedRelayDevice)
     }
     const noise = new NoiseIkSession({
       role: 'initiator',
@@ -90,7 +91,7 @@ export class SecureTransport implements RemoteTransport {
 
   private requireNoise(): NoiseIkSession {
     if (this.noise === undefined || !this.noise.complete || this.closed) {
-      throw new Error('The authenticated Noise channel is not connected.')
+      throw new Error(strings.runtime.secureChannelNotConnected)
     }
     return this.noise
   }
@@ -99,16 +100,16 @@ export class SecureTransport implements RemoteTransport {
 async function waitForResponder(inner: SecureHandshakeTransport, noise: NoiseIkSession): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     let settled = false
-    const timer = setTimeout(() => finish(new Error('Noise IK handshake timed out.')), 10_000)
+    const timer = setTimeout(() => finish(new Error(strings.runtime.secureHandshakeTimedOut)), 10_000)
     const unsubscribe = inner.onHandshake((step, data) => {
       if (settled) return
       try {
-        if (step !== 2) throw new Error('Noise IK responder sent an out-of-order handshake message.')
+        if (step !== 2) throw new Error(strings.runtime.secureHandshakeOrder)
         noise.readHandshake(data)
-        if (!noise.complete) throw new Error('Noise IK handshake did not complete.')
+        if (!noise.complete) throw new Error(strings.runtime.secureHandshakeIncomplete)
         finish()
       } catch (error) {
-        finish(error instanceof Error ? error : new Error('Noise IK handshake failed.'))
+        finish(error instanceof Error ? error : new Error(strings.runtime.secureHandshakeFailed))
       }
     })
     const finish = (error?: Error): void => {
@@ -120,7 +121,7 @@ async function waitForResponder(inner: SecureHandshakeTransport, noise: NoiseIkS
       else reject(error)
     }
     void inner.sendHandshake(1, noise.writeHandshake()).catch(error => {
-      finish(error instanceof Error ? error : new Error('Noise IK handshake failed.'))
+      finish(error instanceof Error ? error : new Error(strings.runtime.secureHandshakeFailed))
     })
   })
 }

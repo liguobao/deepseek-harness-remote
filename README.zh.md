@@ -43,13 +43,13 @@ dsh plugin --profile web add ds-harness-remote
 
 项目地址：[npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.26`。
+如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.27`。
 
 安装后请重启 Harness。
 
-`0.3.26` Client 继续兼容 `0.3.15` Host 的远端 Workspace 与会话；远端命令目录、文件查看、图片分块传输等后续能力只会在所选 Host 支持时启用。
+`0.3.27` Client 继续兼容 `0.3.15` Host 的远端 Workspace 与会话；远端命令目录、文件查看、图片分块传输等后续能力只会在所选 Host 支持时启用。
 
-Android APK 会随每个 [GitHub Release](https://github.com/liguobao/deepseek-harness-remote/releases/latest) 发布。安卓设置页会显示已安装版本、开源仓库和最新更新地址。
+Android APK 会随每个 [GitHub Release](https://github.com/liguobao/deepseek-harness-remote/releases/latest) 发布。安卓界面支持英文和简体中文，默认可跟随系统语言，也可在设置页中单独选择；设置页还会显示已安装版本、开源仓库和最新更新地址。
 
 ## 登录与连接
 
@@ -78,6 +78,14 @@ Workspace 会在 Harness 原生界面中打开，顶部会显示当前 Host 和�
 
 <p align="center">
   <img src="docs/images/remote.png" alt="通过端到端加密远程连接运行的 Harness 会话" width="900">
+</p>
+
+在 Android 客户端中，可以选择在线电脑、打开 Workspace，并在同一会话中发送文字或图片 Prompt。
+
+<p align="center">
+  <img src="docs/images/mobile-list.jpg" alt="Android 客户端中的在线和离线设备列表" width="30%">
+  <img src="docs/images/image-msg.jpg" alt="从 Android 客户端发送图片 Prompt" width="30%">
+  <img src="docs/images/image-result.jpg" alt="在 Android 客户端中查看图片理解结果" width="30%">
 </p>
 
 ## 安全连接，边界清晰

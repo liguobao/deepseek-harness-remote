@@ -43,17 +43,19 @@ dsh plugin --profile web add ds-harness-remote
 
 Package: [npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-To pin a GitHub release instead, install `github:liguobao/deepseek-harness-remote#v0.3.26`.
+To pin a GitHub release instead, install `github:liguobao/deepseek-harness-remote#v0.3.27`.
 
 Restart Harness after installation.
 
-The `0.3.26` Client remains compatible with `0.3.15` Hosts for Remote
+The `0.3.27` Client remains compatible with `0.3.15` Hosts for Remote
 workspaces and sessions. Features introduced later, such as the remote command
 catalog, file viewing, and chunked image transport, are enabled only when the
 selected Host supports them.
 
 The Android APK is attached to each [GitHub Release](https://github.com/liguobao/deepseek-harness-remote/releases/latest).
-Its Settings page shows the installed version plus the open-source repository and latest-update addresses.
+Its interface supports English and Simplified Chinese, can follow the Android system language, and
+lets you override that choice in Settings. The same page also shows the installed version plus the
+open-source repository and latest-update addresses.
 
 ## Sign in and connect
 
@@ -82,6 +84,14 @@ The workspace opens in the native Harness interface, with the active Host and en
 
 <p align="center">
   <img src="docs/images/remote.png" alt="A Harness conversation running through an encrypted remote connection" width="900">
+</p>
+
+On Android, select an available computer, open a workspace, and send text or image prompts from the same conversation.
+
+<p align="center">
+  <img src="docs/images/mobile-list.jpg" alt="Android client listing online and offline computers" width="30%">
+  <img src="docs/images/image-msg.jpg" alt="Sending an image prompt from the Android client" width="30%">
+  <img src="docs/images/image-result.jpg" alt="Viewing the image response in the Android client" width="30%">
 </p>
 
 ## Secure by design

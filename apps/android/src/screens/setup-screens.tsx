@@ -4,9 +4,9 @@ import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Check, ExternalLink, KeyRound, LockKeyhole, RotateCcw, Settings } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import { Button, Field, KeyValue, Screen, TopBar } from '../ui/components'
-import { TRANSPORT_PREFERENCE_OPTIONS } from '../types'
+import { transportPreferenceOptions } from '../types'
 import { colors, radius, spacing, type } from '../ui/theme'
-import zhCN from '../locales/zh-CN'
+import { strings as zhCN, type LanguagePreference } from '../locales/i18n'
 
 /** Default DSH Remote Server; a build can override it via EXPO_PUBLIC_DSH_REMOTE_SERVER. */
 const defaultServerUrl = 'https://dsh.r2049.cn'
@@ -87,6 +87,8 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
   const account = useAppStore(state => state.account)
   const preference = useAppStore(state => state.transportPreference)
   const setPreference = useAppStore(state => state.setTransportPreference)
+  const languagePreference = useAppStore(state => state.languagePreference)
+  const setLanguagePreference = useAppStore(state => state.setLanguagePreference)
   const reset = useAppStore(state => state.resetLocalData)
   const signOut = useAppStore(state => state.signOut)
   const appVersion = Application.nativeApplicationVersion ?? zhCN.common.unavailable
@@ -130,7 +132,7 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
 
         <Text style={styles.groupLabel}>{zhCN.settings.transport}</Text>
         <View style={styles.preferenceList}>
-          {TRANSPORT_PREFERENCE_OPTIONS.map(option => {
+          {transportPreferenceOptions().map(option => {
             const chosen = option.value === preference
             return (
               <Pressable
@@ -149,6 +151,26 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
             )
           })}
           <Text style={styles.preferenceNote}>{zhCN.settings.transportNote}</Text>
+        </View>
+
+        <Text style={styles.groupLabel}>{zhCN.settings.language}</Text>
+        <View style={styles.preferenceList}>
+          {languageOptions().map(option => {
+            const chosen = option.value === languagePreference
+            return (
+              <Pressable
+                key={option.value}
+                accessibilityRole="button"
+                accessibilityState={{ selected: chosen }}
+                onPress={() => void setLanguagePreference(option.value)}
+                style={[styles.preferenceOption, chosen && styles.preferenceOptionChosen]}
+              >
+                <Text style={[styles.preferenceName, styles.languageName]}>{option.name}</Text>
+                {chosen && <Check size={17} color={colors.primary} />}
+              </Pressable>
+            )
+          })}
+          <Text style={styles.preferenceNote}>{zhCN.settings.languageNote}</Text>
         </View>
 
         <Text style={styles.groupLabel}>{zhCN.settings.identity}</Text>
@@ -210,6 +232,14 @@ function fingerprint(value?: string): string {
   return value.slice(0, 24).toUpperCase().match(/.{1,4}/g)?.join(' ') ?? value
 }
 
+function languageOptions(): Array<{ value: LanguagePreference; name: string }> {
+  return [
+    { value: 'system', name: zhCN.settings.languageSystem },
+    { value: 'zh-CN', name: zhCN.settings.languageChinese },
+    { value: 'en-US', name: zhCN.settings.languageEnglish },
+  ]
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
   productName: { ...type.smallStrong, color: colors.primary, marginTop: spacing.xxl, marginBottom: spacing.md },
@@ -239,6 +269,7 @@ const styles = StyleSheet.create({
   preferenceOptionChosen: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   preferenceCopy: { flex: 1 },
   preferenceName: { ...type.smallStrong, color: colors.ink },
+  languageName: { flex: 1 },
   preferenceDescription: { ...type.caption, color: colors.muted, marginTop: 2 },
   preferenceNote: { ...type.caption, color: colors.muted, marginTop: spacing.xs },
   keyNote: { flexDirection: 'row', gap: spacing.xs, paddingVertical: spacing.md },

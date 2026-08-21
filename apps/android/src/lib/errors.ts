@@ -1,6 +1,4 @@
-import zhCN from '../locales/zh-CN'
-
-const friendlyByCode: Record<string, string> = zhCN.errors
+import { strings as zhCN } from '../locales/i18n'
 
 export class RemoteApiError extends Error {
   constructor(
@@ -15,6 +13,7 @@ export class RemoteApiError extends Error {
 }
 
 export function friendlyError(error: unknown): string {
+  const friendlyByCode: Record<string, string> = zhCN.errors
   if (error instanceof RemoteApiError) return friendlyByCode[error.code] ?? error.message
   if (error instanceof Error) {
     if (/network request failed|failed to fetch|websocket/i.test(error.message)) {

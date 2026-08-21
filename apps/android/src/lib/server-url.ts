@@ -1,5 +1,5 @@
 import type { PairLink } from '../types'
-import zhCN from '../locales/zh-CN'
+import { strings as zhCN } from '../locales/i18n'
 
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '10.0.2.2'])
 

@@ -1,6 +1,7 @@
 import { RemoteClientCore } from '@dsh-remote/client-core'
 import { AdaptiveTransport, type RtcIceServer } from '@dsh-remote/webrtc'
 import { websocketUrl } from '../lib/server-url'
+import { strings } from '../locales/i18n'
 import type { DeviceIdentity, MuxStreamFrame, RemoteDevice } from '../types'
 import { RemoteApiProxy } from './api-proxy'
 import { SecureTransport } from './secure-transport'
@@ -97,7 +98,7 @@ export class AndroidRemoteConnection {
 
   /** ApiProxy tunnel client; only available while connected. */
   requireProxy(): RemoteApiProxy {
-    if (this.proxy === undefined) throw new Error('Connect to the host first.')
+    if (this.proxy === undefined) throw new Error(strings.runtime.connectHostFirst)
     return this.proxy
   }
 

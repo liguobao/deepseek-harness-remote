@@ -11,7 +11,7 @@ import {
 } from 'react-native'
 import { AlertCircle, ArrowLeft, ChevronRight, CircleCheck, RefreshCw, WifiOff, type LucideIcon } from 'lucide-react-native'
 import { colors, radius, spacing, type } from './theme'
-import zhCN from '../locales/zh-CN'
+import { strings as zhCN } from '../locales/i18n'
 
 export function Screen({ children, scroll = true }: { children: ReactNode; scroll?: boolean }) {
   if (!scroll) return <View style={styles.screen}>{children}</View>
@@ -114,7 +114,7 @@ export function StatusBadge({ status, label }: {
   status: 'online' | 'offline' | 'lan' | 'relay' | 'p2p' | 'turn' | 'waiting' | 'running'
   label?: string
 }) {
-  const badge = badgeStyles[status]
+  const badge = statusBadgeStyles()[status]
   return (
     <View style={[styles.badge, { backgroundColor: badge.background }]} accessibilityLabel={label ?? badge.label}>
       <View style={[styles.badgeDot, { backgroundColor: badge.foreground }]} />
@@ -210,16 +210,18 @@ const buttonStyles = StyleSheet.create({
   quiet: { backgroundColor: 'transparent' },
 })
 
-const badgeStyles = {
-  online: { label: zhCN.status.online, background: colors.successSoft, foreground: colors.success },
-  offline: { label: zhCN.status.offline, background: colors.surfaceStrong, foreground: colors.muted },
-  lan: { label: zhCN.status.lan, background: colors.successSoft, foreground: colors.success },
-  relay: { label: zhCN.status.relay, background: colors.warningSoft, foreground: colors.warning },
-  p2p: { label: zhCN.status.p2p, background: colors.accentSoft, foreground: colors.accent },
-  turn: { label: zhCN.status.turn, background: colors.warningSoft, foreground: colors.warning },
-  waiting: { label: zhCN.status.waiting, background: colors.warningSoft, foreground: colors.warning },
-  running: { label: zhCN.status.running, background: colors.accentSoft, foreground: colors.accent },
-} as const
+function statusBadgeStyles() {
+  return {
+    online: { label: zhCN.status.online, background: colors.successSoft, foreground: colors.success },
+    offline: { label: zhCN.status.offline, background: colors.surfaceStrong, foreground: colors.muted },
+    lan: { label: zhCN.status.lan, background: colors.successSoft, foreground: colors.success },
+    relay: { label: zhCN.status.relay, background: colors.warningSoft, foreground: colors.warning },
+    p2p: { label: zhCN.status.p2p, background: colors.accentSoft, foreground: colors.accent },
+    turn: { label: zhCN.status.turn, background: colors.warningSoft, foreground: colors.warning },
+    waiting: { label: zhCN.status.waiting, background: colors.warningSoft, foreground: colors.warning },
+    running: { label: zhCN.status.running, background: colors.accentSoft, foreground: colors.accent },
+  } as const
+}
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },

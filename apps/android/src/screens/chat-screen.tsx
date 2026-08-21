@@ -23,7 +23,7 @@ import type { ApprovalActivity, ChatItem, ChatMessage, ImageAttachmentLimits, Im
 import { Button, IconButton, TopBar } from '../ui/components'
 import { NativeMarkdown } from '../ui/markdown'
 import { colors, radius, spacing, type } from '../ui/theme'
-import zhCN from '../locales/zh-CN'
+import { strings as zhCN } from '../locales/i18n'
 import { resolveSessionDisplayTitle } from './session-title'
 
 const EMPTY_CHAT_ITEMS: ChatItem[] = []
@@ -573,7 +573,7 @@ function ApprovalCard({ item, busy, onRespond }: {
         <View style={styles.permissionIcon}><ShieldAlert size={20} color={colors.warning} /></View>
         <View style={styles.permissionHeaderCopy}>
           <Text style={styles.permissionTitle}>{zhCN.chat.permissionTitle}</Text>
-          <Text style={styles.permissionKind}>{item.toolName} on host</Text>
+          <Text style={styles.permissionKind}>{zhCN.chat.hostOperation(item.toolName)}</Text>
         </View>
       </View>
       {item.reason !== undefined && (

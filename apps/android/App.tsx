@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AppState, BackHandler, Image, Linking, StyleSheet, Text, View } from 'react-native'
 import NetInfo from '@react-native-community/netinfo'
+import { useLocales } from 'expo-localization'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { ChatScreen } from './src/screens/chat-screen'
@@ -15,7 +16,7 @@ import {
 } from './src/lib/network-route'
 import { Button, ErrorBanner } from './src/ui/components'
 import { colors, radius, spacing, type } from './src/ui/theme'
-import zhCN from './src/locales/zh-CN'
+import { strings as zhCN } from './src/locales/i18n'
 
 type Route =
   | { name: 'server' }
@@ -27,6 +28,15 @@ type Route =
   | { name: 'settings' }
 
 export default function App() {
+  const locales = useLocales()
+  const syncSystemLocales = useAppStore(state => state.syncSystemLocales)
+  const localeTags = locales.map(locale => locale.languageTag)
+  const localeKey = localeTags.join('|')
+
+  useEffect(() => {
+    syncSystemLocales(localeTags)
+  }, [localeKey, syncSystemLocales])
+
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />

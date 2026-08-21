@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.27
+
+- Adds English and Simplified Chinese Android interfaces with a persistent
+  in-app language selector and an option to follow Android's current locale.
+- Localizes Android screens, status labels, dates, validation, and client-side
+  connection errors, and declares both locales to Android's native app settings.
+- Adds current Android device-list and image-prompt screenshots.
+- Updates the Android app to `0.3.11` (`versionCode 11`).
+
+`v0.3.27` supersedes `v0.3.26`; the previous Release and tag were withdrawn so
+the Android localization and preceding fixes ship in one consolidated release.
+
 ## 0.3.26
 
 - Adds an Android About & Updates section with the installed app/build version,
@@ -9,7 +21,7 @@
   marker for both historical and live `user/message` events.
 - Updates the Android app to `0.3.10` (`versionCode 10`).
 
-`0.3.25` was superseded by `0.3.26`; its Release and tag were withdrawn because
+`0.3.25` was withdrawn before `0.3.26` because
 Android could display plugin-injected model context as user conversation rows.
 
 ## 0.3.25
