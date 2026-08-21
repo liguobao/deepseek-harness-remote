@@ -4376,6 +4376,7 @@ var RemoteClientCore = class {
   unsubscribeTransport;
   unsubscribeClose;
   closeHandlers = /* @__PURE__ */ new Set();
+  closeNotified = false;
   constructor(transport, timeoutMs = 3e4) {
     this.transport = transport;
     this.timeoutMs = timeoutMs;
@@ -4383,6 +4384,7 @@ var RemoteClientCore = class {
   async connect() {
     if (this.unsubscribeTransport !== void 0)
       return;
+    this.closeNotified = false;
     this.unsubscribeTransport = this.transport.onMessage((data) => this.handleMessage(data));
     this.unsubscribeClose = this.transport.onClose?.(() => this.handleTransportClose());
     try {
@@ -4447,12 +4449,12 @@ var RemoteClientCore = class {
     this.unsubscribeClose?.();
     this.unsubscribeClose = void 0;
     this.rejectAllPending((pending) => new RemoteClientError("CLIENT_CLOSED", `RPC ${pending.method} terminated because the remote client closed`));
+    this.notifyClose();
     await this.transport.close();
   }
   handleTransportClose() {
     this.rejectAllPending((pending) => new RemoteClientError("TRANSPORT_CLOSED", `RPC ${pending.method} terminated because the remote transport closed`));
-    for (const handler of this.closeHandlers)
-      handler();
+    this.notifyClose();
   }
   handleMessage(data) {
     const message = decodeMessage(data);
@@ -4500,6 +4502,13 @@ var RemoteClientCore = class {
       if (pending !== void 0)
         pending.reject(createError(pending));
     }
+  }
+  notifyClose() {
+    if (this.closeNotified)
+      return;
+    this.closeNotified = true;
+    for (const handler of this.closeHandlers)
+      handler();
   }
 };
 function rpcAbortedError(method, reason) {
@@ -4800,7 +4809,6 @@ function isChunk(frame) {
 
 // ../webrtc/dist/rtc-data-channel.js
 var DEFAULT_NEGOTIATE_TIMEOUT_MS = 8e3;
-var DEFAULT_SEND_TIMEOUT_MS = 5e3;
 var RtcDataChannelTransport = class {
   pc;
   role;
@@ -4834,7 +4842,7 @@ var RtcDataChannelTransport = class {
     this.onSignal = options.onSignal;
     this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS;
     this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL;
-    this.sendTimeoutMs = options.sendTimeoutMs ?? DEFAULT_SEND_TIMEOUT_MS;
+    this.sendTimeoutMs = options.sendTimeoutMs;
     this.pc = options.factory.create({ iceServers: options.iceServers });
     this.pc.ondatachannel = (event) => this.adoptChannel(event.channel);
     this.pc.onicecandidate = (event) => {
@@ -5127,11 +5135,16 @@ var RtcDataChannelTransport = class {
     return channel;
   }
   armWatchdog(channel) {
-    if (this.watchdogTimer !== void 0 || this.closed)
+    if (this.closed || this.sendTimeoutMs === void 0 || this.sendTimeoutMs <= 0)
       return;
+    if (this.watchdogTimer !== void 0)
+      clearTimeout(this.watchdogTimer);
+    this.watchdogTimer = void 0;
     const baseline = channel.bufferedAmount;
-    if (baseline <= 0)
+    if (baseline <= 0) {
+      this.lastBufferedAmount = 0;
       return;
+    }
     this.lastBufferedAmount = baseline;
     this.watchdogTimer = setTimeout(() => {
       this.watchdogTimer = void 0;
@@ -5522,7 +5535,10 @@ var AdaptiveTransport = class extends BaseTransport {
       this.bytesReceived += data.byteLength;
       this.emit(data);
     });
-    rtc.onClose(() => this.emitClose());
+    rtc.onClose(() => {
+      if (this.rtc === rtc && this.dataMode === "webrtc")
+        this.emitClose();
+    });
     try {
       await rtc.connect();
     } catch (error) {
