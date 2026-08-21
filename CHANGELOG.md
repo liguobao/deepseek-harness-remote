@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.21
+
+- Opens the workspace selected in the Remote picker instead of leaving the
+  local workspace active.
+- Includes the latest Android connection and chat stability fixes and
+  deterministic client RPC termination errors.
+
 ## 0.3.19
 
 - Namespaces the plugin's loopback Web RPC route as `/ds-harness-remote` so it can run
