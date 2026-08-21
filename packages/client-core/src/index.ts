@@ -87,13 +87,16 @@ export class RemoteClientCore {
       }
       this.pending.set(request.id, pending)
     })
+
     try {
-      await this.transport.send(encodeMessage(request))
+      const send = this.transport.send(encodeMessage(request))
+      void send.catch(error => {
+        this.rejectPending(request.id, transportSendError(error))
+      })
     } catch (error) {
-      const pending = this.takePending(request.id)
-      if (pending === undefined) return result
-      throw error
+      this.rejectPending(request.id, transportSendError(error))
     }
+
     return result
   }
 
@@ -187,6 +190,12 @@ function rpcAbortedError(method: string, reason: unknown): RemoteClientError {
     `RPC ${method} was aborted`,
     reason === undefined ? undefined : { cause: reason },
   )
+}
+
+function transportSendError(error: unknown): Error {
+  return error instanceof Error
+    ? error
+    : new Error('remote transport send failed', { cause: error })
 }
 
 export type { EventPayload, RemoteEventName, RemoteTransport }

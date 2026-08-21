@@ -98,6 +98,20 @@ describe('RemoteClientCore', () => {
     await termination
   })
 
+  it('times out even when transport.send never settles', async () => {
+    vi.useFakeTimers()
+    const transport = new LoopbackTransport()
+    transport.sendGate = new Promise<void>(() => undefined)
+    const client = new RemoteClientCore(transport, 1_000)
+    await client.connect()
+    const call = client.rpc('harness.api.call', {})
+    const termination = expect(call).rejects.toMatchObject({ code: 'RPC_TIMEOUT' })
+
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    await termination
+  })
+
   it('uses RPC_ABORTED and preserves the abort reason as the cause', async () => {
     const transport = new LoopbackTransport()
     const client = new RemoteClientCore(transport)
@@ -113,6 +127,19 @@ describe('RemoteClientCore', () => {
       code: 'RPC_ABORTED',
       cause: reason,
     })
+  })
+
+  it('aborts even when transport.send never settles', async () => {
+    const transport = new LoopbackTransport()
+    transport.sendGate = new Promise<void>(() => undefined)
+    const client = new RemoteClientCore(transport)
+    const controller = new AbortController()
+    await client.connect()
+    const call = client.rpc('harness.api.call', {}, controller.signal)
+
+    controller.abort()
+
+    await expect(call).rejects.toMatchObject({ code: 'RPC_ABORTED' })
   })
 
   it('uses RPC_ABORTED for an already-aborted signal', async () => {
