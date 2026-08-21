@@ -322,6 +322,7 @@ export const helloPayloadSchema = z.object({
   protocols: z.array(z.number().int()).min(1),
   capabilities: z.array(z.string()),
   clientVersion: z.string().optional(),
+  harnessVersion: z.string().optional(),
 })
 
 export const helloAckPayloadSchema = z.object({

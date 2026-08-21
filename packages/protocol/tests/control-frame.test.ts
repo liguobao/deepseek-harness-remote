@@ -141,6 +141,15 @@ describe('hello payload validation', () => {
     expect(parseControlFrame(makeFrame('hello', { ...valid, clientVersion: '0.2.24' }))).toBeDefined()
   })
 
+  it('accepts Host hello with harnessVersion', () => {
+    const frame = parseControlFrame(makeFrame('hello', {
+      ...valid,
+      role: 'host',
+      harnessVersion: '0.1.0-rc.8',
+    }))
+    expect(frame.payload).toMatchObject({ harnessVersion: '0.1.0-rc.8' })
+  })
+
   it('returns parsed payload with stripped unknown fields', () => {
     const withExtra = { ...valid, unknownField: 'should-be-stripped' }
     const result = parseControlFrame(makeFrame('hello', withExtra))

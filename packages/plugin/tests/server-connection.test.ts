@@ -94,6 +94,7 @@ describe('HostServerConnection', () => {
       () => socket,
       undefined,
       () => ['harness.api.v1', 'fileviewer.read.v1'],
+      '0.1.0-rc.8',
     )
     server.start()
     await flush()
@@ -104,6 +105,7 @@ describe('HostServerConnection', () => {
         role: 'host',
         deviceId: 'host-1',
         clientVersion: PLUGIN_VERSION,
+        harnessVersion: '0.1.0-rc.8',
         capabilities: ['transport.relay', 'harness.api.v1', 'fileviewer.read.v1'],
       },
     })

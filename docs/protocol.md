@@ -154,8 +154,7 @@ REST/Control JSON 中的 key、nonce、handshake 和 ciphertext 使用无 paddin
   "role": "host",
   "platform": "linux",
   "identityKey": "base64url-x25519-public-key",
-  "clientVersion": "0.1.0",
-  "harnessVersion": "0.1.0-rc.6"
+  "clientVersion": "0.1.0"
 }
 ```
 
@@ -163,7 +162,8 @@ REST/Control JSON 中的 key、nonce、handshake 和 ciphertext 使用无 paddin
 
 - `role` 仅为 `host` 或 `client`。
 - `identityKey` 是 Noise static X25519 public key。
-- Host 才可携带 `harnessVersion`。
+- 旧版 Host 可在注册时携带 `harnessVersion`，Server 必须继续接受；新版 Host 从 Harness
+  `host.describe` 读取运行中版本并在首次 `hello` 中上报。
 - `name` 是不可信显示字符串，限制长度并转义。
 - Server 禁止接受同一 deviceId 替换为不同 identityKey。
 
@@ -317,11 +317,12 @@ Control frame 是 Server 可读 JSON，不得放置 Remote 业务明文。
   "type": "hello",
   "timestamp": 1786000000000,
   "payload": {
-    "role": "client",
-    "deviceId": "01KCLIENT...",
+    "role": "host",
+    "deviceId": "01KHOST...",
     "accessToken": "...",
     "protocols": [1],
     "clientVersion": "0.2.9",
+    "harnessVersion": "0.1.0-rc.8",
     "capabilities": ["transport.relay", "transport.webrtc"]
   }
 }
@@ -330,6 +331,11 @@ Control frame 是 Server 可读 JSON，不得放置 Remote 业务明文。
 `clientVersion` 是插件/Client 软件的版本，与 Device Descriptor §7 的 `clientVersion` 同源，用于
 Server 展示设备版本和诊断；与 `hello.ack` 的 `serverVersion` 对称。插件建立连接时必须上报自己的
 版本；对 Server 而言这是 v1 新增的 optional 字段，不能因为缺失或未知版本而拒绝连接。
+
+Host 的 `harnessVersion` 优先来自本机 Harness `host.describe.version`；旧 Harness 返回已知
+占位值或不提供该方法时，从当前 `@deepseek-ai/dsh` 运行包读取版本。该值只在 `hello` 上报，
+Server 在认证成功后刷新设备记录。字段同样可选：老插件不发送时 Server 必须保留注册阶段
+已有值，不能清空或拒绝连接；Client 不发送该字段。
 
 ack：
 

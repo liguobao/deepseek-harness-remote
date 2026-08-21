@@ -211,6 +211,7 @@ hello 校验：
 - device 未撤销
 - token 未过期
 - Origin 合法（浏览器 Client）
+- clientVersion 与 Host harnessVersion 格式（提供时）
 - capabilities 格式与 frame 大小
 
 同一 device 新连接的处理策略必须明确：MVP 采用新连接替换旧连接，旧连接收到 `CONNECTION_REPLACED` 后关闭。
