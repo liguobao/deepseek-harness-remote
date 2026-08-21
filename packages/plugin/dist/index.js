@@ -13184,12 +13184,12 @@ var HostServerApi = class {
       isAdmin: login.isAdmin
     };
   }
-  async startOAuthQrLogin() {
-    const value = requireRecord(await this.publicRequest("/api/v1/auth/oauth/qr/start", {
+  async startOAuthQrLogin(provider = "zhihu") {
+    const value = requireRecord(await this.publicRequest(`/api/v1/auth/oauth/qr/start?provider=${provider}`, {
       method: "POST",
       body: "{}"
     }), "QR login");
-    if (typeof value.qrId !== "string" || value.qrId.length < 20 || typeof value.scanUrl !== "string" || !value.scanUrl.startsWith(`${this.baseUrl}/`) || !Number.isSafeInteger(value.expiresIn)) {
+    if (typeof value.qrId !== "string" || value.qrId.length < 20 || typeof value.scanUrl !== "string" || !value.scanUrl.startsWith(`${this.baseUrl}/`) || !Number.isSafeInteger(value.expiresIn) || provider === "github" && value.provider !== "github" || value.provider !== void 0 && value.provider !== provider) {
       throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid QR login session.", false);
     }
     return { qrId: value.qrId, scanUrl: value.scanUrl, expiresIn: value.expiresIn };
@@ -13843,8 +13843,8 @@ var ClientModeRuntime = class {
     this.logger.info("Client account authorized");
     return authorization;
   }
-  async startClientOAuthQrLogin() {
-    return this.server.startOAuthQrLogin();
+  async startClientOAuthQrLogin(provider) {
+    return this.server.startOAuthQrLogin(provider);
   }
   async pollClientOAuthQrLogin(qrId) {
     try {
@@ -14062,7 +14062,14 @@ var ClientModeRuntime = class {
         }
         return ok(await this.authorizeClientWithAccount(value.email, value.password));
       }
-      if (endpoint === "client.account.qr.start") return ok(await this.startClientOAuthQrLogin());
+      if (endpoint === "client.account.qr.start") {
+        const value = record(payload);
+        const provider = value.provider ?? "zhihu";
+        if (provider !== "zhihu" && provider !== "github") {
+          throw new ClientModeError("INVALID_MESSAGE", "A supported OAuth provider is required.");
+        }
+        return ok(await this.startClientOAuthQrLogin(provider));
+      }
       if (endpoint === "client.account.qr.poll") {
         const value = record(payload);
         if (typeof value.qrId !== "string" || value.qrId.length < 20) {

@@ -32,6 +32,8 @@ export interface OAuthQrSession {
   expiresIn: number
 }
 
+export type OAuthProvider = 'zhihu' | 'github'
+
 export type OAuthQrPollResult =
   | { status: 'pending' | 'expired' }
   | { status: 'complete'; authorization: DeviceAuthorization }
@@ -128,14 +130,16 @@ export class HostServerApi {
     }
   }
 
-  async startOAuthQrLogin(): Promise<OAuthQrSession> {
-    const value = requireRecord(await this.publicRequest<unknown>('/api/v1/auth/oauth/qr/start', {
+  async startOAuthQrLogin(provider: OAuthProvider = 'zhihu'): Promise<OAuthQrSession> {
+    const value = requireRecord(await this.publicRequest<unknown>(`/api/v1/auth/oauth/qr/start?provider=${provider}`, {
       method: 'POST',
       body: '{}',
     }), 'QR login')
     if (typeof value.qrId !== 'string' || value.qrId.length < 20
       || typeof value.scanUrl !== 'string' || !value.scanUrl.startsWith(`${this.baseUrl}/`)
-      || !Number.isSafeInteger(value.expiresIn)) {
+      || !Number.isSafeInteger(value.expiresIn)
+      || (provider === 'github' && value.provider !== 'github')
+      || (value.provider !== undefined && value.provider !== provider)) {
       throw new ServerApiError('INVALID_MESSAGE', 'The Server returned an invalid QR login session.', false)
     }
     return { qrId: value.qrId, scanUrl: value.scanUrl, expiresIn: value.expiresIn as number }

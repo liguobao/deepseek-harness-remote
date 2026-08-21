@@ -78,23 +78,37 @@ Authorization: Bearer <accountToken>
 
 未注册用户需先在网页或插件 UI 中使用邀请码调用 `POST /api/v1/auth/register`。
 
-### 3.2 知乎 OAuth
+### 3.2 OAuth 与扫码登录
 
-先检查当前 Server 是否启用 OAuth：
+先检查当前 Server 是否启用对应 OAuth：
 
 ```http
 GET /api/v1/auth/oauth/status
+GET /api/v1/auth/oauth/github/status
 ```
 
-返回 `{ "configured": true }` 后，在浏览器或受控 WebView 中打开：
+返回 `{ "configured": true }` 后，Web 登录可分别打开：
 
 ```text
 {serverUrl}/api/v1/auth/oauth/start?return_to=/app
+{serverUrl}/api/v1/auth/oauth/github/start?return_to=/app
 ```
 
-当前 Server 完成授权后会回到同源 `/app?token=<accountToken>`。插件若使用受控 WebView，可以拦截该同源导航、提取 token，然后立刻清理 WebView URL/历史记录。`return_to` 只接受 Server 内部绝对路径，不接受插件自定义 scheme 或外部 URL。
+当前 Server 完成授权后会回到同源 `/app?token=<accountToken>`。`return_to` 只接受 Server 内部绝对路径，不接受插件自定义 scheme 或外部 URL。
 
-> 当前协议尚未提供适合系统浏览器的 device authorization/PKCE token exchange。插件不能通过自定义回调 URL 接收 OAuth token，也不要要求用户复制 token。需要纯系统浏览器登录时，应先扩展 Server 的一次性授权码接口。
+桌面插件使用一次性扫码会话，`provider` 可为 `zhihu` 或 `github`；省略时为兼容旧客户端默认使用 `zhihu`：
+
+```http
+POST /api/v1/auth/oauth/qr/start?provider=github
+```
+
+Server 返回 `{ "qrId", "scanUrl", "expiresIn", "provider" }`。插件只把同源 `scanUrl` 编码成二维码，并轮询：
+
+```http
+GET /api/v1/auth/oauth/qr/{qrId}
+```
+
+结果依次为 `pending`、`complete`（含一次性 `token`）或 `expired`。手机在 `scanUrl` 完成 GitHub/知乎 OAuth 后只看到完成页；Web token 不进入二维码、手机回调 URL 或日志，并且只能由发起插件领取一次。插件领取后立即用该 token 注册本机 device，再丢弃 web token。
 
 账号 token 当前没有 refresh 接口；过期后需要重新登录。已经注册并持有有效 device refresh token 的 Host 后台运行不依赖账号 token。
 

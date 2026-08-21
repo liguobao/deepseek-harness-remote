@@ -32,6 +32,44 @@ describe('ClientModeRuntime Host account control', () => {
     expect(remoteHostFeatures('0.4.0-beta.1')).toEqual({ commandList: true, fileViewer: true })
   })
 
+  it('forwards only supported QR login providers to the Server API', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-client-qr-provider-'))
+    directories.push(directory)
+    const startOAuthQrLogin = vi.fn(async (provider: string) => ({
+      qrId: `${provider}-qr-session-1234567890`,
+      scanUrl: `https://dsh.r2049.cn/api/v1/auth/q/${provider}-qr-session-1234567890`,
+      expiresIn: 600,
+    }))
+    const runtime = new ClientModeRuntime(
+      config(),
+      new IdentityStore({ directory }),
+      { bindIdentity: vi.fn(), startOAuthQrLogin } as unknown as ClientServerApi,
+      apiProxy(),
+      gateway(),
+      logger(),
+    )
+    await runtime.start()
+    const signal = new AbortController().signal
+
+    await expect(runtime.handleControl(
+      'client.account.qr.start',
+      { provider: 'github' },
+      signal,
+    )).resolves.toMatchObject({ ok: true, value: { expiresIn: 600 } })
+    expect(startOAuthQrLogin).toHaveBeenCalledWith('github')
+
+    await expect(runtime.handleControl(
+      'client.account.qr.start',
+      { provider: 'unknown' },
+      signal,
+    )).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'internal', details: { remoteCode: 'INVALID_MESSAGE' } },
+    })
+    expect(startOAuthQrLogin).toHaveBeenCalledTimes(1)
+    await runtime.close()
+  })
+
   it('exposes Web-compatible network path details for the active Remote Client', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-client-network-'))
     directories.push(directory)

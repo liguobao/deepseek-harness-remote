@@ -10,7 +10,13 @@ import type { TypertGatewayLike } from './harness-api-bridge.js'
 import { uuidV7 } from './ids.js'
 import type { SafeLogger } from './logging.js'
 import { RemoteHarnessApiProxy } from './remote-api-proxy.js'
-import { ClientServerApi, ServerApiError, type AuthorizedPeerDevice, type ServerHostDevice } from './server-api.js'
+import {
+  ClientServerApi,
+  ServerApiError,
+  type AuthorizedPeerDevice,
+  type OAuthProvider,
+  type ServerHostDevice,
+} from './server-api.js'
 import { TypertGatewaySwitch } from './typert-gateway-switch.js'
 import type { RemoteFileViewerEndpoint } from './file-viewer-contract.js'
 import { loadWeriftFactory } from './werift-rtc.js'
@@ -201,8 +207,8 @@ export class ClientModeRuntime {
     return authorization
   }
 
-  async startClientOAuthQrLogin(): Promise<unknown> {
-    return this.server.startOAuthQrLogin()
+  async startClientOAuthQrLogin(provider: OAuthProvider): Promise<unknown> {
+    return this.server.startOAuthQrLogin(provider)
   }
 
   async pollClientOAuthQrLogin(qrId: string): Promise<unknown> {
@@ -444,7 +450,14 @@ export class ClientModeRuntime {
         }
         return ok(await this.authorizeClientWithAccount(value.email, value.password))
       }
-      if (endpoint === 'client.account.qr.start') return ok(await this.startClientOAuthQrLogin())
+      if (endpoint === 'client.account.qr.start') {
+        const value = record(payload)
+        const provider = value.provider ?? 'zhihu'
+        if (provider !== 'zhihu' && provider !== 'github') {
+          throw new ClientModeError('INVALID_MESSAGE', 'A supported OAuth provider is required.')
+        }
+        return ok(await this.startClientOAuthQrLogin(provider))
+      }
       if (endpoint === 'client.account.qr.poll') {
         const value = record(payload)
         if (typeof value.qrId !== 'string' || value.qrId.length < 20) {

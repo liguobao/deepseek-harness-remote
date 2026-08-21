@@ -55,7 +55,7 @@ them.
 ## Sign in and connect
 
 1. Open **Remote** from the Harness sidebar.
-2. Sign in with Zhihu authorization, or use your account and password. New password accounts can register with invitation code [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY).
+2. Sign in by scanning a GitHub or Zhihu QR code, or use your account and password. New password accounts can register with invitation code [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY).
 3. Enable remote control for the current computer to make it available from your other devices, or select another online computer to control it directly.
 4. Choose an existing workspace or browse remote directories to open one.
 

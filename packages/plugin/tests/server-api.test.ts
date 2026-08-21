@@ -14,6 +14,30 @@ afterEach(async () => {
 })
 
 describe('HostServerApi', () => {
+  it('starts a GitHub QR login through the provider-aware Server endpoint', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-server-github-qr-'))
+    directories.push(directory)
+    const fetchMock = vi.fn(async () => json({
+      qrId: 'github-qr-session-1234567890',
+      scanUrl: 'https://dsh.r2049.cn/api/v1/auth/q/github-qr-session-1234567890',
+      expiresIn: 600,
+      provider: 'github',
+    })) as unknown as typeof fetch
+    const api = new HostServerApi(
+      'https://dsh.r2049.cn',
+      new ServerCredentialStore(directory),
+      fetchMock,
+    )
+
+    await expect(api.startOAuthQrLogin('github')).resolves.toMatchObject({
+      qrId: 'github-qr-session-1234567890',
+      expiresIn: 600,
+    })
+    expect(String(vi.mocked(fetchMock).mock.calls[0]?.[0])).toBe(
+      'https://dsh.r2049.cn/api/v1/auth/oauth/qr/start?provider=github',
+    )
+  })
+
   it('logs in, authorizes Host registration, persists device credentials, and authenticates peer lookup', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-server-api-'))
     directories.push(directory)

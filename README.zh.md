@@ -52,7 +52,7 @@ dsh plugin --profile web add ds-harness-remote
 ## 登录与连接
 
 1. 从 Harness 侧边栏打开 **Remote** 入口。
-2. 使用知乎授权登录，或使用账号密码登录。新注册账号密码用户可使用当前邀请码 [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY)。
+2. 使用 GitHub/知乎扫码登录，或使用账号密码登录。新注册账号密码用户可使用当前邀请码 [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY)。
 3. 为当前机器启用远端控制，即可从其他设备访问这台机器；也可以直接选择另一台在线设备并控制它。
 4. 选择已有 Workspace，或浏览远端目录后打开 Workspace。
 
