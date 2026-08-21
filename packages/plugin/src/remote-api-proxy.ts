@@ -6,7 +6,7 @@ import type {
   RpcRequest,
   RpcResponse,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { RemoteClientCore } from '@dsh-remote/client-core'
+import { RemoteClientError, type RemoteClientCore } from '@dsh-remote/client-core'
 import type { EventPayload, HarnessApiFrameData, HarnessApiStreamClosedData } from '@dsh-remote/protocol'
 import { uuidV7 } from './ids.js'
 
@@ -170,7 +170,8 @@ function normalizeLegacyResponse(method: string, response: NativeResponse): Nati
 }
 
 function isRemoteDisconnect(error: unknown): boolean {
-  return error instanceof Error && (error.message === 'remote transport closed' || error.message === 'remote client closed')
+  return error instanceof RemoteClientError
+    && (error.code === 'TRANSPORT_CLOSED' || error.code === 'CLIENT_CLOSED')
 }
 
 class AsyncFrameQueue<TFrame> implements AsyncIterable<RpcRequest<TFrame>> {

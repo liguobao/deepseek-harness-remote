@@ -4360,6 +4360,14 @@ function cryptoRandomId() {
 }
 
 // ../client-core/dist/index.js
+var RemoteClientError = class extends Error {
+  code;
+  constructor(code, message, options) {
+    super(message, options);
+    this.code = code;
+    this.name = "RemoteClientError";
+  }
+};
 var RemoteClientCore = class {
   transport;
   timeoutMs;
@@ -4368,6 +4376,7 @@ var RemoteClientCore = class {
   unsubscribeTransport;
   unsubscribeClose;
   closeHandlers = /* @__PURE__ */ new Set();
+  closeNotified = false;
   constructor(transport, timeoutMs = 3e4) {
     this.transport = transport;
     this.timeoutMs = timeoutMs;
@@ -4375,6 +4384,7 @@ var RemoteClientCore = class {
   async connect() {
     if (this.unsubscribeTransport !== void 0)
       return;
+    this.closeNotified = false;
     this.unsubscribeTransport = this.transport.onMessage((data) => this.handleMessage(data));
     this.unsubscribeClose = this.transport.onClose?.(() => this.handleTransportClose());
     try {
@@ -4388,23 +4398,24 @@ var RemoteClientCore = class {
     }
   }
   async rpc(method, params, signal) {
-    signal?.throwIfAborted();
+    if (signal?.aborted)
+      throw rpcAbortedError(method, signal.reason);
     const request = createRpcRequest(method, params);
     const result = new Promise((resolve2, reject) => {
       const timer = setTimeout(() => {
-        const pending2 = this.pending.get(request.id);
-        pending2?.removeAbort?.();
-        this.pending.delete(request.id);
-        reject(new Error(`RPC ${method} timed out`));
+        this.rejectPending(request.id, new RemoteClientError("RPC_TIMEOUT", `RPC ${method} timed out after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
-      const pending = { resolve: resolve2, reject, timer };
+      const pending = {
+        method,
+        resolve: resolve2,
+        reject,
+        timer
+      };
       if (signal !== void 0) {
         const onAbort = () => {
           if (this.pending.get(request.id) !== pending)
             return;
-          clearTimeout(timer);
-          this.pending.delete(request.id);
-          reject(signal.reason instanceof Error ? signal.reason : new Error("RPC was cancelled"));
+          this.rejectPending(request.id, rpcAbortedError(method, signal.reason));
         };
         signal.addEventListener("abort", onAbort, { once: true });
         pending.removeAbort = () => signal.removeEventListener("abort", onAbort);
@@ -4412,15 +4423,12 @@ var RemoteClientCore = class {
       this.pending.set(request.id, pending);
     });
     try {
-      await this.transport.send(encodeMessage(request));
+      const send = this.transport.send(encodeMessage(request));
+      void send.catch((error) => {
+        this.rejectPending(request.id, transportSendError(error));
+      });
     } catch (error) {
-      const pending = this.pending.get(request.id);
-      if (pending !== void 0) {
-        clearTimeout(pending.timer);
-        pending.removeAbort?.();
-      }
-      this.pending.delete(request.id);
-      throw error;
+      this.rejectPending(request.id, transportSendError(error));
     }
     return result;
   }
@@ -4440,23 +4448,13 @@ var RemoteClientCore = class {
     this.unsubscribeTransport = void 0;
     this.unsubscribeClose?.();
     this.unsubscribeClose = void 0;
+    this.rejectAllPending((pending) => new RemoteClientError("CLIENT_CLOSED", `RPC ${pending.method} terminated because the remote client closed`));
+    this.notifyClose();
     await this.transport.close();
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.removeAbort?.();
-      pending.reject(new Error("remote client closed"));
-    }
-    this.pending.clear();
   }
   handleTransportClose() {
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.removeAbort?.();
-      pending.reject(new Error("remote transport closed"));
-    }
-    this.pending.clear();
-    for (const handler of this.closeHandlers)
-      handler();
+    this.rejectAllPending((pending) => new RemoteClientError("TRANSPORT_CLOSED", `RPC ${pending.method} terminated because the remote transport closed`));
+    this.notifyClose();
   }
   handleMessage(data) {
     const message = decodeMessage(data);
@@ -4471,24 +4469,54 @@ var RemoteClientCore = class {
     }
   }
   handleResponse(message) {
-    const pending = this.pending.get(message.payload.requestId);
+    const pending = this.takePending(message.payload.requestId);
     if (pending === void 0)
       return;
-    this.pending.delete(message.payload.requestId);
-    clearTimeout(pending.timer);
-    pending.removeAbort?.();
     pending.resolve(message.payload.result);
   }
   handleError(message) {
-    const pending = this.pending.get(message.payload.requestId);
+    const pending = this.takePending(message.payload.requestId);
     if (pending === void 0)
       return;
-    this.pending.delete(message.payload.requestId);
-    clearTimeout(pending.timer);
-    pending.removeAbort?.();
     pending.reject(Object.assign(new Error(message.payload.message), { code: message.payload.code }));
   }
+  takePending(requestId) {
+    const pending = this.pending.get(requestId);
+    if (pending === void 0)
+      return void 0;
+    this.pending.delete(requestId);
+    clearTimeout(pending.timer);
+    pending.removeAbort?.();
+    return pending;
+  }
+  rejectPending(requestId, error) {
+    const pending = this.takePending(requestId);
+    if (pending === void 0)
+      return false;
+    pending.reject(error);
+    return true;
+  }
+  rejectAllPending(createError) {
+    for (const requestId of [...this.pending.keys()]) {
+      const pending = this.takePending(requestId);
+      if (pending !== void 0)
+        pending.reject(createError(pending));
+    }
+  }
+  notifyClose() {
+    if (this.closeNotified)
+      return;
+    this.closeNotified = true;
+    for (const handler of this.closeHandlers)
+      handler();
+  }
 };
+function rpcAbortedError(method, reason) {
+  return new RemoteClientError("RPC_ABORTED", `RPC ${method} was aborted`, reason === void 0 ? void 0 : { cause: reason });
+}
+function transportSendError(error) {
+  return error instanceof Error ? error : new Error("remote transport send failed", { cause: error });
+}
 
 // ../webrtc/dist/transport.js
 var BaseTransport = class {
@@ -4781,7 +4809,6 @@ function isChunk(frame) {
 
 // ../webrtc/dist/rtc-data-channel.js
 var DEFAULT_NEGOTIATE_TIMEOUT_MS = 8e3;
-var DEFAULT_SEND_TIMEOUT_MS = 5e3;
 var RtcDataChannelTransport = class {
   pc;
   role;
@@ -4815,7 +4842,7 @@ var RtcDataChannelTransport = class {
     this.onSignal = options.onSignal;
     this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS;
     this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL;
-    this.sendTimeoutMs = options.sendTimeoutMs ?? DEFAULT_SEND_TIMEOUT_MS;
+    this.sendTimeoutMs = options.sendTimeoutMs;
     this.pc = options.factory.create({ iceServers: options.iceServers });
     this.pc.ondatachannel = (event) => this.adoptChannel(event.channel);
     this.pc.onicecandidate = (event) => {
@@ -5108,11 +5135,16 @@ var RtcDataChannelTransport = class {
     return channel;
   }
   armWatchdog(channel) {
-    if (this.watchdogTimer !== void 0 || this.closed)
+    if (this.closed || this.sendTimeoutMs === void 0 || this.sendTimeoutMs <= 0)
       return;
+    if (this.watchdogTimer !== void 0)
+      clearTimeout(this.watchdogTimer);
+    this.watchdogTimer = void 0;
     const baseline = channel.bufferedAmount;
-    if (baseline <= 0)
+    if (baseline <= 0) {
+      this.lastBufferedAmount = 0;
       return;
+    }
     this.lastBufferedAmount = baseline;
     this.watchdogTimer = setTimeout(() => {
       this.watchdogTimer = void 0;
@@ -5503,7 +5535,10 @@ var AdaptiveTransport = class extends BaseTransport {
       this.bytesReceived += data.byteLength;
       this.emit(data);
     });
-    rtc.onClose(() => this.emitClose());
+    rtc.onClose(() => {
+      if (this.rtc === rtc && this.dataMode === "webrtc")
+        this.emitClose();
+    });
     try {
       await rtc.connect();
     } catch (error) {
@@ -12960,7 +12995,7 @@ function normalizeLegacyResponse(method, response) {
   };
 }
 function isRemoteDisconnect(error) {
-  return error instanceof Error && (error.message === "remote transport closed" || error.message === "remote client closed");
+  return error instanceof RemoteClientError && (error.code === "TRANSPORT_CLOSED" || error.code === "CLIENT_CLOSED");
 }
 var AsyncFrameQueue = class {
   values = [];
