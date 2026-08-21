@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { automaticPreferredTransports, networkRouteForNativeType } from '../src/lib/network-route'
+import {
+  automaticPreferredTransports,
+  networkRouteForNativeType,
+  shouldReconnectForNetworkRoute,
+} from '../src/lib/network-route'
 
 describe('automatic transport routing', () => {
   it('prefers LAN before every fallback on local or unknown networks', () => {
@@ -16,5 +20,14 @@ describe('automatic transport routing', () => {
     expect(networkRouteForNativeType('ethernet')).toBe('local')
     expect(networkRouteForNativeType('cellular')).toBe('remote')
     expect(networkRouteForNativeType('unknown')).toBe('unknown')
+  })
+
+  it('renegotiates only between confirmed local and remote routes', () => {
+    expect(shouldReconnectForNetworkRoute('local', 'remote')).toBe(true)
+    expect(shouldReconnectForNetworkRoute('remote', 'local')).toBe(true)
+    expect(shouldReconnectForNetworkRoute(undefined, 'local')).toBe(false)
+    expect(shouldReconnectForNetworkRoute('unknown', 'local')).toBe(false)
+    expect(shouldReconnectForNetworkRoute('local', 'unknown')).toBe(false)
+    expect(shouldReconnectForNetworkRoute('local', 'local')).toBe(false)
   })
 })

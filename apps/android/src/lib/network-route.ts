@@ -9,6 +9,22 @@ export function networkRouteForNativeType(type: string | null | undefined): Netw
 }
 
 /**
+ * Only confirmed moves between local-capable and remote networks require a
+ * fresh ICE negotiation. NetInfo reports `unknown` transiently during app
+ * startup and Android network validation; treating that as a route change
+ * tears down a healthy connection moments after it opens.
+ */
+export function shouldReconnectForNetworkRoute(
+  previous: NetworkRoute | undefined,
+  next: NetworkRoute,
+): boolean {
+  return previous !== undefined
+    && previous !== 'unknown'
+    && next !== 'unknown'
+    && previous !== next
+}
+
+/**
  * Keep LAN first whenever the device is on a local-capable network. ICE still
  * validates the candidate pair; this only expresses the preferred order to
  * the Host and Server control plane.

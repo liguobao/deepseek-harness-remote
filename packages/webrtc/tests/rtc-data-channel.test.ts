@@ -198,6 +198,77 @@ describe('RtcDataChannelTransport initiator', () => {
     await transport.close()
   })
 
+  it('does not treat continued sends as a stalled DataChannel queue', async () => {
+    vi.useFakeTimers()
+    try {
+      const pc = new FakePeerConnection()
+      pc.stats = lanStats()
+      const transport = new RtcDataChannelTransport({
+        role: 'initiator',
+        factory: factoryFor(pc),
+        onSignal: () => undefined,
+        sendTimeoutMs: 5_000,
+      })
+      const connecting = transport.connect()
+      await vi.advanceTimersByTimeAsync(0)
+      transport.handleSignal({ type: 'answer', sdp: 'v=0 answer' })
+      await vi.advanceTimersByTimeAsync(0)
+      const channel = pc.channels[0]!
+      channel.open()
+      await connecting
+
+      channel.bufferedAmount = 10
+      await transport.send(new Uint8Array([1]))
+      await vi.advanceTimersByTimeAsync(4_000)
+
+      // Loading a conversation sends more requests while earlier writes are
+      // still draining. The newer send must refresh the watchdog baseline;
+      // it is evidence of active traffic, not evidence that the first write
+      // has been stuck for five seconds.
+      channel.bufferedAmount = 20
+      await transport.send(new Uint8Array([2]))
+      await vi.advanceTimersByTimeAsync(1_100)
+      expect(transport.getStats()).toMatchObject({ mode: 'LAN', connected: true })
+
+      channel.bufferedAmount = 0
+      await vi.advanceTimersByTimeAsync(4_000)
+      expect(transport.getStats()).toMatchObject({ mode: 'LAN', connected: true })
+      await transport.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not infer a dead connection from bufferedAmount by default', async () => {
+    vi.useFakeTimers()
+    try {
+      const pc = new FakePeerConnection()
+      pc.stats = lanStats()
+      const transport = new RtcDataChannelTransport({
+        role: 'initiator',
+        factory: factoryFor(pc),
+        onSignal: () => undefined,
+      })
+      const connecting = transport.connect()
+      await vi.advanceTimersByTimeAsync(0)
+      transport.handleSignal({ type: 'answer', sdp: 'v=0 answer' })
+      await vi.advanceTimersByTimeAsync(0)
+      const channel = pc.channels[0]!
+      channel.open()
+      await connecting
+
+      // React Native may retain a positive bufferedAmount even after SCTP has
+      // delivered the frame. It is not an acknowledgement or liveness signal.
+      channel.bufferedAmount = 64 * 1024
+      await transport.send(new Uint8Array([1, 2, 3]))
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(transport.getStats()).toMatchObject({ mode: 'LAN', connected: true })
+      await transport.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('detects turn from the selected candidate pair', async () => {
     const pc = new FakePeerConnection()
     pc.stats = turnStats()

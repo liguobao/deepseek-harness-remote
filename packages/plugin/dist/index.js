@@ -4627,6 +4627,9 @@ function adaptDataChannel(raw) {
     get binaryType() {
       return raw.binaryType;
     },
+    set binaryType(value) {
+      raw.binaryType = value;
+    },
     set onopen(value) {
       raw.onopen = value;
     },
@@ -4777,7 +4780,6 @@ function isChunk(frame) {
 
 // ../webrtc/dist/rtc-data-channel.js
 var DEFAULT_NEGOTIATE_TIMEOUT_MS = 8e3;
-var DEFAULT_SEND_TIMEOUT_MS = 5e3;
 var RtcDataChannelTransport = class {
   pc;
   role;
@@ -4811,7 +4813,7 @@ var RtcDataChannelTransport = class {
     this.onSignal = options.onSignal;
     this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS;
     this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL;
-    this.sendTimeoutMs = options.sendTimeoutMs ?? DEFAULT_SEND_TIMEOUT_MS;
+    this.sendTimeoutMs = options.sendTimeoutMs;
     this.pc = options.factory.create({ iceServers: options.iceServers });
     this.pc.ondatachannel = (event) => this.adoptChannel(event.channel);
     this.pc.onicecandidate = (event) => {
@@ -5104,11 +5106,16 @@ var RtcDataChannelTransport = class {
     return channel;
   }
   armWatchdog(channel) {
-    if (this.watchdogTimer !== void 0 || this.closed)
+    if (this.closed || this.sendTimeoutMs === void 0 || this.sendTimeoutMs <= 0)
       return;
+    if (this.watchdogTimer !== void 0)
+      clearTimeout(this.watchdogTimer);
+    this.watchdogTimer = void 0;
     const baseline = channel.bufferedAmount;
-    if (baseline <= 0)
+    if (baseline <= 0) {
+      this.lastBufferedAmount = 0;
       return;
+    }
     this.lastBufferedAmount = baseline;
     this.watchdogTimer = setTimeout(() => {
       this.watchdogTimer = void 0;
@@ -5499,7 +5506,10 @@ var AdaptiveTransport = class extends BaseTransport {
       this.bytesReceived += data.byteLength;
       this.emit(data);
     });
-    rtc.onClose(() => this.emitClose());
+    rtc.onClose(() => {
+      if (this.rtc === rtc && this.dataMode === "webrtc")
+        this.emitClose();
+    });
     try {
       await rtc.connect();
     } catch (error) {

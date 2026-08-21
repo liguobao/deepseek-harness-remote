@@ -54,14 +54,17 @@ export interface RtcDataChannelTransportOptions {
   onSignal: (signal: RtcSignal) => void
   negotiateTimeoutMs?: number
   channelLabel?: string
-  /** Send watchdog: if a frame stays queued longer than this, the transport is failed. */
+  /**
+   * Optional send watchdog for RTC implementations whose `bufferedAmount`
+   * reliably returns to zero. Disabled by default because React Native and
+   * some werift versions retain a positive value after data was delivered.
+   */
   sendTimeoutMs?: number
   /** Human-readable diagnostic label; never logged with sensitive content. */
   label?: string
 }
 
 const DEFAULT_NEGOTIATE_TIMEOUT_MS = 8_000
-const DEFAULT_SEND_TIMEOUT_MS = 5_000
 
 /**
  * Complete WebRTC DataChannel transport state machine (webrtc plan §6.1).
@@ -78,7 +81,7 @@ export class RtcDataChannelTransport {
   private readonly onSignal: (signal: RtcSignal) => void
   private readonly negotiateTimeoutMs: number
   private readonly channelLabel: string
-  private readonly sendTimeoutMs: number
+  private readonly sendTimeoutMs?: number
 
   private channel?: RtcDataChannel
   private readonly remoteCandidates: RtcIceCandidateInit[] = []
@@ -110,7 +113,7 @@ export class RtcDataChannelTransport {
     this.onSignal = options.onSignal
     this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS
     this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL
-    this.sendTimeoutMs = options.sendTimeoutMs ?? DEFAULT_SEND_TIMEOUT_MS
+    this.sendTimeoutMs = options.sendTimeoutMs
 
     this.pc = options.factory.create({ iceServers: options.iceServers })
     this.pc.ondatachannel = event => this.adoptChannel(event.channel)
@@ -399,9 +402,14 @@ export class RtcDataChannelTransport {
   }
 
   private armWatchdog(channel: RtcDataChannel): void {
-    if (this.watchdogTimer !== undefined || this.closed) return
+    if (this.closed || this.sendTimeoutMs === undefined || this.sendTimeoutMs <= 0) return
+    if (this.watchdogTimer !== undefined) clearTimeout(this.watchdogTimer)
+    this.watchdogTimer = undefined
     const baseline = channel.bufferedAmount
-    if (baseline <= 0) return
+    if (baseline <= 0) {
+      this.lastBufferedAmount = 0
+      return
+    }
     this.lastBufferedAmount = baseline
     this.watchdogTimer = setTimeout(() => {
       this.watchdogTimer = undefined

@@ -8,7 +8,11 @@ import { DeviceDetailScreen, DevicesScreen, SessionsScreen } from './src/screens
 import { ServerSetupScreen, SettingsScreen } from './src/screens/setup-screens'
 import { WorkspacesScreen } from './src/screens/workspaces-screen'
 import { useAppStore } from './src/state/store'
-import { networkRouteForNativeType, type NetworkRoute } from './src/lib/network-route'
+import {
+  networkRouteForNativeType,
+  shouldReconnectForNetworkRoute,
+  type NetworkRoute,
+} from './src/lib/network-route'
 import { Button, ErrorBanner } from './src/ui/components'
 import { colors, radius, spacing, type } from './src/ui/theme'
 import zhCN from './src/locales/zh-CN'
@@ -105,7 +109,9 @@ function AppNavigator() {
   useEffect(() => NetInfo.addEventListener(state => {
     const nextRoute = networkRouteForNativeType(state.type)
     const previousRoute = networkRoute.current
-    networkRoute.current = nextRoute
+    // Preserve the last confirmed route across NetInfo's transient `unknown`
+    // states so a later real local/remote move is still detected.
+    if (nextRoute !== 'unknown') networkRoute.current = nextRoute
     if (state.isConnected === false) {
       setOffline()
       return
@@ -117,7 +123,7 @@ function AppNavigator() {
     }
     // A move onto/off the local network needs a fresh ICE negotiation. Without
     // it an existing Relay channel remains selected even after Wi-Fi is ready.
-    if (previousRoute !== undefined && previousRoute !== nextRoute
+    if (shouldReconnectForNetworkRoute(previousRoute, nextRoute)
       && app.connection.phase === 'connected' && app.selectedDevice !== undefined) {
       void reconnect()
     }
