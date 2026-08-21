@@ -88,6 +88,8 @@ export class RemoteClientCore {
       this.pending.set(request.id, pending)
     })
 
+    // Do not await the write: timeout, abort, or close must be able to settle
+    // the RPC even when the transport send itself never completes.
     try {
       const send = this.transport.send(encodeMessage(request))
       void send.catch(error => {
