@@ -43,11 +43,11 @@ dsh plugin --profile web add ds-harness-remote
 
 项目地址：[npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.22`。
+如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.23`。
 
 安装后请重启 Harness。
 
-`0.3.22` Client 继续兼容 `0.3.15` Host 的远端 Workspace 与会话；远端命令目录、文件查看等后续能力只会在所选 Host 支持时启用。
+`0.3.23` Client 继续兼容 `0.3.15` Host 的远端 Workspace 与会话；远端命令目录、文件查看等后续能力只会在所选 Host 支持时启用。
 
 ## 登录与连接
 

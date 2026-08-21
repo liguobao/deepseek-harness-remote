@@ -70,6 +70,7 @@ describe('Cordis plugin lifecycle', () => {
           version: '0.1.0-rc.8',
           cwd: '/workspace',
           attachedSessions: 0,
+          home: '/home/tester',
           canOpenPath: false,
         },
       },

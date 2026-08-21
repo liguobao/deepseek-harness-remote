@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.23
+
+- Adds progress details while the DSH Client connects to a remote Host and
+  opens a remote workspace.
+- Verifies installation and plugin loading against DeepSeek Harness
+  `dsh-v0.1.1-rc.1`.
+- Updates local DSH development peers to `0.1.1-rc.1` while keeping the
+  published peer range compatible with older DSH builds.
+
 ## 0.3.22
 
 - Adds provider-aware GitHub and Zhihu QR sign-in while keeping password

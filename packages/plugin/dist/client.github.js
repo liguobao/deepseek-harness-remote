@@ -1771,6 +1771,20 @@ Minimum version required to store current data is: ` + bestVersion + `.
     openWorkspace: "Open workspace",
     openingWorkspace: "Opening\u2026",
     loadingDirectory: "Loading directories\u2026",
+    remoteProgressCheckingHost: "Checking Host",
+    remoteProgressCheckingHostDetail: "Finding the selected device and checking whether it is online.",
+    remoteProgressAuthorizingPeer: "Verifying authorization",
+    remoteProgressAuthorizingPeerDetail: "Confirming account membership and pinned Host identity.",
+    remoteProgressOpeningChannel: "Opening encrypted channel",
+    remoteProgressOpeningChannelDetail: "Trying LAN, P2P, TURN, then Relay if needed.",
+    remoteProgressLoadingWorkspaces: "Loading workspaces",
+    remoteProgressLoadingWorkspacesDetail: "Reading the remote Harness workspace list through the tunnel.",
+    remoteProgressOpeningWorkspace: "Opening workspace",
+    remoteProgressOpeningWorkspaceDetail: "Asking the Host to prepare the selected working directory.",
+    remoteProgressSwitchingWorkspace: "Switching interface",
+    remoteProgressSwitchingWorkspaceDetail: "Handing the remote workspace to the local Harness UI.",
+    remoteProgressReady: "Ready",
+    remoteProgressReadyDetail: "The remote Host is connected and encrypted.",
     backToHosts: "Choose another Host",
     currentDirectory: "Selected directory",
     directoryTruncated: "Only part of this directory could be shown.",
@@ -1941,6 +1955,20 @@ Minimum version required to store current data is: ` + bestVersion + `.
     openWorkspace: "\u6253\u5F00\u5DE5\u4F5C\u533A",
     openingWorkspace: "\u6B63\u5728\u6253\u5F00\u2026",
     loadingDirectory: "\u6B63\u5728\u52A0\u8F7D\u76EE\u5F55\u2026",
+    remoteProgressCheckingHost: "\u6B63\u5728\u68C0\u67E5 Host",
+    remoteProgressCheckingHostDetail: "\u6B63\u5728\u67E5\u627E\u6240\u9009\u8BBE\u5907\u5E76\u786E\u8BA4\u662F\u5426\u5728\u7EBF\u3002",
+    remoteProgressAuthorizingPeer: "\u6B63\u5728\u9A8C\u8BC1\u6388\u6743",
+    remoteProgressAuthorizingPeerDetail: "\u6B63\u5728\u786E\u8BA4\u8D26\u53F7\u6210\u5458\u5173\u7CFB\u548C\u5DF2\u56FA\u5B9A\u7684 Host \u8EAB\u4EFD\u3002",
+    remoteProgressOpeningChannel: "\u6B63\u5728\u5EFA\u7ACB\u52A0\u5BC6\u901A\u9053",
+    remoteProgressOpeningChannelDetail: "\u4F9D\u6B21\u5C1D\u8BD5\u5C40\u57DF\u7F51\u3001P2P\u3001TURN\uFF0C\u5FC5\u8981\u65F6\u56DE\u843D\u5230 Relay\u3002",
+    remoteProgressLoadingWorkspaces: "\u6B63\u5728\u52A0\u8F7D\u5DE5\u4F5C\u533A",
+    remoteProgressLoadingWorkspacesDetail: "\u901A\u8FC7\u96A7\u9053\u8BFB\u53D6\u8FDC\u7AEF Harness \u5DE5\u4F5C\u533A\u5217\u8868\u3002",
+    remoteProgressOpeningWorkspace: "\u6B63\u5728\u6253\u5F00\u5DE5\u4F5C\u533A",
+    remoteProgressOpeningWorkspaceDetail: "\u6B63\u5728\u8BF7\u6C42 Host \u51C6\u5907\u6240\u9009\u5DE5\u4F5C\u76EE\u5F55\u3002",
+    remoteProgressSwitchingWorkspace: "\u6B63\u5728\u5207\u6362\u754C\u9762",
+    remoteProgressSwitchingWorkspaceDetail: "\u6B63\u5728\u628A\u8FDC\u7AEF\u5DE5\u4F5C\u533A\u4EA4\u7ED9\u672C\u5730 Harness UI\u3002",
+    remoteProgressReady: "\u5DF2\u5C31\u7EEA",
+    remoteProgressReadyDetail: "\u8FDC\u7AEF Host \u5DF2\u8FDE\u63A5\uFF0C\u7AEF\u5230\u7AEF\u52A0\u5BC6\u5DF2\u5EFA\u7ACB\u3002",
     backToHosts: "\u9009\u62E9\u5176\u4ED6\u4E3B\u673A",
     currentDirectory: "\u5DF2\u9009\u76EE\u5F55",
     directoryTruncated: "\u76EE\u5F55\u5185\u5BB9\u8F83\u591A\uFF0C\u76EE\u524D\u53EA\u663E\u793A\u4E86\u4E00\u90E8\u5206\u3002",
@@ -2054,6 +2082,58 @@ Minimum version required to store current data is: ` + bestVersion + `.
     id: clientModuleId,
     factory: (require2) => {
       let module = { exports: {} }, React = require2("react"), inject = ["connection", "slots", "locale", "workspaces", "sessions"];
+      function RemoteProgressView(props) {
+        let progress = props.progress;
+        if (progress === void 0) return null;
+        let percent = Math.max(0, Math.min(100, Math.round(progress.percent)));
+        return React.createElement(
+          "div",
+          {
+            className: "dshRemoteProgress",
+            role: "status",
+            "aria-live": "polite"
+          },
+          React.createElement(
+            "div",
+            { className: "dshRemoteProgressHeader" },
+            React.createElement("strong", null, props.t(progress.label)),
+            React.createElement("span", null, `${percent}%`)
+          ),
+          React.createElement("div", {
+            className: "dshRemoteProgressBar",
+            role: "progressbar",
+            "aria-valuemin": 0,
+            "aria-valuemax": 100,
+            "aria-valuenow": percent,
+            "aria-label": props.t(progress.label)
+          }, React.createElement("span", { style: { width: `${percent}%` } })),
+          React.createElement("p", null, props.t(progress.detail))
+        );
+      }
+      async function runRemoteProgress(steps, setProgress, progressRun, action) {
+        let runId = progressRun.current + 1;
+        progressRun.current = runId;
+        let apply2 = (next) => {
+          progressRun.current === runId && setProgress(next);
+        }, [first, ...rest] = steps;
+        first !== void 0 && apply2(first);
+        let timers = rest.map((step) => window.setTimeout(() => apply2(step), step.delayMs ?? 0));
+        try {
+          let result = await action();
+          return apply2({ label: "remoteProgressReady", detail: "remoteProgressReadyDetail", percent: 100 }), await new Promise((resolve) => window.setTimeout(resolve, 220)), result;
+        } finally {
+          timers.forEach((timer) => window.clearTimeout(timer)), progressRun.current === runId && setProgress(void 0);
+        }
+      }
+      let connectHostProgressSteps = [
+        { label: "remoteProgressCheckingHost", detail: "remoteProgressCheckingHostDetail", percent: 12 },
+        { label: "remoteProgressAuthorizingPeer", detail: "remoteProgressAuthorizingPeerDetail", percent: 32, delayMs: 280 },
+        { label: "remoteProgressOpeningChannel", detail: "remoteProgressOpeningChannelDetail", percent: 58, delayMs: 760 },
+        { label: "remoteProgressLoadingWorkspaces", detail: "remoteProgressLoadingWorkspacesDetail", percent: 82, delayMs: 1350 }
+      ], openWorkspaceProgressSteps = [
+        { label: "remoteProgressOpeningWorkspace", detail: "remoteProgressOpeningWorkspaceDetail", percent: 30 },
+        { label: "remoteProgressSwitchingWorkspace", detail: "remoteProgressSwitchingWorkspaceDetail", percent: 74, delayMs: 520 }
+      ];
       function RemotePluginOptions(props) {
         let { t } = props, [open, setOpen] = React.useState(!1), [serverUrl, setServerUrl] = React.useState(""), role = "host", [registrationCode, setRegistrationCode] = React.useState(""), [associations, setAssociations] = React.useState({}), [loaded, setLoaded] = React.useState(!1), [writable, setWritable] = React.useState(!1), [busy, setBusy] = React.useState(!1), [reconnectBusy, setReconnectBusy] = React.useState(!1), [hostStatus, setHostStatus] = React.useState(void 0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0), [settingsView, setSettingsView] = React.useState(void 0), persistedServerUrl = settingsView?.config.serverUrl ?? "https://dsh.r2049.cn", association = associations.client ?? associations.host, serverDirty = settingsView !== void 0 && serverUrl !== persistedServerUrl, draftDirty = serverDirty, applyView = (view) => {
           setSettingsView(view), setServerUrl(view.config.serverUrl ?? "https://dsh.r2049.cn"), setAssociations(view.associations ?? (view.association === void 0 ? {} : { host: view.association })), setWritable(view.writable), setLoaded(!0);
@@ -2282,7 +2362,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
         );
       }
       function RemoteWorkspaceAction(props) {
-        let { t } = props, [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [selectedHost, setSelectedHost] = React.useState(void 0), [workspaces, setWorkspaces] = React.useState([]), [directory, setDirectory] = React.useState(void 0), [path, setPath] = React.useState(""), [addingWorkspace, setAddingWorkspace] = React.useState(!1), [busy, setBusy] = React.useState(!1), [needsAuthorization, setNeedsAuthorization] = React.useState(!1), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [loginMethod, setLoginMethod] = React.useState(props.preferredQrProvider), [loginMethodManuallySelected, setLoginMethodManuallySelected] = React.useState(!1), [qrSession, setQrSession] = React.useState(void 0), [qrImage, setQrImage] = React.useState(void 0), [qrExpired, setQrExpired] = React.useState(!1), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0);
+        let { t } = props, [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [selectedHost, setSelectedHost] = React.useState(void 0), [workspaces, setWorkspaces] = React.useState([]), [directory, setDirectory] = React.useState(void 0), [path, setPath] = React.useState(""), [addingWorkspace, setAddingWorkspace] = React.useState(!1), [busy, setBusy] = React.useState(!1), [needsAuthorization, setNeedsAuthorization] = React.useState(!1), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [loginMethod, setLoginMethod] = React.useState(props.preferredQrProvider), [loginMethodManuallySelected, setLoginMethodManuallySelected] = React.useState(!1), [qrSession, setQrSession] = React.useState(void 0), [qrImage, setQrImage] = React.useState(void 0), [qrExpired, setQrExpired] = React.useState(!1), [progress, setProgress] = React.useState(void 0), progressRun = React.useRef(0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0);
         React.useEffect(() => {
           if (!open) return;
           let closeOnEscape = (event) => {
@@ -2347,7 +2427,12 @@ Minimum version required to store current data is: ` + bestVersion + `.
         }, t(provider === "github" ? "githubLogin" : "zhihuLogin")), selectHost = async (host) => {
           setBusy(!0), setError(void 0);
           try {
-            setWorkspaces(await props.control("workspaces.list", { targetDeviceId: host.deviceId })), setSelectedHost(host), setPath(""), setAddingWorkspace(!1), setDirectory(void 0);
+            setWorkspaces(await runRemoteProgress(
+              connectHostProgressSteps,
+              setProgress,
+              progressRun,
+              () => props.control("workspaces.list", { targetDeviceId: host.deviceId })
+            )), setSelectedHost(host), setPath(""), setAddingWorkspace(!1), setDirectory(void 0);
           } catch (reason) {
             setError(messageOf(reason));
           } finally {
@@ -2423,10 +2508,15 @@ Minimum version required to store current data is: ` + bestVersion + `.
           if (!(selectedHost === void 0 || path.trim() === "")) {
             setBusy(!0), setError(void 0);
             try {
-              await props.control("workspace.open", {
-                targetDeviceId: selectedHost.deviceId,
-                path: path.trim()
-              }), window.location.reload();
+              await runRemoteProgress(
+                openWorkspaceProgressSteps,
+                setProgress,
+                progressRun,
+                () => props.control("workspace.open", {
+                  targetDeviceId: selectedHost.deviceId,
+                  path: path.trim()
+                })
+              ), window.location.reload();
             } catch (reason) {
               setError(messageOf(reason)), setBusy(!1);
             }
@@ -2663,6 +2753,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
                       React.createElement("small", null, [formatPlatform(selectedHost.platform), t("online")].join(" \xB7 "))
                     )
                   ),
+                  React.createElement(RemoteProgressView, { progress, t }),
                   selectedHost === void 0 ? React.createElement("p", { className: "dshRemoteHint" }, t("selectHostHint")) : React.createElement(
                     "section",
                     { className: "dshRemoteBrowser", "aria-label": t("chooseDirectory") },
@@ -2742,7 +2833,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
         );
       }
       function RemoteModeAction(props) {
-        let { t } = props, [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [hostRegistrationCode, setHostRegistrationCode] = React.useState(""), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [busy, setBusy] = React.useState(!1), [error, setError] = React.useState(void 0), [supported, setSupported] = React.useState(!0), refresh = async () => {
+        let { t } = props, [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [hostRegistrationCode, setHostRegistrationCode] = React.useState(""), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [busy, setBusy] = React.useState(!1), [progress, setProgress] = React.useState(void 0), progressRun = React.useRef(0), [error, setError] = React.useState(void 0), [supported, setSupported] = React.useState(!0), refresh = async () => {
           let [nextStatus, nextDevices] = await Promise.all([
             props.control("status"),
             props.control("devices").catch(() => [])
@@ -2766,7 +2857,8 @@ Minimum version required to store current data is: ` + bestVersion + `.
         let switchMode = async (mode, targetDeviceId) => {
           setBusy(!0), setError(void 0);
           try {
-            await props.control("mode.set", { mode, ...targetDeviceId === void 0 ? {} : { targetDeviceId } }), window.location.reload();
+            let action = () => props.control("mode.set", { mode, ...targetDeviceId === void 0 ? {} : { targetDeviceId } });
+            mode === "remote" ? await runRemoteProgress(connectHostProgressSteps, setProgress, progressRun, action) : await action(), window.location.reload();
           } catch (reason) {
             setError(messageOf(reason)), setBusy(!1);
           }
@@ -2831,6 +2923,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
                 disabled: busy || !device.online || status?.target?.deviceId === device.deviceId,
                 onClick: () => void switchMode("remote", device.deviceId)
               }, `${device.name} \xB7 ${t(device.online ? "online" : "offline")}`))),
+              React.createElement(RemoteProgressView, { progress, t }),
               status?.hostAuthorizationAvailable && status.host !== void 0 ? React.createElement(
                 "div",
                 { className: "dshRemoteHostAccount" },
@@ -3076,6 +3169,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           ".dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
           ".dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList>button>span{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteHostList>button strong{font-size:14px;font-weight:500}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary);font-size:12px}",
           ".dshRemoteSelectedHost{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}",
+          ".dshRemoteProgress{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}.dshRemoteProgressHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}.dshRemoteProgressHeader strong{font-size:13px;font-weight:600}.dshRemoteProgressHeader span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteProgressBar{height:6px;overflow:hidden;border-radius:999px;background:var(--dsw-alias-bg-layer-3)}.dshRemoteProgressBar>span{display:block;height:100%;border-radius:inherit;background:var(--dsw-alias-brand-primary);transition:width .22s ease-out}.dshRemoteProgress p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}@media(prefers-reduced-motion:reduce){.dshRemoteProgressBar>span{transition:none}}",
           '.dshRemoteBrowser{display:flex;flex-direction:column}.dshRemoteCrumbs{display:flex;align-items:center;gap:4px;overflow:auto;padding:2px 0 10px}.dshRemoteCrumbs>button{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 7px;border-radius:6px;cursor:pointer}.dshRemoteCrumbs>button:not(:last-child)::after{content:" /";color:var(--dsw-alias-label-tertiary)}.dshRemoteCrumbs>button:disabled{color:var(--dsw-alias-label-primary);font-weight:600}',
           ".dshRemoteDirectoryList{min-height:72px;display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteDirectoryList>button{min-height:52px;display:grid;grid-template-columns:auto 1fr;column-gap:10px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:8px 4px;cursor:pointer}.dshRemoteDirectoryList>button:hover,.dshRemoteDirectoryList>button.isSelected{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteDirectoryList>button.isSelected{color:var(--dsw-alias-label-primary)}.dshRemoteDirectoryList>button>span:first-child{grid-row:1/3}.dshRemoteDirectoryList>button>small{grid-column:2;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis}.dshRemoteDirectoryList>p,.dshRemoteHint{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}",
           ".dshRemoteFolderBrowser{margin-top:14px}.dshRemoteFolderBrowser>p,.dshRemoteFolderList>p{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemoteFolderList{max-height:260px;overflow:auto;border-block:1px solid var(--dsw-alias-border-l2)}.dshRemoteFolderList>button{width:100%;min-height:42px;display:flex;align-items:center;gap:9px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:7px 6px;text-align:left;cursor:pointer}.dshRemoteFolderList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteFolderBrowser>small{display:block;margin-top:8px;color:var(--dsw-alias-state-warn-label)}",

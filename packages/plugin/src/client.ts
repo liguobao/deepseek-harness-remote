@@ -270,6 +270,20 @@ const en = {
   openWorkspace: 'Open workspace',
   openingWorkspace: 'Opening…',
   loadingDirectory: 'Loading directories…',
+  remoteProgressCheckingHost: 'Checking Host',
+  remoteProgressCheckingHostDetail: 'Finding the selected device and checking whether it is online.',
+  remoteProgressAuthorizingPeer: 'Verifying authorization',
+  remoteProgressAuthorizingPeerDetail: 'Confirming account membership and pinned Host identity.',
+  remoteProgressOpeningChannel: 'Opening encrypted channel',
+  remoteProgressOpeningChannelDetail: 'Trying LAN, P2P, TURN, then Relay if needed.',
+  remoteProgressLoadingWorkspaces: 'Loading workspaces',
+  remoteProgressLoadingWorkspacesDetail: 'Reading the remote Harness workspace list through the tunnel.',
+  remoteProgressOpeningWorkspace: 'Opening workspace',
+  remoteProgressOpeningWorkspaceDetail: 'Asking the Host to prepare the selected working directory.',
+  remoteProgressSwitchingWorkspace: 'Switching interface',
+  remoteProgressSwitchingWorkspaceDetail: 'Handing the remote workspace to the local Harness UI.',
+  remoteProgressReady: 'Ready',
+  remoteProgressReadyDetail: 'The remote Host is connected and encrypted.',
   backToHosts: 'Choose another Host',
   currentDirectory: 'Selected directory',
   directoryTruncated: 'Only part of this directory could be shown.',
@@ -442,6 +456,20 @@ const zh: Record<keyof typeof en, string> = {
   openWorkspace: '打开工作区',
   openingWorkspace: '正在打开…',
   loadingDirectory: '正在加载目录…',
+  remoteProgressCheckingHost: '正在检查 Host',
+  remoteProgressCheckingHostDetail: '正在查找所选设备并确认是否在线。',
+  remoteProgressAuthorizingPeer: '正在验证授权',
+  remoteProgressAuthorizingPeerDetail: '正在确认账号成员关系和已固定的 Host 身份。',
+  remoteProgressOpeningChannel: '正在建立加密通道',
+  remoteProgressOpeningChannelDetail: '依次尝试局域网、P2P、TURN，必要时回落到 Relay。',
+  remoteProgressLoadingWorkspaces: '正在加载工作区',
+  remoteProgressLoadingWorkspacesDetail: '通过隧道读取远端 Harness 工作区列表。',
+  remoteProgressOpeningWorkspace: '正在打开工作区',
+  remoteProgressOpeningWorkspaceDetail: '正在请求 Host 准备所选工作目录。',
+  remoteProgressSwitchingWorkspace: '正在切换界面',
+  remoteProgressSwitchingWorkspaceDetail: '正在把远端工作区交给本地 Harness UI。',
+  remoteProgressReady: '已就绪',
+  remoteProgressReadyDetail: '远端 Host 已连接，端到端加密已建立。',
   backToHosts: '选择其他主机',
   currentDirectory: '已选目录',
   directoryTruncated: '目录内容较多，目前只显示了一部分。',
@@ -530,6 +558,16 @@ interface LocalizedMessage {
   params?: Record<string, string | number>
 }
 
+interface RemoteConnectionProgress {
+  label: LocaleKey
+  detail: LocaleKey
+  percent: number
+}
+
+interface RemoteConnectionProgressStep extends RemoteConnectionProgress {
+  delayMs?: number
+}
+
 function formatLocalTime(value: number): string {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
@@ -605,9 +643,73 @@ window.__ModuleLoader__.load({
       Fragment: unknown
       createElement(type: unknown, props?: Record<string, unknown> | null, ...children: unknown[]): unknown
       useEffect(effect: () => void | (() => void), deps: unknown[]): void
+      useRef<T>(initial: T): { current: T }
       useState<T>(initial: T): [T, (value: T | ((previous: T) => T)) => void]
     }
     const inject = ['connection', 'slots', 'locale', 'workspaces', 'sessions']
+
+    function RemoteProgressView(props: {
+      progress: RemoteConnectionProgress | undefined
+      t: Translate
+    }): unknown {
+      const progress = props.progress
+      if (progress === undefined) return null
+      const percent = Math.max(0, Math.min(100, Math.round(progress.percent)))
+      return React.createElement('div', {
+        className: 'dshRemoteProgress',
+        role: 'status',
+        'aria-live': 'polite',
+      },
+      React.createElement('div', { className: 'dshRemoteProgressHeader' },
+        React.createElement('strong', null, props.t(progress.label)),
+        React.createElement('span', null, `${percent}%`)),
+      React.createElement('div', {
+        className: 'dshRemoteProgressBar',
+        role: 'progressbar',
+        'aria-valuemin': 0,
+        'aria-valuemax': 100,
+        'aria-valuenow': percent,
+        'aria-label': props.t(progress.label),
+      }, React.createElement('span', { style: { width: `${percent}%` } })),
+      React.createElement('p', null, props.t(progress.detail)))
+    }
+
+    async function runRemoteProgress<T>(
+      steps: RemoteConnectionProgressStep[],
+      setProgress: (value: RemoteConnectionProgress | undefined) => void,
+      progressRun: { current: number },
+      action: () => Promise<T>,
+    ): Promise<T> {
+      const runId = progressRun.current + 1
+      progressRun.current = runId
+      const apply = (next: RemoteConnectionProgress): void => {
+        if (progressRun.current === runId) setProgress(next)
+      }
+      const [first, ...rest] = steps
+      if (first !== undefined) apply(first)
+      const timers = rest.map(step => window.setTimeout(() => apply(step), step.delayMs ?? 0))
+      try {
+        const result = await action()
+        apply({ label: 'remoteProgressReady', detail: 'remoteProgressReadyDetail', percent: 100 })
+        await new Promise(resolve => window.setTimeout(resolve, 220))
+        return result
+      } finally {
+        timers.forEach(timer => window.clearTimeout(timer))
+        if (progressRun.current === runId) setProgress(undefined)
+      }
+    }
+
+    const connectHostProgressSteps: RemoteConnectionProgressStep[] = [
+      { label: 'remoteProgressCheckingHost', detail: 'remoteProgressCheckingHostDetail', percent: 12 },
+      { label: 'remoteProgressAuthorizingPeer', detail: 'remoteProgressAuthorizingPeerDetail', percent: 32, delayMs: 280 },
+      { label: 'remoteProgressOpeningChannel', detail: 'remoteProgressOpeningChannelDetail', percent: 58, delayMs: 760 },
+      { label: 'remoteProgressLoadingWorkspaces', detail: 'remoteProgressLoadingWorkspacesDetail', percent: 82, delayMs: 1_350 },
+    ]
+
+    const openWorkspaceProgressSteps: RemoteConnectionProgressStep[] = [
+      { label: 'remoteProgressOpeningWorkspace', detail: 'remoteProgressOpeningWorkspaceDetail', percent: 30 },
+      { label: 'remoteProgressSwitchingWorkspace', detail: 'remoteProgressSwitchingWorkspaceDetail', percent: 74, delayMs: 520 },
+    ]
 
     function RemotePluginOptions(props: {
       control: <T>(endpoint: string, payload?: unknown) => Promise<T>
@@ -875,6 +977,8 @@ window.__ModuleLoader__.load({
       const [qrSession, setQrSession] = React.useState<OAuthQrSession | undefined>(undefined)
       const [qrImage, setQrImage] = React.useState<string | undefined>(undefined)
       const [qrExpired, setQrExpired] = React.useState(false)
+      const [progress, setProgress] = React.useState<RemoteConnectionProgress | undefined>(undefined)
+      const progressRun = React.useRef(0)
       const [notice, setNotice] = React.useState<string | undefined>(undefined)
       const [error, setError] = React.useState<string | undefined>(undefined)
 
@@ -987,7 +1091,12 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError(undefined)
         try {
-          setWorkspaces(await props.control<RemoteWorkspaceView[]>('workspaces.list', { targetDeviceId: host.deviceId }))
+          setWorkspaces(await runRemoteProgress(
+            connectHostProgressSteps,
+            setProgress,
+            progressRun,
+            () => props.control<RemoteWorkspaceView[]>('workspaces.list', { targetDeviceId: host.deviceId }),
+          ))
           setSelectedHost(host)
           setPath('')
           setAddingWorkspace(false)
@@ -1104,10 +1213,15 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError(undefined)
         try {
-          await props.control('workspace.open', {
-            targetDeviceId: selectedHost.deviceId,
-            path: path.trim(),
-          })
+          await runRemoteProgress(
+            openWorkspaceProgressSteps,
+            setProgress,
+            progressRun,
+            () => props.control('workspace.open', {
+              targetDeviceId: selectedHost.deviceId,
+              path: path.trim(),
+            }),
+          )
           window.location.reload()
         } catch (reason) {
           setError(messageOf(reason))
@@ -1258,6 +1372,7 @@ window.__ModuleLoader__.load({
                     : React.createElement('div', { className: 'dshRemoteSelectedHost' },
                       React.createElement('span', null, selectedHost.name),
                       React.createElement('small', null, [formatPlatform(selectedHost.platform), t('online')].join(' · ')))),
+                React.createElement(RemoteProgressView, { progress, t }),
                 selectedHost === undefined ? React.createElement('p', { className: 'dshRemoteHint' }, t('selectHostHint'))
                   : React.createElement('section', { className: 'dshRemoteBrowser', 'aria-label': t('chooseDirectory') },
                     React.createElement('div', { className: 'dshRemoteSectionHeading' },
@@ -1318,6 +1433,8 @@ window.__ModuleLoader__.load({
       const [email, setEmail] = React.useState('')
       const [password, setPassword] = React.useState('')
       const [busy, setBusy] = React.useState(false)
+      const [progress, setProgress] = React.useState<RemoteConnectionProgress | undefined>(undefined)
+      const progressRun = React.useRef(0)
       const [error, setError] = React.useState<string | undefined>(undefined)
       const [supported, setSupported] = React.useState(true)
 
@@ -1354,7 +1471,12 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError(undefined)
         try {
-          await props.control('mode.set', { mode, ...(targetDeviceId === undefined ? {} : { targetDeviceId }) })
+          const action = (): Promise<unknown> => props.control('mode.set', { mode, ...(targetDeviceId === undefined ? {} : { targetDeviceId }) })
+          if (mode === 'remote') {
+            await runRemoteProgress(connectHostProgressSteps, setProgress, progressRun, action)
+          } else {
+            await action()
+          }
           window.location.reload()
         } catch (reason) {
           setError(messageOf(reason))
@@ -1429,6 +1551,7 @@ window.__ModuleLoader__.load({
               disabled: busy || !device.online || status?.target?.deviceId === device.deviceId,
               onClick: () => void switchMode('remote', device.deviceId),
             }, `${device.name} · ${t(device.online ? 'online' : 'offline')}`))),
+          React.createElement(RemoteProgressView, { progress, t }),
           status?.hostAuthorizationAvailable && status.host !== undefined
             ? React.createElement('div', { className: 'dshRemoteHostAccount' },
               React.createElement('strong', null, t('thisMachineHost')),
@@ -1711,6 +1834,7 @@ window.__ModuleLoader__.load({
         '.dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}',
         '.dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList>button>span{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteHostList>button strong{font-size:14px;font-weight:500}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary);font-size:12px}',
         '.dshRemoteSelectedHost{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}',
+        '.dshRemoteProgress{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}.dshRemoteProgressHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}.dshRemoteProgressHeader strong{font-size:13px;font-weight:600}.dshRemoteProgressHeader span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteProgressBar{height:6px;overflow:hidden;border-radius:999px;background:var(--dsw-alias-bg-layer-3)}.dshRemoteProgressBar>span{display:block;height:100%;border-radius:inherit;background:var(--dsw-alias-brand-primary);transition:width .22s ease-out}.dshRemoteProgress p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}@media(prefers-reduced-motion:reduce){.dshRemoteProgressBar>span{transition:none}}',
         '.dshRemoteBrowser{display:flex;flex-direction:column}.dshRemoteCrumbs{display:flex;align-items:center;gap:4px;overflow:auto;padding:2px 0 10px}.dshRemoteCrumbs>button{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 7px;border-radius:6px;cursor:pointer}.dshRemoteCrumbs>button:not(:last-child)::after{content:" /";color:var(--dsw-alias-label-tertiary)}.dshRemoteCrumbs>button:disabled{color:var(--dsw-alias-label-primary);font-weight:600}',
         '.dshRemoteDirectoryList{min-height:72px;display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteDirectoryList>button{min-height:52px;display:grid;grid-template-columns:auto 1fr;column-gap:10px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:8px 4px;cursor:pointer}.dshRemoteDirectoryList>button:hover,.dshRemoteDirectoryList>button.isSelected{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteDirectoryList>button.isSelected{color:var(--dsw-alias-label-primary)}.dshRemoteDirectoryList>button>span:first-child{grid-row:1/3}.dshRemoteDirectoryList>button>small{grid-column:2;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis}.dshRemoteDirectoryList>p,.dshRemoteHint{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}',
         '.dshRemoteFolderBrowser{margin-top:14px}.dshRemoteFolderBrowser>p,.dshRemoteFolderList>p{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemoteFolderList{max-height:260px;overflow:auto;border-block:1px solid var(--dsw-alias-border-l2)}.dshRemoteFolderList>button{width:100%;min-height:42px;display:flex;align-items:center;gap:9px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:7px 6px;text-align:left;cursor:pointer}.dshRemoteFolderList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteFolderBrowser>small{display:block;margin-top:8px;color:var(--dsw-alias-state-warn-label)}',
