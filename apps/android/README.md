@@ -17,9 +17,12 @@ React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness hos
   reject tampered, replayed, or wrong-identity frames.
 - Drive the Host's ApiProxy bridge through `harness.api.call/respond/stream.open/stream.close`:
   browse sessions (including archived ones), create sessions, stream live mux frames, send
-  prompts, cancel generation, page older history, switch the active model from the host's
+  text/image prompts, cancel generation, page older history, switch the active model from the host's
   catalog, manage host workspaces (create with a read-only directory browser, rename, delete,
   reorder), and answer approval / question requests with the native `client-response` envelope.
+- Select PNG/JPEG/WebP/GIF images from Android's system picker, preflight the Host-projected image
+  limits, preview them in the composer, and carry large native `session.prompt` envelopes through
+  the bounded `harness.api.transfer.*` path. Image processing and provider upload remain on the Host.
 - Reconnect after Android network/app lifecycle changes. The connection transport can be
   pinned in Settings (Auto / TURN first / Relay only) and is applied on reconnect.
 

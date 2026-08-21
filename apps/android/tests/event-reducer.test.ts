@@ -106,6 +106,23 @@ describe('remote mux frame reducer', () => {
     ])
   })
 
+  it('keeps image-only user prompts visible in history', () => {
+    const event = sessionEvent({
+      type: 'user/message',
+      data: { message: { id: 'u-image', role: 'user', content: [{ type: 'image', attachmentId: 'attachment-1', name: 'diagram.png' }] } },
+    })
+
+    expect(foldHistory([{ event }], 's1')).toEqual([
+      expect.objectContaining({
+        kind: 'message',
+        id: 'u-image',
+        role: 'user',
+        text: '',
+        images: [{ name: 'diagram.png' }],
+      }),
+    ])
+  })
+
   it('merges a tool result using message.source.callId and uses native views', () => {
     const call = sessionEvent({
       type: 'tool/call',

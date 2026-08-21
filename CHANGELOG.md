@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.25
+
+- Adds Android photo-picker image prompts with previews, Host-projected image
+  limit checks, and bounded ApiProxy transfer for large encrypted requests.
+- Keeps image-only prompts visible in Android chat history and preserves local
+  previews while the native user event reconciles.
+- Splits the Android adaptive icon into a transparent foreground mark and a
+  system-masked background, removing the nested border on launcher icons.
+
 ## 0.3.24
 
 - Adapts the Remote ApiProxy bridge to DeepSeek Harness `dsh-v0.1.1-rc.2`

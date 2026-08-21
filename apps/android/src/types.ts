@@ -183,9 +183,38 @@ export interface ChatMessage extends ChatItemBase {
   kind: 'message'
   role: 'user' | 'assistant' | 'system'
   text: string
+  images?: ChatImage[]
   streaming?: boolean
   /** Native session.prompt rpcId used to reconcile an optimistic user message. */
   requestRpcId?: string
+}
+
+export type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+
+/** Temporary image bytes carried only in one native session.prompt request. */
+export interface PromptImage {
+  uri: string
+  mediaType: ImageMediaType
+  data: string
+  bytes: number
+  width: number
+  height: number
+  name?: string
+}
+
+/** Image presentation retained in the local optimistic chat row. */
+export interface ChatImage {
+  uri?: string
+  name?: string
+}
+
+export interface ImageAttachmentLimits {
+  maxImageBytes: number
+  maxImagesPerMessage: number
+  maxMessageImageBytes: number
+  maxImagePixels: number
+  maxImageDimension: number
+  mediaTypes: readonly ImageMediaType[]
 }
 
 export interface ToolActivity extends ChatItemBase {

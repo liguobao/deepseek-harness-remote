@@ -28,6 +28,7 @@ import type {
   HostDescriptor,
   ModelSelection,
   MuxStreamFrame,
+  PromptImage,
   RemoteDevice,
   RemoteSession,
   ServerConfig,
@@ -80,7 +81,7 @@ interface AppState {
   reconnect(options?: { forceRelay?: boolean }): Promise<boolean>
   disconnect(): Promise<void>
   openSession(session: RemoteSession): Promise<boolean>
-  sendMessage(text: string): Promise<boolean>
+  sendMessage(text: string, images?: PromptImage[]): Promise<boolean>
   stopSession(): Promise<void>
   respondApproval(itemId: string, outcome: 'allowed-once' | 'rejected'): Promise<void>
   respondQuestion(itemId: string, selected: Record<string, string[]>): Promise<void>
@@ -566,10 +567,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async sendMessage(input) {
+  async sendMessage(input, images = []) {
     const session = get().selectedSession
     const text = input.trim()
-    if (session === undefined || text.length === 0) return false
+    if (session === undefined || (text.length === 0 && images.length === 0)) return false
     const requestRpcId = createNativeRpcId()
     const optimistic: ChatItem = {
       kind: 'message',
@@ -577,6 +578,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessionId: session.sessionId,
       role: 'user',
       text,
+      ...(images.length === 0 ? {} : { images: images.map(image => ({ uri: image.uri, name: image.name })) }),
       createdAt: Date.now(),
       requestRpcId,
     }
@@ -586,7 +588,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       error: undefined,
     }))
     try {
-      await connection.requireProxy().sessionPrompt(session.sessionId, text, requestRpcId)
+      await connection.requireProxy().sessionPrompt(session.sessionId, text, requestRpcId, images)
       set({ busyAction: undefined })
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
       return true

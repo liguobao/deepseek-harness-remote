@@ -1,6 +1,6 @@
 {
   "name": "@dsh-remote/android",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "type": "module",
   "main": "index.ts",
   "dependencies": {
@@ -15,6 +15,7 @@
     "expo-crypto": "~57.0.1",
     "expo-device": "~57.0.1",
     "expo-haptics": "~57.0.1",
+    "expo-image-picker": "~57.0.10",
     "expo-secure-store": "~57.0.1",
     "expo-splash-screen": "~57.0.6",
     "expo-status-bar": "~57.0.1",

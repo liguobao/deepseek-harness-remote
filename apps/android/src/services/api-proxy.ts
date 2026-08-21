@@ -1,5 +1,16 @@
 import type { RemoteClientCore } from '@dsh-remote/client-core'
-import type { EventPayload, HarnessApiCallParams, HarnessApiFrameData, HarnessApiRespondParams, HarnessApiStreamOpenParams, HarnessApiStreamClosedData } from '@dsh-remote/protocol'
+import {
+  HARNESS_API_TRANSFER_CHUNK_BYTES,
+  MAX_HARNESS_API_TRANSFER_BYTES,
+  type EventPayload,
+  type HarnessApiCallParams,
+  type HarnessApiFrameData,
+  type HarnessApiRespondParams,
+  type HarnessApiStreamOpenParams,
+  type HarnessApiStreamClosedData,
+  type HarnessApiTransferCommitResult,
+  type HarnessApiTransferReadResult,
+} from '@dsh-remote/protocol'
 import type {
   AskUserQuestionAnswer,
   DirectoryListing,
@@ -8,12 +19,15 @@ import type {
   ModelSelection,
   MuxFrame,
   MuxStreamFrame,
+  PromptImage,
   RemoteSession,
   SessionHistoryPage,
   SessionModels,
   WorkspaceList,
   WorkspaceView,
 } from '../types'
+
+const DIRECT_API_CALL_BYTES = 2 * 1024 * 1024
 
 /** Native ApiProxy RpcResult envelope (mirrors @deepseek-ai/dsh-host-apiproxy/api). */
 export type NativeRpcResult<T> = {
@@ -60,11 +74,15 @@ export class RemoteApiProxy {
   }
 
   private async callWithRpcId<TResult>(method: string, payload: unknown, rpcId: string, signal?: AbortSignal): Promise<TResult> {
-    const response = await this.core.rpc<NativeRpcResponse<TResult>>('harness.api.call', {
+    const params = {
       method,
       rpcId,
       payload,
-    } satisfies HarnessApiCallParams, signal)
+    } satisfies HarnessApiCallParams
+    const encoded = new TextEncoder().encode(JSON.stringify(params))
+    const response = encoded.byteLength > DIRECT_API_CALL_BYTES
+      ? await this.callTransferred<TResult>(encoded, signal)
+      : await this.core.rpc<NativeRpcResponse<TResult>>('harness.api.call', params, signal)
     if (String(response.rpcId) !== rpcId) {
       throw new ApiProxyError('INVALID_MESSAGE', 'The Host returned an ApiProxy response for a different request.')
     }
@@ -74,6 +92,67 @@ export class RemoteApiProxy {
       response.result.error.message,
       response.result.error.details,
     )
+  }
+
+  /** Send an oversized native ApiProxy envelope through the bounded image-transfer path. */
+  private async callTransferred<TResult>(encoded: Uint8Array, signal?: AbortSignal): Promise<NativeRpcResponse<TResult>> {
+    if (encoded.byteLength > MAX_HARNESS_API_TRANSFER_BYTES) {
+      throw new ApiProxyError('INVALID_MESSAGE', 'The image prompt exceeds the remote transfer limit.')
+    }
+    const transferId = createNativeRpcId()
+    const totalChunks = Math.ceil(encoded.byteLength / HARNESS_API_TRANSFER_CHUNK_BYTES)
+    let opened = false
+    try {
+      await this.core.rpc('harness.api.transfer.open', {
+        transferId,
+        totalBytes: encoded.byteLength,
+        totalChunks,
+      }, signal)
+      opened = true
+      for (let index = 0; index < totalChunks; index += 1) {
+        const start = index * HARNESS_API_TRANSFER_CHUNK_BYTES
+        const chunk = encoded.subarray(start, Math.min(start + HARNESS_API_TRANSFER_CHUNK_BYTES, encoded.byteLength))
+        await this.core.rpc('harness.api.transfer.chunk', {
+          transferId,
+          index,
+          data: bytesToBase64(chunk),
+        }, signal)
+      }
+      const committed = await this.core.rpc<HarnessApiTransferCommitResult>(
+        'harness.api.transfer.commit',
+        { transferId },
+        signal,
+      )
+      if (committed.kind === 'inline') return committed.response as NativeRpcResponse<TResult>
+      if (committed.transferId !== transferId
+        || committed.totalBytes <= 0
+        || committed.totalBytes > MAX_HARNESS_API_TRANSFER_BYTES
+        || committed.totalChunks !== Math.ceil(committed.totalBytes / HARNESS_API_TRANSFER_CHUNK_BYTES)) {
+        throw new ApiProxyError('INVALID_MESSAGE', 'The Host returned an invalid image-transfer descriptor.')
+      }
+      const responseBytes = new Uint8Array(committed.totalBytes)
+      let offset = 0
+      for (let index = 0; index < committed.totalChunks; index += 1) {
+        const result = await this.core.rpc<HarnessApiTransferReadResult>(
+          'harness.api.transfer.read',
+          { transferId, index },
+          signal,
+        )
+        if (result.transferId !== transferId || result.index !== index) {
+          throw new ApiProxyError('INVALID_MESSAGE', 'The Host returned an out-of-order image-transfer chunk.')
+        }
+        const chunk = base64ToBytes(result.data)
+        const expectedBytes = Math.min(HARNESS_API_TRANSFER_CHUNK_BYTES, committed.totalBytes - offset)
+        if (chunk.byteLength !== expectedBytes) {
+          throw new ApiProxyError('INVALID_MESSAGE', 'The Host returned an invalid image-transfer chunk.')
+        }
+        responseBytes.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+      return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(responseBytes)) as NativeRpcResponse<TResult>
+    } finally {
+      if (opened) await this.core.rpc('harness.api.transfer.close', { transferId }).catch(() => undefined)
+    }
   }
 
   /** Answer an approval/question ServerRequest frame emitted on this connection. */
@@ -183,11 +262,19 @@ export class RemoteApiProxy {
     return { events: Array.isArray(result.events) ? result.events : [], hasMore: result.hasMore === true }
   }
 
-  async sessionPrompt(sessionId: string, text: string, rpcId = createNativeRpcId()): Promise<void> {
+  async sessionPrompt(sessionId: string, text: string, rpcId = createNativeRpcId(), images: PromptImage[] = []): Promise<void> {
     await this.callWithRpcId('session.prompt', {
       sessionId,
       mode: 'queue',
-      content: [{ type: 'text', text }],
+      content: [
+        ...(text.length === 0 ? [] : [{ type: 'text' as const, text }]),
+        ...images.map(image => ({
+          type: 'image' as const,
+          mediaType: image.mediaType,
+          data: image.data,
+          ...(image.name === undefined ? {} : { name: image.name }),
+        })),
+      ],
     }, rpcId)
   }
 
@@ -283,6 +370,29 @@ export class ApiProxyError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.byteLength)))
+  }
+  return btoa(binary)
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  let binary: string
+  try {
+    binary = atob(value)
+  } catch {
+    throw new ApiProxyError('INVALID_MESSAGE', 'The Host returned malformed image-transfer data.')
+  }
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  if (bytesToBase64(bytes) !== value) {
+    throw new ApiProxyError('INVALID_MESSAGE', 'The Host returned non-canonical image-transfer data.')
+  }
+  return bytes
 }
 
 export function createNativeRpcId(): string {

@@ -3,20 +3,23 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Keyboard,
   type KeyboardEvent,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native'
+import * as ImagePicker from 'expo-image-picker'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Bot, Check, ChevronDown, ChevronRight, CircleStop, Code2, Send, ShieldAlert, Sparkles, User, X } from 'lucide-react-native'
+import { Bot, Check, ChevronDown, ChevronRight, CircleStop, Code2, ImagePlus, Images, Send, ShieldAlert, Sparkles, User, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import { hasVisibleMessageText } from '../state/event-reducer'
-import type { ApprovalActivity, ChatItem, ChatMessage, ModelCatalogModel, ModelProviderGroup, PermissionSelect, QuestionActivity, RemoteSession, ToolActivity, ToolDisplayDetail } from '../types'
+import type { ApprovalActivity, ChatItem, ChatMessage, ImageAttachmentLimits, ImageMediaType, ModelCatalogModel, ModelProviderGroup, PermissionSelect, PromptImage, QuestionActivity, RemoteSession, ToolActivity, ToolDisplayDetail } from '../types'
 import { Button, IconButton, TopBar } from '../ui/components'
 import { NativeMarkdown } from '../ui/markdown'
 import { colors, radius, spacing, type } from '../ui/theme'
@@ -43,11 +46,13 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const selectModel = useAppStore(state => state.selectModel)
   const selectPermission = useAppStore(state => state.selectPermission)
   const [draft, setDraft] = useState('')
+  const [images, setImages] = useState<PromptImage[]>([])
+  const [pickingImages, setPickingImages] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [permissionPickerOpen, setPermissionPickerOpen] = useState(false)
   const listRef = useRef<FlatList<ChatItem>>(null)
   const visibleMessages = messages.filter(item =>
-    item.kind !== 'message' || (item.role !== 'user' && hasVisibleMessageText(item.text)))
+    item.kind !== 'message' || hasVisibleMessageText(item.text) || (item.images?.length ?? 0) > 0)
   const lastItem = visibleMessages.at(-1)
   const lastText = lastItem?.kind === 'message' ? lastItem.text : undefined
 
@@ -59,9 +64,48 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
 
   const submit = async () => {
     const text = draft.trim()
-    if (text.length === 0) return
+    if (text.length === 0 && images.length === 0) return
+    const submittedImages = images
     setDraft('')
-    if (!await sendMessage(text)) setDraft(text)
+    setImages([])
+    if (!await sendMessage(text, submittedImages)) {
+      setDraft(text)
+      setImages(submittedImages)
+    }
+  }
+
+  const pickImages = async () => {
+    const limits = sessionImageLimits(session)
+    const remaining = limits === undefined ? 0 : Math.max(0, limits.maxImagesPerMessage - images.length)
+    if (limits !== undefined && remaining === 0) {
+      Alert.alert(zhCN.chat.imageLimitTitle, zhCN.chat.tooManyImages(limits.maxImagesPerMessage))
+      return
+    }
+    setPickingImages(true)
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        selectionLimit: remaining,
+        orderedSelection: true,
+        allowsEditing: false,
+        quality: 1,
+        base64: true,
+      })
+      if (result.canceled) return
+      const picked = result.assets.map(promptImageFromAsset)
+      const next = [...images, ...picked]
+      const problem = validatePromptImages(next, limits)
+      if (problem !== undefined) {
+        Alert.alert(zhCN.chat.imageLimitTitle, problem)
+        return
+      }
+      setImages(next)
+    } catch {
+      Alert.alert(zhCN.chat.imagePickerFailedTitle, zhCN.chat.imagePickerFailedBody)
+    } finally {
+      setPickingImages(false)
+    }
   }
 
   const pickModel = async (group: ModelProviderGroup, model: ModelCatalogModel) => {
@@ -143,7 +187,36 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
       />
 
       <View style={styles.composerWrap}>
+        {images.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imageTray}>
+            {images.map((image, index) => (
+              <View key={`${image.uri}:${index}`} style={styles.imagePreviewWrap}>
+                <Image source={{ uri: image.uri }} style={styles.imagePreview} resizeMode="cover" />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={zhCN.chat.removeImage(image.name ?? `${index + 1}`)}
+                  onPress={() => setImages(current => current.filter((_, imageIndex) => imageIndex !== index))}
+                  style={styles.removeImageButton}
+                >
+                  <X size={13} color={colors.white} />
+                </Pressable>
+              </View>
+            ))}
+          </ScrollView>
+        )}
         <View style={styles.composer}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={zhCN.chat.addImages}
+            accessibilityState={{ disabled: !connected || pickingImages || busy === 'send-message' }}
+            disabled={!connected || pickingImages || busy === 'send-message'}
+            onPress={() => void pickImages()}
+            style={({ pressed }) => [styles.attachButton, pressed && styles.attachPressed]}
+          >
+            {pickingImages
+              ? <ActivityIndicator size="small" color={colors.primary} />
+              : <ImagePlus size={20} color={connected ? colors.primary : colors.disabled} />}
+          </Pressable>
           <TextInput
             accessibilityLabel={zhCN.chat.messageLabel}
             style={styles.composerInput}
@@ -159,10 +232,10 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={zhCN.chat.send}
-            accessibilityState={{ disabled: !connected || draft.trim().length === 0 }}
-            disabled={!connected || draft.trim().length === 0}
+            accessibilityState={{ disabled: !connected || (draft.trim().length === 0 && images.length === 0) }}
+            disabled={!connected || (draft.trim().length === 0 && images.length === 0)}
             onPress={() => void submit()}
-            style={({ pressed }) => [styles.sendButton, pressed && styles.sendPressed, (!connected || draft.trim().length === 0) && styles.sendDisabled]}
+            style={({ pressed }) => [styles.sendButton, pressed && styles.sendPressed, (!connected || (draft.trim().length === 0 && images.length === 0)) && styles.sendDisabled]}
           >
             <Send size={19} color={colors.white} />
           </Pressable>
@@ -249,6 +322,93 @@ function sessionPermissions(session: RemoteSession): PermissionSelect | undefine
   return { currentValue: source.currentValue, options }
 }
 
+const IMAGE_MEDIA_TYPES: readonly ImageMediaType[] = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+
+function sessionImageLimits(session: RemoteSession): ImageAttachmentLimits | undefined {
+  const value = session.projections?.values?.imageLimits
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  const limits = value as Partial<ImageAttachmentLimits>
+  if (!positiveNumber(limits.maxImageBytes)
+    || !positiveNumber(limits.maxImagesPerMessage)
+    || !positiveNumber(limits.maxMessageImageBytes)
+    || !positiveNumber(limits.maxImagePixels)
+    || !positiveNumber(limits.maxImageDimension)
+    || !Array.isArray(limits.mediaTypes)) return undefined
+  const mediaTypes = limits.mediaTypes.filter((mediaType): mediaType is ImageMediaType =>
+    typeof mediaType === 'string' && IMAGE_MEDIA_TYPES.includes(mediaType as ImageMediaType))
+  if (mediaTypes.length === 0) return undefined
+  return {
+    maxImageBytes: limits.maxImageBytes,
+    maxImagesPerMessage: limits.maxImagesPerMessage,
+    maxMessageImageBytes: limits.maxMessageImageBytes,
+    maxImagePixels: limits.maxImagePixels,
+    maxImageDimension: limits.maxImageDimension,
+    mediaTypes,
+  }
+}
+
+function promptImageFromAsset(asset: ImagePicker.ImagePickerAsset): PromptImage {
+  if (asset.base64 === undefined || asset.base64 === null || asset.base64.length === 0) {
+    throw new Error('missing-image-data')
+  }
+  const mediaType = imageMediaType(asset.mimeType, asset.fileName ?? asset.uri)
+  if (mediaType === undefined) throw new Error('unsupported-image-type')
+  return {
+    uri: asset.uri,
+    mediaType,
+    data: asset.base64,
+    bytes: decodedBase64Bytes(asset.base64),
+    width: asset.width,
+    height: asset.height,
+    ...(asset.fileName === undefined || asset.fileName === null ? {} : { name: asset.fileName.split(/[\\/]/).at(-1)?.slice(0, 255) }),
+  }
+}
+
+function validatePromptImages(images: PromptImage[], limits?: ImageAttachmentLimits): string | undefined {
+  if (limits === undefined) return undefined
+  if (images.length > limits.maxImagesPerMessage) return zhCN.chat.tooManyImages(limits.maxImagesPerMessage)
+  let totalBytes = 0
+  for (const image of images) {
+    const label = image.name ?? zhCN.chat.unnamedImage
+    if (!limits.mediaTypes.includes(image.mediaType)) return zhCN.chat.unsupportedImage(label)
+    if (image.bytes > limits.maxImageBytes) return zhCN.chat.imageTooLarge(label, formatBytes(limits.maxImageBytes))
+    if (image.width > limits.maxImageDimension || image.height > limits.maxImageDimension) {
+      return zhCN.chat.imageDimensionsTooLarge(label, limits.maxImageDimension)
+    }
+    if (image.width * image.height > limits.maxImagePixels) return zhCN.chat.imagePixelsTooLarge(label)
+    totalBytes += image.bytes
+  }
+  return totalBytes > limits.maxMessageImageBytes
+    ? zhCN.chat.imagesTooLarge(formatBytes(limits.maxMessageImageBytes))
+    : undefined
+}
+
+function imageMediaType(mimeType: string | undefined, name: string): ImageMediaType | undefined {
+  const normalized = mimeType?.toLowerCase()
+  if (IMAGE_MEDIA_TYPES.includes(normalized as ImageMediaType)) return normalized as ImageMediaType
+  const extension = name.split(/[?#]/, 1)[0]?.split('.').at(-1)?.toLowerCase()
+  if (extension === 'png') return 'image/png'
+  if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg'
+  if (extension === 'webp') return 'image/webp'
+  if (extension === 'gif') return 'image/gif'
+  return undefined
+}
+
+function decodedBase64Bytes(value: string): number {
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
+  return Math.floor(value.length * 3 / 4) - padding
+}
+
+function positiveNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
+function formatBytes(bytes: number): string {
+  return bytes >= 1024 * 1024
+    ? `${Math.floor(bytes / (1024 * 1024))} MB`
+    : `${Math.floor(bytes / 1024)} KB`
+}
+
 function ModelPicker({ visible, models, onClose, onPick }: {
   visible: boolean
   models?: import('../types').SessionModels
@@ -321,7 +481,19 @@ function MessageBubble({ item }: { item: ChatMessage }) {
       </View>
       <View style={[styles.messageBody, user && styles.messageBodyUser]}>
         <Text style={styles.messageLabel}>{user ? zhCN.chat.you : item.role === 'system' ? zhCN.chat.system : 'Remote'}</Text>
-        <NativeMarkdown text={item.text} />
+        {item.images !== undefined && item.images.length > 0 && (
+          <View style={[styles.messageImages, user && styles.messageImagesUser]}>
+            {item.images.map((image, index) => image.uri !== undefined
+              ? <Image key={`${image.uri}:${index}`} source={{ uri: image.uri }} style={styles.messageImage} resizeMode="cover" />
+              : (
+                  <View key={`${image.name ?? 'image'}:${index}`} style={styles.messageImagePlaceholder}>
+                    <Images size={20} color={colors.primary} />
+                    <Text style={styles.messageImageName} numberOfLines={1}>{image.name ?? zhCN.chat.unnamedImage}</Text>
+                  </View>
+                ))}
+          </View>
+        )}
+        {hasVisibleMessageText(item.text) && <NativeMarkdown text={item.text} />}
         {item.streaming && <View style={styles.streamingCursor} accessibilityLabel={zhCN.chat.generating} />}
       </View>
     </View>
@@ -527,6 +699,11 @@ const styles = StyleSheet.create({
   messageBody: { flex: 1, maxWidth: '88%' },
   messageBodyUser: { alignItems: 'flex-end' },
   messageLabel: { ...type.caption, color: colors.muted, marginBottom: 4 },
+  messageImages: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs },
+  messageImagesUser: { justifyContent: 'flex-end' },
+  messageImage: { width: 132, height: 104, borderRadius: radius.md, backgroundColor: colors.surfaceStrong },
+  messageImagePlaceholder: { width: 132, minHeight: 76, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', padding: spacing.sm, gap: spacing.xs },
+  messageImageName: { ...type.caption, color: colors.primary, maxWidth: '100%' },
   streamingCursor: { width: 7, height: 16, backgroundColor: colors.accent, borderRadius: 2, marginTop: 3 },
   toolCard: { borderRadius: radius.md, backgroundColor: colors.surface, overflow: 'hidden' },
   toolRow: { minHeight: 60, padding: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
@@ -569,8 +746,14 @@ const styles = StyleSheet.create({
   welcomeTitle: { ...type.heading, color: colors.ink },
   welcomeBody: { ...type.body, color: colors.muted, textAlign: 'center', marginTop: spacing.xs, maxWidth: 340 },
   composerWrap: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator, backgroundColor: colors.background, paddingHorizontal: spacing.sm, paddingTop: spacing.sm, paddingBottom: spacing.xs },
+  imageTray: { gap: spacing.xs, paddingBottom: spacing.xs },
+  imagePreviewWrap: { width: 72, height: 72 },
+  imagePreview: { width: 72, height: 72, borderRadius: radius.sm, backgroundColor: colors.surfaceStrong },
+  removeImageButton: { position: 'absolute', right: -3, top: -3, width: 24, height: 24, borderRadius: radius.pill, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
   composer: { minHeight: 52, maxHeight: 144, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, flexDirection: 'row', alignItems: 'flex-end', paddingLeft: spacing.sm, paddingRight: 5, paddingVertical: 5 },
-  composerInput: { ...type.body, color: colors.ink, flex: 1, minHeight: 40, maxHeight: 126, paddingVertical: 8 },
+  attachButton: { width: 40, height: 40, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  attachPressed: { backgroundColor: colors.primarySoft },
+  composerInput: { ...type.body, color: colors.ink, flex: 1, minHeight: 40, maxHeight: 126, paddingVertical: 8, paddingLeft: spacing.xs },
   sendButton: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   sendPressed: { backgroundColor: colors.primaryPressed },
   sendDisabled: { backgroundColor: colors.disabled },

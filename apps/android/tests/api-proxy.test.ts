@@ -7,6 +7,7 @@ type CoreRpcMock = ReturnType<typeof vi.fn<CoreRpc>>
 
 function fakeCore(): RemoteClientCore & { rpcCalls: CoreRpcMock } {
   const eventHandlers = new Set<(event: unknown) => void>()
+  const transferChunks: Uint8Array[] = []
   const rpcCalls = vi.fn<CoreRpc>(async (method: string, params: unknown) => {
     if (method === 'harness.api.stream.open') {
       if (params !== null && typeof params === 'object' && 'streamId' in params) {
@@ -73,6 +74,26 @@ function fakeCore(): RemoteClientCore & { rpcCalls: CoreRpcMock } {
     if (method === 'harness.api.respond') {
       return { accepted: true }
     }
+    if (method === 'harness.api.transfer.open') {
+      transferChunks.length = 0
+      return { opened: true }
+    }
+    if (method === 'harness.api.transfer.chunk') {
+      const data = String((params as { data: unknown }).data)
+      transferChunks.push(Uint8Array.from(atob(data), character => character.charCodeAt(0)))
+      return { accepted: true }
+    }
+    if (method === 'harness.api.transfer.commit') {
+      const bytes = new Uint8Array(transferChunks.reduce((total, chunk) => total + chunk.byteLength, 0))
+      let offset = 0
+      for (const chunk of transferChunks) {
+        bytes.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+      const request = JSON.parse(new TextDecoder().decode(bytes)) as { rpcId: string }
+      return { kind: 'inline', response: { rpcId: request.rpcId, result: { ok: true, value: { accepted: true } } } }
+    }
+    if (method === 'harness.api.transfer.close') return { closed: true }
     return { ok: true, value: {} }
   })
   const onEvent = vi.fn((handler: (event: unknown) => void) => {
@@ -122,6 +143,27 @@ describe('Remote ApiProxy tunnel client', () => {
       expect.objectContaining({ method: 'session.prompt', rpcId: 'prompt-rpc-1' }),
       undefined,
     )
+  })
+
+  it('uses the bounded transfer path for a large image prompt', async () => {
+    const core = fakeCore()
+    const proxy = new RemoteApiProxy(core)
+
+    await proxy.sessionPrompt('s1', 'Inspect this image', 'prompt-image-1', [{
+      uri: 'file:///selected.png',
+      mediaType: 'image/png',
+      data: 'A'.repeat(2 * 1024 * 1024),
+      bytes: 1536 * 1024,
+      width: 1200,
+      height: 800,
+      name: 'selected.png',
+    }])
+
+    const methods = core.rpcCalls.mock.calls.map(call => call[0])
+    expect(methods[0]).toBe('harness.api.transfer.open')
+    expect(methods).toContain('harness.api.transfer.chunk')
+    expect(methods).toContain('harness.api.transfer.commit')
+    expect(methods.at(-1)).toBe('harness.api.transfer.close')
   })
 
   it('opens the mux stream and routes harness.api.frame events', async () => {

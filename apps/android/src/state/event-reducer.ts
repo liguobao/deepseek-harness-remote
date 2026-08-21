@@ -67,12 +67,20 @@ function applyNativeEvent(
 function addUserMessage(current: ChatItem[], data: UnknownRecord, sessionId: string): ChatItem[] {
   const id = messageId(data)
   const text = messageText(data)
-  if (text.length === 0) return current
+  const persistedImages = messageImages(data)
+  if (text.length === 0 && persistedImages.length === 0) return current
   const rpcId = messageRequestRpcId(data)
   const optimisticIndex = rpcId === undefined
     ? -1
     : current.findIndex(item => item.kind === 'message' && item.requestRpcId === rpcId)
-  const message: ChatMessage = { kind: 'message', id, sessionId, role: 'user', text, createdAt: now(data) }
+  const optimistic = optimisticIndex < 0 ? undefined : current[optimisticIndex]
+  const images = optimistic?.kind === 'message' && optimistic.images !== undefined
+    ? optimistic.images
+    : persistedImages
+  const message: ChatMessage = {
+    kind: 'message', id, sessionId, role: 'user', text, createdAt: now(data),
+    ...(images.length === 0 ? {} : { images }),
+  }
   if (optimisticIndex >= 0) {
     return current.map((item, index) => index === optimisticIndex ? message : item)
   }
@@ -428,6 +436,15 @@ function messageText(data: UnknownRecord): string {
   return content.flatMap(block => isRecord(block) && block.type === 'text' && typeof block.text === 'string'
     ? [block.text]
     : []).join('\n')
+}
+
+function messageImages(data: UnknownRecord): NonNullable<ChatMessage['images']> {
+  const message = isRecord(data.message) ? data.message : data
+  const content = Array.isArray(message.content) ? message.content : []
+  return content.flatMap(block => {
+    if (!isRecord(block) || block.type !== 'image') return []
+    return [{ ...(typeof block.name === 'string' ? { name: block.name } : {}) }]
+  })
 }
 
 function messageRequestRpcId(data: UnknownRecord): string | undefined {
