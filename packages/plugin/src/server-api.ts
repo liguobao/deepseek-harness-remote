@@ -313,7 +313,6 @@ export class HostServerApi {
       platform: platform(),
       identityKey: identity.publicKey,
       clientVersion: PLUGIN_VERSION,
-      ...(this.role === 'host' ? { harnessVersion: '0.1.0-rc.6' } : {}),
     }
   }
 

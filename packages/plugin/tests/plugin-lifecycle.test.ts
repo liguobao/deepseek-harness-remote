@@ -62,6 +62,18 @@ describe('Cordis plugin lifecycle', () => {
     directories.push(dshHome)
     vi.stubEnv('DSH_HOME', dshHome)
     const replace = vi.fn(async () => undefined)
+    const describeHost = vi.fn(async request => ({
+      rpcId: request.rpcId,
+      result: {
+        ok: true as const,
+        value: {
+          version: '0.1.0-rc.8',
+          cwd: '/workspace',
+          attachedSessions: 0,
+          canOpenPath: false,
+        },
+      },
+    }))
     const ctx = new Context()
     ctx.provide('settings', {
       register: () => ({
@@ -69,7 +81,7 @@ describe('Cordis plugin lifecycle', () => {
         replace,
       }),
     } as never)
-    ctx.provide('apiProxy', apiProxy())
+    ctx.provide('apiProxy', apiProxy(describeHost))
     ctx.provide('typertGateway', typertGateway())
     ctx.provide('connection', connection())
 
@@ -80,6 +92,7 @@ describe('Cordis plugin lifecycle', () => {
       expect(ctx.get('dshRemoteClient')).toBeDefined()
     })
     expect(replace).not.toHaveBeenCalled()
+    expect(describeHost).toHaveBeenCalledOnce()
 
     await fiber.dispose()
     await ctx.fiber.dispose()
@@ -110,12 +123,12 @@ function typertGateway() {
   return { invoke: vi.fn(async () => undefined) } as never
 }
 
-function apiProxy(): ApiProxy {
+function apiProxy(describeHost?: ApiProxy['host']['describe']): ApiProxy {
   const empty = {}
   return {
     sessions: empty,
     subagents: empty,
-    host: empty,
+    host: describeHost === undefined ? empty : { describe: describeHost },
     workspace: empty,
     skills: empty,
     agentPresets: empty,

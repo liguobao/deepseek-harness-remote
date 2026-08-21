@@ -127,8 +127,7 @@ Content-Type: application/json
     "role": "host",
     "platform": "darwin",
     "identityKey": "base64url-x25519-public-key",
-    "clientVersion": "0.1.0",
-    "harnessVersion": "0.1.0-rc.6"
+    "clientVersion": "0.1.0"
   }
 }
 ```
@@ -191,8 +190,7 @@ Content-Type: application/json
     "role": "host",
     "platform": "darwin",
     "identityKey": "base64url-x25519-public-key",
-    "clientVersion": "0.1.0",
-    "harnessVersion": "0.1.0-rc.6"
+    "clientVersion": "0.1.0"
   }
 }
 ```
@@ -299,10 +297,16 @@ wss://dsh.r2049.cn/ws/v1/connect
     "accessToken": "device-access-jwt",
     "protocols": [1],
     "clientVersion": "0.2.9",
+    "harnessVersion": "0.1.0-rc.8",
     "capabilities": ["transport.relay", "transport.webrtc"]
   }
 }
 ```
+
+Host 在启动时调用本机 `ApiProxy.host.describe` 读取 `version`；旧 Harness 返回已知占位值
+或不提供该方法时，从当前 `@deepseek-ai/dsh` 运行包读取版本，并在首次 `hello` 中作为
+`harnessVersion` 上报。两种读取都失败时省略字段，不能阻止控制连接。Server 对缺失字段
+保留已有值，以兼容仍在设备注册 descriptor 中上报版本的旧插件。
 
 连接建立后 5 秒内未发送合法 `hello` 会被关闭。成功响应 `hello.ack`：
 

@@ -4111,7 +4111,8 @@ var helloPayloadSchema = external_exports.object({
   accessToken: external_exports.string().min(1),
   protocols: external_exports.array(external_exports.number().int()).min(1),
   capabilities: external_exports.array(external_exports.string()),
-  clientVersion: external_exports.string().optional()
+  clientVersion: external_exports.string().optional(),
+  harnessVersion: external_exports.string().optional()
 });
 var helloAckPayloadSchema = external_exports.object({
   protocol: external_exports.literal(PROTOCOL_VERSION),
@@ -4780,6 +4781,7 @@ function isChunk(frame) {
 
 // ../webrtc/dist/rtc-data-channel.js
 var DEFAULT_NEGOTIATE_TIMEOUT_MS = 8e3;
+var DEFAULT_SEND_TIMEOUT_MS = 5e3;
 var RtcDataChannelTransport = class {
   pc;
   role;
@@ -4813,7 +4815,7 @@ var RtcDataChannelTransport = class {
     this.onSignal = options.onSignal;
     this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS;
     this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL;
-    this.sendTimeoutMs = options.sendTimeoutMs;
+    this.sendTimeoutMs = options.sendTimeoutMs ?? DEFAULT_SEND_TIMEOUT_MS;
     this.pc = options.factory.create({ iceServers: options.iceServers });
     this.pc.ondatachannel = (event) => this.adoptChannel(event.channel);
     this.pc.onicecandidate = (event) => {
@@ -5106,16 +5108,11 @@ var RtcDataChannelTransport = class {
     return channel;
   }
   armWatchdog(channel) {
-    if (this.closed || this.sendTimeoutMs === void 0 || this.sendTimeoutMs <= 0)
+    if (this.watchdogTimer !== void 0 || this.closed)
       return;
-    if (this.watchdogTimer !== void 0)
-      clearTimeout(this.watchdogTimer);
-    this.watchdogTimer = void 0;
     const baseline = channel.bufferedAmount;
-    if (baseline <= 0) {
-      this.lastBufferedAmount = 0;
+    if (baseline <= 0)
       return;
-    }
     this.lastBufferedAmount = baseline;
     this.watchdogTimer = setTimeout(() => {
       this.watchdogTimer = void 0;
@@ -5506,10 +5503,7 @@ var AdaptiveTransport = class extends BaseTransport {
       this.bytesReceived += data.byteLength;
       this.emit(data);
     });
-    rtc.onClose(() => {
-      if (this.rtc === rtc && this.dataMode === "webrtc")
-        this.emitClose();
-    });
+    rtc.onClose(() => this.emitClose());
     try {
       await rtc.connect();
     } catch (error) {
@@ -13315,8 +13309,7 @@ var HostServerApi = class {
       role: this.role,
       platform: platform(),
       identityKey: identity.publicKey,
-      clientVersion: PLUGIN_VERSION,
-      ...this.role === "host" ? { harnessVersion: "0.1.0-rc.6" } : {}
+      clientVersion: PLUGIN_VERSION
     };
   }
   saveTokens(identity, tokens, authorization) {
@@ -14704,6 +14697,10 @@ function redact(value, key = "") {
   return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [childKey, redact(child, childKey)]));
 }
 
+// src/service.ts
+import { randomUUID } from "node:crypto";
+import { RpcId } from "@deepseek-ai/dsh-host-apiproxy/api";
+
 // src/connection-controller.ts
 var ConnectionController = class {
   constructor(identities, createRouter, logger) {
@@ -14870,6 +14867,36 @@ function diagnosticReason2(error) {
 }
 function shortId2(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
+}
+
+// src/harness-version.ts
+import { readFile as readFile3 } from "node:fs/promises";
+import { dirname as dirname3, isAbsolute, join as join3 } from "node:path";
+var LEGACY_PLACEHOLDER_VERSION = "0.0.1";
+function normalizeHarnessVersion(value) {
+  if (typeof value !== "string") return void 0;
+  const version = value.trim();
+  if (version.length === 0 || version.length > 64 || /[\u0000-\u001f]/u.test(version)) return void 0;
+  return version;
+}
+function selectHarnessVersion(reportedVersion, distributionVersion) {
+  if (reportedVersion !== void 0 && reportedVersion !== LEGACY_PLACEHOLDER_VERSION) return reportedVersion;
+  return distributionVersion;
+}
+async function readHarnessDistributionVersion(entrypoint = process.argv[1]) {
+  if (entrypoint === void 0 || !isAbsolute(entrypoint)) return void 0;
+  let directory = dirname3(entrypoint);
+  for (let depth = 0; depth < 8; depth += 1) {
+    try {
+      const manifest = JSON.parse(await readFile3(join3(directory, "package.json"), "utf8"));
+      if (manifest.name === "@deepseek-ai/dsh") return normalizeHarnessVersion(manifest.version);
+    } catch {
+    }
+    const parent = dirname3(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return void 0;
 }
 
 // src/rpc-router.ts
@@ -15091,7 +15118,7 @@ function isOversizedListing(value) {
 // src/server-connection.ts
 var DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 8e3;
 var HostServerConnection = class {
-  constructor(config, identity, identities, api, connections, logger, createWebSocket = (url) => new WebSocket(url), rtcFactoryProvider, hostCapabilities = () => ["harness.api.v1"]) {
+  constructor(config, identity, identities, api, connections, logger, createWebSocket = (url) => new WebSocket(url), rtcFactoryProvider, hostCapabilities = () => ["harness.api.v1"], harnessVersion) {
     this.config = config;
     this.identity = identity;
     this.identities = identities;
@@ -15101,6 +15128,7 @@ var HostServerConnection = class {
     this.createWebSocket = createWebSocket;
     this.rtcFactoryProvider = rtcFactoryProvider;
     this.hostCapabilities = hostCapabilities;
+    this.harnessVersion = harnessVersion;
   }
   socket;
   running;
@@ -15224,6 +15252,7 @@ var HostServerConnection = class {
           accessToken: credentials.accessToken,
           protocols: [PROTOCOL_VERSION],
           clientVersion: PLUGIN_VERSION,
+          ...this.harnessVersion === void 0 ? {} : { harnessVersion: this.harnessVersion },
           capabilities: this.rtcFactoryProvider === void 0 || this.config.forceRelay ? ["transport.relay", ...this.hostCapabilities()] : ["transport.p2p", "transport.turn", "transport.relay", ...this.hostCapabilities()]
         });
       };
@@ -15776,13 +15805,13 @@ function closeCode(code) {
 // src/remote-directory-browser.ts
 import { readdir, stat as stat3 } from "node:fs/promises";
 import { homedir as homedir2, platform as platform2 } from "node:os";
-import { basename, dirname as dirname3, isAbsolute, parse, resolve } from "node:path";
+import { basename, dirname as dirname4, isAbsolute as isAbsolute2, parse, resolve } from "node:path";
 var MAX_ENTRIES = 500;
 async function listRemoteDirectory(path, signal) {
   signal?.throwIfAborted();
   const home = resolve(homedir2());
   const target = path === void 0 || path.trim() === "" ? home : resolve(path);
-  if (!isAbsolute(target)) throw new Error("The remote directory path must be absolute.");
+  if (!isAbsolute2(target)) throw new Error("The remote directory path must be absolute.");
   const rows = await readdir(target, { withFileTypes: true });
   const directories = [];
   for (const row of rows) {
@@ -15809,7 +15838,7 @@ function crumbs(path) {
   let current = path;
   while (current !== root) {
     segments.unshift(basename(current));
-    current = dirname3(current);
+    current = dirname4(current);
   }
   for (const segment of segments) {
     current = resolve(current, segment);
@@ -16173,11 +16202,12 @@ var HostPluginRuntime = class {
   constructor(config, identities, apiProxy, logger, typertGateway, fileViewerHost) {
     this.config = config;
     this.identities = identities;
+    this.apiProxy = apiProxy;
     this.logger = logger;
     this.fileViewerHost = fileViewerHost;
     this.connections = new ConnectionController(this.identities, (_context, send) => {
       const harnessApi = new HarnessApiBridge(
-        apiProxy,
+        this.apiProxy,
         (event, data) => send(createEvent(event, data)),
         void 0,
         this.logger,
@@ -16197,6 +16227,7 @@ var HostPluginRuntime = class {
   identity;
   serverApi;
   serverConnection;
+  harnessVersion;
   closed = false;
   async start() {
     if (this.closed) throw new Error("remote runtime is closed");
@@ -16207,6 +16238,7 @@ var HostPluginRuntime = class {
       server: this.config.serverUrl ?? "not configured"
     });
     if (this.serverApi !== void 0) {
+      this.harnessVersion = await this.readHarnessVersion();
       this.serverApi.bindIdentity(this.identity);
       this.serverConnection = this.createServerConnection(this.identity);
       this.serverConnection.start();
@@ -16325,8 +16357,27 @@ var HostPluginRuntime = class {
       this.logger,
       void 0,
       this.config.forceRelay ? void 0 : loadWeriftFactory,
-      () => this.fileViewerHost?.() === void 0 ? ["harness.api.v1"] : ["harness.api.v1", "fileviewer.read.v1"]
+      () => this.fileViewerHost?.() === void 0 ? ["harness.api.v1"] : ["harness.api.v1", "fileviewer.read.v1"],
+      this.harnessVersion
     );
+  }
+  async readHarnessVersion() {
+    let reportedVersion;
+    let errorCode2;
+    try {
+      const response = await this.apiProxy.host.describe({ rpcId: RpcId(randomUUID()), payload: {} });
+      if (!response.result.ok) {
+        errorCode2 = response.result.error.code;
+      } else {
+        reportedVersion = normalizeHarnessVersion(response.result.value.version);
+      }
+    } catch {
+    }
+    const distributionVersion = reportedVersion === void 0 || reportedVersion === "0.0.1" ? await readHarnessDistributionVersion() : void 0;
+    const version = selectHarnessVersion(reportedVersion, distributionVersion);
+    if (version !== void 0) return version;
+    this.logger.warn("Harness version is unavailable", errorCode2 === void 0 ? void 0 : { code: errorCode2 });
+    return void 0;
   }
 };
 function shortId5(value) {

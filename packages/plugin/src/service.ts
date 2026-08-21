@@ -1,8 +1,14 @@
-import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
+import { randomUUID } from 'node:crypto'
+import { RpcId, type ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { createEvent } from '@dsh-remote/protocol'
 import { ConnectionController } from './connection-controller.js'
 import type { ResolvedConfig } from './config.js'
 import type { HostIdentity, IdentityStore } from './identity-store.js'
+import {
+  normalizeHarnessVersion,
+  readHarnessDistributionVersion,
+  selectHarnessVersion,
+} from './harness-version.js'
 import type { SafeLogger } from './logging.js'
 import { RpcRouter } from './rpc-router.js'
 import { RemoteFileViewerBridge, type FileViewerHostServiceLike } from './file-viewer-bridge.js'
@@ -30,19 +36,20 @@ export class HostPluginRuntime {
   private identity?: HostIdentity
   private readonly serverApi?: HostServerApi
   private serverConnection?: HostServerConnection
+  private harnessVersion?: string
   private closed = false
 
   constructor(
     private readonly config: ResolvedConfig,
     private readonly identities: IdentityStore,
-    apiProxy: ApiProxy,
+    private readonly apiProxy: ApiProxy,
     private readonly logger: SafeLogger,
     typertGateway?: () => TypertGatewayLike | undefined,
     private readonly fileViewerHost?: () => FileViewerHostServiceLike | undefined,
   ) {
     this.connections = new ConnectionController(this.identities, (_context, send) => {
       const harnessApi = new HarnessApiBridge(
-        apiProxy,
+        this.apiProxy,
         (event, data) => send(createEvent(event, data)),
         undefined,
         this.logger,
@@ -68,6 +75,7 @@ export class HostPluginRuntime {
       server: this.config.serverUrl ?? 'not configured',
     })
     if (this.serverApi !== undefined) {
+      this.harnessVersion = await this.readHarnessVersion()
       this.serverApi.bindIdentity(this.identity)
       this.serverConnection = this.createServerConnection(this.identity)
       this.serverConnection.start()
@@ -203,7 +211,30 @@ export class HostPluginRuntime {
       () => this.fileViewerHost?.() === undefined
         ? ['harness.api.v1']
         : ['harness.api.v1', 'fileviewer.read.v1'],
+      this.harnessVersion,
     )
+  }
+
+  private async readHarnessVersion(): Promise<string | undefined> {
+    let reportedVersion: string | undefined
+    let errorCode: string | undefined
+    try {
+      const response = await this.apiProxy.host.describe({ rpcId: RpcId(randomUUID()), payload: {} })
+      if (!response.result.ok) {
+        errorCode = response.result.error.code
+      } else {
+        reportedVersion = normalizeHarnessVersion(response.result.value.version)
+      }
+    } catch {
+      // Older Harness builds may not expose host.describe.
+    }
+    const distributionVersion = reportedVersion === undefined || reportedVersion === '0.0.1'
+      ? await readHarnessDistributionVersion()
+      : undefined
+    const version = selectHarnessVersion(reportedVersion, distributionVersion)
+    if (version !== undefined) return version
+    this.logger.warn('Harness version is unavailable', errorCode === undefined ? undefined : { code: errorCode })
+    return undefined
   }
 }
 

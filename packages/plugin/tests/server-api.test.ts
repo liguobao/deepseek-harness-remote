@@ -52,10 +52,12 @@ describe('HostServerApi', () => {
     })
     expect(calls[1]?.url).toBe('https://dsh.r2049.cn/api/v1/devices/register')
     expect(calls[1]?.init?.headers).toMatchObject({ Authorization: 'Bearer web-account-token-value' })
-    expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({
+    const registeredDevice = JSON.parse(String(calls[1]?.init?.body))
+    expect(registeredDevice).toMatchObject({
       v: 1,
       device: { deviceId: identity.deviceId, role: 'host', identityKey: identity.publicKey },
     })
+    expect(registeredDevice.device).not.toHaveProperty('harnessVersion')
     expect(calls[2]?.init?.headers).toMatchObject({ Authorization: 'Bearer access-token-value' })
     const stored = await readFile(join(directory, 'server-credentials.json'), 'utf8')
     expect(stored).toContain('host@example.com')
