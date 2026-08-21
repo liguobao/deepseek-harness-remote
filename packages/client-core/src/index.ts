@@ -11,7 +11,25 @@ import {
 } from '@dsh-remote/protocol'
 import type { RemoteTransport } from '@dsh-remote/webrtc'
 
+export type RemoteClientErrorCode =
+  | 'RPC_TIMEOUT'
+  | 'RPC_ABORTED'
+  | 'TRANSPORT_CLOSED'
+  | 'CLIENT_CLOSED'
+
+export class RemoteClientError extends Error {
+  constructor(
+    readonly code: RemoteClientErrorCode,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options)
+    this.name = 'RemoteClientError'
+  }
+}
+
 interface PendingCall {
+  method: string
   resolve: (value: unknown) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
@@ -43,22 +61,26 @@ export class RemoteClientCore {
   }
 
   async rpc<TResult = unknown, TParams = unknown>(method: string, params: TParams, signal?: AbortSignal): Promise<TResult> {
-    signal?.throwIfAborted()
+    if (signal?.aborted) throw rpcAbortedError(method, signal.reason)
+
     const request = createRpcRequest(method as RpcMethod, params)
     const result = new Promise<TResult>((resolve, reject) => {
       const timer = setTimeout(() => {
-        const pending = this.pending.get(request.id)
-        pending?.removeAbort?.()
-        this.pending.delete(request.id)
-        reject(new Error(`RPC ${method} timed out`))
+        this.rejectPending(
+          request.id,
+          new RemoteClientError('RPC_TIMEOUT', `RPC ${method} timed out after ${this.timeoutMs}ms`),
+        )
       }, this.timeoutMs)
-      const pending: PendingCall = { resolve: resolve as (value: unknown) => void, reject, timer }
+      const pending: PendingCall = {
+        method,
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        timer,
+      }
       if (signal !== undefined) {
         const onAbort = () => {
           if (this.pending.get(request.id) !== pending) return
-          clearTimeout(timer)
-          this.pending.delete(request.id)
-          reject(signal.reason instanceof Error ? signal.reason : new Error('RPC was cancelled'))
+          this.rejectPending(request.id, rpcAbortedError(method, signal.reason))
         }
         signal.addEventListener('abort', onAbort, { once: true })
         pending.removeAbort = () => signal.removeEventListener('abort', onAbort)
@@ -68,12 +90,8 @@ export class RemoteClientCore {
     try {
       await this.transport.send(encodeMessage(request))
     } catch (error) {
-      const pending = this.pending.get(request.id)
-      if (pending !== undefined) {
-        clearTimeout(pending.timer)
-        pending.removeAbort?.()
-      }
-      this.pending.delete(request.id)
+      const pending = this.takePending(request.id)
+      if (pending === undefined) return result
       throw error
     }
     return result
@@ -98,22 +116,22 @@ export class RemoteClientCore {
     this.unsubscribeTransport = undefined
     this.unsubscribeClose?.()
     this.unsubscribeClose = undefined
+    this.rejectAllPending(
+      pending => new RemoteClientError(
+        'CLIENT_CLOSED',
+        `RPC ${pending.method} terminated because the remote client closed`,
+      ),
+    )
     await this.transport.close()
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer)
-      pending.removeAbort?.()
-      pending.reject(new Error('remote client closed'))
-    }
-    this.pending.clear()
   }
 
   private handleTransportClose(): void {
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer)
-      pending.removeAbort?.()
-      pending.reject(new Error('remote transport closed'))
-    }
-    this.pending.clear()
+    this.rejectAllPending(
+      pending => new RemoteClientError(
+        'TRANSPORT_CLOSED',
+        `RPC ${pending.method} terminated because the remote transport closed`,
+      ),
+    )
     for (const handler of this.closeHandlers) handler()
   }
 
@@ -128,22 +146,47 @@ export class RemoteClientCore {
   }
 
   private handleResponse(message: RemoteMessage<RpcResponsePayload>): void {
-    const pending = this.pending.get(message.payload.requestId)
+    const pending = this.takePending(message.payload.requestId)
     if (pending === undefined) return
-    this.pending.delete(message.payload.requestId)
-    clearTimeout(pending.timer)
-    pending.removeAbort?.()
     pending.resolve(message.payload.result)
   }
 
   private handleError(message: RemoteMessage<RpcErrorPayload>): void {
-    const pending = this.pending.get(message.payload.requestId)
+    const pending = this.takePending(message.payload.requestId)
     if (pending === undefined) return
-    this.pending.delete(message.payload.requestId)
-    clearTimeout(pending.timer)
-    pending.removeAbort?.()
     pending.reject(Object.assign(new Error(message.payload.message), { code: message.payload.code }))
   }
+
+  private takePending(requestId: string): PendingCall | undefined {
+    const pending = this.pending.get(requestId)
+    if (pending === undefined) return undefined
+    this.pending.delete(requestId)
+    clearTimeout(pending.timer)
+    pending.removeAbort?.()
+    return pending
+  }
+
+  private rejectPending(requestId: string, error: Error): boolean {
+    const pending = this.takePending(requestId)
+    if (pending === undefined) return false
+    pending.reject(error)
+    return true
+  }
+
+  private rejectAllPending(createError: (pending: PendingCall) => Error): void {
+    for (const requestId of [...this.pending.keys()]) {
+      const pending = this.takePending(requestId)
+      if (pending !== undefined) pending.reject(createError(pending))
+    }
+  }
+}
+
+function rpcAbortedError(method: string, reason: unknown): RemoteClientError {
+  return new RemoteClientError(
+    'RPC_ABORTED',
+    `RPC ${method} was aborted`,
+    reason === undefined ? undefined : { cause: reason },
+  )
 }
 
 export type { EventPayload, RemoteEventName, RemoteTransport }
