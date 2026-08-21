@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.20
+
+- Improves Android startup and transport routing so the client connects to the
+  preferred path faster.
+- Stabilizes Android LAN WebRTC connections, reducing flaky or dropped local
+  peer sessions.
+- Keeps the Android composer above the on-screen keyboard while typing.
+
 ## 0.3.19
 
 - Namespaces the plugin's loopback Web RPC route as `/ds-harness-remote` so it can run
