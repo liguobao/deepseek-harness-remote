@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,7 +14,12 @@ import { AlertCircle, ArrowLeft, ChevronRight, CircleCheck, RefreshCw, WifiOff, 
 import { colors, radius, spacing, type } from './theme'
 import { strings as zhCN } from '../locales/i18n'
 
-export function Screen({ children, scroll = true }: { children: ReactNode; scroll?: boolean }) {
+export function Screen({ children, scroll = true, refreshing = false, onRefresh }: {
+  children: ReactNode
+  scroll?: boolean
+  refreshing?: boolean
+  onRefresh?: () => void
+}) {
   if (!scroll) return <View style={styles.screen}>{children}</View>
   return (
     <ScrollView
@@ -21,6 +27,15 @@ export function Screen({ children, scroll = true }: { children: ReactNode; scrol
       contentContainerStyle={styles.screenContent}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
+      refreshControl={onRefresh === undefined
+        ? undefined
+        : <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            progressBackgroundColor={colors.surface}
+            tintColor={colors.primary}
+          />}
     >
       {children}
     </ScrollView>
@@ -150,10 +165,11 @@ export function EmptyState({ icon: Icon = WifiOff, title, body, action }: {
   )
 }
 
-export function ListRow({ title, subtitle, meta, icon: Icon, onPress, status }: {
+export function ListRow({ title, subtitle, meta, metaInline = false, icon: Icon, onPress, status }: {
   title: string
   subtitle?: string
   meta?: string
+  metaInline?: boolean
   icon?: LucideIcon
   onPress: () => void
   status?: ReactNode
@@ -170,8 +186,17 @@ export function ListRow({ title, subtitle, meta, icon: Icon, onPress, status }: 
           <Text style={styles.rowTitle} numberOfLines={1}>{title}</Text>
           {status}
         </View>
-        {subtitle !== undefined && <Text style={styles.rowSubtitle} numberOfLines={2}>{subtitle}</Text>}
-        {meta !== undefined && <Text style={styles.rowMeta} numberOfLines={1}>{meta}</Text>}
+        {metaInline
+          ? (subtitle !== undefined || meta !== undefined) && (
+              <View style={styles.rowDetailLine}>
+                {subtitle !== undefined && <Text style={[styles.rowSubtitle, styles.rowInlineSubtitle]} numberOfLines={1}>{subtitle}</Text>}
+                {meta !== undefined && <Text style={styles.rowMeta} numberOfLines={1}>{meta}</Text>}
+              </View>
+            )
+          : <>
+              {subtitle !== undefined && <Text style={styles.rowSubtitle} numberOfLines={2}>{subtitle}</Text>}
+              {meta !== undefined && <Text style={styles.rowMeta} numberOfLines={1}>{meta}</Text>}
+            </>}
       </View>
       <ChevronRight size={20} color={colors.subtle} />
     </Pressable>
@@ -261,7 +286,9 @@ const styles = StyleSheet.create({
   rowCopy: { flex: 1, gap: 3 },
   rowTitleLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.xs },
   rowTitle: { ...type.bodyStrong, color: colors.ink, flex: 1 },
+  rowDetailLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   rowSubtitle: { ...type.small, color: colors.muted },
+  rowInlineSubtitle: { flex: 1 },
   rowMeta: { ...type.caption, color: colors.subtle },
   sectionTitleRow: { marginTop: spacing.xxl, marginBottom: spacing.xs, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { ...type.smallStrong, color: colors.muted },

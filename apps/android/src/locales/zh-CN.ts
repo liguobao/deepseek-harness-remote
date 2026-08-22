@@ -4,7 +4,7 @@ const zhCN = {
   },
   app: {
     oauthCancelled: '未完成知乎授权，请再试一次。', oauthInvalid: '登录信息已失效，请重新登录。',
-    loadingTagline: '一次连接，随时可用。', loadingIdentity: '正在准备安全身份…', bootFailed: 'DSH Remote 无法启动', secureStorageUnavailable: '暂时无法读取此手机的安全数据，请重试。',
+    loadingTagline: '随时随地开始你的工作。', loadingIdentity: '正在准备安全身份…', bootFailed: 'DSH Remote 无法启动', secureStorageUnavailable: '暂时无法读取此手机的安全数据，请重试。',
     deviceUnavailable: '找不到这台设备', deviceNoLongerTrusted: '它可能已被移除或退出当前账号。', backToDevices: '返回设备列表',
   },
   status: { online: '在线', offline: '离线', disconnected: '未连接', lan: '局域网直连', relay: '服务器转发', p2p: 'P2P 直连', turn: 'TURN 转发', waiting: '连接中', running: '运行中' },
@@ -23,9 +23,9 @@ const zhCN = {
     signOut: '退出登录', resetLocal: '清除本地数据', resetTitle: '清除此手机上的数据？', resetBody: '将删除服务设置、登录信息和已信任的设备。之后需要重新登录，此操作无法撤销。', reset: '清除数据', signOutTitle: '退出当前账号？', signOutBody: '退出后，需要重新登录才能访问设备。',
   },
   devices: {
-    title: '设备', myDevices: '我的设备', lead: '选择一台设备，继续你的工作', emptyTitle: '还没有可用设备', emptyBody: '在电脑上安装 DSH Remote 插件并登录同一账号，设备就会出现在这里。', canConnect: '可连接', options: '管理设备', encrypted: '安全连接',
+    title: '设备', myDevices: '我的设备', lead: '选择一台设备，继续你的工作', emptyTitle: '还没有可用设备', emptyBody: '在电脑上安装 DSH Remote 插件并登录同一账号，设备就会出现在这里。', options: '管理设备', encrypted: '安全连接',
     connectionInterrupted: '连接已断开', trustExplanation: '确认后，此手机会记住这台设备的安全身份。如果身份发生变化，将停止连接以保护你的数据。', trust: '信任并继续', connectReady: '连接后即可查看并继续电脑上的对话。', offlineHelp: '这台设备已离线。请确认电脑上的 DSH Remote 插件正在运行。', secureConnect: '连接设备',
-    connectingTitle: '连接设备', connectingTo: (name: string) => `正在连接 ${name}`, connectionProgress: '连接进度', retryConnection: '重新连接', cancelConnection: '取消连接', openInfo: '查看设备和连接信息',
+    connectingTitle: '连接设备', connecting: '正在连接', connectionProgress: '连接进度', retryConnection: '重新连接', cancelConnection: '取消连接', openInfo: '查看设备和连接信息',
     connectionSteps: {
       authenticating: { title: '验证设备', body: '确认账号与设备访问权限' },
       transport: { title: '选择连接路径', body: '尝试局域网、P2P 或服务器转发' },
@@ -36,11 +36,11 @@ const zhCN = {
     forgetTitle: (name: string) => `不再信任“${name}”？`, forgetBody: '移除后，下次连接时需要重新确认这台设备。', forget: '移除设备',
   },
   sessions: { title: '对话', new: '新建对话', deviceTitle: '这台设备上的对话', lead: '从上次停下的地方继续', creating: '正在新建对话…', emptyTitle: '还没有对话', emptyBody: '新建对话，或先在电脑上的 DeepSeek Harness 中开始工作。', archived: (count: number) => `已归档 ${count}`, continue: '继续对话', untitled: '新对话', child: '子任务对话' },
-  time: { unavailable: '更新时间不可用', lastSeenUnavailable: '最近在线时间不可用', justNow: '刚刚更新', minutesAgo: (n: number) => `${n} 分钟前`, hoursAgo: (n: number) => `${n} 小时前`, updatedSuffix: '更新', locale: 'zh-CN' },
+  time: { unavailable: '更新时间不可用', lastSeenUnavailable: '活跃时间不可用', lastActive: (value: string) => `${value}活跃`, now: '刚刚', justNow: '刚刚更新', minutesAgo: (n: number) => `${n} 分钟前`, hoursAgo: (n: number) => `${n} 小时前`, updatedSuffix: '更新', locale: 'zh-CN' },
   transport: { auto: '自动（推荐）', autoDescription: '优先尝试 P2P 直连，必要时自动改用 TURN 或服务器转发', turn: 'TURN 优先', turnDescription: '网络受限时，优先使用 TURN 转发以提高稳定性', relay: '仅服务器转发', relayDescription: '所有数据都通过 DSH Remote 服务器转发' },
   workspaces: {
-    title: '工作区', create: '新建工作区', deviceTitle: '这台设备上的工作区', lead: '按项目目录整理对话', deviceInfo: '设备与连接信息', emptyTitle: '还没有工作区', emptyBody: '选择电脑上的项目目录，将相关对话整理在一起。', options: '管理工作区', noSessions: '还没有对话，点击新建', unnamedSession: '未命名对话',
-    deleteTitle: (title: string) => `删除“${title}”？`, deleteBody: '将从这台设备上删除该工作区及其中的所有对话。此操作无法撤销。', delete: '删除工作区', rename: '重命名', moveUp: '上移', moveDown: '下移', newSessionIn: (title: string) => `在“${title}”中新建对话`, deviceDirectory: '电脑上的项目目录', browse: '选择目录', directoryHint: '在这里新建的对话会使用该目录。', renameTitle: '重命名工作区', namePlaceholder: '输入工作区名称', saveName: '保存', chooseFolder: '选择项目目录', loading: '正在加载…', loadingDirectory: '正在读取目录…', noFolders: '这里没有可选的文件夹', showHidden: '显示隐藏文件夹', hideHidden: '隐藏隐藏文件夹', chooseThisFolder: '使用此目录',
+    title: '工作区', create: '新建工作区', deviceTitle: (name: string) => `${name} · 工作区`, lead: '按项目目录整理对话', deviceInfo: '设备与连接信息', emptyTitle: '还没有工作区', emptyBody: '选择电脑上的项目目录，将相关对话整理在一起。', options: '管理工作区', noSessions: '还没有对话，点击新建', unnamedSession: '未命名对话',
+    deleteTitle: (title: string) => `删除“${title}”？`, deleteBody: '将从这台设备上删除该工作区及其中的所有对话。此操作无法撤销。', delete: '删除工作区', rename: '重命名', moveUp: '上移', moveDown: '下移', expandWorkspace: (title: string) => `展开工作区“${title}”`, collapseWorkspace: (title: string) => `折叠工作区“${title}”`, newSessionIn: (title: string) => `在“${title}”中新建对话`, deviceDirectory: '电脑上的项目目录', browse: '选择目录', directoryHint: '在这里新建的对话会使用该目录。', renameTitle: '重命名工作区', namePlaceholder: '输入工作区名称', saveName: '保存', chooseFolder: '选择项目目录', loading: '正在加载…', loadingDirectory: '正在读取目录…', noFolders: '这里没有可选的文件夹', showHidden: '显示隐藏文件夹', hideHidden: '隐藏隐藏文件夹', chooseThisFolder: '使用此目录',
   },
   chat: {
     fullAccessTitle: '开启完全访问权限？', fullAccessBody: '开启后，DeepSeek Harness 可以直接修改文件和运行命令。只建议在你信任当前任务时使用。', enable: '开启完全访问', stop: '停止回复', selectModel: '选择模型', approvalMode: '操作权限', approvalModeLabel: (name: string) => `操作权限：${name}`, reconnect: '重新连接当前对话', reconnecting: '正在恢复当前对话…', offline: '与设备的连接已断开，点击右上角重新连接并继续当前对话。', hostOperation: (name: string) => `${name}（电脑端）`,

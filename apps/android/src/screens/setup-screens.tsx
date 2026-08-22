@@ -6,6 +6,7 @@ import * as IntentLauncher from 'expo-intent-launcher'
 import { ActivityIndicator, Alert, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Check, ChevronRight, Download, ExternalLink, Info, KeyRound, LockKeyhole, RotateCcw, Settings, type LucideIcon } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
+import { SOURCE_CODE_URL } from '../lib/links'
 import { Button, Field, KeyValue, Screen, TopBar } from '../ui/components'
 import { transportPreferenceOptions } from '../types'
 import { colors, radius, spacing, type } from '../ui/theme'
@@ -13,7 +14,6 @@ import { strings as zhCN, type LanguagePreference } from '../locales/i18n'
 
 /** Default DSH Remote Server; a build can override it via EXPO_PUBLIC_DSH_REMOTE_SERVER. */
 const defaultServerUrl = 'https://dsh.r2049.cn'
-const sourceCodeUrl = 'https://github.com/liguobao/deepseek-harness-remote'
 const updateUrl = 'https://github.com/liguobao/deepseek-harness-remote/releases/latest'
 const releaseApiUrl = 'https://api.github.com/repos/liguobao/deepseek-harness-remote/releases/latest'
 const developerUrl = 'https://www.zhihu.com/people/codelover'
@@ -192,11 +192,45 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
   )
 }
 
-export function MoreScreen({ onBack, onSettings, onAbout }: {
-  onBack: () => void
+export function HomeActionsMenu({ visible, onClose, onSettings, onAbout }: {
+  visible: boolean
+  onClose: () => void
   onSettings: () => void
   onAbout: () => void
 }) {
+  const { phase, progress, checkForUpdates } = useUpdateCheck()
+
+  if (!visible) return null
+
+  return (
+    <View style={styles.homeMenuLayer}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={zhCN.common.close}
+        onPress={onClose}
+        style={styles.homeMenuDismiss}
+      />
+      <View accessibilityRole="menu" style={styles.homeMenuCard}>
+        <HomeMenuRow icon={Settings} label={zhCN.settings.title} onPress={onSettings} />
+        <HomeMenuRow icon={Info} label={zhCN.settings.about} onPress={onAbout} />
+        <HomeMenuRow
+          icon={Download}
+          label={zhCN.settings.checkUpdates}
+          subtitle={phase === 'checking'
+            ? zhCN.settings.checkingUpdates
+            : phase === 'downloading'
+              ? progress === null ? zhCN.settings.downloadingUpdate : `${zhCN.settings.downloadingUpdate} ${progress}%`
+              : undefined}
+          onPress={() => void checkForUpdates()}
+          disabled={phase !== 'idle'}
+          last
+        />
+      </View>
+    </View>
+  )
+}
+
+function useUpdateCheck() {
   const [phase, setPhase] = useState<'idle' | 'checking' | 'downloading'>('idle')
   const [progress, setProgress] = useState<number | null>(null)
   const appVersion = Application.nativeApplicationVersion ?? ''
@@ -266,36 +300,16 @@ export function MoreScreen({ onBack, onSettings, onAbout }: {
     }
   }
 
-  return (
-    <View style={styles.flex}>
-      <TopBar title={zhCN.settings.more} onBack={onBack} />
-      <Screen>
-        <View style={styles.moreList}>
-          <MoreRow icon={Settings} label={zhCN.settings.title} onPress={onSettings} />
-          <MoreRow icon={Info} label={zhCN.settings.about} subtitle={zhCN.settings.aboutLead} onPress={onAbout} />
-          <MoreRow
-            icon={Download}
-            label={zhCN.settings.checkUpdates}
-            subtitle={phase === 'checking'
-              ? zhCN.settings.checkingUpdates
-              : phase === 'downloading'
-                ? progress === null ? zhCN.settings.downloadingUpdate : `${zhCN.settings.downloadingUpdate} ${progress}%`
-                : undefined}
-            onPress={() => void checkForUpdates()}
-            disabled={phase !== 'idle'}
-          />
-        </View>
-      </Screen>
-    </View>
-  )
+  return { phase, progress, checkForUpdates }
 }
 
-function MoreRow({ icon: Icon, label, subtitle, onPress, disabled = false }: {
+function HomeMenuRow({ icon: Icon, label, subtitle, onPress, disabled = false, last = false }: {
   icon: LucideIcon
   label: string
   subtitle?: string
   onPress: () => void
   disabled?: boolean
+  last?: boolean
 }) {
   return (
     <Pressable
@@ -304,12 +318,17 @@ function MoreRow({ icon: Icon, label, subtitle, onPress, disabled = false }: {
       accessibilityState={{ disabled, busy: disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.moreRow, pressed && !disabled && styles.moreRowPressed, disabled && styles.moreRowDisabled]}
+      style={({ pressed }) => [
+        styles.homeMenuRow,
+        !last && styles.homeMenuRowBorder,
+        pressed && !disabled && styles.homeMenuRowPressed,
+        disabled && styles.homeMenuRowDisabled,
+      ]}
     >
-      <View style={styles.moreRowIcon}><Icon size={20} color={colors.primary} /></View>
-      <View style={styles.settingsLinkCopy}>
-        <Text style={styles.settingsLinkLabel}>{label}</Text>
-        {subtitle !== undefined && <Text style={styles.aboutCardSubtitle}>{subtitle}</Text>}
+      <View style={styles.homeMenuRowIcon}><Icon size={19} color={colors.primary} /></View>
+      <View style={styles.homeMenuRowCopy}>
+        <Text style={styles.homeMenuRowLabel}>{label}</Text>
+        {subtitle !== undefined && <Text style={styles.homeMenuRowSubtitle} numberOfLines={1}>{subtitle}</Text>}
       </View>
       {disabled
         ? <ActivityIndicator size="small" color={colors.primary} />
@@ -351,7 +370,7 @@ export function AboutScreen({ onBack }: { onBack: () => void }) {
 
         <View style={styles.group}>
           <SettingsLink label={zhCN.settings.developer} value={zhCN.settings.developerValue} url={developerUrl} />
-          <SettingsLink label={zhCN.settings.sourceCodeUrl} url={sourceCodeUrl} />
+          <SettingsLink label={zhCN.settings.sourceCodeUrl} url={SOURCE_CODE_URL} />
           <SettingsLink label={zhCN.settings.updateUrl} url={updateUrl} />
         </View>
       </Screen>
@@ -441,12 +460,17 @@ const styles = StyleSheet.create({
   settingsLinkCopy: { flex: 1, gap: 3 },
   settingsLinkLabel: { ...type.smallStrong, color: colors.ink },
   settingsLinkUrl: { ...type.caption, color: colors.primary },
-  moreList: { gap: spacing.sm },
-  moreRow: { minHeight: 64, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  moreRowPressed: { opacity: 0.68 },
-  moreRowDisabled: { opacity: 0.6 },
-  moreRowIcon: { width: 28, height: 28, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  aboutCardSubtitle: { ...type.caption, color: colors.muted, marginTop: 2 },
+  homeMenuLayer: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, elevation: 20 },
+  homeMenuDismiss: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(23, 24, 29, 0.16)' },
+  homeMenuCard: { position: 'absolute', top: 56, right: spacing.sm, width: 236, paddingHorizontal: spacing.xs, borderRadius: radius.lg, backgroundColor: colors.surface, elevation: 8, shadowColor: '#000000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.14, shadowRadius: 14 },
+  homeMenuRow: { minHeight: 56, paddingHorizontal: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  homeMenuRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
+  homeMenuRowPressed: { opacity: 0.68 },
+  homeMenuRowDisabled: { opacity: 0.6 },
+  homeMenuRowIcon: { width: 32, height: 32, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  homeMenuRowCopy: { flex: 1 },
+  homeMenuRowLabel: { ...type.smallStrong, color: colors.ink },
+  homeMenuRowSubtitle: { ...type.caption, color: colors.muted, marginTop: 1 },
   aboutHero: { alignItems: 'center', paddingVertical: spacing.xxl, gap: spacing.xs },
   aboutLogo: { width: 84, height: 84, borderRadius: radius.lg, marginBottom: spacing.sm },
   aboutProductName: { ...type.title, color: colors.ink, textAlign: 'center' },

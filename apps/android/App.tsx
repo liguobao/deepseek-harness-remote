@@ -6,7 +6,7 @@ import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { ChatScreen } from './src/screens/chat-screen'
 import { ConnectionScreen, DeviceDetailScreen, DevicesScreen, SessionsScreen } from './src/screens/device-screens'
-import { ServerSetupScreen, SettingsScreen, AboutScreen, MoreScreen } from './src/screens/setup-screens'
+import { AboutScreen, HomeActionsMenu, ServerSetupScreen, SettingsScreen } from './src/screens/setup-screens'
 import { WorkspacesScreen } from './src/screens/workspaces-screen'
 import { useAppStore } from './src/state/store'
 import {
@@ -28,7 +28,6 @@ type Route =
   | { name: 'chat' }
   | { name: 'settings' }
   | { name: 'about' }
-  | { name: 'more' }
 
 export default function App() {
   const locales = useLocales()
@@ -61,6 +60,7 @@ function AppNavigator() {
   const setOffline = useAppStore(state => state.setOffline)
   const clearError = useAppStore(state => state.clearError)
   const [routes, setRoutes] = useState<Route[]>([{ name: 'server' }])
+  const [homeMenuOpen, setHomeMenuOpen] = useState(false)
   const didChooseInitialRoute = useRef(false)
   const networkRoute = useRef<NetworkRoute | undefined>(undefined)
   const route = routes[routes.length - 1]!
@@ -122,13 +122,17 @@ function AppNavigator() {
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (homeMenuOpen) {
+        setHomeMenuOpen(false)
+        return true
+      }
       if (routes.length <= 1) return false
       if (route.name === 'connecting') void useAppStore.getState().disconnect()
       pop()
       return true
     })
     return () => subscription.remove()
-  }, [route.name, routes.length])
+  }, [homeMenuOpen, route.name, routes.length])
 
   useEffect(() => NetInfo.addEventListener(state => {
     const nextRoute = networkRouteForNativeType(state.type)
@@ -171,7 +175,7 @@ function AppNavigator() {
     <View style={styles.flex}>
       {error !== undefined && route.name !== 'connecting' && <ErrorBanner message={error} onDismiss={clearError} />}
       {route.name === 'server' && <ServerSetupScreen onBack={routes.length > 1 ? pop : undefined} onComplete={() => reset({ name: 'devices' })} />}
-      {route.name === 'devices' && <DevicesScreen onDevice={openDevice} onMore={() => push({ name: 'more' })} />}
+      {route.name === 'devices' && <DevicesScreen onDevice={openDevice} onMore={() => setHomeMenuOpen(true)} />}
       {route.name === 'connecting' && deviceForRoute !== undefined && <ConnectionScreen device={deviceForRoute} onBack={pop} onConnected={() => replace({ name: 'workspaces' })} />}
       {route.name === 'connecting' && deviceForRoute === undefined && <MissingRoute onBack={() => reset({ name: 'devices' })} />}
       {route.name === 'device' && deviceForRoute !== undefined && <DeviceDetailScreen
@@ -192,7 +196,18 @@ function AppNavigator() {
       {route.name === 'chat' && <ChatScreen onBack={pop} />}
       {route.name === 'settings' && <SettingsScreen onBack={pop} onReset={() => reset({ name: 'server' })} />}
       {route.name === 'about' && <AboutScreen onBack={pop} />}
-      {route.name === 'more' && <MoreScreen onBack={pop} onSettings={() => push({ name: 'settings' })} onAbout={() => push({ name: 'about' })} />}
+      <HomeActionsMenu
+        visible={route.name === 'devices' && homeMenuOpen}
+        onClose={() => setHomeMenuOpen(false)}
+        onSettings={() => {
+          setHomeMenuOpen(false)
+          push({ name: 'settings' })
+        }}
+        onAbout={() => {
+          setHomeMenuOpen(false)
+          push({ name: 'about' })
+        }}
+      />
     </View>
   )
 }

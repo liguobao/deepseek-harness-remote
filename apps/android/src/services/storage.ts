@@ -13,6 +13,7 @@ const KEYS = {
   trustedHosts: 'dshremote.trusted-hosts.v1',
   transportPreference: 'dshremote.transport-preference.v1',
   languagePreference: 'dshremote.language-preference.v1',
+  collapsedWorkspaces: 'dshremote.collapsed-workspaces.v1',
 } as const
 
 const secureOptions: SecureStore.SecureStoreOptions = {
@@ -93,6 +94,28 @@ export async function loadLanguagePreference(): Promise<LanguagePreference> {
 
 export async function saveLanguagePreference(value: LanguagePreference): Promise<void> {
   await writeJson(KEYS.languagePreference, { value })
+}
+
+export async function loadCollapsedWorkspaceIds(deviceId: string): Promise<string[]> {
+  const stored = await readJson<{ byDevice?: Record<string, unknown> }>(KEYS.collapsedWorkspaces)
+  const deviceValue = stored?.byDevice?.[deviceId]
+  return Array.isArray(deviceValue)
+    ? deviceValue.filter((value): value is string => typeof value === 'string')
+    : []
+}
+
+let collapsedWorkspacesWrite = Promise.resolve()
+
+export function saveCollapsedWorkspaceIds(deviceId: string, workspaceIds: readonly string[]): Promise<void> {
+  const ids = [...new Set(workspaceIds)]
+  collapsedWorkspacesWrite = collapsedWorkspacesWrite.catch(() => undefined).then(async () => {
+    const stored = await readJson<{ byDevice?: Record<string, unknown> }>(KEYS.collapsedWorkspaces)
+    const byDevice = { ...stored?.byDevice }
+    if (ids.length === 0) delete byDevice[deviceId]
+    else byDevice[deviceId] = ids
+    await writeJson(KEYS.collapsedWorkspaces, { byDevice })
+  })
+  return collapsedWorkspacesWrite
 }
 
 export async function clearLocalData(): Promise<void> {

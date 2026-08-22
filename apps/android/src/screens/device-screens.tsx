@@ -30,8 +30,8 @@ export function DevicesScreen({ onDevice, onMore }: {
 
   return (
     <View style={styles.flex}>
-      <TopBar title={zhCN.devices.title} action={<IconButton label={zhCN.settings.more} icon={Settings} onPress={onMore} />} />
-      <Screen>
+      <TopBar title="DSH Remote" action={<IconButton label={zhCN.settings.more} icon={Settings} onPress={onMore} />} />
+      <Screen refreshing={refreshing} onRefresh={() => void refresh()}>
         <View style={styles.pageHeading}>
           <View>
             <Text style={styles.title}>{zhCN.devices.myDevices}</Text>
@@ -53,7 +53,8 @@ export function DevicesScreen({ onDevice, onMore }: {
                   key={device.deviceId}
                   title={device.name}
                   subtitle={platformName(device.platform)}
-                  meta={device.online ? zhCN.devices.canConnect : lastSeenText(device.lastSeenAt)}
+                  meta={lastSeenText(device.lastSeenAt)}
+                  metaInline
                   icon={Laptop}
                   status={<StatusBadge status={device.online ? 'online' : 'offline'} />}
                   onPress={() => onDevice(device)}
@@ -124,7 +125,10 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
       <Screen>
         <View style={styles.connectionHero}>
           <View style={styles.connectionDeviceIcon}><Laptop size={30} color={colors.primary} /></View>
-          <Text style={styles.connectionTitle} numberOfLines={1}>{zhCN.devices.connectingTo(device.name)}</Text>
+          <View style={styles.connectionHeading}>
+            <Text style={styles.connectionStatus}>{zhCN.devices.connecting}</Text>
+            <Text style={styles.connectionDeviceName} numberOfLines={2}>{device.name}</Text>
+          </View>
         </View>
 
         <View style={styles.progressHeader}>
@@ -368,7 +372,12 @@ function updatedText(timestamp?: number): string {
 
 function lastSeenText(value?: number): string {
   if (value === undefined) return zhCN.time.lastSeenUnavailable
-  return Number.isFinite(value) ? updatedText(value) : zhCN.time.lastSeenUnavailable
+  if (!Number.isFinite(value)) return zhCN.time.lastSeenUnavailable
+  const delta = Math.max(0, Date.now() - value)
+  if (delta < 60_000) return zhCN.time.lastActive(zhCN.time.now)
+  if (delta < 3_600_000) return zhCN.time.lastActive(zhCN.time.minutesAgo(Math.floor(delta / 60_000)))
+  if (delta < 86_400_000) return zhCN.time.lastActive(zhCN.time.hoursAgo(Math.floor(delta / 3_600_000)))
+  return zhCN.time.lastActive(new Date(value).toLocaleDateString(zhCN.time.locale))
 }
 
 function connectionPath(mode: string | undefined): string {
@@ -406,7 +415,9 @@ const styles = StyleSheet.create({
   subtitle: { ...type.small, color: colors.muted, marginTop: 2 },
   connectionHero: { alignItems: 'center', paddingTop: spacing.xxxl, paddingBottom: spacing.xxl },
   connectionDeviceIcon: { width: 68, height: 68, borderRadius: radius.lg, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
-  connectionTitle: { ...type.title, color: colors.ink, textAlign: 'center', alignSelf: 'stretch' },
+  connectionHeading: { alignSelf: 'stretch', alignItems: 'center', gap: spacing.xxs },
+  connectionStatus: { ...type.smallStrong, color: colors.muted, textAlign: 'center' },
+  connectionDeviceName: { ...type.title, color: colors.ink, textAlign: 'center' },
   progressHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
   progressLabel: { ...type.smallStrong, color: colors.ink },
   progressValue: { ...type.caption, color: colors.primary },

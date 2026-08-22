@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import { ChevronRight, CirclePlus, Eye, EyeOff, Folder, FolderOpen, Laptop, MessageSquareText, MoreVertical, X } from 'lucide-react-native'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CirclePlus, Eye, EyeOff, Folder, FolderOpen, Laptop, MessageSquareText, MoreVertical, Pencil, Trash2, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import type { DirectoryListing, RemoteSession, WorkspaceView } from '../types'
 import { Button, EmptyState, IconButton, Screen, TopBar } from '../ui/components'
 import { colors, radius, spacing, type } from '../ui/theme'
 import { strings as zhCN } from '../locales/i18n'
+import { loadCollapsedWorkspaceIds, saveCollapsedWorkspaceIds } from '../services/storage'
 import { resolveSessionDisplayTitle } from './session-title'
 
 export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
@@ -13,6 +14,7 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
   onSession: (session: RemoteSession) => void
   onDeviceInfo: () => void
 }) {
+  const selectedDevice = useAppStore(state => state.selectedDevice)
   const workspaces = useAppStore(state => state.workspaces)
   const sessions = useAppStore(state => state.sessions)
   const busy = useAppStore(state => state.busyAction)
@@ -20,13 +22,47 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
   const workspaceRename = useAppStore(state => state.workspaceRename)
   const workspaceDelete = useAppStore(state => state.workspaceDelete)
   const workspaceMove = useAppStore(state => state.workspaceMove)
+  const refreshWorkspaces = useAppStore(state => state.refreshWorkspaces)
   const createSession = useAppStore(state => state.createSession)
   const openSession = useAppStore(state => state.openSession)
+  const [refreshing, setRefreshing] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState<WorkspaceView | undefined>(undefined)
+  const [actionsTarget, setActionsTarget] = useState<WorkspaceView | undefined>(undefined)
+  const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = useState<ReadonlySet<string>>(() => new Set())
+
+  useEffect(() => {
+    const deviceId = selectedDevice?.deviceId
+    let cancelled = false
+    setCollapsedWorkspaceIds(new Set())
+    if (deviceId === undefined) return () => { cancelled = true }
+    void loadCollapsedWorkspaceIds(deviceId).then(workspaceIds => {
+      if (!cancelled) setCollapsedWorkspaceIds(new Set(workspaceIds))
+    })
+    return () => { cancelled = true }
+  }, [selectedDevice?.deviceId])
+
+  const toggleWorkspace = (workspaceId: string) => setCollapsedWorkspaceIds(current => {
+    const next = new Set(current)
+    if (next.has(workspaceId)) next.delete(workspaceId)
+    else next.add(workspaceId)
+    const deviceId = selectedDevice?.deviceId
+    if (deviceId !== undefined) void saveCollapsedWorkspaceIds(deviceId, [...next])
+    return next
+  })
 
   const open = async (session: RemoteSession) => {
     if (await openSession(session)) onSession(session)
+  }
+
+  const refresh = async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    try {
+      await refreshWorkspaces()
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   const createInWorkspace = async (workspaceId: string) => {
@@ -44,21 +80,19 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
     ],
   )
 
-  const showActions = (workspace: WorkspaceView) => {
-    const index = workspaces.findIndex(item => item.workspaceId === workspace.workspaceId)
-    const canMoveUp = index > 0
-    const canMoveDown = index >= 0 && index < workspaces.length - 1
-    Alert.alert(workspace.title, workspace.path, [
-      { text: zhCN.workspaces.rename, onPress: () => setRenameTarget(workspace) },
-      canMoveUp
-        ? { text: zhCN.workspaces.moveUp, onPress: () => void workspaceMove(workspace.workspaceId, workspaces[index - 1]!.workspaceId) }
-        : { text: zhCN.workspaces.moveUp, style: 'cancel' as const },
-      canMoveDown
-        ? { text: zhCN.workspaces.moveDown, onPress: () => void workspaceMove(workspace.workspaceId, index + 2 < workspaces.length ? workspaces[index + 2]!.workspaceId : undefined) }
-        : { text: zhCN.workspaces.moveDown, style: 'cancel' as const },
-      { text: zhCN.common.cancel, style: 'cancel' },
-      { text: zhCN.workspaces.delete, style: 'destructive', onPress: () => confirmDelete(workspace) },
-    ])
+  const actionsIndex = actionsTarget === undefined
+    ? -1
+    : workspaces.findIndex(item => item.workspaceId === actionsTarget.workspaceId)
+
+  const moveSelectedWorkspace = (direction: 'up' | 'down') => {
+    if (actionsTarget === undefined || actionsIndex < 0) return
+    const beforeWorkspaceId = direction === 'up'
+      ? workspaces[actionsIndex - 1]?.workspaceId
+      : workspaces[actionsIndex + 2]?.workspaceId
+    if (direction === 'up' && beforeWorkspaceId === undefined) return
+    if (direction === 'down' && actionsIndex >= workspaces.length - 1) return
+    setActionsTarget(undefined)
+    void workspaceMove(actionsTarget.workspaceId, beforeWorkspaceId)
   }
 
   return (
@@ -68,10 +102,12 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
         onBack={onBack}
         action={<IconButton label={zhCN.workspaces.deviceInfo} icon={Laptop} onPress={onDeviceInfo} />}
       />
-      <Screen>
+      <Screen refreshing={refreshing} onRefresh={() => void refresh()}>
         <View style={styles.pageHeading}>
           <View style={styles.pageHeadingCopy}>
-            <Text style={styles.title}>{zhCN.workspaces.deviceTitle}</Text>
+            <Text style={styles.title} numberOfLines={1} ellipsizeMode="middle">
+              {selectedDevice === undefined ? zhCN.workspaces.title : zhCN.workspaces.deviceTitle(selectedDevice.name)}
+            </Text>
             <Text style={styles.subtitle}>{zhCN.workspaces.lead}</Text>
           </View>
           <IconButton label={zhCN.workspaces.create} icon={CirclePlus} onPress={() => setCreateOpen(true)} />
@@ -88,18 +124,36 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
                 const session = sessions.find(item => item.sessionId === sessionId)
                 return session === undefined ? [] : [session]
               })
+              const collapsed = collapsedWorkspaceIds.has(workspace.workspaceId)
               return (
                 <View key={workspace.workspaceId} style={styles.workspaceGroup}>
                   <View style={styles.workspaceRow}>
-                    <View style={styles.workspaceIcon}><Folder size={18} color={colors.primary} /></View>
-                    <View style={styles.workspaceCopy}>
-                      <Text style={styles.workspaceTitle} numberOfLines={1}>{workspace.title}</Text>
-                      <Text style={styles.workspacePath} numberOfLines={1}>{workspace.path}</Text>
-                    </View>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={collapsed ? zhCN.workspaces.expandWorkspace(workspace.title) : zhCN.workspaces.collapseWorkspace(workspace.title)}
+                      accessibilityState={{ expanded: !collapsed }}
+                      onPress={() => toggleWorkspace(workspace.workspaceId)}
+                      style={({ pressed }) => [styles.workspaceToggle, pressed && styles.workspaceRowPressed]}
+                    >
+                      <View style={styles.workspaceIcon}>
+                        {collapsed
+                          ? <Folder size={18} color={colors.primary} />
+                          : <FolderOpen size={18} color={colors.primary} />}
+                      </View>
+                      <View style={styles.workspaceCopy}>
+                        <Text style={styles.workspaceTitle} numberOfLines={1}>{workspace.title}</Text>
+                        <Text style={styles.workspacePath} numberOfLines={1} ellipsizeMode="tail">
+                          {workspaceParentPath(workspace.path)}
+                        </Text>
+                      </View>
+                      {collapsed
+                        ? <ChevronRight size={18} color={colors.subtle} />
+                        : <ChevronDown size={18} color={colors.subtle} />}
+                    </Pressable>
                     <IconButton label={zhCN.workspaces.newSessionIn(workspace.title)} icon={CirclePlus} onPress={() => void createInWorkspace(workspace.workspaceId)} />
-                    <IconButton label={zhCN.workspaces.options} icon={MoreVertical} onPress={() => showActions(workspace)} />
+                    <IconButton label={zhCN.workspaces.options} icon={MoreVertical} onPress={() => setActionsTarget(workspace)} />
                   </View>
-                  {workspaceSessions.length === 0
+                  {!collapsed && (workspaceSessions.length === 0
                     ? <Pressable onPress={() => void createInWorkspace(workspace.workspaceId)} style={styles.noSessions}><Text style={styles.noSessionsText}>{zhCN.workspaces.noSessions}</Text></Pressable>
                     : workspaceSessions.map(session => {
                         const opening = busy === `session:${session.sessionId}`
@@ -118,7 +172,7 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
                           </View>
                           <ChevronRight size={17} color={colors.subtle} />
                         </Pressable>
-                      })}
+                      }))}
                 </View>
               )
             })}</View>}
@@ -136,7 +190,65 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
         onClose={() => setRenameTarget(undefined)}
         onRename={async (workspaceId, title) => workspaceRename(workspaceId, title)}
       />
+      <WorkspaceActionsModal
+        target={actionsTarget}
+        canMoveUp={actionsIndex > 0}
+        canMoveDown={actionsIndex >= 0 && actionsIndex < workspaces.length - 1}
+        busy={busy !== undefined}
+        onClose={() => setActionsTarget(undefined)}
+        onRename={() => {
+          if (actionsTarget === undefined) return
+          const target = actionsTarget
+          setActionsTarget(undefined)
+          setRenameTarget(target)
+        }}
+        onMoveUp={() => moveSelectedWorkspace('up')}
+        onMoveDown={() => moveSelectedWorkspace('down')}
+        onDelete={() => {
+          if (actionsTarget === undefined) return
+          const target = actionsTarget
+          setActionsTarget(undefined)
+          confirmDelete(target)
+        }}
+      />
     </View>
+  )
+}
+
+function WorkspaceActionsModal({ target, canMoveUp, canMoveDown, busy, onClose, onRename, onMoveUp, onMoveDown, onDelete }: {
+  target?: WorkspaceView
+  canMoveUp: boolean
+  canMoveDown: boolean
+  busy: boolean
+  onClose: () => void
+  onRename: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onDelete: () => void
+}) {
+  return (
+    <Modal visible={target !== undefined} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable style={styles.sheet} onPress={event => event.stopPropagation()}>
+          <View style={styles.sheetHeader}>
+            <View style={styles.workspaceActionHeading}>
+              <Text style={styles.sheetTitle}>{zhCN.workspaces.options}</Text>
+              {target !== undefined && <Text style={styles.workspaceActionName} numberOfLines={1}>{target.title}</Text>}
+            </View>
+            <IconButton label={zhCN.common.close} icon={X} onPress={onClose} />
+          </View>
+          {target !== undefined && <Text style={styles.workspaceActionPath} numberOfLines={2}>{target.path}</Text>}
+          <View style={styles.workspaceActionButtons}>
+            <Button label={zhCN.workspaces.rename} icon={Pencil} variant="secondary" onPress={onRename} disabled={busy} />
+            <View style={styles.workspaceMoveActions}>
+              <View style={styles.workspaceMoveButton}><Button label={zhCN.workspaces.moveUp} icon={ArrowUp} variant="secondary" onPress={onMoveUp} disabled={busy || !canMoveUp} /></View>
+              <View style={styles.workspaceMoveButton}><Button label={zhCN.workspaces.moveDown} icon={ArrowDown} variant="secondary" onPress={onMoveDown} disabled={busy || !canMoveDown} /></View>
+            </View>
+            <Button label={zhCN.workspaces.delete} icon={Trash2} variant="danger" onPress={onDelete} disabled={busy} />
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
   )
 }
 
@@ -145,6 +257,15 @@ function resolveSessionTitle(session: RemoteSession): string {
   if (resolvedTitle !== undefined) return resolvedTitle
   if (session.blank && session.parentSessionId === undefined) return zhCN.sessions.untitled
   return session.parentSessionId === undefined ? zhCN.sessions.untitled : zhCN.sessions.child
+}
+
+function workspaceParentPath(path: string): string {
+  const normalized = path.replace(/[\\/]+$/, '')
+  const segments = normalized.split(/[\\/]+/).filter(Boolean)
+  const parentSegments = segments.slice(0, -1)
+  if (parentSegments.length === 0) return normalized.startsWith('/') ? '/' : path
+  const rootPrefix = normalized.startsWith('/') ? '/' : ''
+  return `${rootPrefix}${parentSegments.join('/')}`
 }
 
 function relativeTime(timestamp: number): string {
@@ -352,12 +473,13 @@ const styles = StyleSheet.create({
   title: { ...type.title, color: colors.ink },
   subtitle: { ...type.small, color: colors.muted, marginTop: 2 },
   workspaceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
+  workspaceToggle: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   workspaceRowPressed: { opacity: 0.7 },
   disabled: { opacity: 0.55 },
   workspaceIcon: { width: 38, height: 38, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   workspaceCopy: { flex: 1, gap: 2 },
   workspaceTitle: { ...type.bodyStrong, color: colors.ink },
-  workspacePath: { ...type.caption, color: colors.muted, fontFamily: 'monospace' },
+  workspacePath: { ...type.caption, color: colors.muted, fontFamily: 'monospace', writingDirection: 'ltr' },
   workspaceMeta: { ...type.caption, color: colors.muted },
   workspaceGroup: { marginBottom: spacing.lg, backgroundColor: colors.surface, borderRadius: radius.lg, paddingHorizontal: spacing.sm },
   sessionRow: { minHeight: 58, marginLeft: 50, paddingVertical: spacing.sm, paddingRight: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },
@@ -372,6 +494,12 @@ const styles = StyleSheet.create({
   browserSheet: { height: '75%', backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, paddingBottom: spacing.lg },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sheetTitle: { ...type.heading, color: colors.ink },
+  workspaceActionHeading: { flex: 1, minWidth: 0 },
+  workspaceActionName: { ...type.smallStrong, color: colors.muted, marginTop: 2 },
+  workspaceActionPath: { ...type.caption, color: colors.muted, fontFamily: 'monospace' },
+  workspaceActionButtons: { gap: spacing.sm },
+  workspaceMoveActions: { flexDirection: 'row', gap: spacing.sm },
+  workspaceMoveButton: { flex: 1 },
   fieldLabel: { ...type.smallStrong, color: colors.ink },
   fieldHint: { ...type.caption, color: colors.muted },
   pathRow: { flexDirection: 'row', gap: spacing.sm },

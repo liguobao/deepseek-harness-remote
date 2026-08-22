@@ -88,6 +88,7 @@ interface AppState {
   completeOAuth(token: string): Promise<boolean>
   configureServerWithOAuthToken(input: string, webToken: string): Promise<boolean>
   refreshDevices(): Promise<void>
+  refreshWorkspaces(): Promise<void>
   trustDevice(device: RemoteDevice): Promise<boolean>
   forgetDevice(deviceId: string): Promise<boolean>
   connectDevice(device: RemoteDevice, options?: { forceRelay?: boolean }): Promise<boolean>
@@ -256,6 +257,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ devices: result.devices, refreshing: false })
     } catch (error) {
       set({ refreshing: false, error: friendlyError(error) })
+    }
+  },
+
+  async refreshWorkspaces() {
+    if (get().connection.phase !== 'connected') return
+    try {
+      const proxy = connection.requireProxy()
+      const [workspaceList, sessions] = await Promise.all([
+        proxy.workspaceList(),
+        proxy.sessionList(),
+      ])
+      set(state => ({
+        workspaces: workspaceList.items,
+        archivedSessionIds: workspaceList.archivedSessionIds,
+        sessions,
+        selectedSession: state.selectedSession === undefined
+          ? undefined
+          : sessions.find(session => session.sessionId === state.selectedSession?.sessionId) ?? state.selectedSession,
+      }))
+    } catch (error) {
+      set({ error: friendlyError(error) })
     }
   },
 
