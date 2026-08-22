@@ -41,7 +41,7 @@ function command(id: string, run: (...args: any[]) => Promise<void>): vscode.Dis
   return vscode.commands.registerCommand(id, (...args) => run(...args).catch(error => void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error))))
 }
 
-class Controller {
+export class Controller {
   readonly explorerView = new RemoteExplorerProvider(element => this.treeChildren(element))
   private identity?: DeviceIdentity
   private credentials?: Credentials
@@ -50,7 +50,9 @@ class Controller {
   private workspaces: RemoteWorkspace[] = []
   private sessionPanel?: SessionPanel
   private readonly connection = new RemoteConnection()
-  private refreshingHosts = false
+  private signInTask?: Promise<void>
+  private refreshTask?: Promise<Credentials | undefined>
+  private authEpoch = 0
 
   constructor(private readonly context: vscode.ExtensionContext) {
     const timer = setInterval(() => {
@@ -82,7 +84,6 @@ class Controller {
     const api = new ServerApi(serverUrl)
     const login = method.value === 'qr' ? await this.signInWithQr(api) : await this.signInWithPassword(api)
     if (!login) return
-    const identity = this.identity ?? await this.loadIdentity()
     await this.completeSignIn(api, login)
   }
 
@@ -110,12 +111,34 @@ class Controller {
   }
 
   private async completeSignIn(api: ServerApi, login: { token: string; account: string }): Promise<void> {
+    if (this.signInTask !== undefined) return this.signInTask
+    const task = this.runCompleteSignIn(api, login)
+    this.signInTask = task
+    try {
+      await task
+    } finally {
+      if (this.signInTask === task) this.signInTask = undefined
+    }
+  }
+
+  private async runCompleteSignIn(api: ServerApi, login: { token: string; account: string }): Promise<void> {
+    const authEpoch = ++this.authEpoch
     const identity = this.identity ?? await this.loadIdentity()
-    this.credentials = await api.authorizeClient(identity, login.token, login.account)
-    await this.context.secrets.store(CREDENTIALS_KEY, JSON.stringify(this.credentials))
+    this.identity = identity
+    const credentials = await api.authorizeClient(identity, login.token, login.account)
+    if (authEpoch !== this.authEpoch) {
+      await new ServerApi(credentials.serverUrl, credentials.accessToken).removeSelf().catch(() => undefined)
+      return
+    }
+    this.credentials = credentials
+    await this.context.secrets.store(CREDENTIALS_KEY, JSON.stringify(credentials))
+    if (authEpoch !== this.authEpoch) return
     await vscode.workspace.getConfiguration('dshRemote').update('serverUrl', api.baseUrl, vscode.ConfigurationTarget.Global)
+    if (authEpoch !== this.authEpoch) return
     await vscode.commands.executeCommand('setContext', 'dshRemote.signedIn', true)
+    if (authEpoch !== this.authEpoch) return
     await this.refresh()
+    if (authEpoch !== this.authEpoch) return
     void vscode.window.showInformationMessage(`Signed in as ${login.account}.`)
   }
 
@@ -158,9 +181,22 @@ class Controller {
   }
 
   async signOut(): Promise<void> {
-    await this.disconnect()
-    this.credentials = undefined; this.hosts = []; this.sessions = []; this.workspaces = []
+    const credentials = this.credentials
+    const signInTask = this.signInTask
+    const refreshTask = this.refreshTask
+    this.authEpoch += 1
+    this.credentials = undefined
+    await this.disconnect().catch(() => undefined)
+    await signInTask?.catch(() => undefined)
+    const refreshed = await refreshTask?.catch(() => undefined)
+    if (refreshed !== undefined) {
+      await new ServerApi(refreshed.serverUrl, refreshed.accessToken).removeSelf().catch(() => undefined)
+    } else if (credentials !== undefined) {
+      await this.revokeDevice(credentials).catch(() => undefined)
+    }
+    this.identity = undefined; this.hosts = []; this.sessions = []; this.workspaces = []
     await this.context.secrets.delete(CREDENTIALS_KEY)
+    await this.context.secrets.delete(IDENTITY_KEY)
     await vscode.commands.executeCommand('setContext', 'dshRemote.signedIn', false)
     this.fireViews()
   }
@@ -187,22 +223,36 @@ class Controller {
   }
 
   async refresh(): Promise<void> {
-    if (this.refreshingHosts) return
-    this.refreshingHosts = true
+    if (this.refreshTask !== undefined) { await this.refreshTask; return }
+    const task = this.runRefresh()
+    this.refreshTask = task
     try {
+      await task
+    } finally {
+      if (this.refreshTask === task) this.refreshTask = undefined
+    }
+  }
+
+  private async runRefresh(): Promise<Credentials | undefined> {
+    const authEpoch = this.authEpoch
+    let refreshed: Credentials | undefined
     let credentials = this.credentials
-    if (!credentials) { this.fireViews(); return }
+    if (!credentials) { this.fireViews(); return undefined }
     if (credentials.accessTokenExpiresAt <= Date.now() + 30_000) {
       credentials = await new ServerApi(credentials.serverUrl).refresh(credentials.deviceId, credentials.refreshToken, credentials.account)
+      refreshed = credentials
+      if (authEpoch !== this.authEpoch) return refreshed
       this.credentials = credentials
       await this.context.secrets.store(CREDENTIALS_KEY, JSON.stringify(credentials))
+      if (authEpoch !== this.authEpoch) return refreshed
     }
-    this.hosts = await vscode.window.withProgress({ location: { viewId: 'dshRemote.hosts' } }, () => new ServerApi(credentials.serverUrl, credentials.accessToken).hosts())
+    const hosts = await vscode.window.withProgress({ location: { viewId: 'dshRemote.hosts' } }, () => new ServerApi(credentials.serverUrl, credentials.accessToken).hosts())
+    if (authEpoch !== this.authEpoch) return refreshed
+    this.hosts = hosts
     if (this.connection.connectedHost) await this.loadHostContent()
+    if (authEpoch !== this.authEpoch) return refreshed
     this.fireViews()
-    } finally {
-      this.refreshingHosts = false
-    }
+    return refreshed
   }
 
   async connect(host?: RemoteHost): Promise<void> {
@@ -292,6 +342,15 @@ class Controller {
     const identity: DeviceIdentity = { deviceId: crypto.randomUUID(), name: `VS Code on ${os.hostname()}`, platform: 'vscode', ...keys }
     await this.context.secrets.store(IDENTITY_KEY, JSON.stringify(identity))
     return identity
+  }
+
+  private async revokeDevice(credentials: Credentials): Promise<void> {
+    let accessToken = credentials.accessToken
+    if (credentials.accessTokenExpiresAt <= Date.now() + 30_000) {
+      const refreshed = await new ServerApi(credentials.serverUrl).refresh(credentials.deviceId, credentials.refreshToken, credentials.account)
+      accessToken = refreshed.accessToken
+    }
+    await new ServerApi(credentials.serverUrl, accessToken).removeSelf()
   }
   private fireViews(): void { this.explorerView.fire() }
 }
