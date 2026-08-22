@@ -50,6 +50,7 @@ export class Controller {
   private workspaces: RemoteWorkspace[] = []
   private sessionPanel?: SessionPanel
   private readonly connection = new RemoteConnection()
+  private signInTask?: Promise<void>
   private refreshTask?: Promise<void>
   private authEpoch = 0
 
@@ -110,6 +111,17 @@ export class Controller {
   }
 
   private async completeSignIn(api: ServerApi, login: { token: string; account: string }): Promise<void> {
+    if (this.signInTask !== undefined) return this.signInTask
+    const task = this.runCompleteSignIn(api, login)
+    this.signInTask = task
+    try {
+      await task
+    } finally {
+      if (this.signInTask === task) this.signInTask = undefined
+    }
+  }
+
+  private async runCompleteSignIn(api: ServerApi, login: { token: string; account: string }): Promise<void> {
     const authEpoch = ++this.authEpoch
     const identity = this.identity ?? await this.loadIdentity()
     this.identity = identity
@@ -120,9 +132,13 @@ export class Controller {
     }
     this.credentials = credentials
     await this.context.secrets.store(CREDENTIALS_KEY, JSON.stringify(credentials))
+    if (authEpoch !== this.authEpoch) return
     await vscode.workspace.getConfiguration('dshRemote').update('serverUrl', api.baseUrl, vscode.ConfigurationTarget.Global)
+    if (authEpoch !== this.authEpoch) return
     await vscode.commands.executeCommand('setContext', 'dshRemote.signedIn', true)
+    if (authEpoch !== this.authEpoch) return
     await this.refresh()
+    if (authEpoch !== this.authEpoch) return
     void vscode.window.showInformationMessage(`Signed in as ${login.account}.`)
   }
 
@@ -169,6 +185,7 @@ export class Controller {
     this.authEpoch += 1
     this.credentials = undefined
     await this.disconnect().catch(() => undefined)
+    await this.signInTask?.catch(() => undefined)
     await this.refreshTask?.catch(() => undefined)
     if (credentials !== undefined) await this.revokeDevice(credentials).catch(() => undefined)
     this.identity = undefined; this.hosts = []; this.sessions = []; this.workspaces = []

@@ -10,7 +10,15 @@ interface TestCredentials {
   refreshTokenExpiresAt: number
 }
 
+interface StoreBlock {
+  key: string
+  started: () => void
+  wait: Promise<void>
+}
+
 const apiState = vi.hoisted(() => ({
+  login: vi.fn<() => Promise<{ token: string; account: string }>>(),
+  authorizeClient: vi.fn<() => Promise<TestCredentials>>(),
   removeSelf: vi.fn<() => Promise<void>>(),
   refresh: vi.fn<() => Promise<TestCredentials>>(),
   hosts: vi.fn(async () => []),
@@ -20,6 +28,7 @@ const vscodeState = vi.hoisted(() => ({
   executeCommand: vi.fn(async () => undefined),
   stored: new Map<string, string>(),
   deleted: [] as string[],
+  storeBlock: undefined as StoreBlock | undefined,
 }))
 
 vi.mock('../src/server-api.js', () => ({
@@ -29,6 +38,8 @@ vi.mock('../src/server-api.js', () => ({
       this.baseUrl = url.replace(/\/$/, '')
       apiState.tokens.push(token)
     }
+    login = apiState.login
+    authorizeClient = apiState.authorizeClient
     removeSelf = apiState.removeSelf
     refresh = apiState.refresh
     hosts = apiState.hosts
@@ -47,7 +58,7 @@ vi.mock('vscode', () => {
       withProgress: vi.fn(async (_options: unknown, task: () => Promise<unknown>) => task()),
       showQuickPick: vi.fn(), showWarningMessage: vi.fn(), showErrorMessage: vi.fn(),
     },
-    workspace: { getConfiguration: () => ({ get: () => false }), workspaceFolders: undefined },
+    workspace: { getConfiguration: () => ({ get: () => false, update: vi.fn(async () => undefined) }), workspaceFolders: undefined },
     env: { openExternal: vi.fn() },
     Uri: { parse: (value: string) => value },
     EventEmitter,
@@ -74,7 +85,11 @@ function createController(): { controller: Controller; subscriptions: Array<{ di
     subscriptions,
     secrets: {
       get: async (key: string) => vscodeState.stored.get(key),
-      store: async (key: string, value: string) => { vscodeState.stored.set(key, value) },
+      store: async (key: string, value: string) => {
+        const block = vscodeState.storeBlock
+        if (block?.key === key) { block.started(); await block.wait }
+        vscodeState.stored.set(key, value)
+      },
       delete: async (key: string) => { vscodeState.deleted.push(key); vscodeState.stored.delete(key) },
     },
   }
@@ -96,6 +111,8 @@ function setAuthenticatedState(controller: Controller, credentials = validCreden
 
 describe('Controller sign-out', () => {
   beforeEach(() => {
+    apiState.login.mockReset().mockResolvedValue({ token: 'account-token', account: 'user@example.com' })
+    apiState.authorizeClient.mockReset().mockResolvedValue(validCredentials())
     apiState.removeSelf.mockReset().mockResolvedValue(undefined)
     apiState.refresh.mockReset()
     apiState.hosts.mockClear()
@@ -103,6 +120,7 @@ describe('Controller sign-out', () => {
     vscodeState.executeCommand.mockClear()
     vscodeState.stored.clear()
     vscodeState.deleted.length = 0
+    vscodeState.storeBlock = undefined
   })
 
   it('revokes the device and deletes local credentials and identity', async () => {
@@ -148,5 +166,31 @@ describe('Controller sign-out', () => {
 
     expect(vscodeState.stored.has('dshRemote.credentials.v1')).toBe(false)
     expect(apiState.tokens).toContain('revoke-token')
+  })
+
+  it.each([
+    ['identity', 'dshRemote.identity.v1'],
+    ['credentials', 'dshRemote.credentials.v1'],
+  ])('waits for an in-flight sign-in blocked on %s storage', async (_name, key) => {
+    let markStarted!: () => void
+    let releaseStore!: () => void
+    const started = new Promise<void>(resolve => { markStarted = resolve })
+    const wait = new Promise<void>(resolve => { releaseStore = resolve })
+    vscodeState.storeBlock = { key, started: markStarted, wait }
+    const { controller, subscriptions } = createController()
+
+    const signingIn = controller.signInWithCredentials('https://server.example.com', 'user@example.com', 'password')
+    await started
+    const signingOut = controller.signOut()
+    releaseStore()
+
+    try { await Promise.all([signingIn, signingOut]) } finally { for (const item of subscriptions) item.dispose() }
+
+    expect(controller).toMatchObject({ credentials: undefined, identity: undefined, hosts: [] })
+    expect(vscodeState.stored.has('dshRemote.credentials.v1')).toBe(false)
+    expect(vscodeState.stored.has('dshRemote.identity.v1')).toBe(false)
+    expect(apiState.removeSelf).toHaveBeenCalledOnce()
+    const signedInContexts = vscodeState.executeCommand.mock.calls.filter(call => call[0] === 'setContext' && call[1] === 'dshRemote.signedIn')
+    expect(signedInContexts.at(-1)).toEqual(['setContext', 'dshRemote.signedIn', false])
   })
 })
