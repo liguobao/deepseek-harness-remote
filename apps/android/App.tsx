@@ -5,8 +5,8 @@ import { useLocales } from 'expo-localization'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { ChatScreen } from './src/screens/chat-screen'
-import { DeviceDetailScreen, DevicesScreen, SessionsScreen } from './src/screens/device-screens'
-import { ServerSetupScreen, SettingsScreen } from './src/screens/setup-screens'
+import { ConnectionScreen, DeviceDetailScreen, DevicesScreen, SessionsScreen } from './src/screens/device-screens'
+import { ServerSetupScreen, SettingsScreen, AboutScreen, MoreScreen } from './src/screens/setup-screens'
 import { WorkspacesScreen } from './src/screens/workspaces-screen'
 import { useAppStore } from './src/state/store'
 import {
@@ -21,11 +21,14 @@ import { strings as zhCN } from './src/locales/i18n'
 type Route =
   | { name: 'server' }
   | { name: 'devices' }
-  | { name: 'device'; deviceId: string }
+  | { name: 'device'; deviceId: string; source?: 'workspaces' }
+  | { name: 'connecting'; deviceId: string }
   | { name: 'workspaces' }
   | { name: 'sessions' }
   | { name: 'chat' }
   | { name: 'settings' }
+  | { name: 'about' }
+  | { name: 'more' }
 
 export default function App() {
   const locales = useLocales()
@@ -66,6 +69,16 @@ function AppNavigator() {
   const replace = (next: Route) => setRoutes(current => [...current.slice(0, -1), next])
   const pop = () => setRoutes(current => current.length > 1 ? current.slice(0, -1) : current)
   const reset = (next: Route) => setRoutes([next])
+
+  const openDevice = (device: (typeof devices)[number]) => {
+    if (selectedDevice?.deviceId === device.deviceId && useAppStore.getState().connection.phase === 'connected') {
+      push({ name: 'workspaces' })
+      return
+    }
+    push(device.trusted && device.online
+      ? { name: 'connecting', deviceId: device.deviceId }
+      : { name: 'device', deviceId: device.deviceId })
+  }
 
   useEffect(() => { void bootstrap() }, [bootstrap])
 
@@ -110,11 +123,12 @@ function AppNavigator() {
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (routes.length <= 1) return false
+      if (route.name === 'connecting') void useAppStore.getState().disconnect()
       pop()
       return true
     })
     return () => subscription.remove()
-  }, [routes.length])
+  }, [route.name, routes.length])
 
   useEffect(() => NetInfo.addEventListener(state => {
     const nextRoute = networkRouteForNativeType(state.type)
@@ -149,31 +163,60 @@ function AppNavigator() {
   if (bootPhase === 'loading') return <LoadingScreen />
   if (bootPhase === 'error') return <BootError onRetry={() => void bootstrap()} message={error} />
 
-  const deviceForRoute = route.name === 'device'
+  const deviceForRoute = route.name === 'device' || route.name === 'connecting'
     ? devices.find(device => device.deviceId === route.deviceId) ?? selectedDevice
     : undefined
 
   return (
     <View style={styles.flex}>
-      {error !== undefined && <ErrorBanner message={error} onDismiss={clearError} />}
+      {error !== undefined && route.name !== 'connecting' && <ErrorBanner message={error} onDismiss={clearError} />}
       {route.name === 'server' && <ServerSetupScreen onBack={routes.length > 1 ? pop : undefined} onComplete={() => reset({ name: 'devices' })} />}
-      {route.name === 'devices' && <DevicesScreen onDevice={device => push({ name: 'device', deviceId: device.deviceId })} onSettings={() => push({ name: 'settings' })} />}
-      {route.name === 'device' && deviceForRoute !== undefined && <DeviceDetailScreen device={deviceForRoute} onBack={pop} onWorkspaces={() => push({ name: 'workspaces' })} onForgotten={() => reset({ name: 'devices' })} />}
+      {route.name === 'devices' && <DevicesScreen onDevice={openDevice} onMore={() => push({ name: 'more' })} />}
+      {route.name === 'connecting' && deviceForRoute !== undefined && <ConnectionScreen device={deviceForRoute} onBack={pop} onConnected={() => replace({ name: 'workspaces' })} />}
+      {route.name === 'connecting' && deviceForRoute === undefined && <MissingRoute onBack={() => reset({ name: 'devices' })} />}
+      {route.name === 'device' && deviceForRoute !== undefined && <DeviceDetailScreen
+        device={deviceForRoute}
+        onBack={pop}
+        onConnect={() => replace({ name: 'connecting', deviceId: deviceForRoute.deviceId })}
+        onWorkspaces={route.source === 'workspaces' ? undefined : () => push({ name: 'workspaces' })}
+        onForgotten={() => reset({ name: 'devices' })}
+      />}
       {route.name === 'device' && deviceForRoute === undefined && <MissingRoute onBack={() => reset({ name: 'devices' })} />}
-      {route.name === 'workspaces' && <WorkspacesScreen onBack={pop} onSession={() => push({ name: 'chat' })} />}
+      {route.name === 'workspaces' && <WorkspacesScreen
+        onBack={pop}
+        onSession={() => push({ name: 'chat' })}
+        onDeviceInfo={() => {
+          if (selectedDevice !== undefined) push({ name: 'device', deviceId: selectedDevice.deviceId, source: 'workspaces' })
+        }}
+      />}
       {route.name === 'sessions' && <SessionsScreen onBack={pop} onSession={() => push({ name: 'chat' })} />}
       {route.name === 'chat' && <ChatScreen onBack={pop} />}
       {route.name === 'settings' && <SettingsScreen onBack={pop} onReset={() => reset({ name: 'server' })} />}
+      {route.name === 'about' && <AboutScreen onBack={pop} />}
+      {route.name === 'more' && <MoreScreen onBack={pop} onSettings={() => push({ name: 'settings' })} onAbout={() => push({ name: 'about' })} />}
     </View>
   )
 }
 
 function LoadingScreen() {
   return (
-    <View style={styles.center}>
-      <Image source={require('./assets/icon.png')} style={styles.logo} resizeMode="contain" />
-      <Text style={styles.loadingTitle}>DSH Remote</Text>
-      <Text style={styles.loadingBody}>{zhCN.app.loadingIdentity}</Text>
+    <View style={styles.loadingScreen}>
+      <View style={styles.loadingBrand}>
+        <Image
+          source={require('./assets/android-icon-foreground-adaptive.png')}
+          style={styles.logo}
+          resizeMode="contain"
+          accessible={false}
+        />
+        <Text style={styles.loadingTitle}>DSH Remote</Text>
+      </View>
+      <View style={styles.loadingDetails}>
+        <Text style={styles.loadingTagline}>{zhCN.app.loadingTagline}</Text>
+        <View style={styles.loadingStatus} accessibilityRole="text">
+          <View style={styles.loadingDot} />
+          <Text style={styles.loadingStatusText}>{zhCN.app.loadingIdentity}</Text>
+        </View>
+      </View>
     </View>
   )
 }
@@ -202,8 +245,15 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl, backgroundColor: colors.background },
-  logo: { width: 72, height: 72, borderRadius: radius.lg, marginBottom: spacing.md },
+  loadingScreen: { flex: 1, width: '100%', maxWidth: 420, alignSelf: 'center', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.xl, paddingTop: spacing.xxxl, paddingBottom: spacing.xxxl, backgroundColor: colors.background },
+  loadingBrand: { alignItems: 'center' },
+  loadingDetails: { width: '100%', alignItems: 'center' },
+  logo: { width: 144, height: 144, marginBottom: spacing.md },
   loadingTitle: { ...type.title, color: colors.ink, textAlign: 'center' },
+  loadingTagline: { ...type.smallStrong, color: colors.ink, textAlign: 'center', alignSelf: 'stretch' },
+  loadingStatus: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, alignSelf: 'stretch', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator, marginTop: spacing.xl, paddingTop: spacing.lg },
+  loadingDot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.primary },
+  loadingStatusText: { ...type.small, color: colors.muted },
   loadingBody: { ...type.body, color: colors.muted, textAlign: 'center', marginTop: spacing.xs },
   retry: { alignSelf: 'stretch', marginTop: spacing.xl },
 })

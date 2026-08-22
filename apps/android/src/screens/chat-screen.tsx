@@ -4,8 +4,7 @@ import {
   Alert,
   FlatList,
   Image,
-  Keyboard,
-  type KeyboardEvent,
+  KeyboardAvoidingView,
   Modal,
   Pressable,
   ScrollView,
@@ -15,8 +14,7 @@ import {
   View,
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Bot, Check, ChevronDown, ChevronRight, CircleStop, Code2, ImagePlus, Images, Send, ShieldAlert, Sparkles, User, X } from 'lucide-react-native'
+import { Bot, Check, ChevronDown, ChevronRight, CircleStop, Code2, ImagePlus, Images, RefreshCw, Send, ShieldAlert, Sparkles, User, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import { hasVisibleMessageText } from '../state/event-reducer'
 import type { ApprovalActivity, ChatItem, ChatMessage, ImageAttachmentLimits, ImageMediaType, ModelCatalogModel, ModelProviderGroup, PermissionSelect, PromptImage, QuestionActivity, RemoteSession, ToolActivity, ToolDisplayDetail } from '../types'
@@ -40,6 +38,8 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const permissionSelecting = useAppStore(state => state.permissionSelecting)
   const sendMessage = useAppStore(state => state.sendMessage)
   const stopSession = useAppStore(state => state.stopSession)
+  const reconnect = useAppStore(state => state.reconnect)
+  const openSession = useAppStore(state => state.openSession)
   const respondApproval = useAppStore(state => state.respondApproval)
   const respondQuestion = useAppStore(state => state.respondQuestion)
   const loadOlderHistory = useAppStore(state => state.loadOlderHistory)
@@ -50,15 +50,21 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const [pickingImages, setPickingImages] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [permissionPickerOpen, setPermissionPickerOpen] = useState(false)
+  const [reconnectingSession, setReconnectingSession] = useState(false)
   const listRef = useRef<FlatList<ChatItem>>(null)
   const visibleMessages = messages.filter(item =>
-    item.kind !== 'message' || hasVisibleMessageText(item.text) || (item.images?.length ?? 0) > 0)
+    item.kind !== 'message'
+      || hasVisibleMessageText(item.text)
+      || hasVisibleMessageText(item.reasoning ?? '')
+      || (item.images?.length ?? 0) > 0)
   const lastItem = visibleMessages.at(-1)
-  const lastText = lastItem?.kind === 'message' ? lastItem.text : undefined
+  const lastContentVersion = lastItem?.kind === 'message'
+    ? `${lastItem.id}:${lastItem.text.length}:${lastItem.reasoning?.length ?? 0}`
+    : undefined
 
   useEffect(() => {
     if (messages.length > 0) requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))
-  }, [messages.length, lastText])
+  }, [messages.length, lastContentVersion])
 
   if (session === undefined) return null
 
@@ -113,7 +119,23 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
     await selectModel({ provider: group.id, model: model.id })
   }
 
-  const connected = connection.phase === 'connected'
+  const reconnectCurrentSession = async () => {
+    if (reconnectingSession) return
+    setReconnectingSession(true)
+    try {
+      if (!await reconnect()) return
+      const currentState = useAppStore.getState()
+      const currentSession = currentState.sessions.find(item => item.sessionId === session.sessionId)
+        ?? currentState.selectedSession
+        ?? session
+      await openSession(currentSession)
+    } finally {
+      setReconnectingSession(false)
+    }
+  }
+
+  const connectionRetrying = reconnectingSession || connection.phase === 'connecting' || connection.phase === 'reconnecting'
+  const connected = connection.phase === 'connected' && !reconnectingSession
   const permissions = sessionPermissions(session)
   const currentPermission = permissions?.options.find(option => option.value === permissions.currentValue)
 
@@ -132,9 +154,11 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
       <TopBar
         title={sessionTitle(session)}
         onBack={onBack}
-        action={busy === 'send-message' || session.running
-          ? <IconButton label={zhCN.chat.stop} icon={CircleStop} onPress={() => void stopSession()} disabled={busy === 'stop-session'} />
-          : undefined}
+        action={!connected
+          ? <IconButton label={zhCN.chat.reconnect} icon={RefreshCw} onPress={() => void reconnectCurrentSession()} disabled={connectionRetrying} />
+          : busy === 'send-message' || session.running
+            ? <IconButton label={zhCN.chat.stop} icon={CircleStop} onPress={() => void stopSession()} disabled={busy === 'stop-session'} />
+            : undefined}
       />
 
       <View style={styles.sessionControls}>
@@ -154,10 +178,10 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         )}
       </View>
 
-      {connection.phase !== 'connected' && (
+      {!connected && (
         <View style={styles.connectionBanner} accessibilityRole="alert">
           <View style={styles.connectionDot} />
-          <Text style={styles.connectionBannerText}>{connection.phase === 'reconnecting' ? zhCN.chat.reconnecting : zhCN.chat.offline}</Text>
+          <Text style={styles.connectionBannerText}>{connectionRetrying ? zhCN.chat.reconnecting : zhCN.chat.offline}</Text>
         </View>
       )}
 
@@ -255,30 +279,12 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
 }
 
 function ChatKeyboardInset({ children }: { children: ReactNode }) {
-  const safeArea = useSafeAreaInsets()
-  const [bottom, setBottom] = useState(0)
-
-  useEffect(() => {
-    const animate = (event: KeyboardEvent) => Keyboard.scheduleLayoutAnimation(event)
-    const show = Keyboard.addListener('keyboardDidShow', event => {
-      animate(event)
-      // ChatScreen already lives inside a bottom SafeAreaView, so only pad the
-      // part of the IME that overlaps that safe content rectangle.
-      setBottom(Math.max(0, event.endCoordinates.height - safeArea.bottom))
-    })
-    const hide = Keyboard.addListener('keyboardDidHide', event => {
-      animate(event)
-      // Explicitly clear the inset. KeyboardAvoidingView can occasionally
-      // retain its last Android padding when the IME's own collapse key is used.
-      setBottom(0)
-    })
-    return () => {
-      show.remove()
-      hide.remove()
-    }
-  }, [safeArea.bottom])
-
-  return <View style={[styles.flex, bottom > 0 && { paddingBottom: bottom }]}>{children}</View>
+  // Edge-to-edge Android windows do not consistently resize around the IME,
+  // even when the Activity requests adjustResize. KeyboardAvoidingView measures
+  // the actual overlap, so it is a no-op when the window already resized and
+  // adds only the missing inset when it did not. Its hide event also clears the
+  // padding instead of leaving the conversation at the compact keyboard height.
+  return <KeyboardAvoidingView style={styles.flex} behavior="padding">{children}</KeyboardAvoidingView>
 }
 
 function PermissionPicker({ visible, permissions, onClose, onPick }: {
@@ -469,6 +475,9 @@ function ChatItemView({ item, busyAction, onApproval, onQuestion }: {
   if (item.kind === 'approval') return <ApprovalCard item={item} busy={busyAction === `approval:${item.id}`} onRespond={onApproval} />
   if (item.kind === 'question') return <QuestionCard item={item} busy={busyAction === `question:${item.id}`} onRespond={onQuestion} />
   if (item.kind === 'tool') return <ToolRow item={item} />
+  if (item.role === 'assistant'
+    && !hasVisibleMessageText(item.text)
+    && hasVisibleMessageText(item.reasoning ?? '')) return <ReasoningDisclosure item={item} />
   return <MessageBubble item={item} />
 }
 
@@ -493,9 +502,38 @@ function MessageBubble({ item }: { item: ChatMessage }) {
                 ))}
           </View>
         )}
+        {item.role === 'assistant' && hasVisibleMessageText(item.reasoning ?? '') && <ReasoningDisclosure item={item} embedded />}
         {hasVisibleMessageText(item.text) && <NativeMarkdown text={item.text} />}
-        {item.streaming && <View style={styles.streamingCursor} accessibilityLabel={zhCN.chat.generating} />}
+        {item.streaming && item.streamingPhase !== 'reasoning' && <View style={styles.streamingCursor} accessibilityLabel={zhCN.chat.generating} />}
       </View>
+    </View>
+  )
+}
+
+function ReasoningDisclosure({ item, embedded = false }: { item: ChatMessage; embedded?: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const active = item.streamingPhase === 'reasoning'
+  const label = active ? zhCN.chat.reasoningActive : zhCN.chat.reasoning
+  const preview = compactActivityText(item.reasoning) ?? ''
+  const actionLabel = expanded ? zhCN.chat.reasoningCollapse : zhCN.chat.reasoningExpand
+  return (
+    <View style={[styles.reasoningCard, embedded && styles.reasoningCardEmbedded]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${actionLabel}。${preview}`}
+        accessibilityState={{ expanded }}
+        onPress={() => setExpanded(value => !value)}
+        style={({ pressed }) => [styles.reasoningHeader, pressed && styles.reasoningHeaderPressed]}
+      >
+        <Sparkles size={16} color={active ? colors.accent : colors.muted} />
+        <Text style={[styles.reasoningLabel, active && styles.reasoningLabelActive]}>{label}</Text>
+        <Text style={styles.activitySeparator}>·</Text>
+        <Text style={styles.reasoningPreview} numberOfLines={1}>{preview}</Text>
+        {expanded
+          ? <ChevronDown size={17} color={colors.muted} />
+          : <ChevronRight size={17} color={colors.muted} />}
+      </Pressable>
+      {expanded && <View style={styles.reasoningBody}><NativeMarkdown text={item.reasoning ?? ''} /></View>}
     </View>
   )
 }
@@ -503,10 +541,10 @@ function MessageBubble({ item }: { item: ChatMessage }) {
 function ToolRow({ item }: { item: ToolActivity }) {
   const [expanded, setExpanded] = useState(false)
   const stateText = item.state === 'running' ? zhCN.status.running : item.state === 'failed' ? zhCN.chat.failed : zhCN.chat.completed
-  const detail = compactToolDetail(item.summary ?? item.arguments)
+  const detail = compactActivityText(item.summary ?? item.arguments)
   const hasDetail = item.callDetail !== undefined || item.resultDetail !== undefined
   return (
-    <View style={styles.toolCard}>
+    <View style={[styles.toolCard, expanded && styles.toolCardExpanded]}>
       <Pressable
         accessibilityRole={hasDetail ? 'button' : undefined}
         accessibilityLabel={hasDetail ? (expanded ? zhCN.chat.toolCollapse(item.toolName) : zhCN.chat.toolExpand(item.toolName)) : undefined}
@@ -515,12 +553,13 @@ function ToolRow({ item }: { item: ToolActivity }) {
         onPress={() => setExpanded(value => !value)}
         style={({ pressed }) => [styles.toolRow, pressed && hasDetail && styles.toolRowPressed]}
       >
-        <View style={styles.toolIcon}><Code2 size={17} color={colors.primary} /></View>
+        <View style={styles.toolIcon}><Code2 size={18} color={colors.muted} /></View>
         <View style={styles.toolCopy}>
           <Text style={styles.toolName} numberOfLines={1}>{item.toolName}</Text>
+          {detail !== undefined && <Text style={styles.activitySeparator}>·</Text>}
           {detail !== undefined && <Text style={styles.toolSummary} numberOfLines={1}>{detail}</Text>}
         </View>
-        <Text style={[styles.toolState, item.state === 'failed' && styles.toolFailed]}>{stateText}</Text>
+        {item.state !== 'finished' && <Text style={[styles.toolState, item.state === 'failed' && styles.toolFailed]}>{stateText}</Text>}
         {hasDetail && (expanded
           ? <ChevronDown size={17} color={colors.muted} />
           : <ChevronRight size={17} color={colors.muted} />)}
@@ -547,7 +586,7 @@ function ToolDetailView({ label, detail }: { label: string; detail: ToolDisplayD
   )
 }
 
-function compactToolDetail(value: string | undefined): string | undefined {
+function compactActivityText(value: string | undefined): string | undefined {
   if (value === undefined) return undefined
   const compact = value.replace(/\\[nrt]/g, ' ').replace(/\s+/g, ' ').trim()
   return compact.length === 0 ? undefined : compact
@@ -689,9 +728,9 @@ const styles = StyleSheet.create({
   connectionDot: { width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.warning },
   connectionBannerText: { ...type.small, color: colors.ink, flex: 1 },
   list: { flex: 1 },
-  listContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.xl },
+  listContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.xxs },
   emptyList: { flexGrow: 1, justifyContent: 'center' },
-  messageRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  messageRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginVertical: spacing.xs },
   messageRowUser: { flexDirection: 'row-reverse' },
   avatar: { width: 32, height: 32, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   avatarUser: { backgroundColor: colors.primary },
@@ -704,14 +743,24 @@ const styles = StyleSheet.create({
   messageImage: { width: 132, height: 104, borderRadius: radius.md, backgroundColor: colors.surfaceStrong },
   messageImagePlaceholder: { width: 132, minHeight: 76, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', padding: spacing.sm, gap: spacing.xs },
   messageImageName: { ...type.caption, color: colors.primary, maxWidth: '100%' },
+  reasoningCard: { alignSelf: 'stretch', borderRadius: radius.md, overflow: 'hidden' },
+  reasoningCardEmbedded: { marginBottom: spacing.xs },
+  reasoningHeader: { minHeight: 48, paddingHorizontal: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  reasoningHeaderPressed: { backgroundColor: colors.surfaceStrong },
+  reasoningLabel: { ...type.smallStrong, color: colors.ink },
+  reasoningLabelActive: { color: colors.accent },
+  reasoningPreview: { ...type.small, color: colors.muted, flex: 1 },
+  activitySeparator: { ...type.small, color: colors.subtle },
+  reasoningBody: { backgroundColor: colors.surface, padding: spacing.sm, marginHorizontal: spacing.xs, marginBottom: spacing.xs, borderRadius: radius.sm },
   streamingCursor: { width: 7, height: 16, backgroundColor: colors.accent, borderRadius: 2, marginTop: 3 },
-  toolCard: { borderRadius: radius.md, backgroundColor: colors.surface, overflow: 'hidden' },
-  toolRow: { minHeight: 60, padding: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  toolCard: { borderRadius: radius.md, overflow: 'hidden' },
+  toolCardExpanded: { backgroundColor: colors.surface },
+  toolRow: { minHeight: 48, paddingHorizontal: spacing.xs, paddingVertical: spacing.xxs, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   toolRowPressed: { backgroundColor: colors.surfaceStrong },
-  toolIcon: { width: 34, height: 34, borderRadius: radius.sm, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  toolCopy: { flex: 1 },
+  toolIcon: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  toolCopy: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 },
   toolName: { ...type.smallStrong, color: colors.ink },
-  toolSummary: { ...type.caption, color: colors.muted, fontFamily: 'monospace', marginTop: 2 },
+  toolSummary: { ...type.small, color: colors.muted, flex: 1 },
   toolState: { ...type.caption, color: colors.success },
   toolFailed: { color: colors.danger },
   toolDetails: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator, padding: spacing.sm, gap: spacing.md },
@@ -719,8 +768,8 @@ const styles = StyleSheet.create({
   toolDetailLabel: { ...type.caption, color: colors.muted },
   toolDetailCode: { fontFamily: 'monospace', fontSize: 13, lineHeight: 20, color: colors.ink, backgroundColor: colors.surfaceStrong, borderRadius: radius.sm, padding: spacing.sm },
   toolDetailTruncated: { ...type.caption, color: colors.warning },
-  permissionCard: { borderRadius: radius.lg, backgroundColor: colors.warningSoft, padding: spacing.md, gap: spacing.md },
-  questionCard: { borderRadius: radius.lg, backgroundColor: colors.accentSoft, padding: spacing.md, gap: spacing.md },
+  permissionCard: { borderRadius: radius.lg, backgroundColor: colors.warningSoft, padding: spacing.md, gap: spacing.md, marginVertical: spacing.xs },
+  questionCard: { borderRadius: radius.lg, backgroundColor: colors.accentSoft, padding: spacing.md, gap: spacing.md, marginVertical: spacing.xs },
   permissionHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   permissionIcon: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' },
   permissionHeaderCopy: { flex: 1 },
@@ -731,7 +780,7 @@ const styles = StyleSheet.create({
   permissionText: { ...type.body, color: colors.ink },
   permissionScope: { ...type.caption, color: colors.muted },
   permissionActions: { gap: spacing.xs },
-  permissionResolved: { borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing.sm, flexDirection: 'row', gap: spacing.xs, alignItems: 'center' },
+  permissionResolved: { borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing.sm, flexDirection: 'row', gap: spacing.xs, alignItems: 'center', marginVertical: spacing.xs },
   permissionResolvedText: { ...type.smallStrong, color: colors.ink },
   questionBlock: { gap: spacing.xs },
   questionText: { ...type.bodyStrong, color: colors.ink },

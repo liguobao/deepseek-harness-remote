@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.28
+
+- Redesigns the Android device flow with a dedicated connection-progress page,
+  clearer device/workspace navigation, a refreshed startup screen, and separate
+  More, Settings, and About destinations.
+- Adds in-app update checks with APK download/install handoff and progress
+  feedback from the Android More screen.
+- Renders reasoning as a compact, collapsed disclosure while it streams and
+  after completion, tightens tool activity spacing, and fixes composer sizing
+  when the Android keyboard opens or closes.
+- Adds an offline refresh action to the conversation header. It reconnects the
+  secure channel, reloads the current session baseline, and resumes in place
+  without leaving the conversation.
+- Aligns the Android app version with the GitHub Release at `0.3.28` while
+  advancing its Android install sequence to `versionCode 12`, so in-app update
+  comparisons remain accurate.
+
 ## 0.3.27
 
 - Adds English and Simplified Chinese Android interfaces with a persistent

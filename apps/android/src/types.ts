@@ -8,6 +8,13 @@ export type ConnectionPhase =
   | 'reconnecting'
   | 'offline'
 
+export type ConnectionStage =
+  | 'authenticating'
+  | 'transport'
+  | 'secure'
+  | 'loading'
+  | 'ready'
+
 export interface ServerConfig {
   baseUrl: string
   account?: string
@@ -183,8 +190,10 @@ export interface ChatMessage extends ChatItemBase {
   kind: 'message'
   role: 'user' | 'assistant' | 'system'
   text: string
+  reasoning?: string
   images?: ChatImage[]
   streaming?: boolean
+  streamingPhase?: 'reasoning' | 'text'
   /** Native session.prompt rpcId used to reconcile an optimistic user message. */
   requestRpcId?: string
 }

@@ -51,6 +51,50 @@ describe('remote mux frame reducer', () => {
     expect(items[0]).not.toHaveProperty('streaming')
   })
 
+  it('keeps reasoning separate while it streams and after the answer is finalized', () => {
+    const events = [
+      sessionEvent({
+        type: 'assistant/chunk',
+        data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: '先检查' } },
+      }),
+      sessionEvent({
+        type: 'assistant/chunk',
+        data: { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: '状态。' } },
+      }),
+      sessionEvent({
+        type: 'assistant/chunk',
+        data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '已完成。' } },
+      }),
+    ]
+
+    let items = foldHistory(events.map(event => ({ event })), 's1')
+    expect(items).toEqual([expect.objectContaining({
+      kind: 'message',
+      text: '已完成。',
+      reasoning: '先检查状态。',
+      streaming: true,
+      streamingPhase: 'text',
+    })])
+
+    items = applyMuxFrame(items, frame('', {
+      type: 'session/event',
+      sessionId: 's1',
+      event: sessionEvent({
+        type: 'assistant/message',
+        data: {
+          turn: 1, step: 1,
+          message: { id: 'm-reasoning', role: 'assistant', content: [{ type: 'text', text: '已完成。' }] },
+        },
+      }),
+    }))
+    expect(items).toEqual([expect.objectContaining({
+      id: 'm-reasoning',
+      text: '已完成。',
+      reasoning: '先检查状态。',
+    })])
+    expect(items[0]).not.toHaveProperty('streamingPhase')
+  })
+
   it('does not render empty assistant messages around tool activity', () => {
     const empty = sessionEvent({
       type: 'assistant/message',

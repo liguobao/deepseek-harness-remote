@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
-import { Archive, ChevronDown, ChevronUp, CirclePlus, Laptop, MessageSquareText, MoreVertical, Settings, ShieldCheck, Unplug } from 'lucide-react-native'
+import { useEffect, useRef, useState } from 'react'
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Archive, ChevronDown, ChevronUp, CircleCheck, CirclePlus, Laptop, MessageSquareText, MoreVertical, Settings, ShieldCheck, Unplug } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
-import type { RemoteDevice, RemoteSession } from '../types'
+import type { ConnectionStage, RemoteDevice, RemoteSession } from '../types'
 import {
   Button,
   EmptyState,
@@ -20,9 +20,9 @@ import { colors, radius, spacing, type } from '../ui/theme'
 import { strings as zhCN } from '../locales/i18n'
 import { resolveSessionDisplayTitle } from './session-title'
 
-export function DevicesScreen({ onDevice, onSettings }: {
+export function DevicesScreen({ onDevice, onMore }: {
   onDevice: (device: RemoteDevice) => void
-  onSettings: () => void
+  onMore: () => void
 }) {
   const devices = useAppStore(state => state.devices)
   const refreshing = useAppStore(state => state.refreshing)
@@ -30,7 +30,7 @@ export function DevicesScreen({ onDevice, onSettings }: {
 
   return (
     <View style={styles.flex}>
-      <TopBar title={zhCN.devices.title} action={<IconButton label={zhCN.settings.title} icon={Settings} onPress={onSettings} />} />
+      <TopBar title={zhCN.devices.title} action={<IconButton label={zhCN.settings.more} icon={Settings} onPress={onMore} />} />
       <Screen>
         <View style={styles.pageHeading}>
           <View>
@@ -64,10 +64,131 @@ export function DevicesScreen({ onDevice, onSettings }: {
   )
 }
 
-export function DeviceDetailScreen({ device, onBack, onWorkspaces, onForgotten }: {
+const connectionStages = ['authenticating', 'transport', 'secure', 'loading'] as const satisfies readonly ConnectionStage[]
+
+export function ConnectionScreen({ device, onBack, onConnected }: {
   device: RemoteDevice
   onBack: () => void
-  onWorkspaces: () => void
+  onConnected: () => void
+}) {
+  const selectedDevice = useAppStore(state => state.selectedDevice)
+  const connection = useAppStore(state => state.connection)
+  const connectionStage = useAppStore(state => state.connectionStage)
+  const connect = useAppStore(state => state.connectDevice)
+  const disconnect = useAppStore(state => state.disconnect)
+  const clearError = useAppStore(state => state.clearError)
+  const [attempt, setAttempt] = useState(0)
+  const launchedAttempt = useRef(-1)
+  const leaving = useRef(false)
+  const onConnectedRef = useRef(onConnected)
+  onConnectedRef.current = onConnected
+
+  useEffect(() => {
+    if (launchedAttempt.current === attempt) return
+    launchedAttempt.current = attempt
+    let active = true
+    const current = useAppStore.getState()
+    if (current.selectedDevice?.deviceId === device.deviceId && current.connection.phase === 'connected') {
+      onConnectedRef.current()
+      return
+    }
+    void connect(device).then(connected => {
+      if (active && !leaving.current && connected) onConnectedRef.current()
+    })
+    return () => { active = false }
+  }, [attempt, connect, device])
+
+  const currentStage = connectionStage ?? 'authenticating'
+  const currentIndex = currentStage === 'ready'
+    ? connectionStages.length
+    : Math.max(0, connectionStages.indexOf(currentStage))
+  const progress = [18, 42, 70, 92, 100][currentIndex] ?? 18
+  const failed = selectedDevice?.deviceId === device.deviceId
+    && connection.phase === 'offline'
+    && connection.error !== undefined
+
+  const cancel = () => {
+    leaving.current = true
+    void disconnect()
+    onBack()
+  }
+
+  const retry = () => {
+    clearError()
+    setAttempt(value => value + 1)
+  }
+
+  return (
+    <View style={styles.flex}>
+      <TopBar title={zhCN.devices.connectingTitle} onBack={cancel} />
+      <Screen>
+        <View style={styles.connectionHero}>
+          <View style={styles.connectionDeviceIcon}><Laptop size={30} color={colors.primary} /></View>
+          <Text style={styles.connectionTitle} numberOfLines={1}>{zhCN.devices.connectingTo(device.name)}</Text>
+          <Text style={styles.connectionLead}>{zhCN.devices.connectingLead}</Text>
+        </View>
+
+        <View style={styles.progressHeader}>
+          <Text style={styles.progressLabel}>{zhCN.devices.connectionProgress}</Text>
+          <Text style={styles.progressValue}>{progress}%</Text>
+        </View>
+        <View
+          accessibilityRole="progressbar"
+          accessibilityValue={{ min: 0, max: 100, now: progress }}
+          style={styles.progressTrack}
+        >
+          <View style={[styles.progressFill, { width: `${progress}%` }]} />
+        </View>
+
+        <View style={styles.connectionSteps}>
+          {connectionStages.map((stage, index) => {
+            const completed = index < currentIndex
+            const active = index === currentIndex && !failed
+            const stepFailed = index === currentIndex && failed
+            const copy = zhCN.devices.connectionSteps[stage]
+            return (
+              <View key={stage} style={styles.connectionStep}>
+                <View style={styles.stepMarker}>
+                  <View style={[
+                    styles.stepCircle,
+                    completed && styles.stepCircleComplete,
+                    active && styles.stepCircleActive,
+                    stepFailed && styles.stepCircleFailed,
+                  ]}>
+                    {completed
+                      ? <CircleCheck size={18} color={colors.white} />
+                      : active
+                        ? <ActivityIndicator size="small" color={colors.primary} />
+                        : <View style={[styles.stepDot, stepFailed && styles.stepDotFailed]} />}
+                  </View>
+                  {index < connectionStages.length - 1 && <View style={[styles.stepConnector, completed && styles.stepConnectorComplete]} />}
+                </View>
+                <View style={styles.stepCopy}>
+                  <Text style={[styles.stepTitle, (active || completed) && styles.stepTitleCurrent]}>{copy.title}</Text>
+                  <Text style={styles.stepBody}>{copy.body}</Text>
+                </View>
+              </View>
+            )
+          })}
+        </View>
+
+        {failed && (
+          <View style={styles.connectionError}>
+            <Text style={styles.connectionErrorTitle}>{zhCN.devices.connectionInterrupted}</Text>
+            <Text style={styles.connectionErrorBody}>{connection.error}</Text>
+            <Button label={zhCN.devices.retryConnection} variant="secondary" onPress={retry} />
+          </View>
+        )}
+      </Screen>
+    </View>
+  )
+}
+
+export function DeviceDetailScreen({ device, onBack, onConnect, onWorkspaces, onForgotten }: {
+  device: RemoteDevice
+  onBack: () => void
+  onConnect: () => void
+  onWorkspaces?: () => void
   onForgotten: () => void
 }) {
   const selected = useAppStore(state => state.selectedDevice)
@@ -75,12 +196,14 @@ export function DeviceDetailScreen({ device, onBack, onWorkspaces, onForgotten }
   const descriptor = useAppStore(state => state.hostDescriptor)
   const workspaces = useAppStore(state => state.workspaces)
   const trust = useAppStore(state => state.trustDevice)
-  const connect = useAppStore(state => state.connectDevice)
   const reconnect = useAppStore(state => state.reconnect)
   const forget = useAppStore(state => state.forgetDevice)
   const isSelected = selected?.deviceId === device.deviceId
   const isConnected = isSelected && connection.phase === 'connected'
-  const isConnecting = isSelected && (connection.phase === 'connecting' || connection.phase === 'reconnecting')
+
+  const trustAndContinue = async () => {
+    if (await trust(device) && device.online) onConnect()
+  }
 
   const forgetDevice = () => Alert.alert(
     zhCN.devices.forgetTitle(device.name),
@@ -127,12 +250,12 @@ export function DeviceDetailScreen({ device, onBack, onWorkspaces, onForgotten }
                   {device.fingerprint !== undefined && <Text selectable style={styles.fingerprint}>{device.fingerprint}</Text>}
                 </View>
               </View>
-              <Button label={zhCN.devices.trust} onPress={() => void trust(device)} />
+              <Button label={zhCN.devices.trust} onPress={() => void trustAndContinue()} />
             </View>
           : !isConnected
             ? <View style={styles.connectArea}>
                 <Text style={styles.connectCopy}>{device.online ? zhCN.devices.connectReady : zhCN.devices.offlineHelp}</Text>
-                <Button label={zhCN.devices.secureConnect} onPress={() => void connect(device)} loading={isConnecting} disabled={!device.online && !isConnecting} />
+                <Button label={zhCN.devices.secureConnect} onPress={onConnect} disabled={!device.online} />
               </View>
             : <>
                 <SectionTitle>{zhCN.devices.info}</SectionTitle>
@@ -154,7 +277,7 @@ export function DeviceDetailScreen({ device, onBack, onWorkspaces, onForgotten }
                   <KeyValue label={zhCN.devices.encryption} value="Noise IK · ChaCha20-Poly1305" />
                 </View>
 
-                <View style={styles.primaryArea}><Button label={zhCN.devices.viewWorkspaces} icon={MessageSquareText} onPress={onWorkspaces} /></View>
+                {onWorkspaces !== undefined && <View style={styles.primaryArea}><Button label={zhCN.devices.viewWorkspaces} icon={MessageSquareText} onPress={onWorkspaces} /></View>}
               </>}
       </Screen>
     </View>
@@ -297,6 +420,30 @@ const styles = StyleSheet.create({
   pageHeading: { paddingTop: spacing.xxl, paddingBottom: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { ...type.title, color: colors.ink },
   subtitle: { ...type.small, color: colors.muted, marginTop: 2 },
+  connectionHero: { alignItems: 'center', paddingTop: spacing.xxxl, paddingBottom: spacing.xxl },
+  connectionDeviceIcon: { width: 68, height: 68, borderRadius: radius.lg, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  connectionTitle: { ...type.title, color: colors.ink, textAlign: 'center', alignSelf: 'stretch' },
+  connectionLead: { ...type.small, color: colors.muted, textAlign: 'center', marginTop: spacing.xs },
+  progressHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
+  progressLabel: { ...type.smallStrong, color: colors.ink },
+  progressValue: { ...type.caption, color: colors.primary },
+  progressTrack: { height: 6, borderRadius: radius.pill, backgroundColor: colors.surfaceStrong, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.primary },
+  connectionSteps: { marginTop: spacing.xxl },
+  connectionStep: { flexDirection: 'row', alignItems: 'stretch', gap: spacing.sm },
+  stepMarker: { width: 30, alignItems: 'center' },
+  stepCircle: { width: 30, height: 30, borderRadius: radius.pill, backgroundColor: colors.surfaceStrong, alignItems: 'center', justifyContent: 'center' },
+  stepCircleActive: { backgroundColor: colors.primarySoft },
+  stepCircleComplete: { backgroundColor: colors.primary },
+  stepCircleFailed: { backgroundColor: colors.dangerSoft },
+  stepDot: { width: 7, height: 7, borderRadius: radius.pill, backgroundColor: colors.subtle },
+  stepDotFailed: { backgroundColor: colors.danger },
+  stepConnector: { width: 2, flex: 1, minHeight: spacing.xxl, marginVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.separator },
+  stepConnectorComplete: { backgroundColor: colors.primary },
+  stepCopy: { flex: 1, paddingBottom: spacing.xl },
+  stepTitle: { ...type.bodyStrong, color: colors.muted },
+  stepTitleCurrent: { color: colors.ink },
+  stepBody: { ...type.small, color: colors.muted, marginTop: 2 },
   deviceHero: { paddingVertical: spacing.xxl, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   deviceIcon: { width: 56, height: 56, borderRadius: radius.lg, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   deviceHeroCopy: { flex: 1 },

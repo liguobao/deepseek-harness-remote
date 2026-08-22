@@ -4,7 +4,7 @@ const zhCN = {
   },
   app: {
     oauthCancelled: '未完成知乎授权，请再试一次。', oauthInvalid: '登录信息已失效，请重新登录。',
-    loadingIdentity: '正在准备此手机…', bootFailed: 'DSH Remote 无法启动', secureStorageUnavailable: '暂时无法读取此手机的安全数据，请重试。',
+    loadingTagline: '一次连接，随时可用。', loadingIdentity: '正在准备安全身份…', bootFailed: 'DSH Remote 无法启动', secureStorageUnavailable: '暂时无法读取此手机的安全数据，请重试。',
     deviceUnavailable: '找不到这台设备', deviceNoLongerTrusted: '它可能已被移除或退出当前账号。', backToDevices: '返回设备列表',
   },
   status: { online: '在线', offline: '离线', disconnected: '未连接', lan: '局域网直连', relay: '服务器转发', p2p: 'P2P 直连', turn: 'TURN 转发', waiting: '连接中', running: '运行中' },
@@ -18,12 +18,20 @@ const zhCN = {
     title: '设置', thisPhone: '此手机', androidDevice: 'Android 设备', connection: '连接', server: '服务器', account: '账号', loginMethod: '登录方式', protocol: '协议', notConfigured: '未配置', notSignedIn: '未登录',
     language: '语言', languageSystem: '跟随系统', languageChinese: '简体中文', languageEnglish: 'English', languageNote: '选择“跟随系统”后，App 会随 Android 的语言设置自动切换。',
     transport: '连接方式', transportNote: '更改后会重新连接。直接连接失败时，将自动改用服务器转发。', identity: '此手机的身份', deviceId: '设备 ID', publicKey: '安全密钥', keyNote: '安全密钥由 Android 系统加密保存，不会离开此手机。',
-    aboutAndUpdates: '关于与更新', appVersion: '当前版本', sourceCodeUrl: '开源地址', updateUrl: '更新地址', linkFailedTitle: '无法打开链接', linkFailedBody: '请检查网络或复制地址后在浏览器中打开。',
+    about: '关于', aboutLead: '查看当前版本、开源与更新信息', developer: '开发者', developerValue: '知乎@李国宝', appVersion: '当前版本', sourceCodeUrl: '开源地址', updateUrl: '更新地址', linkFailedTitle: '无法打开链接', linkFailedBody: '请检查网络或复制地址后在浏览器中打开。',
+    more: '更多', checkUpdates: '检查更新', checkingUpdates: '正在检查更新…', updateFoundTitle: '发现新版本', updateFoundBody: (latest: string, current: string) => `发现新版本 v${latest}，当前版本 ${current}。`, downloadUpdate: '下载更新', openUpdates: '打开更新', downloadingUpdate: '正在下载更新', downloadFailedTitle: '下载失败', downloadFailedBody: '无法下载最新安装包，请检查网络后重试。', installFailedTitle: '无法打开安装程序', installFailedBody: '安装包已下载，请稍后在系统中打开安装。', upToDateTitle: '已是最新版本', upToDateBody: '当前已是最新版本。', checkFailedTitle: '检查更新失败', checkFailedBody: '请检查网络后重试。',
     signOut: '退出登录', resetLocal: '清除本地数据', resetTitle: '清除此手机上的数据？', resetBody: '将删除服务设置、登录信息和已信任的设备。之后需要重新登录，此操作无法撤销。', reset: '清除数据', signOutTitle: '退出当前账号？', signOutBody: '退出后，需要重新登录才能访问设备。',
   },
   devices: {
     title: '设备', myDevices: '我的设备', lead: '选择一台设备，继续你的工作', emptyTitle: '还没有可用设备', emptyBody: '在电脑上安装 DSH Remote 插件并登录同一账号，设备就会出现在这里。', canConnect: '可连接', options: '管理设备', encrypted: '安全连接',
     connectionInterrupted: '连接已断开', trustExplanation: '确认后，此手机会记住这台设备的安全身份。如果身份发生变化，将停止连接以保护你的数据。', trust: '信任并继续', connectReady: '连接后即可查看并继续电脑上的对话。', offlineHelp: '这台设备已离线。请确认电脑上的 DSH Remote 插件正在运行。', secureConnect: '连接设备',
+    connectingTitle: '连接设备', connectingTo: (name: string) => `正在连接 ${name}`, connectingLead: '连接完成后将直接进入工作区', connectionProgress: '连接进度', retryConnection: '重新连接', cancelConnection: '取消连接', openInfo: '查看设备和连接信息',
+    connectionSteps: {
+      authenticating: { title: '验证设备', body: '确认账号与设备访问权限' },
+      transport: { title: '选择连接路径', body: '尝试局域网、P2P 或服务器转发' },
+      secure: { title: '建立安全通道', body: '核对设备身份并完成加密握手' },
+      loading: { title: '读取工作区', body: '同步工作区和对话列表' },
+    },
     info: '设备信息', harness: 'DeepSeek Harness', provider: '模型服务', directory: '当前目录', model: '当前模型', workspaces: '工作区', conversations: '对话', secureConnection: '连接信息', path: '连接方式', encryption: '安全保护', viewWorkspaces: '查看工作区和对话', unknownVersion: '版本信息不可用',
     forgetTitle: (name: string) => `不再信任“${name}”？`, forgetBody: '移除后，下次连接时需要重新确认这台设备。', forget: '移除设备',
   },
@@ -31,12 +39,12 @@ const zhCN = {
   time: { unavailable: '更新时间不可用', lastSeenUnavailable: '最近在线时间不可用', justNow: '刚刚更新', minutesAgo: (n: number) => `${n} 分钟前`, hoursAgo: (n: number) => `${n} 小时前`, updatedSuffix: '更新', locale: 'zh-CN' },
   transport: { auto: '自动（推荐）', autoDescription: '优先尝试 P2P 直连，必要时自动改用 TURN 或服务器转发', turn: 'TURN 优先', turnDescription: '网络受限时，优先使用 TURN 转发以提高稳定性', relay: '仅服务器转发', relayDescription: '所有数据都通过 DSH Remote 服务器转发' },
   workspaces: {
-    title: '工作区', create: '新建工作区', deviceTitle: '这台设备上的工作区', lead: '按项目目录整理对话', emptyTitle: '还没有工作区', emptyBody: '选择电脑上的项目目录，将相关对话整理在一起。', options: '管理工作区', noSessions: '还没有对话，点击新建', unnamedSession: '未命名对话',
+    title: '工作区', create: '新建工作区', deviceTitle: '这台设备上的工作区', lead: '按项目目录整理对话', deviceInfo: '设备与连接信息', emptyTitle: '还没有工作区', emptyBody: '选择电脑上的项目目录，将相关对话整理在一起。', options: '管理工作区', noSessions: '还没有对话，点击新建', unnamedSession: '未命名对话',
     deleteTitle: (title: string) => `删除“${title}”？`, deleteBody: '将从这台设备上删除该工作区及其中的所有对话。此操作无法撤销。', delete: '删除工作区', rename: '重命名', moveUp: '上移', moveDown: '下移', newSessionIn: (title: string) => `在“${title}”中新建对话`, deviceDirectory: '电脑上的项目目录', browse: '选择目录', directoryHint: '在这里新建的对话会使用该目录。', renameTitle: '重命名工作区', namePlaceholder: '输入工作区名称', saveName: '保存', chooseFolder: '选择项目目录', loading: '正在加载…', loadingDirectory: '正在读取目录…', noFolders: '这里没有可选的文件夹', showHidden: '显示隐藏文件夹', hideHidden: '隐藏隐藏文件夹', chooseThisFolder: '使用此目录',
   },
   chat: {
-    fullAccessTitle: '开启完全访问权限？', fullAccessBody: '开启后，DeepSeek Harness 可以直接修改文件和运行命令。只建议在你信任当前任务时使用。', enable: '开启完全访问', stop: '停止回复', selectModel: '选择模型', approvalMode: '操作权限', approvalModeLabel: (name: string) => `操作权限：${name}`, reconnecting: '正在重新连接…', offline: '与设备的连接已断开，重新连接后即可继续发送消息。', hostOperation: (name: string) => `${name}（电脑端）`,
-    older: '查看更早的消息', messageLabel: '给 DeepSeek Harness 发消息', placeholder: '输入消息…', send: '发送', addImages: '添加图片', removeImage: (name: string) => `移除图片“${name}”`, unnamedImage: '图片', imageLimitTitle: '无法添加图片', tooManyImages: (max: number) => `每条消息最多添加 ${max} 张图片。`, unsupportedImage: (name: string) => `“${name}”的格式不受支持，请选择 PNG、JPEG、WebP 或 GIF 图片。`, imageTooLarge: (name: string, max: string) => `“${name}”超过单张图片 ${max} 的限制。`, imagesTooLarge: (max: string) => `这些图片合计超过 ${max} 的限制。`, imageDimensionsTooLarge: (name: string, max: number) => `“${name}”的宽或高超过 ${max} 像素。`, imagePixelsTooLarge: (name: string) => `“${name}”的像素数量超过限制。`, imagePickerFailedTitle: '无法读取图片', imagePickerFailedBody: '请选择 PNG、JPEG、WebP 或 GIF 图片后重试。', policyHint: '图片与消息会加密传输，远程操作仍受电脑上的 DeepSeek Harness 权限限制。', you: '你', system: '系统', generating: '正在回复', failed: '未完成', completed: '已完成', toolCall: '调用内容', toolResult: '执行结果', toolExpand: (name: string) => `查看“${name}”详情`, toolCollapse: (name: string) => `收起“${name}”详情`, toolTruncated: '内容过长，仅显示前 64 KB。', denied: '已拒绝', allowedOnce: '已允许本次操作', permissionTitle: '是否允许这次操作？', permissionScope: '允许后仅对当前请求生效，其他操作仍需要你确认。', allowOnce: '允许这一次', deny: '不允许', answered: '已回答', questionCancelled: '问题已取消', questionTitle: 'DeepSeek Harness 需要你确认', answerToContinue: '回答后将继续执行', submitAnswer: '提交回答', welcomeTitle: '继续这段对话', welcomeBody: '告诉 DeepSeek Harness 你想检查、解释或修改什么，也可以添加图片。如果需要你确认操作，会直接显示在对话中。',
+    fullAccessTitle: '开启完全访问权限？', fullAccessBody: '开启后，DeepSeek Harness 可以直接修改文件和运行命令。只建议在你信任当前任务时使用。', enable: '开启完全访问', stop: '停止回复', selectModel: '选择模型', approvalMode: '操作权限', approvalModeLabel: (name: string) => `操作权限：${name}`, reconnect: '重新连接当前对话', reconnecting: '正在恢复当前对话…', offline: '与设备的连接已断开，点击右上角重新连接并继续当前对话。', hostOperation: (name: string) => `${name}（电脑端）`,
+    older: '查看更早的消息', messageLabel: '给 DeepSeek Harness 发消息', placeholder: '输入消息…', send: '发送', addImages: '添加图片', removeImage: (name: string) => `移除图片“${name}”`, unnamedImage: '图片', imageLimitTitle: '无法添加图片', tooManyImages: (max: number) => `每条消息最多添加 ${max} 张图片。`, unsupportedImage: (name: string) => `“${name}”的格式不受支持，请选择 PNG、JPEG、WebP 或 GIF 图片。`, imageTooLarge: (name: string, max: string) => `“${name}”超过单张图片 ${max} 的限制。`, imagesTooLarge: (max: string) => `这些图片合计超过 ${max} 的限制。`, imageDimensionsTooLarge: (name: string, max: number) => `“${name}”的宽或高超过 ${max} 像素。`, imagePixelsTooLarge: (name: string) => `“${name}”的像素数量超过限制。`, imagePickerFailedTitle: '无法读取图片', imagePickerFailedBody: '请选择 PNG、JPEG、WebP 或 GIF 图片后重试。', policyHint: '对话全程加密，远程操作受 DeepSeek Harness 权限控制。', you: '你', system: '系统', generating: '正在回复', reasoning: '思考', reasoningActive: '思考中', reasoningExpand: '展开思考过程', reasoningCollapse: '收起思考过程', failed: '未完成', completed: '已完成', toolCall: '调用内容', toolResult: '执行结果', toolExpand: (name: string) => `查看“${name}”详情`, toolCollapse: (name: string) => `收起“${name}”详情`, toolTruncated: '内容过长，仅显示前 64 KB。', denied: '已拒绝', allowedOnce: '已允许本次操作', permissionTitle: '是否允许这次操作？', permissionScope: '允许后仅对当前请求生效，其他操作仍需要你确认。', allowOnce: '允许这一次', deny: '不允许', answered: '已回答', questionCancelled: '问题已取消', questionTitle: 'DeepSeek Harness 需要你确认', answerToContinue: '回答后将继续执行', submitAnswer: '提交回答', welcomeTitle: '继续这段对话', welcomeBody: '告诉 DeepSeek Harness 你想检查、解释或修改什么，也可以添加图片。如果需要你确认操作，会直接显示在对话中。',
   },
   validation: { serverRequired: '请输入服务地址。', serverInvalid: '服务地址格式不正确。例如：https://remote.example.com', httpsRequired: '请使用 HTTPS 地址。本地开发环境可以使用 HTTP。', serverPartsForbidden: '请只输入服务地址，不要包含账号信息、查询参数或页面锚点。' },
   runtime: {

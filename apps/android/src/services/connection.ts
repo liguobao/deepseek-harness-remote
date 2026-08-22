@@ -13,6 +13,7 @@ export interface AndroidConnectionOptions {
   preferredTransports?: Array<'lan' | 'p2p' | 'turn' | 'relay'>
   forceRelay?: boolean
   fetchIceServers?: (connectionId: string) => Promise<RtcIceServer[]>
+  onSecureHandshake?: () => void
   onClose?: CloseHandler
 }
 
@@ -57,7 +58,10 @@ export class AndroidRemoteConnection {
       const transport = createTransport(relayOnly)
       // Host-side ApiProxy calls are capped at 30s. Leave a small delivery
       // margin, then treat silence as an unhealthy business channel.
-      const core = new RemoteClientCore(new SecureTransport(transport, identity, host), 35_000)
+      const core = new RemoteClientCore(
+        new SecureTransport(transport, identity, host, options.onSecureHandshake),
+        35_000,
+      )
       this.core = core
       this.unsubscribeClose = core.onClose(() => {
         // A late close from a replaced connection must not tear down the new

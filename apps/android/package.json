@@ -1,6 +1,6 @@
 {
   "name": "@dsh-remote/android",
-  "version": "0.3.11",
+  "version": "0.3.28",
   "type": "module",
   "main": "index.ts",
   "dependencies": {
@@ -14,8 +14,10 @@
     "expo-build-properties": "~57.0.11",
     "expo-crypto": "~57.0.1",
     "expo-device": "~57.0.1",
+    "expo-file-system": "~57.0.5",
     "expo-haptics": "~57.0.1",
     "expo-image-picker": "~57.0.10",
+    "expo-intent-launcher": "~57.0.1",
     "expo-localization": "~57.0.1",
     "expo-secure-store": "~57.0.1",
     "expo-splash-screen": "~57.0.6",
@@ -32,8 +34,8 @@
   },
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",
-    "@types/react": "~19.2.2",
     "@types/node": "^22.10.7",
+    "@types/react": "~19.2.2",
     "typescript": "~6.0.3",
     "vitest": "^2.1.8"
   },
@@ -49,7 +51,9 @@
   "expo": {
     "doctor": {
       "reactNativeDirectoryCheck": {
-        "exclude": ["react-native-webrtc"]
+        "exclude": [
+          "react-native-webrtc"
+        ]
       }
     }
   }

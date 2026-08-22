@@ -43,19 +43,19 @@ dsh plugin --profile web add ds-harness-remote
 
 Package: [npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-To pin a GitHub release instead, install `github:liguobao/deepseek-harness-remote#v0.3.27`.
+To pin a GitHub release instead, install `github:liguobao/deepseek-harness-remote#v0.3.28`.
 
 Restart Harness after installation.
 
-The `0.3.27` Client remains compatible with `0.3.15` Hosts for Remote
+The `0.3.28` Client remains compatible with `0.3.15` Hosts for Remote
 workspaces and sessions. Features introduced later, such as the remote command
 catalog, file viewing, and chunked image transport, are enabled only when the
 selected Host supports them.
 
 The Android APK is attached to each [GitHub Release](https://github.com/liguobao/deepseek-harness-remote/releases/latest).
 Its interface supports English and Simplified Chinese, can follow the Android system language, and
-lets you override that choice in Settings. The same page also shows the installed version plus the
-open-source repository and latest-update addresses.
+lets you override that choice in Settings. The More screen can check for and install APK updates,
+and an interrupted conversation can reconnect and resume from the current history in place.
 
 ## Sign in and connect
 

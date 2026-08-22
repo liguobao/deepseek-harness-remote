@@ -15,6 +15,7 @@ export class SecureTransport implements RemoteTransport {
     private readonly inner: SecureHandshakeTransport,
     private readonly identity: DeviceIdentity,
     private readonly host: RemoteDevice,
+    private readonly onHandshakeStarting?: () => void,
   ) {
     if (host.identityKey.length === 0) throw new Error(strings.runtime.hostMissingKey)
   }
@@ -29,6 +30,7 @@ export class SecureTransport implements RemoteTransport {
       await this.inner.close()
       throw new Error(strings.runtime.unexpectedRelayDevice)
     }
+    this.onHandshakeStarting?.()
     const noise = new NoiseIkSession({
       role: 'initiator',
       localPrivateKey: this.identity.privateKey,

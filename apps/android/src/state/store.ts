@@ -31,6 +31,7 @@ import {
 } from '../services/storage'
 import type {
   ChatItem,
+  ConnectionStage,
   ConnectionSnapshot,
   DeviceIdentity,
   HistoryEntry,
@@ -59,6 +60,7 @@ interface AppState {
   devices: RemoteDevice[]
   selectedDevice?: RemoteDevice
   connection: ConnectionSnapshot
+  connectionStage?: ConnectionStage
   hostDescriptor?: HostDescriptor
   workspaces: WorkspaceView[]
   archivedSessionIds: string[]
@@ -273,6 +275,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       selectedDevice: device,
       connection: { phase: 'connecting', stats: { mode: 'Disconnected', connected: false } },
+      connectionStage: 'authenticating',
       hostDescriptor: undefined,
       workspaces: [],
       sessions: [],
@@ -287,6 +290,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         : preference === 'turn'
           ? ['turn', 'relay'] as const
           : await resolveAutomaticPreferredTransports()
+      set({ connectionStage: 'transport' })
       await connection.connect(
         config.baseUrl,
         identity,
@@ -297,6 +301,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           fetchIceServers: async connectionId => api.turnCredentials(connectionId),
           preferredTransports: [...preferredTransports],
           forceRelay,
+          onSecureHandshake: () => set({ connectionStage: 'secure' }),
           onClose: () => {
             if (get().connection.phase === 'connected' || get().connection.phase === 'reconnecting') {
               set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: zhCN.runtime.hostClosed } })
@@ -304,6 +309,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           },
         },
       )
+      set({ connectionStage: 'loading' })
       const proxy = connection.requireProxy()
       const [hostDescriptor, workspaceList, sessions] = await Promise.all([
         proxy.hostDescribe(),
@@ -315,6 +321,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         workspaces: workspaceList.items,
         archivedSessionIds: workspaceList.archivedSessionIds,
         sessions,
+        connectionStage: 'ready',
         connection: { phase: 'connected', stats: connection.getStats() ?? { mode: 'Relay', connected: true } },
       })
       return true
@@ -337,6 +344,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await connection.close()
     set({
       connection: disconnected,
+      connectionStage: undefined,
       selectedDevice: undefined,
       hostDescriptor: undefined,
       workspaces: [],

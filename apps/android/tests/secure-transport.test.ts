@@ -80,11 +80,13 @@ describe('secure transport', () => {
       prologue: createNoisePrologue('connection-1', 'host', 'client'),
     })
     const wire = new HostLoopbackTransport(hostNoise)
-    const client = new SecureTransport(wire, clientIdentity, hostDevice)
+    let handshakeStarted = false
+    const client = new SecureTransport(wire, clientIdentity, hostDevice, () => { handshakeStarted = true })
 
     let received = ''
     client.onMessage(data => { received = new TextDecoder().decode(data) })
     await client.connect()
+    expect(handshakeStarted).toBe(true)
     await client.send(new TextEncoder().encode('private session text'))
     expect(new TextDecoder().decode(join(wire.plaintexts))).toBe('private session text')
 

@@ -102,24 +102,27 @@ function isHumanUserMessage(data: UnknownRecord): boolean {
 function addAssistantMessage(current: ChatItem[], data: UnknownRecord, sessionId: string, event: NativeSessionEvent): ChatItem[] {
   const id = messageId(data)
   const text = messageText(data)
+  const reasoning = messageReasoning(data)
   const key = stepKey(event)
   const streamingIndex = current.findIndex(item =>
     item.kind === 'message' && item.streaming === true && item.id === `stream:${key}`)
-  if (!hasVisibleMessageText(text)) {
+  const streamed = streamingIndex < 0 ? undefined : current[streamingIndex]
+  const finalText = hasVisibleMessageText(text)
+    ? text
+    : streamed?.kind === 'message' ? streamed.text : ''
+  const finalReasoning = hasVisibleMessageText(reasoning)
+    ? reasoning
+    : streamed?.kind === 'message' ? streamed.reasoning : undefined
+  if (!hasVisibleMessageText(finalText) && !hasVisibleMessageText(finalReasoning ?? '')) {
     // Native assistant messages may contain only tool/content metadata. They
     // are not chat text and must not leave an empty avatar/"Remote" row.
-    // If a text stream preceded this event, finalize the streamed text rather
-    // than replacing it with an empty message.
     if (streamingIndex < 0) return current
-    const streamed = current[streamingIndex]
-    if (streamed?.kind !== 'message' || !hasVisibleMessageText(streamed.text)) {
-      return current.filter((_, index) => index !== streamingIndex)
-    }
-    return current.map((item, index) => index === streamingIndex && item.kind === 'message'
-      ? { ...item, id, streaming: undefined }
-      : item)
+    return current.filter((_, index) => index !== streamingIndex)
   }
-  const message: ChatMessage = { kind: 'message', id, sessionId, role: 'assistant', text, createdAt: now(data) }
+  const message: ChatMessage = {
+    kind: 'message', id, sessionId, role: 'assistant', text: finalText, createdAt: now(data),
+    ...(finalReasoning === undefined ? {} : { reasoning: finalReasoning }),
+  }
   if (streamingIndex >= 0) {
     return current.map((item, index) => index === streamingIndex ? message : item)
   }
@@ -146,11 +149,18 @@ function applyAssistantChunk(
     // visible text avoids creating an empty avatar/"Remote" row.
     if (!hasVisibleMessageText(delta)) return current
     return [...current, {
-      kind: 'message', id: streamId, sessionId, role: 'assistant', text: delta, streaming: true, createdAt: now(data),
+      kind: 'message', id: streamId, sessionId, role: 'assistant',
+      text: chunk.type === 'text-delta' ? delta : '',
+      ...(chunk.type === 'reasoning-delta' ? { reasoning: delta } : {}),
+      streaming: true,
+      streamingPhase: chunk.type === 'reasoning-delta' ? 'reasoning' : 'text',
+      createdAt: now(data),
     } satisfies ChatMessage]
   }
   return current.map((item, itemIndex) => itemIndex === index && item.kind === 'message'
-    ? { ...item, text: `${item.text}${delta}`, streaming: true }
+    ? chunk.type === 'reasoning-delta'
+      ? { ...item, reasoning: `${item.reasoning ?? ''}${delta}`, streaming: true, streamingPhase: 'reasoning' }
+      : { ...item, text: `${item.text}${delta}`, streaming: true, streamingPhase: 'text' }
     : item)
 }
 
@@ -444,6 +454,14 @@ function messageText(data: UnknownRecord): string {
   const message = isRecord(data.message) ? data.message : data
   const content = Array.isArray(message.content) ? message.content : []
   return content.flatMap(block => isRecord(block) && block.type === 'text' && typeof block.text === 'string'
+    ? [block.text]
+    : []).join('\n')
+}
+
+function messageReasoning(data: UnknownRecord): string {
+  const message = isRecord(data.message) ? data.message : data
+  const content = Array.isArray(message.content) ? message.content : []
+  return content.flatMap(block => isRecord(block) && block.type === 'reasoning' && typeof block.text === 'string'
     ? [block.text]
     : []).join('\n')
 }

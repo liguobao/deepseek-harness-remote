@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import { ChevronRight, CirclePlus, Eye, EyeOff, Folder, FolderOpen, MessageSquareText, MoreVertical, X } from 'lucide-react-native'
+import { ChevronRight, CirclePlus, Eye, EyeOff, Folder, FolderOpen, Laptop, MessageSquareText, MoreVertical, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import type { DirectoryListing, RemoteSession, WorkspaceView } from '../types'
 import { Button, EmptyState, IconButton, Screen, TopBar } from '../ui/components'
@@ -8,7 +8,11 @@ import { colors, radius, spacing, type } from '../ui/theme'
 import { strings as zhCN } from '../locales/i18n'
 import { resolveSessionDisplayTitle } from './session-title'
 
-export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; onSession: (session: RemoteSession) => void }) {
+export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
+  onBack: () => void
+  onSession: (session: RemoteSession) => void
+  onDeviceInfo: () => void
+}) {
   const workspaces = useAppStore(state => state.workspaces)
   const sessions = useAppStore(state => state.sessions)
   const busy = useAppStore(state => state.busyAction)
@@ -62,14 +66,15 @@ export function WorkspacesScreen({ onBack, onSession }: { onBack: () => void; on
       <TopBar
         title={zhCN.workspaces.title}
         onBack={onBack}
-        action={<IconButton label={zhCN.workspaces.create} icon={CirclePlus} onPress={() => setCreateOpen(true)} />}
+        action={<IconButton label={zhCN.workspaces.deviceInfo} icon={Laptop} onPress={onDeviceInfo} />}
       />
       <Screen>
         <View style={styles.pageHeading}>
-          <View>
+          <View style={styles.pageHeadingCopy}>
             <Text style={styles.title}>{zhCN.workspaces.deviceTitle}</Text>
             <Text style={styles.subtitle}>{zhCN.workspaces.lead}</Text>
           </View>
+          <IconButton label={zhCN.workspaces.create} icon={CirclePlus} onPress={() => setCreateOpen(true)} />
         </View>
         {workspaces.length === 0
           ? <EmptyState
@@ -342,7 +347,8 @@ function DirectoryBrowserModal({ visible, onClose, onChoose }: {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
-  pageHeading: { paddingTop: spacing.xxl, paddingBottom: spacing.md },
+  pageHeading: { paddingTop: spacing.xxl, paddingBottom: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  pageHeadingCopy: { flex: 1 },
   title: { ...type.title, color: colors.ink },
   subtitle: { ...type.small, color: colors.muted, marginTop: 2 },
   workspaceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
