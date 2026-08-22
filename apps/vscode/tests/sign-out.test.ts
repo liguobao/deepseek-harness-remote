@@ -152,7 +152,7 @@ describe('Controller sign-out', () => {
     const firstRefresh = new Promise<TestCredentials>(resolve => { resolveRefresh = resolve })
     apiState.refresh
       .mockImplementationOnce(() => firstRefresh)
-      .mockResolvedValueOnce({ ...validCredentials(), accessToken: 'revoke-token' })
+      .mockRejectedValueOnce(new Error('Refresh token already consumed.'))
     const credentials = { ...validCredentials(), accessTokenExpiresAt: 0 }
     const { controller, subscriptions } = createController()
     setAuthenticatedState(controller, credentials)
@@ -160,11 +160,13 @@ describe('Controller sign-out', () => {
     const refreshing = controller.refresh()
     await vi.waitFor(() => expect(apiState.refresh).toHaveBeenCalledOnce())
     const signingOut = controller.signOut()
-    resolveRefresh({ ...validCredentials(), accessToken: 'late-token' })
+    resolveRefresh({ ...validCredentials(), accessToken: 'revoke-token', refreshToken: 'rotated-refresh-token' })
 
     try { await Promise.all([refreshing, signingOut]) } finally { for (const item of subscriptions) item.dispose() }
 
     expect(vscodeState.stored.has('dshRemote.credentials.v1')).toBe(false)
+    expect(apiState.refresh).toHaveBeenCalledOnce()
+    expect(apiState.removeSelf).toHaveBeenCalledOnce()
     expect(apiState.tokens).toContain('revoke-token')
   })
 
