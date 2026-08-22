@@ -483,10 +483,22 @@ function ChatItemView({ item, busyAction, onApproval, onQuestion }: {
 
 function MessageBubble({ item }: { item: ChatMessage }) {
   const user = item.role === 'user'
+  const remote = item.role === 'assistant'
   return (
     <View style={[styles.messageRow, user && styles.messageRowUser]}>
       <View style={[styles.avatar, user ? styles.avatarUser : styles.avatarAssistant]}>
-        {user ? <User size={16} color={colors.white} /> : <Bot size={17} color={colors.primary} />}
+        {user ? (
+          <User size={16} color={colors.white} />
+        ) : remote ? (
+          <Image
+            source={require('../../assets/android-icon-foreground-adaptive.png')}
+            style={styles.remoteAvatarLogo}
+            resizeMode="contain"
+            accessible={false}
+          />
+        ) : (
+          <Bot size={17} color={colors.primary} />
+        )}
       </View>
       <View style={[styles.messageBody, user && styles.messageBodyUser]}>
         <Text style={styles.messageLabel}>{user ? zhCN.chat.you : item.role === 'system' ? zhCN.chat.system : 'Remote'}</Text>
@@ -735,6 +747,7 @@ const styles = StyleSheet.create({
   avatar: { width: 32, height: 32, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   avatarUser: { backgroundColor: colors.primary },
   avatarAssistant: { backgroundColor: colors.primarySoft },
+  remoteAvatarLogo: { width: 32, height: 32 },
   messageBody: { flex: 1, maxWidth: '88%' },
   messageBodyUser: { alignItems: 'flex-end' },
   messageLabel: { ...type.caption, color: colors.muted, marginBottom: 4 },

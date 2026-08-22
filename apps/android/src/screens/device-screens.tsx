@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native'
-import { Archive, ChevronDown, ChevronUp, CircleCheck, CirclePlus, Laptop, MessageSquareText, MoreVertical, Settings, ShieldCheck, Unplug } from 'lucide-react-native'
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Archive, ChevronDown, ChevronUp, CircleCheck, CirclePlus, Laptop, MessageSquareText, Settings, ShieldCheck } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import type { ConnectionStage, RemoteDevice, RemoteSession } from '../types'
 import {
@@ -125,7 +125,6 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
         <View style={styles.connectionHero}>
           <View style={styles.connectionDeviceIcon}><Laptop size={30} color={colors.primary} /></View>
           <Text style={styles.connectionTitle} numberOfLines={1}>{zhCN.devices.connectingTo(device.name)}</Text>
-          <Text style={styles.connectionLead}>{zhCN.devices.connectingLead}</Text>
         </View>
 
         <View style={styles.progressHeader}>
@@ -184,12 +183,11 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
   )
 }
 
-export function DeviceDetailScreen({ device, onBack, onConnect, onWorkspaces, onForgotten }: {
+export function DeviceDetailScreen({ device, onBack, onConnect, onWorkspaces }: {
   device: RemoteDevice
   onBack: () => void
   onConnect: () => void
   onWorkspaces?: () => void
-  onForgotten: () => void
 }) {
   const selected = useAppStore(state => state.selectedDevice)
   const connection = useAppStore(state => state.connection)
@@ -197,7 +195,6 @@ export function DeviceDetailScreen({ device, onBack, onConnect, onWorkspaces, on
   const workspaces = useAppStore(state => state.workspaces)
   const trust = useAppStore(state => state.trustDevice)
   const reconnect = useAppStore(state => state.reconnect)
-  const forget = useAppStore(state => state.forgetDevice)
   const isSelected = selected?.deviceId === device.deviceId
   const isConnected = isSelected && connection.phase === 'connected'
 
@@ -205,22 +202,9 @@ export function DeviceDetailScreen({ device, onBack, onConnect, onWorkspaces, on
     if (await trust(device) && device.online) onConnect()
   }
 
-  const forgetDevice = () => Alert.alert(
-    zhCN.devices.forgetTitle(device.name),
-    zhCN.devices.forgetBody,
-    [
-      { text: zhCN.common.cancel, style: 'cancel' },
-      {
-        text: zhCN.devices.forget,
-        style: 'destructive',
-        onPress: () => void forget(device.deviceId).then(forgotten => { if (forgotten) onForgotten() }),
-      },
-    ],
-  )
-
   return (
     <View style={styles.flex}>
-      <TopBar title={zhCN.devices.title} onBack={onBack} action={<IconButton label={zhCN.devices.options} icon={MoreVertical} onPress={forgetDevice} />} />
+      <TopBar title={zhCN.devices.title} onBack={onBack} />
       <Screen>
         <View style={styles.deviceHero}>
           <View style={styles.deviceIcon}><Laptop size={28} color={colors.primary} /></View>
@@ -423,7 +407,6 @@ const styles = StyleSheet.create({
   connectionHero: { alignItems: 'center', paddingTop: spacing.xxxl, paddingBottom: spacing.xxl },
   connectionDeviceIcon: { width: 68, height: 68, borderRadius: radius.lg, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
   connectionTitle: { ...type.title, color: colors.ink, textAlign: 'center', alignSelf: 'stretch' },
-  connectionLead: { ...type.small, color: colors.muted, textAlign: 'center', marginTop: spacing.xs },
   progressHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
   progressLabel: { ...type.smallStrong, color: colors.ink },
   progressValue: { ...type.caption, color: colors.primary },

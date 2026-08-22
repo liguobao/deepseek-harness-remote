@@ -179,7 +179,6 @@ function AppNavigator() {
         onBack={pop}
         onConnect={() => replace({ name: 'connecting', deviceId: deviceForRoute.deviceId })}
         onWorkspaces={route.source === 'workspaces' ? undefined : () => push({ name: 'workspaces' })}
-        onForgotten={() => reset({ name: 'devices' })}
       />}
       {route.name === 'device' && deviceForRoute === undefined && <MissingRoute onBack={() => reset({ name: 'devices' })} />}
       {route.name === 'workspaces' && <WorkspacesScreen
