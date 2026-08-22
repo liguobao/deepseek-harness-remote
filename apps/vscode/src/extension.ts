@@ -41,7 +41,7 @@ function command(id: string, run: (...args: any[]) => Promise<void>): vscode.Dis
   return vscode.commands.registerCommand(id, (...args) => run(...args).catch(error => void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error))))
 }
 
-class Controller {
+export class Controller {
   readonly explorerView = new RemoteExplorerProvider(element => this.treeChildren(element))
   private identity?: DeviceIdentity
   private credentials?: Credentials
@@ -49,10 +49,12 @@ class Controller {
   private sessions: RemoteSession[] = []
   private workspaces: RemoteWorkspace[] = []
   private sessionPanel?: SessionPanel
-  private readonly connection = new RemoteConnection()
   private refreshingHosts = false
 
-  constructor(private readonly context: vscode.ExtensionContext) {
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly connection: RemoteConnection = new RemoteConnection(),
+  ) {
     const timer = setInterval(() => {
       if (this.credentials !== undefined) void this.refresh().catch(() => undefined)
     }, 15_000)
@@ -227,6 +229,7 @@ class Controller {
       if (choice !== 'Trust and Connect') return
       await this.context.globalState.update(TRUST_KEY, { ...trusted, [host.deviceId]: host.identityKey })
     }
+    if (this.connection.connectedHost) await this.disconnect()
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Connecting to ${host.name}…` }, () => this.connection.connect(this.credentials!.serverUrl, this.identity!, host!, this.credentials!.accessToken, vscode.workspace.getConfiguration('dshRemote').get('forceRelay', false)))
     await this.loadHostContent()
     await vscode.commands.executeCommand('setContext', 'dshRemote.connected', true)

@@ -6,14 +6,25 @@ class FakeCore {
   readonly calls: string[] = []
   closeCount = 0
   private closeNotified = false
+  private rejectPendingRpc?: (error: Error) => void
 
   async connect(): Promise<void> {}
-  async rpc(method: string): Promise<unknown> { this.calls.push(method); return {} }
+  async rpc(method: string): Promise<unknown> {
+    this.calls.push(method)
+    if (method === 'harness.api.stream.open' && testState.blockStreamOpen) {
+      return new Promise((_, reject) => { this.rejectPendingRpc = reject })
+    }
+    return {}
+  }
   onEvent(handler: (event: unknown) => void): () => void { this.eventHandlers.add(handler); return () => this.eventHandlers.delete(handler) }
   onClose(handler: () => void): () => void { this.closeHandlers.add(handler); return () => this.closeHandlers.delete(handler) }
   getStats() { return { mode: 'Relay', connected: true } }
   async close(): Promise<void> { this.closeCount += 1; this.notifyClose() }
-  drop(): void { this.notifyClose() }
+  drop(): void {
+    this.rejectPendingRpc?.(new Error('Connection closed.'))
+    this.rejectPendingRpc = undefined
+    this.notifyClose()
+  }
 
   private notifyClose(): void {
     if (this.closeNotified) return
@@ -22,7 +33,7 @@ class FakeCore {
   }
 }
 
-const testState = vi.hoisted(() => ({ cores: [] as FakeCore[] }))
+const testState = vi.hoisted(() => ({ cores: [] as FakeCore[], blockStreamOpen: false }))
 
 vi.mock('@dsh-remote/client-core', () => ({
   RemoteClientCore: class {
@@ -60,7 +71,10 @@ const host = {
 }
 
 describe('RemoteConnection close state', () => {
-  beforeEach(() => { testState.cores.length = 0 })
+  beforeEach(() => {
+    testState.cores.length = 0
+    testState.blockStreamOpen = false
+  })
 
   it('cleans the core and notifies the UI after an unexpected close', async () => {
     const connection = new RemoteConnection()
@@ -87,5 +101,22 @@ describe('RemoteConnection close state', () => {
 
     expect(connection.connectedHost).toBeUndefined()
     expect(closed).not.toHaveBeenCalled()
+  })
+
+  it('cleans connection state when the core closes during mux initialization', async () => {
+    testState.blockStreamOpen = true
+    const connection = new RemoteConnection()
+    const closed = vi.fn()
+    connection.onClose(closed)
+
+    const connecting = connection.connect('https://server.example.com', identity, host, 'access-token', true)
+    await vi.waitFor(() => expect(testState.cores[0]?.calls).toContain('harness.api.stream.open'))
+    const core = testState.cores[0]!
+    core.drop()
+
+    await expect(connecting).rejects.toThrow('Connection closed.')
+    expect(connection.connectedHost).toBeUndefined()
+    expect(core.closeCount).toBe(1)
+    expect(closed).toHaveBeenCalledOnce()
   })
 })
