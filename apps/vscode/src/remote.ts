@@ -14,6 +14,7 @@ export class RemoteConnection {
   private host?: RemoteHost
   private closeMux?: () => Promise<void>
   private readonly frameHandlers = new Set<(frame: MuxFrame) => void>()
+  private readonly closeHandlers = new Set<() => void>()
 
   get connectedHost(): RemoteHost | undefined { return this.host }
 
@@ -45,7 +46,7 @@ export class RemoteConnection {
     this.core = core
     this.host = host
     this.closeMux = await this.openMuxStream(core)
-    core.onClose(() => { this.core = undefined; this.host = undefined })
+    core.onClose(() => this.handleCoreClose(core))
   }
 
   async sessions(): Promise<RemoteSession[]> {
@@ -91,6 +92,7 @@ export class RemoteConnection {
   async hostDescriptor(): Promise<HostDescriptor> { return this.call('host.describe', {}) }
   stats() { return this.core?.getStats() }
   onFrame(handler: (frame: MuxFrame) => void): () => void { this.frameHandlers.add(handler); return () => this.frameHandlers.delete(handler) }
+  onClose(handler: () => void): () => void { this.closeHandlers.add(handler); return () => this.closeHandlers.delete(handler) }
 
   async respondApproval(frameRpcId: string, sessionId: string, approvalId: string, outcome: 'allowed-once' | 'rejected'): Promise<void> {
     await this.core?.rpc('harness.api.respond', { message: { type: 'client-response', rpcId: frameRpcId, result: { ok: true, value: { sessionId, approvalId, outcome } } } })
@@ -143,6 +145,19 @@ export class RemoteConnection {
     })
     await core.rpc('harness.api.stream.open', { streamId, stream: 'mux', rpcId: crypto.randomUUID(), payload: {} })
     return async () => { unsubscribe(); await core.rpc('harness.api.stream.close', { streamId }).catch(() => undefined) }
+  }
+
+  private handleCoreClose(core: RemoteClientCore): void {
+    if (this.core !== core) return
+    const closeMux = this.closeMux
+    this.closeMux = undefined
+    this.core = undefined
+    this.host = undefined
+    void closeMux?.().catch(() => undefined)
+    void core.close().catch(() => undefined)
+    for (const handler of this.closeHandlers) {
+      try { handler() } catch { /* One UI handler must not block the remaining handlers. */ }
+    }
   }
 }
 
