@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -18,6 +19,34 @@ env:
   CI: true
 
 jobs:
+  changes:
+    name: Detect Android changes
+    runs-on: ubuntu-latest
+    outputs:
+      android: ${{ steps.android.outputs.android || steps.all.outputs.android }}
+    steps:
+      - name: Check Android paths
+        if: github.event_name == 'pull_request'
+        id: android
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            android:
+              - '.github/workflows/ci.yml'
+              - 'apps/android/**'
+              - 'packages/client-core/**'
+              - 'packages/crypto/**'
+              - 'packages/protocol/**'
+              - 'packages/webrtc/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+
+      - name: Build Android for non-PR runs
+        if: github.event_name != 'pull_request'
+        id: all
+        run: echo "android=true" >> "$GITHUB_OUTPUT"
+
   quality:
     name: Check, test, and build
     runs-on: ubuntu-latest
@@ -101,7 +130,10 @@ jobs:
 
   android-apk:
     name: Package Android APK
-    needs: quality
+    needs:
+      - changes
+      - quality
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -147,7 +179,7 @@ jobs:
             :app:assembleRelease \
             --no-daemon \
             --build-cache \
-            -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
+            -PreactNativeArchitectures=${{ github.event_name == 'pull_request' && 'arm64-v8a' || 'armeabi-v7a,arm64-v8a' }}
 
       - name: Stage APK
         run: |
