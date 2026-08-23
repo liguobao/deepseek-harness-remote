@@ -52,7 +52,7 @@ export function DevicesScreen({ onDevice, onMore }: {
                 <ListRow
                   key={device.deviceId}
                   title={device.name}
-                  subtitle={platformName(device.platform)}
+                  subtitle={deviceSubtitle(device)}
                   meta={lastSeenText(device.lastSeenAt)}
                   metaInline
                   icon={Laptop}
@@ -357,8 +357,16 @@ function sessionTitle(session: RemoteSession): string {
 }
 
 function platformName(platform: string): string {
-  const names: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux', android: 'Android' }
+  const names: Record<string, string> = { darwin: 'macOS', win32: 'Win', linux: 'Linux', android: 'Android' }
   return names[platform] ?? platform
+}
+
+function deviceSubtitle(device: RemoteDevice): string {
+  return [
+    platformName(device.platform),
+    device.harnessVersion,
+    device.clientVersion,
+  ].filter(Boolean).join(' · ')
 }
 
 function updatedText(timestamp?: number): string {
