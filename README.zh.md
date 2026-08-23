@@ -43,11 +43,11 @@ dsh plugin --profile web add ds-harness-remote
 
 项目地址：[npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.28`。
+如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.29`。
 
 安装后请重启 Harness。
 
-`0.3.28` Client 继续兼容 `0.3.15` Host 的远端 Workspace 与会话；远端命令目录、文件查看、图片分块传输等后续能力只会在所选 Host 支持时启用。
+`0.3.29` Client 继续兼容 `0.3.15` Host 的远端 Workspace 与会话；远端命令目录、文件查看、图片分块传输等后续能力只会在所选 Host 支持时启用。
 
 Android APK 会随每个 [GitHub Release](https://github.com/liguobao/deepseek-harness-remote/releases/latest) 发布。安卓界面支持英文和简体中文，默认可跟随系统语言，也可在设置页中单独选择；“更多”页面可以检查并安装 APK 更新。对话连接中断后，也可以在当前页面重新连接并从现有历史继续。
 
