@@ -14,6 +14,7 @@ export class RemoteConnection {
   private host?: RemoteHost
   private closeMux?: () => Promise<void>
   private readonly frameHandlers = new Set<(frame: MuxFrame) => void>()
+  private readonly closeHandlers = new Set<() => void>()
 
   get connectedHost(): RemoteHost | undefined { return this.host }
 
@@ -36,16 +37,31 @@ export class RemoteConnection {
       return new RemoteClientCore(new SecureTransport(transport, identity, host), 60_000)
     }
     let core = createCore(false)
-    await core.connect()
-    if (webRtcFallback) {
-      await core.close()
-      core = createCore(true)
-      await core.connect()
+    const prepareCore = (nextCore: RemoteClientCore): void => {
+      this.core = nextCore
+      nextCore.onClose(() => this.handleCoreClose(nextCore))
     }
-    this.core = core
-    this.host = host
-    this.closeMux = await this.openMuxStream(core)
-    core.onClose(() => { this.core = undefined; this.host = undefined })
+    prepareCore(core)
+    try {
+      await core.connect()
+      if (webRtcFallback) {
+        this.core = undefined
+        await core.close()
+        core = createCore(true)
+        prepareCore(core)
+        await core.connect()
+      }
+      const closeMux = await this.openMuxStream(core)
+      if (this.core !== core) {
+        await closeMux().catch(() => undefined)
+        throw new Error('The remote connection closed during initialization.')
+      }
+      this.closeMux = closeMux
+      this.host = host
+    } catch (error) {
+      if (this.core === core) await this.close()
+      throw error
+    }
   }
 
   async sessions(): Promise<RemoteSession[]> {
@@ -91,6 +107,7 @@ export class RemoteConnection {
   async hostDescriptor(): Promise<HostDescriptor> { return this.call('host.describe', {}) }
   stats() { return this.core?.getStats() }
   onFrame(handler: (frame: MuxFrame) => void): () => void { this.frameHandlers.add(handler); return () => this.frameHandlers.delete(handler) }
+  onClose(handler: () => void): () => void { this.closeHandlers.add(handler); return () => this.closeHandlers.delete(handler) }
 
   async respondApproval(frameRpcId: string, sessionId: string, approvalId: string, outcome: 'allowed-once' | 'rejected'): Promise<void> {
     await this.core?.rpc('harness.api.respond', { message: { type: 'client-response', rpcId: frameRpcId, result: { ok: true, value: { sessionId, approvalId, outcome } } } })
@@ -117,10 +134,10 @@ export class RemoteConnection {
   async close(): Promise<void> {
     const closeMux = this.closeMux
     this.closeMux = undefined
-    await closeMux?.().catch(() => undefined)
     const core = this.core
     this.core = undefined
     this.host = undefined
+    await closeMux?.().catch(() => undefined)
     await core?.close()
   }
 
@@ -141,8 +158,26 @@ export class RemoteConnection {
       const frame = { rpcId: event.data.frame.rpcId, payload: event.data.frame.payload }
       for (const handler of this.frameHandlers) handler(frame)
     })
-    await core.rpc('harness.api.stream.open', { streamId, stream: 'mux', rpcId: crypto.randomUUID(), payload: {} })
+    try {
+      await core.rpc('harness.api.stream.open', { streamId, stream: 'mux', rpcId: crypto.randomUUID(), payload: {} })
+    } catch (error) {
+      unsubscribe()
+      throw error
+    }
     return async () => { unsubscribe(); await core.rpc('harness.api.stream.close', { streamId }).catch(() => undefined) }
+  }
+
+  private handleCoreClose(core: RemoteClientCore): void {
+    if (this.core !== core) return
+    const closeMux = this.closeMux
+    this.closeMux = undefined
+    this.core = undefined
+    this.host = undefined
+    void closeMux?.().catch(() => undefined)
+    void core.close().catch(() => undefined)
+    for (const handler of this.closeHandlers) {
+      try { handler() } catch { /* One UI handler must not block the remaining handlers. */ }
+    }
   }
 }
 
