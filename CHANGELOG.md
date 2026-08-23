@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.29
+
+- Keeps the Android conversation smooth while a reply streams: scrolling now
+  follows streaming text at a throttled, non-animated cadence, and memoized
+  chat rows stop unchanged messages from re-rendering on every delta, so back
+  navigation and the keyboard stay responsive during long replies.
+- Makes the Android workspace folder picker scrollable so deep project
+  directories can be browsed, and removes the workspace subtitle for a
+  cleaner header.
+- Shows the Harness and plugin versions next to each Android device row
+  (platform + DSH version + plugin version) and shortens the Windows label to
+  `Win`.
+- Advances the Android app to `0.3.29` (`versionCode 13`).
+
 ## 0.3.28
 
 - Redesigns the Android device flow with a dedicated connection-progress page,

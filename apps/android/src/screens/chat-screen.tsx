@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -52,19 +52,42 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const [permissionPickerOpen, setPermissionPickerOpen] = useState(false)
   const [reconnectingSession, setReconnectingSession] = useState(false)
   const listRef = useRef<FlatList<ChatItem>>(null)
-  const visibleMessages = messages.filter(item =>
+  const lastStreamingScrollAt = useRef(0)
+  const visibleMessages = useMemo(() => messages.filter(item =>
     item.kind !== 'message'
       || hasVisibleMessageText(item.text)
       || hasVisibleMessageText(item.reasoning ?? '')
-      || (item.images?.length ?? 0) > 0)
+      || (item.images?.length ?? 0) > 0), [messages])
   const lastItem = visibleMessages.at(-1)
   const lastContentVersion = lastItem?.kind === 'message'
     ? `${lastItem.id}:${lastItem.text.length}:${lastItem.reasoning?.length ?? 0}`
     : undefined
 
+  // Scroll smoothly only when a brand-new item is appended. Streaming deltas
+  // keep the same item id, so this fires once per assistant step instead of
+  // once per chunk.
   useEffect(() => {
-    if (messages.length > 0) requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))
-  }, [messages.length, lastContentVersion])
+    if (messages.length === 0) return
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))
+  }, [messages.length])
+
+  // While an assistant message is streaming, its text grows on every chunk.
+  // Following it with animated scrolls piles up animation frames on the JS
+  // thread (freezing back navigation and the keyboard). Snap to the end at
+  // most ~10 Hz instead, without animation.
+  useEffect(() => {
+    if (messages.length === 0 || lastContentVersion === undefined) return
+    const now = Date.now()
+    if (now - lastStreamingScrollAt.current < 100) return
+    lastStreamingScrollAt.current = now
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }))
+  }, [lastContentVersion, messages.length])
+
+  // Stable renderItem keeps FlatList rows from re-rendering on every streaming
+  // delta; ChatItemView is memoized so only the changing row re-renders.
+  const renderChatItem = useCallback(({ item }: { item: ChatItem }) => (
+    <ChatItemView item={item} busyAction={busy} onApproval={respondApproval} onQuestion={respondQuestion} />
+  ), [busy, respondApproval, respondQuestion])
 
   if (session === undefined) return null
 
@@ -191,7 +214,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         contentContainerStyle={[styles.listContent, visibleMessages.length === 0 && styles.emptyList]}
         data={visibleMessages}
         keyExtractor={item => item.id}
-        renderItem={({ item }) => <ChatItemView item={item} busyAction={busy} onApproval={respondApproval} onQuestion={respondQuestion} />}
+        renderItem={renderChatItem}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         ListEmptyComponent={<WelcomeMessage />}
@@ -466,7 +489,7 @@ function sessionTitle(session: RemoteSession): string {
   return session.parentSessionId === undefined ? zhCN.sessions.untitled : zhCN.sessions.child
 }
 
-function ChatItemView({ item, busyAction, onApproval, onQuestion }: {
+const ChatItemView = memo(function ChatItemView({ item, busyAction, onApproval, onQuestion }: {
   item: ChatItem
   busyAction?: string
   onApproval: (itemId: string, outcome: 'allowed-once' | 'rejected') => Promise<void>
@@ -479,7 +502,7 @@ function ChatItemView({ item, busyAction, onApproval, onQuestion }: {
     && !hasVisibleMessageText(item.text)
     && hasVisibleMessageText(item.reasoning ?? '')) return <ReasoningDisclosure item={item} />
   return <MessageBubble item={item} />
-}
+})
 
 function MessageBubble({ item }: { item: ChatMessage }) {
   const user = item.role === 'user'

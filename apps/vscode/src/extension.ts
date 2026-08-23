@@ -49,16 +49,26 @@ export class Controller {
   private sessions: RemoteSession[] = []
   private workspaces: RemoteWorkspace[] = []
   private sessionPanel?: SessionPanel
-  private readonly connection = new RemoteConnection()
   private signInTask?: Promise<void>
   private refreshTask?: Promise<Credentials | undefined>
   private authEpoch = 0
 
-  constructor(private readonly context: vscode.ExtensionContext) {
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly connection: RemoteConnection = new RemoteConnection(),
+  ) {
     const timer = setInterval(() => {
       if (this.credentials !== undefined) void this.refresh().catch(() => undefined)
     }, 15_000)
-    context.subscriptions.push({ dispose: () => clearInterval(timer) })
+    const unsubscribeClose = this.connection.onClose(() => {
+      void this.clearConnectionState().catch(error => {
+        void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error))
+      })
+    })
+    context.subscriptions.push(
+      { dispose: () => clearInterval(timer) },
+      { dispose: unsubscribeClose },
+    )
   }
 
   async restore(): Promise<void> {
@@ -269,13 +279,20 @@ export class Controller {
       if (choice !== 'Trust and Connect') return
       await this.context.globalState.update(TRUST_KEY, { ...trusted, [host.deviceId]: host.identityKey })
     }
+    if (this.connection.connectedHost) await this.disconnect()
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Connecting to ${host.name}…` }, () => this.connection.connect(this.credentials!.serverUrl, this.identity!, host!, this.credentials!.accessToken, vscode.workspace.getConfiguration('dshRemote').get('forceRelay', false)))
     await this.loadHostContent()
     await vscode.commands.executeCommand('setContext', 'dshRemote.connected', true)
     this.fireViews()
   }
 
-  async disconnect(): Promise<void> { await this.connection.close(); this.sessions = []; this.workspaces = []; await vscode.commands.executeCommand('setContext', 'dshRemote.connected', false); this.fireViews() }
+  async disconnect(): Promise<void> {
+    try {
+      await this.connection.close()
+    } finally {
+      await this.clearConnectionState()
+    }
+  }
 
   async newSession(workspace?: RemoteWorkspace): Promise<void> {
     if (!this.connection.connectedHost) throw new Error('Connect to a host first.')
@@ -333,6 +350,19 @@ export class Controller {
 
   private async loadHostContent(): Promise<void> {
     [this.workspaces, this.sessions] = await Promise.all([this.connection.workspaces(), this.connection.sessions()])
+  }
+
+  private async clearConnectionState(): Promise<void> {
+    this.sessions = []
+    this.workspaces = []
+    const panel = this.sessionPanel
+    this.sessionPanel = undefined
+    panel?.dispose()
+    try {
+      await vscode.commands.executeCommand('setContext', 'dshRemote.connected', false)
+    } finally {
+      this.fireViews()
+    }
   }
 
   private async loadIdentity(): Promise<DeviceIdentity> {
@@ -451,6 +481,7 @@ class SessionPanel {
   private modelLabel = 'Model'
   private modelCatalog?: SessionModels
   private projectionValues: Record<string, unknown>
+  private closed = false
 
   constructor(
     private session: RemoteSession,
@@ -489,7 +520,12 @@ class SessionPanel {
         void this.show()
       }
     })
-    this.panel.onDidDispose(() => { this.unsubscribeFrames(); this.disposed.fire(); this.disposed.dispose() })
+    this.panel.onDidDispose(() => {
+      this.closed = true
+      this.unsubscribeFrames()
+      this.disposed.fire()
+      this.disposed.dispose()
+    })
     this.panel.webview.onDidReceiveMessage(message => {
       if (!isRecord(message)) return
       if (message.type === 'send' && typeof message.text === 'string') void this.send(message.text)
@@ -502,6 +538,8 @@ class SessionPanel {
   }
 
   onDispose(handler: () => void): void { this.disposed.event(handler) }
+
+  dispose(): void { this.panel.dispose() }
 
   async open(session: RemoteSession): Promise<void> {
     if (session.sessionId !== this.session.sessionId) {
@@ -523,13 +561,21 @@ class SessionPanel {
 
   async show(): Promise<void> {
     const session = this.session
+    if (this.closed) return
     this.panel.reveal(vscode.ViewColumn.Beside, false)
     if (!this.loaded) this.panel.webview.html = renderLoadingSession(this.panel.webview, session)
-    const [messages, catalog] = await Promise.all([
-      this.connection.history(session.sessionId),
-      this.connection.models(session.sessionId).catch(() => undefined),
-    ])
-    if (session.sessionId !== this.session.sessionId) return
+    let messages: ChatMessage[]
+    let catalog: SessionModels | undefined
+    try {
+      [messages, catalog] = await Promise.all([
+        this.connection.history(session.sessionId),
+        this.connection.models(session.sessionId).catch(() => undefined),
+      ])
+    } catch (error) {
+      if (this.closed) return
+      throw error
+    }
+    if (this.closed || session.sessionId !== this.session.sessionId) return
     if (catalog) {
       this.modelCatalog = catalog
       const selected = catalog.groups.flatMap(group => group.models).find(model => model.id === catalog.current.model)

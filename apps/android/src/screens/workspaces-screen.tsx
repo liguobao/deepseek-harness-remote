@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CirclePlus, Eye, EyeOff, Folder, FolderOpen, Laptop, MessageSquareText, MoreVertical, Pencil, Trash2, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import type { DirectoryListing, RemoteSession, WorkspaceView } from '../types'
@@ -108,7 +108,6 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
             <Text style={styles.title} numberOfLines={1} ellipsizeMode="middle">
               {selectedDevice === undefined ? zhCN.workspaces.title : zhCN.workspaces.deviceTitle(selectedDevice.name)}
             </Text>
-            <Text style={styles.subtitle}>{zhCN.workspaces.lead}</Text>
           </View>
           <IconButton label={zhCN.workspaces.create} icon={CirclePlus} onPress={() => setCreateOpen(true)} />
         </View>
@@ -429,7 +428,7 @@ function DirectoryBrowserModal({ visible, onClose, onChoose }: {
             ))}
           </View>
           {error !== undefined && <Text style={styles.errorText}>{error}</Text>}
-          <View style={styles.browserList}>
+          <ScrollView style={styles.browserList}>
             {loading
               ? <Text style={styles.loadingText}>{zhCN.workspaces.loadingDirectory}</Text>
               : entries.length === 0
@@ -446,7 +445,7 @@ function DirectoryBrowserModal({ visible, onClose, onChoose }: {
                       <ChevronRight size={14} color={colors.muted} />
                     </Pressable>
                   ))}
-          </View>
+          </ScrollView>
           <View style={styles.browserFooter}>
             <Button
               label={showHidden ? zhCN.workspaces.hideHidden : zhCN.workspaces.showHidden}
