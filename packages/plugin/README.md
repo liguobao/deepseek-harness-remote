@@ -15,12 +15,12 @@ No Client mode switch is required. Choosing a remote workspace keeps the local U
 ## User flow / 用户流程
 
 1. Open **Remote** from the sidebar.
-2. Sign in with Zhihu authorization, or with your account and password. New password accounts can register with invitation code [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY).
+2. Sign in with GitHub or Zhihu QR authorization, or with your account and password. New password accounts can register through [Remote Web](https://dsh.r2049.cn/app/register); the site shows the current invitation requirements.
 3. Enable remote control for the current computer, or select another online device to control it directly.
 4. Enter an existing workspace or browse remote directories to open one. Use **Exit** to return local and stop forwarding.
 
 1. 从侧边栏打开 **Remote** 入口。
-2. 使用知乎授权登录，或使用账号密码登录。新注册账号密码用户可使用当前邀请码 [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY)。
+2. 使用 GitHub/知乎扫码授权登录，或使用账号密码登录。新的账号密码用户可从 [Remote Web](https://dsh.r2049.cn/app/register) 注册，当前邀请要求以站点页面为准。
 3. 为当前机器启用远端控制，或直接选择另一台在线设备并控制它。
 4. 进入已有 Workspace，或浏览远端目录后打开 Workspace；使用 **退出** 回到本地并停止转发。
 
@@ -97,18 +97,18 @@ Local Harness UI
 
 ## Security model / 安全模型
 
-- Host only makes outbound HTTPS/WSS connections.
+- The Harness Host does not require a public listening port. Clients can connect from anywhere with internet access over a bidirectional end-to-end encrypted channel.
 - Host/Client authenticate with long-lived X25519 keys using Noise IK.
 - ApiProxy methods are allowlist-driven (fail-closed).
 - Workspace-picker browsing is metadata-only. Optional File Viewer preview is read-only, bounded, and provider-authorized.
-- Sensitive capabilities are disabled, including shell, PTY, remote desktop, and file mutation or execution.
+- Remote does not expose a direct shell, PTY, general tool RPC, remote desktop, or direct file-mutation API. Harness tools may still modify files or run commands under the Host's normal permission controls.
 - Data is stored under `$DSH_HOME/remote/servers/<origin-hash>/{host,client}`. Unix private keys must be `0600`.
 
-- Host 仅发起外连 HTTPS/WSS，不开放公网监听。
+- Harness 主机无需开放公网监听端口；Client 可以从任意可上网的地方通过双向端到端加密链路连接。
 - Host/Client 使用长期 X25519 key + Noise IK 进行相互认证。
 - ApiProxy 仅允许白名单方法（未命中即拒绝）。
 - Workspace 选择器目录浏览仅返回元数据；可选的 File Viewer 预览只读、分块且继续执行 provider 授权。
-- Shell、PTY、远程桌面、文件修改与执行等高风险能力已禁用。
+- Remote 不开放直接 Shell、PTY、通用工具 RPC、远程桌面或直接文件修改 API。Harness 工具仍可以在 Host 原有权限控制下修改文件或运行命令。
 - 数据位于 `$DSH_HOME/remote/servers/<origin-hash>/{host,client}`，私钥权限需 `0600`。
 
 ## Configuration and install / 配置与安装
@@ -126,7 +126,7 @@ Install the npm package for the `web` profile:
 通过 npm 包安装到 `web` profile：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote
+dsh plugin --profile web add ds-harness-remote@0.3.29
 ```
 
 npm / npm 包地址：<https://www.npmjs.com/package/ds-harness-remote>
@@ -136,11 +136,11 @@ Alternatively, install the pinned GitHub release in DSH Desktop or with the CLI:
 也可以在 DSH Desktop 中安装固定版本的 GitHub Release，或使用命令行安装：
 
 ```text
-github:liguobao/deepseek-harness-remote#v0.3.22
+github:liguobao/deepseek-harness-remote#v0.3.29
 ```
 
 ```sh
-dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.22"
+dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.3.29"
 ```
 
 GitHub / 项目地址：<https://github.com/liguobao/deepseek-harness-remote>

@@ -12,9 +12,12 @@ DeepSeek Harness Host，并使用同账号设备授权、Host 身份固定、Noi
 
 - Sign in with Zhihu QR authorization or account and password.
 - See Host presence directly and browse `Host → Workspace → Session`.
-- Continue native Harness conversations with model and approval controls.
+- Open a conversation preview in an editor beside the Host list.
 - Use adaptive LAN / P2P / TURN / Relay transport with end-to-end encryption.
 - Keep credentials and the client private key in VS Code SecretStorage.
+
+> **Developer preview:** live streaming, automatic reconnect, and approval/question
+> responses are not yet available in the VS Code client.
 
 The Server defaults to `https://dsh.r2049.cn`. Open **DS Harness Remote** from the
 Activity Bar, sign in, then choose an online Host. Opening a Session shows its
@@ -29,7 +32,8 @@ account before the Host can appear in the device list.
 [`ds-harness-remote`](https://www.npmjs.com/package/ds-harness-remote) 插件；远端 Host
 插件与 VS Code 客户端还必须登录同一账号，设备才会出现在列表中。
 
-Version `0.3.16` is compatible with the `ds-harness-remote` `0.3.16` npm plugin release.
+The current extension version is `0.3.17`. Cross-machine Extension Host testing is still
+in progress; use the current `ds-harness-remote` Host plugin while developing and testing it.
 
 ## Development
 

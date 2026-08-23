@@ -1,94 +1,98 @@
-# DeepSeek Harness Remote
+<p align="center">
+  <img src="docs/logo.svg" alt="DeepSeek Harness Remote" width="600">
+</p>
 
-[English](README.md) | 中文
+<p align="center">
+  <a href="README.md">English</a>
+  &nbsp;·&nbsp;
+  <strong>中文</strong>
+  &nbsp;·&nbsp;
+  <a href="docs/README.md">文档</a>
+  &nbsp;·&nbsp;
+  <strong>下载：</strong>
+  <a href="https://github.com/liguobao/dsh-desktop/releases/latest">Windows</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/liguobao/dsh-desktop/releases/latest">macOS</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/liguobao/dsh-desktop/releases/latest">Linux</a>
+  &nbsp;·&nbsp;
+  <a href="https://dsh.r2049.cn/app">Web</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/liguobao/deepseek-harness-remote/releases/latest">Android</a>
+</p>
 
 ## 一次连接，随时可用。
 
-从手机、平板或任意浏览器继续 DeepSeek Harness 会话。
+从手机、电脑、浏览器继续使用你的 DeepSeek Harness 实例。
 
 无论使用哪台设备，都可以回到同一个 Harness 会话。Harness 始终运行在工作电脑上，原有的工作区、工具和项目配置保持不变。Remote 只是通往这个工作环境的另一个窗口。
 
-> **开发者预览** — 安装时请固定到明确版本。
+## 主要特性
 
-## 你可以
+- 从另一台设备继续活跃会话，查看最新进展
+- 发送新指令、调整任务方向，并在 Harness `dsh-v0.1.1-rc.2` 中使用图片 Prompt
+- 在支持实时会话控制的客户端中回答问题、处理权限请求
+- 打开同一账号下另一台已授权电脑上的 Workspace
+- 复用 Harness 原生界面，不另外维护一套桌面会话 UI
+- 两端 Harness 都安装可选 `dsh-file-viewer` 插件时，可以预览远端文件
+- Harness 主机无需开放公网监听端口。你可以从任意可上网的地方，通过双向端到端加密链路安全连接
 
-- 跟进正在进行的会话，查看最新进展
-- 发送新的指令（包括 Harness `dsh-v0.1.1-rc.2` 图片），或调整任务方向
-- 回答问题，处理权限请求
-- 打开任意已连接电脑上的工作区
-- 配合可选的 `dsh-file-viewer` 插件预览远端工作区文件
-- 在设备之间切换，而无需迁移工作
+## 安装
 
-你可以在浏览器中打开 Remote，也可以从另一台电脑的 Harness 进入 **Remote** 工作区。
+### 方式 A：DSH Desktop
 
-仓库的 [`apps/vscode`](apps/vscode) 还提供开发者预览版 VS Code 客户端，可登录账号、固定并连接
-已授权 Host，并按 Host → Workspace → Session 浏览、在编辑区打开会话。使用 `pnpm --filter deepseek-harness-remote-vscode build` 构建，
-详情见其 [README](apps/vscode/README.md)。
+在 Windows、macOS 或 Linux 上安装 [DSH Desktop](https://github.com/liguobao/dsh-desktop)。
+DSH Desktop 已默认集成并启用 Remote，无需另行安装插件。
 
-仓库的 [`apps/browser`](apps/browser) 还提供开发者预览版浏览器入口（Chrome/Edge MV3）：
-插件使用已登录 Remote Web 的授权换取自己的凭证后，可以看到当前在线的 Host，并直接进入
-所选机器。扩展不实现账号/扫码登录，也不维护第二套 Remote Client runtime；插件用当前 Web
-授权换取隔离的 Browser device credential，Web Token 只在交换时临时使用，
-不会被插件保存或进入 URL。点击机器时直接打开同源 Remote Web，并复用浏览器现有的 Web 登录状态。使用
-`pnpm --filter @dsh-remote/browser build` 构建，随后在
-`chrome://extensions` 以“加载已解压的扩展程序”方式加载 `apps/browser` 目录。
+### 方式 B：已有 DSH 环境
 
-## 安装 Host 插件
-
-在运行 Harness 和项目的电脑上安装插件。
-
-在 DSH Desktop 中打开 **扩展 → 管理插件…**，安装：
-
-```text
-ds-harness-remote
-```
-
-也可以为 `web` profile 使用命令行安装：
+为 `web` profile 安装确切的 npm 版本：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote
+dsh plugin --profile web add ds-harness-remote@0.3.29
 ```
 
 项目地址：[npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
-如需固定 GitHub Release，也可以安装 `github:liguobao/deepseek-harness-remote#v0.3.29`。
-
 安装后请重启 Harness。
 
-`0.3.29` Client 继续兼容 `0.3.15` Host 的远端 Workspace 与会话；远端命令目录、文件查看、图片分块传输等后续能力只会在所选 Host 支持时启用。
-
-Android APK 会随每个 [GitHub Release](https://github.com/liguobao/deepseek-harness-remote/releases/latest) 发布。安卓界面支持英文和简体中文，默认可跟随系统语言，也可在设置页中单独选择；“更多”页面可以检查并安装 APK 更新。对话连接中断后，也可以在当前页面重新连接并从现有历史继续。
-
-## 登录与连接
+## 快速开始
 
 1. 从 Harness 侧边栏打开 **Remote** 入口。
-2. 使用 GitHub/知乎扫码登录，或使用账号密码登录。新注册账号密码用户可使用当前邀请码 [NRAE-NUUM-C9UY](https://dsh.r2049.cn/app/register?invite_code=NRAE-NUUM-C9UY)。
-3. 为当前机器启用远端控制，即可从其他设备访问这台机器；也可以直接选择另一台在线设备并控制它。
-4. 选择已有 Workspace，或浏览远端目录后打开 Workspace。
+2. 使用 GitHub/知乎扫码登录，或使用账号密码登录。新的账号密码用户可从 [Remote Web](https://dsh.r2049.cn/app/register) 注册，当前邀请要求以站点页面为准。
+3. 为当前机器启用远端控制。
+4. 在另一台设备上打开 DSH Desktop、Remote Web 或 Android 客户端，并登录同一账号。
+5. 选择在线 Host，再选择已有 Workspace 或浏览远端目录后打开。
 
-> **注意：** 自建中转节点方案将在稍后提供。
+公开服务目前使用托管的 Remote 中继，尚未提供受支持的自建中继方案。
 
-### 界面导览
+## 界面截图
 
-在 Remote 设置中启用**允许控制当前设备**，即可将当前电脑作为 Host 供其他设备连接。
+### 桌面端
+
+在 Remote 设置中启用**允许控制当前设备**，即可将当前电脑作为 Host。
 
 <p align="center">
   <img src="docs/images/setting.png" alt="已完成授权并在线的 Remote Host 设置" width="520">
 </p>
 
-在另一台电脑上打开 **Remote**，选择在线 Host，再选择已有 Workspace 或浏览远端目录。
+在另一台电脑上选择在线 Host，然后打开它的 Workspace。
 
 <p align="center">
   <img src="docs/images/host-list.png" alt="列出在线 Host 的远端工作区选择界面" width="900">
 </p>
 
-Workspace 会在 Harness 原生界面中打开，顶部会显示当前 Host 和端到端加密连接状态。
+Workspace 会在 Harness 原生界面中打开，顶部显示当前 Host 和加密连接状态。
 
 <p align="center">
   <img src="docs/images/remote.png" alt="通过端到端加密远程连接运行的 Harness 会话" width="900">
 </p>
 
-在 Android 客户端中，可以选择在线电脑、打开 Workspace，并在同一会话中发送文字或图片 Prompt。
+### Android
+
+从 [GitHub Releases](https://github.com/liguobao/deepseek-harness-remote/releases/latest) 下载最新 Android APK。
+
+使用已有账号登录 Android 客户端，选择可用电脑并打开 Workspace，然后通过文字或图片 Prompt 继续会话。
 
 <p align="center">
   <img src="docs/images/mobile-list.jpg" alt="Android 客户端中的在线和离线设备列表" width="30%">
@@ -96,16 +100,49 @@ Workspace 会在 Harness 原生界面中打开，顶部会显示当前 Host 和�
   <img src="docs/images/image-result.jpg" alt="在 Android 客户端中查看图片理解结果" width="30%">
 </p>
 
-## 安全连接，边界清晰
+## 工作方式
 
-- Host 只主动向外连接，不开放公网端口。
+```text
+DSH Desktop / Remote Web / Android
+  ↔ 已认证的端到端加密通道
+Host 上的 Remote 插件
+  ↔ 白名单限制的 Harness 原生 API
+Harness 会话、工具和 Workspace
+```
+
+Harness 主机无需开放公网监听端口。只要能够访问互联网，就可以从任意地方连接，
+Remote 通过双向端到端加密链路通信。它将客户端切换到所选 Host 的 Harness 原生 API，
+因此原有 Workspace、模型配置、工具和权限流程都保留在该电脑上。
+
+## 安全边界
+
 - 会话流量经过端到端加密；服务端只中继密文，不保存会话明文或设备私钥。
-- Remote 仅开放界面所需的 Harness 能力，不提供 Shell 或远程桌面。
-- Workspace 选择器仍只列出文件夹；两端安装 `dsh-file-viewer` 后，可通过受限、加密的分块读取在原有只读查看器中预览文件。
-- 远端文件预览不能写入、删除、上传、执行文件，也不能调用远端系统的“外部打开”；允许根目录与 locator 授权仍由 File Viewer provider 执行。
-- 移除设备后，对应的 Remote 访问立即失效。
+- Server membership 与 Host 本地固定的 peer identity 必须同时授权连接。
+- Remote 不开放直接 Shell、PTY、通用工具 RPC 或远程桌面。Harness 工具仍可以在 Host 上修改文件或运行命令，并继续受 Harness 原有权限控制。
+- Workspace 选择器只列出文件夹，并且只返回受限的只读目录元数据。
+- 可选 File Viewer 只通过已认证、已加密的分块读取访问文件，并继续执行 provider 根目录与 locator 授权。
+- 远端文件预览不能写入、删除、上传、执行文件，也不能调用远端系统的“外部打开”。
+- 移除设备后，其凭证、membership 和已建立的 Remote 连接均会失效。
 
-实现细节请参阅[插件说明](packages/plugin/README.md)、[文档索引](docs/README.md)和[远程协议](docs/protocol.md)。
+## 版本兼容
+
+已适配 DeepSeek Harness `dsh-v0.1.1-rc.2`。
+
+## 文档
+
+- [插件说明](packages/plugin/README.md)
+- [文档索引](docs/README.md)
+- [远程协议](docs/protocol.md)
+- [开发进度与路线图](TODO.md)
+
+## 友情链接
+
+- 社区：[LINUX DO](https://linux.do/)
+- 作者的相关项目：[赛博刘看山](https://kanshan.r2049.cn/)
+
+## 项目声明与商标
+
+本项目是独立的社区项目，不是 DeepSeek 官方产品。DeepSeek 及相关名称和商标归其各自权利人所有。
 
 ## License
 
