@@ -24,7 +24,6 @@ async function sendCommand(action: string, payload: Record<string, unknown> = {}
 export class Ui {
   private state: AppState = { ...emptyState }
   private localError?: string
-  private serverUrlInput?: string
 
   async start(): Promise<void> {
     chrome.runtime.onMessage.addListener((message: unknown) => {
@@ -92,7 +91,6 @@ export class Ui {
       ${this.renderHeader(false)}
       <section class="authorizationContent" aria-labelledby="authorization-title">
         <div class="authorizationIntro"><h1 id="authorization-title">${escapeHtml(copy.title)}</h1><p>${escapeHtml(copy.overview)}</p></div>
-        <div class="field"><label for="serverUrl">${escapeHtml(copy.server)}</label><input id="serverUrl" type="url" inputmode="url" value="${escapeHtml(this.serverUrlInput ?? '')}" placeholder="https://remote.example.com" autocomplete="url"></div>
         <button class="primary" id="authorizeWeb" type="button" ${this.state.authorizationBusy ? 'disabled' : ''}>${escapeHtml(this.state.authorizationBusy ? copy.authorizing : copy.authorize)}${icon('ExternalLink', 16)}</button>
         ${error === undefined ? '' : `<div class="error" role="alert">${escapeHtml(error)}</div>`}
         <p class="authorizationNote">${escapeHtml(copy.note)}</p>
@@ -110,12 +108,9 @@ export class Ui {
 
   private wire(): void {
     if (!this.state.authorized) {
-      const serverUrl = document.getElementById('serverUrl') as HTMLInputElement | null
-      if (serverUrl !== null && !serverUrl.value) serverUrl.value = this.state.settings?.serverUrl ?? ''
-      serverUrl?.addEventListener('input', () => { this.serverUrlInput = serverUrl.value })
       document.getElementById('authorizeWeb')?.addEventListener('click', () => {
         this.localError = undefined
-        void sendCommand('authorizeFromWeb', { serverUrl: serverUrl?.value ?? '' }).catch(error => this.showError(error))
+        void sendCommand('authorizeFromWeb').catch(error => this.showError(error))
       })
       return
     }
@@ -172,11 +167,11 @@ function launcherCopy() {
 
 function authorizationCopy() {
   if (navigator.language.toLowerCase().startsWith('zh')) return {
-    title: '一次连接，随时可用。', overview: '登录 Remote Web，查看设备并继续工作。', server: 'Remote Web 地址', authorize: '使用 Web 登录', authorizing: '正在连接…',
+    title: '一次连接，随时可用。', overview: '登录 Remote Web，查看设备并继续工作。', authorize: '使用 Web 登录', authorizing: '正在连接…',
     note: '尚未登录时，会先打开 Remote Web；登录后回到插件继续。',
   }
   return {
-    title: 'Connect once. Ready whenever you are.', overview: 'Sign in to Remote Web to see your devices and continue working.', server: 'Remote Web URL', authorize: 'Use Web sign-in', authorizing: 'Connecting…',
+    title: 'Connect once. Ready whenever you are.', overview: 'Sign in to Remote Web to see your devices and continue working.', authorize: 'Use Web sign-in', authorizing: 'Connecting…',
     note: 'If needed, sign in to Remote Web first, then return here to continue.',
   }
 }

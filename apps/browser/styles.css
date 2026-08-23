@@ -35,14 +35,16 @@ body {
   line-height: 1.5;
 }
 
+body:has(.authorizationRoot) { height: 340px; }
+
 ::selection { color: var(--primary-ink); background: var(--primary); }
 
-button, input { font: inherit; }
+button { font: inherit; }
 
 button { -webkit-tap-highlight-color: transparent; }
 button:disabled { cursor: default; opacity: 0.58; }
 
-button:focus-visible, input:focus-visible {
+button:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
@@ -343,24 +345,6 @@ button:focus-visible, input:focus-visible {
   font-size: 13px;
   line-height: 20px;
 }
-
-.field { display: flex; margin-bottom: 14px; flex-direction: column; gap: 7px; }
-.field label { color: var(--ink); font-size: 12px; font-weight: 600; }
-
-input {
-  width: 100%;
-  height: 46px;
-  padding: 9px 12px;
-  color: var(--ink);
-  caret-color: var(--primary);
-  background: var(--paper);
-  border: 1px solid #d7dce2;
-  border-radius: 12px;
-  outline: 0;
-}
-
-input:hover { border-color: #aeb6c0; }
-input:focus { border-color: var(--focus); }
 
 .primary {
   display: inline-flex;

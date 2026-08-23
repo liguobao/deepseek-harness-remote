@@ -13,10 +13,7 @@ import type { Credentials, DeviceIdentity } from './types.js'
 
 const IDENTITY_KEY = 'dshRemote.identity.v1'
 const CREDENTIALS_KEY = 'dshRemote.credentials.v1'
-const SETTINGS_KEY = 'dshRemote.settings.v1'
 const DEFAULT_SERVER_URL = 'https://dsh.r2049.cn'
-
-interface Settings { serverUrl: string }
 
 async function storageGet<T>(key: string): Promise<T | undefined> {
   const result = await chrome.storage.local.get(key)
@@ -31,19 +28,16 @@ class Background {
   private state: AppState = { ...emptyState }
   private identity?: DeviceIdentity
   private credentials?: Credentials
-  private settingsValue: Settings = { serverUrl: DEFAULT_SERVER_URL }
   private authorizationTask?: Promise<void>
   private refreshTask?: Promise<Credentials | undefined>
   private authEpoch = 0
 
   async start(): Promise<void> {
-    const settings = await storageGet<Settings>(SETTINGS_KEY)
-    this.settingsValue = { serverUrl: settings?.serverUrl?.trim() || DEFAULT_SERVER_URL }
     this.identity = await this.loadIdentity()
     this.credentials = await this.loadCredentials()
     this.state = {
       ...emptyState,
-      settings: this.settingsValue,
+      settings: { serverUrl: DEFAULT_SERVER_URL },
       authorized: this.credentials !== undefined,
       ...(this.credentials === undefined ? {} : { account: this.credentials.account }),
     }
@@ -61,7 +55,7 @@ class Background {
   async command(action: string, payload: Record<string, unknown>): Promise<void> {
     switch (action) {
       case 'authorizeFromWeb':
-        await this.authorizeFromWeb(String(payload.serverUrl ?? ''))
+        await this.authorizeFromWeb()
         return
       case 'signOut':
         await this.signOut()
@@ -77,9 +71,9 @@ class Background {
     }
   }
 
-  private async authorizeFromWeb(serverUrl: string): Promise<void> {
+  private async authorizeFromWeb(): Promise<void> {
     if (this.authorizationTask !== undefined) return this.authorizationTask
-    const task = this.runWebAuthorization(serverUrl)
+    const task = this.runWebAuthorization()
     this.authorizationTask = task
     this.state.authorizationBusy = true
     this.state.authorizationError = undefined
@@ -96,9 +90,9 @@ class Background {
     }
   }
 
-  private async runWebAuthorization(serverUrl: string): Promise<void> {
+  private async runWebAuthorization(): Promise<void> {
     const authEpoch = ++this.authEpoch
-    const api = new ServerApi(serverUrl)
+    const api = new ServerApi(DEFAULT_SERVER_URL)
     const identity = this.identity ?? await this.loadIdentity()
     this.identity = identity
     const webToken = await readWebAccountToken(api.baseUrl)
@@ -108,19 +102,15 @@ class Background {
       return
     }
     this.credentials = credentials
-    this.settingsValue = { serverUrl: api.baseUrl }
     this.state = {
       ...this.state,
-      settings: this.settingsValue,
+      settings: { serverUrl: DEFAULT_SERVER_URL },
       authorized: true,
       account: credentials.account,
       authorizationError: undefined,
       notice: undefined,
     }
-    await Promise.all([
-      storageSet(CREDENTIALS_KEY, JSON.stringify(credentials)),
-      storageSet(SETTINGS_KEY, this.settingsValue),
-    ])
+    await storageSet(CREDENTIALS_KEY, JSON.stringify(credentials))
     if (authEpoch !== this.authEpoch) return
     await this.refresh().catch(() => undefined)
   }
@@ -139,7 +129,7 @@ class Background {
       await this.revokeDevice(credentials).catch(() => undefined)
     }
     this.identity = undefined
-    this.state = { ...emptyState, settings: this.settingsValue }
+    this.state = { ...emptyState, settings: { serverUrl: DEFAULT_SERVER_URL } }
     await chrome.storage.local.remove([CREDENTIALS_KEY, IDENTITY_KEY])
     this.broadcast()
   }
@@ -234,7 +224,7 @@ class Background {
     if (stored === undefined) return undefined
     try {
       const parsed = JSON.parse(stored) as Credentials
-      return typeof parsed.serverUrl === 'string'
+      return parsed.serverUrl === DEFAULT_SERVER_URL
         && typeof parsed.deviceId === 'string'
         && typeof parsed.account === 'string'
         && typeof parsed.accessToken === 'string'
