@@ -58,6 +58,10 @@ export class ServerApi {
     return { serverUrl: this.baseUrl, deviceId, account, ...tokenPair(value) }
   }
 
+  async removeSelf(): Promise<void> {
+    await this.request('/api/v1/devices/self', { method: 'DELETE' })
+  }
+
   async hosts(): Promise<RemoteHost[]> {
     const value = record(await this.request('/api/v1/devices'), 'device list')
     if (!Array.isArray(value.items)) throw new Error('Server returned an invalid device list.')
