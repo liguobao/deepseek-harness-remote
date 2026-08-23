@@ -142,7 +142,7 @@ Compatible with DeepSeek Harness `dsh-v0.1.1-rc.2`.
 
 ## Links
 
-- Community: [LINUX DO](https://linux.do/)
+- Community acknowledgement: this project recognizes and supports the [LINUX DO](https://linux.do/) community.
 - Related project by the author: [Cyber Liu Kanshan](https://kanshan.r2049.cn/)
 
 ## Project status and trademarks

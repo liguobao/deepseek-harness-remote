@@ -137,7 +137,7 @@ Remote 通过双向端到端加密链路通信。它将客户端切换到所选 
 
 ## 友情链接
 
-- 社区：[LINUX DO](https://linux.do/)
+- 社区认可：本项目认可并支持 [LINUX DO](https://linux.do/) 社区。
 - 作者的相关项目：[赛博刘看山](https://kanshan.r2049.cn/)
 
 ## 项目声明与商标
