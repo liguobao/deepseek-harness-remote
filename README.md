@@ -25,6 +25,17 @@ A developer-preview VS Code client also lives in [`apps/vscode`](apps/vscode). I
 pin and connect to an authorized Host, browse Host workspaces/sessions, and open conversations beside the Activity Bar.
 Build it with `pnpm --filter deepseek-harness-remote-vscode build`; see its [README](apps/vscode/README.md).
 
+A developer-preview browser launcher (Chrome/Edge MV3) lives in
+[`apps/browser`](apps/browser). Authorize it from the signed-in Remote Web app,
+see the Hosts that are currently online, and open the selected machine through a
+direct same-origin Remote Web link. The extension has no account/QR login or second
+Remote Client runtime: the current Web authorization is exchanged for an isolated
+Browser device credential. The Web token is used only for that exchange and is
+not stored by the extension or placed in a URL. Opening a machine reuses the
+browser's existing Remote Web session.
+Build it with `pnpm --filter @dsh-remote/browser build`, then load the unpacked
+`apps/browser` directory via `chrome://extensions`.
+
 ## Install the Host plugin
 
 Install the plugin on the computer where Harness and your projects run.

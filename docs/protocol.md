@@ -1,7 +1,7 @@
 # DSH Remote Protocol v1
 
 状态：Draft v0.2（首版发布前，不保留旧业务 RPC 兼容）
-日期：2026-08-15
+日期：2026-08-23
 协议版本：`1`
 实现状态：**当前仓库必须实现 Client/Plugin 侧协议；Server 侧由独立项目实现**
 
@@ -27,6 +27,7 @@ DSH Remote Protocol 定义 Host Plugin、DSH Remote Server 和 Remote Client 之
 - 设备注册和 Server credential
 - 账号授权与 Host/Client membership
 - Host 账号密码或一次性主机匹配码接入
+- Remote Web 授权换取 Browser Launcher 独立设备凭证
 - WebSocket authentication
 - WebRTC signaling 与 Relay routing
 - Host/Client 端到端安全通道
@@ -42,7 +43,8 @@ Admin API 不属于 E2EE Remote Protocol。它是同站点的独立 HTTPS API，
 本文的“必须”“禁止”“应该”“可以”是规范性要求。
 
 - **Host**：运行 DeepSeek Harness 与 `@dsh-remote/plugin` 的设备。
-- **Client**：当前指安装同一 Plugin 发布物的 Desktop Harness；Android 旧原型不符合当前业务协议。
+- **Client**：通过 Remote transport 控制 Host 的 Desktop Harness、VS Code、Android 或 Remote Web；
+  Browser Launcher 只注册 `role=client` device 以发现 Host，本身不是 Remote Client runtime。
 - **Server**：负责账号授权、presence、signaling 和 opaque Relay 的协调服务。
 - **Device**：具有随机 deviceId 和本地 identity key 的 Host 或 Client。
 - **Membership**：Server 根据相同账号归属自动派生的 Host/Client 授权边。
@@ -55,7 +57,7 @@ Admin API 不属于 E2EE Remote Protocol。它是同站点的独立 HTTPS API，
 
 ```text
 HTTPS REST
-  account login / device registration / token / device metadata / TURN
+  account login / Web-to-Browser authorization / device token / device metadata / TURN
 
 WSS Control Channel
   hello / connect / signaling / secure handshake relay / opaque relay
@@ -267,6 +269,42 @@ deviceId 或相同 role，并为新角色签发独立 token pair、同步同账�
 ```
 
 Server 必须轮换 refresh token。旧 token 重用触发 token family revoke。Client 必须原子替换本地 token；不能在日志或 URL 中传 token。
+
+### 8.3 Remote Web 授权换取 Browser Launcher 凭证
+
+Browser Launcher 不实现账号、密码或 OAuth 登录。用户已在 Remote Web 登录时，扩展从同源
+页面临时读取当前 web token，并立即用它和本地产生的独立设备 identity 换取自己的 device
+token pair：
+
+```http
+POST /api/v1/auth/browser-authorizations/exchange
+Authorization: Bearer <web-token>
+Content-Type: application/json
+```
+
+```json
+{
+  "v": 1,
+  "device": {
+    "deviceId": "01KBROWSER...",
+    "name": "Browser on macOS",
+    "role": "client",
+    "platform": "browser",
+    "identityKey": "base64url-x25519-public-key",
+    "clientVersion": "0.3.29"
+  }
+}
+```
+
+响应为 §8.1 的 device token pair，并额外返回非空 `account`。约束：
+
+- exchange 只接受有效的 `typ=web` Bearer，并且只能注册 `role=client, platform=browser`；设备
+  descriptor、账号归属、membership 和 token 签发规则与 §8.1 相同。
+- 扩展不得把 web token 写入 `chrome.storage`、日志、URL 或长期内存；exchange 完成后只保存
+  自己的 Browser device credential。
+- 浏览器扩展只负责 Host presence 展示和打开 Remote Web，不实现 Remote transport、ApiProxy
+  或会话 UI。点击在线 Host 后直接打开同源 `/app/remote/{hostDeviceId}`，复用浏览器现有的 Web
+  登录状态；任何 token 都不得进入 URL。
 
 ## 9. 账号授权协议
 

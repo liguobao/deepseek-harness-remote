@@ -57,9 +57,9 @@ Server、Remote Web 和 Admin 是一个站点：
 ## 3. 系统边界
 
 ```text
-Host Plugin                         Browser
+Host Plugin                    Browser Launcher / Remote Web
     |                                  |
-    | WSS outbound                     | HTTPS / WSS
+    | WSS outbound                     | HTTPS / HTTPS + WSS
     v                                  v
              DSH Remote Server
        +---------------------------+
@@ -171,6 +171,7 @@ token pair。
 | `POST` | `/api/v1/devices/register-owned-role` | Device | 为同一安装注册账号拥有的相反角色 |
 | `POST` | `/api/v1/account/host-registration-codes` | Account | 生成一次性主机匹配码 |
 | `POST` | `/api/v1/devices/register-with-code` | rate limited | 使用主机匹配码注册 Host |
+| `POST` | `/api/v1/auth/browser-authorizations/exchange` | Account | 用当前 Web 授权注册 Browser Client |
 | `GET` | `/api/v1/account/devices` | Account | 返回账号拥有的 Host 及当前在线状态 |
 | `GET` | `/api/v1/devices` | Client | 返回该 Client 同账号可访问的 Host |
 | `GET` | `/api/v1/devices/{id}` | membership | Host 元数据 |
@@ -340,6 +341,12 @@ Host 插件的账号登录、设备注册、凭证轮换和 WebSocket 接入约�
   （`POST /api/v1/auth/register` / `POST /api/v1/auth/login`）。
 - web 会话为 HS256 JWT（`typ=web`），与设备令牌隔离；账号接口
   `/api/v1/auth/me|invite-code|invite-codes` 仅接受 web 令牌。
+- Browser Launcher 不实现账号、密码或 OAuth 登录。它从已登录的同源 Remote Web 页面临时
+  读取 web token，并调用 `POST /api/v1/auth/browser-authorizations/exchange`，用当前 Web 授权和
+  自己的独立 identity 换取 Browser device token pair。web token 不得写入扩展存储、日志或 URL。
+- Browser Launcher 不承载 Remote Client runtime。取得自己的 Browser device token 后只查询
+  Host 和 presence；点击在线 Host 直接打开同源 `/app/remote/{hostDeviceId}`，复用浏览器现有
+  Web 登录状态，任何 token 都不得进入 URL。完整约束见 `protocol.md` §8.3。
 - 邀请码由已注册用户在 `/api/v1/auth/invite-code` 生成（每月限量），一次性使用，
   不能由创建者本人使用；被使用后记录 `invitee_account` 与 `used_at`。
 - 可选 `DSH_INVITE_CODE`（站点通用邀请码）：`register_account` 优先匹配该配置值

@@ -80,6 +80,16 @@ Host 列表与 identity fingerprint 固定、Adaptive transport + Noise，以及
 - [ ] 接入 mux stream、历史增量、流式聊天、approval/question 响应界面
 - [ ] 验证 VSIX 在 macOS、Windows、Linux 的系统 SecretStorage 与代理网络行为
 
+## Browser Launcher
+
+`apps/browser` 只作为 Chrome/Edge 的 Remote Web 入口，不实现第二套完整 Client。它负责
+从已登录 Remote Web 换取独立 Browser device credential、在线 Host 列表和打开 Remote Web。
+
+- [x] 收缩为 Web 授权入口和在线 Host 列表，删除扩展内账号/扫码登录、Remote transport 与会话 UI
+- [x] 临时读取同源 Web 登录授权，经专用 exchange 接口换取隔离的 Browser device credential，不持久化 Web Token
+- [x] 点击在线 Host 后直接打开同源 `/app/remote/{hostId}`，复用浏览器已有 Web 登录状态
+- [ ] 加载 unpacked 扩展，联调 Web 授权、presence 刷新和目标 Host 跳转
+
 ## Android 恢复开发
 
 `apps/android` 已迁移到当前 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key

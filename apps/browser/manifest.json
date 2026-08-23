@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "DeepSeek Harness Remote",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "en",
+  "version": "0.3.29",
+  "icons": {
+    "128": "media/icon.png"
+  },
+  "action": {
+    "default_title": "DeepSeek Harness Remote",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "128": "media/icon.png"
+    }
+  },
+  "background": {
+    "service_worker": "dist/background.js"
+  },
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@dsh-remote/browser",
+  "displayName": "DeepSeek Harness Remote",
+  "description": "Browser launcher for DeepSeek Harness Remote: authorize from Web, see online Hosts and open the selected machine.",
+  "version": "0.3.29",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liguobao/deepseek-harness-remote.git",
+    "directory": "apps/browser"
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dsh-remote/crypto": "workspace:*",
+    "lucide": "^0.469.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.3"
+  }
+}

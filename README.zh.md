@@ -25,6 +25,14 @@
 已授权 Host，并按 Host → Workspace → Session 浏览、在编辑区打开会话。使用 `pnpm --filter deepseek-harness-remote-vscode build` 构建，
 详情见其 [README](apps/vscode/README.md)。
 
+仓库的 [`apps/browser`](apps/browser) 还提供开发者预览版浏览器入口（Chrome/Edge MV3）：
+插件使用已登录 Remote Web 的授权换取自己的凭证后，可以看到当前在线的 Host，并直接进入
+所选机器。扩展不实现账号/扫码登录，也不维护第二套 Remote Client runtime；插件用当前 Web
+授权换取隔离的 Browser device credential，Web Token 只在交换时临时使用，
+不会被插件保存或进入 URL。点击机器时直接打开同源 Remote Web，并复用浏览器现有的 Web 登录状态。使用
+`pnpm --filter @dsh-remote/browser build` 构建，随后在
+`chrome://extensions` 以“加载已解压的扩展程序”方式加载 `apps/browser` 目录。
+
 ## 安装 Host 插件
 
 在运行 Harness 和项目的电脑上安装插件。
