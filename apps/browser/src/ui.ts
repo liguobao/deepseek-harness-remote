@@ -1,9 +1,8 @@
-import { createIcons, ArrowUpRight, ExternalLink, Laptop, LogOut, RefreshCw, Server, WifiOff } from 'lucide'
+import { createIcons, ExternalLink, Laptop, LogOut, RefreshCw, Server, WifiOff } from 'lucide'
 import { emptyState, relativeTime, type AppState } from './common.js'
 
-const lucideIcons = { ArrowUpRight, ExternalLink, Laptop, LogOut, RefreshCw, Server, WifiOff }
+const lucideIcons = { ExternalLink, Laptop, LogOut, RefreshCw, Server, WifiOff }
 const lucideNames: Record<keyof typeof lucideIcons, string> = {
-  ArrowUpRight: 'arrow-up-right',
   ExternalLink: 'external-link',
   Laptop: 'laptop',
   LogOut: 'log-out',
@@ -60,11 +59,12 @@ export class Ui {
       const action = host.online
         ? opening
           ? `${icon('RefreshCw', 15)}${escapeHtml(copy.opening)}`
-          : `${escapeHtml(copy.open)}${icon('ArrowUpRight', 15)}`
+          : ''
         : host.lastSeenAt === undefined
           ? ''
           : escapeHtml(copy.lastSeen(relativeTime(host.lastSeenAt)))
-      return `<button class="hostRow${host.online ? '' : ' hostRowOffline'}${opening ? ' hostRowOpening' : ''}" type="button" data-host-id="${escapeHtml(host.deviceId)}" ${opening || !host.online ? 'disabled' : ''}>
+      const label = host.online ? `${opening ? copy.opening : copy.open} ${host.name}` : undefined
+      return `<button class="hostRow${host.online ? '' : ' hostRowOffline'}${opening ? ' hostRowOpening' : ''}" type="button" data-host-id="${escapeHtml(host.deviceId)}"${label === undefined ? '' : ` aria-label="${escapeHtml(label)}"`} ${opening || !host.online ? 'disabled' : ''}>
         <span class="hostIcon">${icon('Laptop', 21)}</span>
         <span class="hostCopy"><strong>${escapeHtml(host.name)}</strong><span>${escapeHtml(detail || copy.ready)}</span></span>
         <span class="hostStatus"><span class="statusDot"></span>${escapeHtml(host.online ? copy.online : copy.offline)}</span>
