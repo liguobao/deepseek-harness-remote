@@ -4397,7 +4397,7 @@ var RemoteClientCore = class {
     try {
       await this.transport.connect();
     } catch (error) {
-      this.unsubscribeTransport();
+      this.unsubscribeTransport?.();
       this.unsubscribeTransport = void 0;
       this.unsubscribeClose?.();
       this.unsubscribeClose = void 0;
@@ -5636,7 +5636,9 @@ var SWITCHED_DOMAINS = [
   "agentPresets",
   "events",
   "goals",
-  "llm"
+  "llm",
+  "settings",
+  "credentials"
 ];
 var ApiProxySwitch = class {
   remote;
@@ -16072,6 +16074,59 @@ var commandExecuteSchema = external_exports.object({
 var commandListSchema = external_exports.object({
   agentId: external_exports.string().min(1).max(128)
 }).strict();
+var credentialRefSchema = external_exports.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "Invalid credential reference name").max(128);
+var CONFIG_PLANE_SETTINGS_BYTES = 64 * 1024;
+var CONFIG_PLANE_MAX_OPS = 64;
+var CONFIG_PLANE_MAX_PATH_SEGMENTS = 8;
+var CONFIG_PLANE_MAX_PATH_SEGMENT_BYTES = 64;
+var CONFIG_PLANE_MAX_CREDENTIAL_VALUE_BYTES = 8 * 1024;
+var CONFIG_PLANE_MAX_BASE_URL_BYTES = 2048;
+var CONFIG_PLANE_MAX_NS_BYTES = 128;
+var settingsDescribeSchema = external_exports.object({}).strict();
+var settingsWriteBase = {
+  ns: external_exports.string().min(1).max(CONFIG_PLANE_MAX_NS_BYTES),
+  expectedRevision: external_exports.number().int().nonnegative().optional()
+};
+var settingsUpdateSchema = external_exports.object({
+  ...settingsWriteBase,
+  patch: external_exports.record(external_exports.string().min(1).max(CONFIG_PLANE_MAX_PATH_SEGMENT_BYTES), external_exports.unknown())
+}).strict();
+var settingsReplaceSchema = external_exports.object({
+  ...settingsWriteBase,
+  section: external_exports.record(external_exports.string().min(1).max(CONFIG_PLANE_MAX_PATH_SEGMENT_BYTES), external_exports.unknown())
+}).strict();
+var settingsOpSchema = external_exports.union([
+  external_exports.object({
+    op: external_exports.literal("set"),
+    path: external_exports.array(external_exports.string().min(1).max(CONFIG_PLANE_MAX_PATH_SEGMENT_BYTES)).max(CONFIG_PLANE_MAX_PATH_SEGMENTS),
+    value: external_exports.unknown()
+  }).strict(),
+  external_exports.object({
+    op: external_exports.literal("unset"),
+    path: external_exports.array(external_exports.string().min(1).max(CONFIG_PLANE_MAX_PATH_SEGMENT_BYTES)).max(CONFIG_PLANE_MAX_PATH_SEGMENTS)
+  }).strict()
+]);
+var settingsMutateSchema = external_exports.object({
+  ...settingsWriteBase,
+  ops: external_exports.array(settingsOpSchema).min(1).max(CONFIG_PLANE_MAX_OPS)
+}).strict();
+var credentialsDescribeSchema = external_exports.object({
+  refs: external_exports.array(credentialRefSchema).max(CONFIG_PLANE_MAX_OPS)
+}).strict();
+var credentialsSetSchema = external_exports.object({
+  ref: credentialRefSchema,
+  value: external_exports.string().min(1).max(CONFIG_PLANE_MAX_CREDENTIAL_VALUE_BYTES)
+}).strict();
+var credentialsUnsetSchema = external_exports.object({
+  ref: credentialRefSchema
+}).strict();
+var discoverModelsSchema = external_exports.object({
+  settingsNs: external_exports.string().min(1).max(CONFIG_PLANE_MAX_NS_BYTES),
+  provider: external_exports.string().min(1).max(CONFIG_PLANE_MAX_NS_BYTES).optional(),
+  baseURL: external_exports.string().max(CONFIG_PLANE_MAX_BASE_URL_BYTES).optional(),
+  api: external_exports.string().min(1).max(CONFIG_PLANE_MAX_NS_BYTES).optional(),
+  apiKey: external_exports.string().min(1).max(CONFIG_PLANE_MAX_CREDENTIAL_VALUE_BYTES).optional()
+}).strict();
 var HARNESS_API_ALLOWLIST = [
   "session.list",
   "session.search",
@@ -16111,7 +16166,15 @@ var HARNESS_API_ALLOWLIST = [
   "commands.execute",
   "commands.list",
   "llm.providers",
-  "llm.models"
+  "llm.models",
+  "llm.discoverModels",
+  "settings.describe",
+  "settings.update",
+  "settings.replace",
+  "settings.mutate",
+  "credentials.describe",
+  "credentials.set",
+  "credentials.unset"
 ];
 var NATIVE_CALL_TIMEOUT_MS = 3e4;
 var MAX_ACTIVE_API_TRANSFERS = 2;
@@ -16425,7 +16488,8 @@ function createMethodMap(api, typertGateway) {
     const domain = domainProperty(wireDomain);
     const implementation = domains[domain]?.[action];
     if (typeof implementation !== "function") continue;
-    methods.set(method, implementation.bind(domains[domain]));
+    const scoped = CONFIG_PLANE_METHODS.includes(method) ? scopeConfigPlaneMethod(api, method, implementation) : void 0;
+    methods.set(method, scoped ?? implementation.bind(domains[domain]));
   }
   return methods;
 }
@@ -16436,6 +16500,148 @@ function domainProperty(wireDomain) {
   if (wireDomain === "agentPreset") return "agentPresets";
   if (wireDomain === "goal") return "goals";
   return wireDomain;
+}
+var CONFIG_PLANE_METHODS = [
+  "llm.discoverModels",
+  "settings.describe",
+  "settings.update",
+  "settings.replace",
+  "settings.mutate",
+  "credentials.describe",
+  "credentials.set",
+  "credentials.unset"
+];
+function scopeConfigPlaneMethod(api, method, native) {
+  switch (method) {
+    case "llm.discoverModels":
+      return async (request, signal) => {
+        const payload = parseConfigPlane(discoverModelsSchema, request.payload, "llm.discoverModels");
+        if (payload.baseURL !== void 0) validateDiscoverBaseUrl(payload.baseURL);
+        return native({ rpcId: request.rpcId, payload }, signal);
+      };
+    case "settings.describe":
+      return async (request, signal) => {
+        parseConfigPlane(settingsDescribeSchema, request.payload, "settings.describe");
+        const response = await native({ rpcId: request.rpcId, payload: {} }, signal);
+        return filterDescribeToModelNamespaces(api, response);
+      };
+    case "settings.update":
+      return async (request, signal) => {
+        const payload = parseConfigPlane(settingsUpdateSchema, request.payload, "settings.update");
+        await assertModelConfigNamespace(api, payload.ns);
+        assertSerializedBytes(payload.patch, CONFIG_PLANE_SETTINGS_BYTES, "settings.update patch");
+        return native({ rpcId: request.rpcId, payload }, signal);
+      };
+    case "settings.replace":
+      return async (request, signal) => {
+        const payload = parseConfigPlane(settingsReplaceSchema, request.payload, "settings.replace");
+        await assertModelConfigNamespace(api, payload.ns);
+        assertSerializedBytes(payload.section, CONFIG_PLANE_SETTINGS_BYTES, "settings.replace section");
+        return native({ rpcId: request.rpcId, payload }, signal);
+      };
+    case "settings.mutate":
+      return async (request, signal) => {
+        const payload = parseConfigPlane(settingsMutateSchema, request.payload, "settings.mutate");
+        await assertModelConfigNamespace(api, payload.ns);
+        assertSerializedBytes(payload.ops, CONFIG_PLANE_SETTINGS_BYTES, "settings.mutate ops");
+        return native({ rpcId: request.rpcId, payload }, signal);
+      };
+    case "credentials.describe":
+      return async (request, signal) => {
+        const payload = parseConfigPlane(credentialsDescribeSchema, request.payload, "credentials.describe");
+        return native({ rpcId: request.rpcId, payload }, signal);
+      };
+    case "credentials.set":
+      return async (request, signal) => {
+        const payload = parseConfigPlane(credentialsSetSchema, request.payload, "credentials.set");
+        return native({ rpcId: request.rpcId, payload }, signal);
+      };
+    case "credentials.unset":
+      return async (request, signal) => {
+        const payload = parseConfigPlane(credentialsUnsetSchema, request.payload, "credentials.unset");
+        return native({ rpcId: request.rpcId, payload }, signal);
+      };
+  }
+}
+function parseConfigPlane(schema, payload, label) {
+  try {
+    return schema.parse(payload);
+  } catch (error) {
+    if (error instanceof external_exports.ZodError) {
+      throw new RpcError("INVALID_MESSAGE", `The ${label} payload is invalid for the remote channel.`);
+    }
+    throw error;
+  }
+}
+function validateDiscoverBaseUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new RpcError("INVALID_MESSAGE", "The model discovery baseURL is invalid.");
+  }
+  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
+  if (url.protocol !== "https:" && !(local && url.protocol === "http:")) {
+    throw new RpcError("INVALID_MESSAGE", "The model discovery baseURL must use HTTPS (HTTP is allowed only for localhost).");
+  }
+  if (url.username !== "" || url.password !== "") {
+    throw new RpcError("INVALID_MESSAGE", "The model discovery baseURL must not contain credentials.");
+  }
+  if (url.hash !== "") {
+    throw new RpcError("INVALID_MESSAGE", "The model discovery baseURL must not contain a fragment.");
+  }
+}
+function assertSerializedBytes(value, maxBytes, label) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  if (bytes > maxBytes) {
+    throw new RpcError("INVALID_MESSAGE", `The ${label} exceeds the ${maxBytes}-byte remote limit.`);
+  }
+}
+async function assertModelConfigNamespace(api, ns) {
+  const allowed = await modelConfigNamespaces(api);
+  if (!allowed.has(ns)) throw deniedModelNamespace(ns);
+}
+async function filterDescribeToModelNamespaces(api, response) {
+  const allowed = await modelConfigNamespaces(api);
+  const result = response.result;
+  if (typeof result !== "object" || result === null || !("ok" in result) || result.ok !== true) return response;
+  const value = result.value;
+  if (typeof value !== "object" || value === null) return response;
+  const namespaces = value.namespaces;
+  if (!Array.isArray(namespaces)) return response;
+  const filtered = namespaces.filter((item) => typeof item === "object" && item !== null && typeof item.ns === "string" && allowed.has(item.ns));
+  return { ...response, result: { ...result, value: { ...value, namespaces: filtered } } };
+}
+var EMPTY_NAMESPACES = /* @__PURE__ */ new Set();
+async function modelConfigNamespaces(api) {
+  const llm = api.llm;
+  const providers = llm?.providers;
+  if (typeof providers !== "function") return EMPTY_NAMESPACES;
+  const response = await withTimeout(
+    providers({ rpcId: "bridge-model-config-scope", payload: {} }, AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS)),
+    NATIVE_CALL_TIMEOUT_MS,
+    "The Host llm.providers call timed out."
+  );
+  const value = unwrapNativeValue(response, "llm.providers");
+  const list = typeof value === "object" && value !== null ? value.providers : void 0;
+  if (!Array.isArray(list)) return EMPTY_NAMESPACES;
+  const namespaces = /* @__PURE__ */ new Set();
+  for (const item of list) {
+    if (typeof item !== "object" || item === null) continue;
+    const settingsNs = item.settingsNs;
+    if (typeof settingsNs === "string" && settingsNs.length > 0) namespaces.add(settingsNs);
+  }
+  return namespaces;
+}
+function unwrapNativeValue(response, method) {
+  const result = response.result;
+  if (typeof result !== "object" || result === null || !("ok" in result) || result.ok !== true || !("value" in result)) {
+    throw new RpcError("INTERNAL_ERROR", `The Host ${method} call did not succeed.`);
+  }
+  return result.value;
+}
+function deniedModelNamespace(ns) {
+  return new RpcError("METHOD_NOT_ALLOWED", `Harness settings namespace ${JSON.stringify(ns)} is not a model configuration section.`);
 }
 function deniedMethod(method) {
   return new RpcError("METHOD_NOT_ALLOWED", `Harness API method ${JSON.stringify(method)} is not available in remote mode.`);

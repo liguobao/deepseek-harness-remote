@@ -112,7 +112,8 @@ Harness 会话、工具和 Workspace
 
 Harness 主机无需开放公网监听端口。只要能够访问互联网，就可以从任意地方连接，
 Remote 通过双向端到端加密链路通信。它将客户端切换到所选 Host 的 Harness 原生 API，
-因此原有 Workspace、模型配置、工具和权限流程都保留在该电脑上。
+因此原有 Workspace、工具和权限流程都保留在该电脑上。模型 Provider 也可以在远端配置——
+但只能配置 Host 的模型配置分区，不能改任意 Host 设置或凭据引用。
 
 ## 安全边界
 

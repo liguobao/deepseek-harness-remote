@@ -117,7 +117,9 @@ Harness sessions, tools, and workspaces
 The Harness Host does not need a public listening port. You can connect from
 anywhere with internet access, and Remote communicates over a bidirectional end-to-end encrypted channel.
 It switches the client to the selected Host's native Harness API, so the original workspace,
-model configuration, tools, and permission flow remain on that computer.
+tools, and permission flow remain on that computer. Model providers can also be
+configured remotely — but only the Host's model-configuration sections, never
+arbitrary Host settings or credential references.
 
 ## Security
 

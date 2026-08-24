@@ -17,6 +17,8 @@ const SWITCHED_DOMAINS = [
   'events',
   'goals',
   'llm',
+  'settings',
+  'credentials',
 ] as const satisfies ReadonlyArray<keyof ApiProxy>
 
 /**

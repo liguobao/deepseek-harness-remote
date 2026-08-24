@@ -87,15 +87,89 @@ const commandListSchema = z.object({
   agentId: z.string().min(1).max(128),
 }).strict()
 
+/** POSIX-portable environment-variable name, mirroring the seam's credentialRef guard. */
+const credentialRefSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'Invalid credential reference name').max(128)
+
+const CONFIG_PLANE_SETTINGS_BYTES = 64 * 1024
+const CONFIG_PLANE_MAX_OPS = 64
+const CONFIG_PLANE_MAX_PATH_SEGMENTS = 8
+const CONFIG_PLANE_MAX_PATH_SEGMENT_BYTES = 64
+const CONFIG_PLANE_MAX_CREDENTIAL_VALUE_BYTES = 8 * 1024
+const CONFIG_PLANE_MAX_BASE_URL_BYTES = 2048
+const CONFIG_PLANE_MAX_NS_BYTES = 128
+
+const settingsDescribeSchema = z.object({}).strict()
+
+const settingsWriteBase = {
+  ns: z.string().min(1).max(CONFIG_PLANE_MAX_NS_BYTES),
+  expectedRevision: z.number().int().nonnegative().optional(),
+}
+
+const settingsUpdateSchema = z.object({
+  ...settingsWriteBase,
+  patch: z.record(z.string().min(1).max(CONFIG_PLANE_MAX_PATH_SEGMENT_BYTES), z.unknown()),
+}).strict()
+
+const settingsReplaceSchema = z.object({
+  ...settingsWriteBase,
+  section: z.record(z.string().min(1).max(CONFIG_PLANE_MAX_PATH_SEGMENT_BYTES), z.unknown()),
+}).strict()
+
+const settingsOpSchema = z.union([
+  z.object({
+    op: z.literal('set'),
+    path: z.array(z.string().min(1).max(CONFIG_PLANE_MAX_PATH_SEGMENT_BYTES)).max(CONFIG_PLANE_MAX_PATH_SEGMENTS),
+    value: z.unknown(),
+  }).strict(),
+  z.object({
+    op: z.literal('unset'),
+    path: z.array(z.string().min(1).max(CONFIG_PLANE_MAX_PATH_SEGMENT_BYTES)).max(CONFIG_PLANE_MAX_PATH_SEGMENTS),
+  }).strict(),
+])
+
+const settingsMutateSchema = z.object({
+  ...settingsWriteBase,
+  ops: z.array(settingsOpSchema).min(1).max(CONFIG_PLANE_MAX_OPS),
+}).strict()
+
+const credentialsDescribeSchema = z.object({
+  refs: z.array(credentialRefSchema).max(CONFIG_PLANE_MAX_OPS),
+}).strict()
+
+const credentialsSetSchema = z.object({
+  ref: credentialRefSchema,
+  value: z.string().min(1).max(CONFIG_PLANE_MAX_CREDENTIAL_VALUE_BYTES),
+}).strict()
+
+const credentialsUnsetSchema = z.object({
+  ref: credentialRefSchema,
+}).strict()
+
+const discoverModelsSchema = z.object({
+  settingsNs: z.string().min(1).max(CONFIG_PLANE_MAX_NS_BYTES),
+  provider: z.string().min(1).max(CONFIG_PLANE_MAX_NS_BYTES).optional(),
+  baseURL: z.string().max(CONFIG_PLANE_MAX_BASE_URL_BYTES).optional(),
+  api: z.string().min(1).max(CONFIG_PLANE_MAX_NS_BYTES).optional(),
+  apiKey: z.string().min(1).max(CONFIG_PLANE_MAX_CREDENTIAL_VALUE_BYTES).optional(),
+}).strict()
+
 /**
  * Harness API methods that are safe to expose to an authenticated remote UI.
- * Settings, credentials, native open/picker calls, directory mutation, file
- * contents, downloads, and attachment upload intentionally remain outside
+ * Native open/picker calls, directory mutation, file contents, downloads,
+ * attachment upload, and `settings.openDocument` intentionally remain outside
  * this bridge. `session.attachment` is the native read-only lookup used by
  * Harness rc.2 to render an image already referenced by that same session.
  * Directory listing exposes metadata only for workspace picking.
  * `commands.*` follows the official Host registry so the authenticated Remote
  * UI sees the same effective command catalog and handlers as the local UI.
+ *
+ * The model-configuration plane (`settings.*` writes, `credentials.*`,
+ * `llm.discoverModels`) is exposed only to configure model providers: every
+ * `settings` target namespace must be one the live configurable-provider
+ * directory declares via `llm.providers` (`settingsNs`), payloads are bounded
+ * (see the config-plane schemas), credential references must be env-var shaped
+ * with a bounded value, and `discoverModels` endpoints must be HTTPS (HTTP only
+ * for localhost). Anything outside that scope fails closed.
  */
 export const HARNESS_API_ALLOWLIST = [
   'session.list',
@@ -137,6 +211,14 @@ export const HARNESS_API_ALLOWLIST = [
   'commands.list',
   'llm.providers',
   'llm.models',
+  'llm.discoverModels',
+  'settings.describe',
+  'settings.update',
+  'settings.replace',
+  'settings.mutate',
+  'credentials.describe',
+  'credentials.set',
+  'credentials.unset',
 ] as const
 
 export type AllowedHarnessApiMethod = typeof HARNESS_API_ALLOWLIST[number]
@@ -550,7 +632,10 @@ function createMethodMap(api: ApiProxy, typertGateway?: TypertGatewayLike): Read
     const domain = domainProperty(wireDomain)
     const implementation = domains[domain]?.[action]
     if (typeof implementation !== 'function') continue
-    methods.set(method, implementation.bind(domains[domain]))
+    const scoped = CONFIG_PLANE_METHODS.includes(method as typeof CONFIG_PLANE_METHODS[number])
+      ? scopeConfigPlaneMethod(api, method as typeof CONFIG_PLANE_METHODS[number], implementation)
+      : undefined
+    methods.set(method, scoped ?? implementation.bind(domains[domain]))
   }
   return methods
 }
@@ -562,6 +647,170 @@ function domainProperty(wireDomain: string): string {
   if (wireDomain === 'agentPreset') return 'agentPresets'
   if (wireDomain === 'goal') return 'goals'
   return wireDomain
+}
+
+/**
+ * Config-plane methods that need scoping beyond the plain allowlist: the
+ * model-configuration surface. `settings.*` writes target only namespaces the
+ * configurable-provider directory declares, `credentials.*` carry env-var
+ * shaped refs with bounded values, and `llm.discoverModels` probes only
+ * HTTPS/localhost-HTTP endpoints.
+ */
+const CONFIG_PLANE_METHODS = [
+  'llm.discoverModels',
+  'settings.describe',
+  'settings.update',
+  'settings.replace',
+  'settings.mutate',
+  'credentials.describe',
+  'credentials.set',
+  'credentials.unset',
+] as const
+
+type ConfigPlaneMethod = typeof CONFIG_PLANE_METHODS[number]
+
+function scopeConfigPlaneMethod(api: ApiProxy, method: ConfigPlaneMethod, native: NativeMethod): NativeMethod {
+  switch (method) {
+    case 'llm.discoverModels':
+      return async (request, signal) => {
+        const payload = parseConfigPlane(discoverModelsSchema, request.payload, 'llm.discoverModels')
+        if (payload.baseURL !== undefined) validateDiscoverBaseUrl(payload.baseURL)
+        return native({ rpcId: request.rpcId, payload }, signal)
+      }
+    case 'settings.describe':
+      return async (request, signal) => {
+        parseConfigPlane(settingsDescribeSchema, request.payload, 'settings.describe')
+        const response = await native({ rpcId: request.rpcId, payload: {} }, signal)
+        return filterDescribeToModelNamespaces(api, response)
+      }
+    case 'settings.update':
+      return async (request, signal) => {
+        const payload = parseConfigPlane(settingsUpdateSchema, request.payload, 'settings.update')
+        await assertModelConfigNamespace(api, payload.ns)
+        assertSerializedBytes(payload.patch, CONFIG_PLANE_SETTINGS_BYTES, 'settings.update patch')
+        return native({ rpcId: request.rpcId, payload }, signal)
+      }
+    case 'settings.replace':
+      return async (request, signal) => {
+        const payload = parseConfigPlane(settingsReplaceSchema, request.payload, 'settings.replace')
+        await assertModelConfigNamespace(api, payload.ns)
+        assertSerializedBytes(payload.section, CONFIG_PLANE_SETTINGS_BYTES, 'settings.replace section')
+        return native({ rpcId: request.rpcId, payload }, signal)
+      }
+    case 'settings.mutate':
+      return async (request, signal) => {
+        const payload = parseConfigPlane(settingsMutateSchema, request.payload, 'settings.mutate')
+        await assertModelConfigNamespace(api, payload.ns)
+        assertSerializedBytes(payload.ops, CONFIG_PLANE_SETTINGS_BYTES, 'settings.mutate ops')
+        return native({ rpcId: request.rpcId, payload }, signal)
+      }
+    case 'credentials.describe':
+      return async (request, signal) => {
+        const payload = parseConfigPlane(credentialsDescribeSchema, request.payload, 'credentials.describe')
+        return native({ rpcId: request.rpcId, payload }, signal)
+      }
+    case 'credentials.set':
+      return async (request, signal) => {
+        const payload = parseConfigPlane(credentialsSetSchema, request.payload, 'credentials.set')
+        return native({ rpcId: request.rpcId, payload }, signal)
+      }
+    case 'credentials.unset':
+      return async (request, signal) => {
+        const payload = parseConfigPlane(credentialsUnsetSchema, request.payload, 'credentials.unset')
+        return native({ rpcId: request.rpcId, payload }, signal)
+      }
+  }
+}
+
+function parseConfigPlane<T>(schema: z.ZodType<T>, payload: unknown, label: string): T {
+  try {
+    return schema.parse(payload)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new RpcError('INVALID_MESSAGE', `The ${label} payload is invalid for the remote channel.`)
+    }
+    throw error
+  }
+}
+
+function validateDiscoverBaseUrl(value: string): void {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new RpcError('INVALID_MESSAGE', 'The model discovery baseURL is invalid.')
+  }
+  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1'
+  if (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) {
+    throw new RpcError('INVALID_MESSAGE', 'The model discovery baseURL must use HTTPS (HTTP is allowed only for localhost).')
+  }
+  if (url.username !== '' || url.password !== '') {
+    throw new RpcError('INVALID_MESSAGE', 'The model discovery baseURL must not contain credentials.')
+  }
+  if (url.hash !== '') {
+    throw new RpcError('INVALID_MESSAGE', 'The model discovery baseURL must not contain a fragment.')
+  }
+}
+
+function assertSerializedBytes(value: unknown, maxBytes: number, label: string): void {
+  const bytes = new TextEncoder().encode(JSON.stringify(value)).byteLength
+  if (bytes > maxBytes) {
+    throw new RpcError('INVALID_MESSAGE', `The ${label} exceeds the ${maxBytes}-byte remote limit.`)
+  }
+}
+
+async function assertModelConfigNamespace(api: ApiProxy, ns: string): Promise<void> {
+  const allowed = await modelConfigNamespaces(api)
+  if (!allowed.has(ns)) throw deniedModelNamespace(ns)
+}
+
+async function filterDescribeToModelNamespaces(api: ApiProxy, response: RpcResponse<unknown>): Promise<RpcResponse<unknown>> {
+  const allowed = await modelConfigNamespaces(api)
+  const result = response.result
+  if (typeof result !== 'object' || result === null || !('ok' in result) || result.ok !== true) return response
+  const value = (result as { value?: unknown }).value
+  if (typeof value !== 'object' || value === null) return response
+  const namespaces = (value as { namespaces?: unknown }).namespaces
+  if (!Array.isArray(namespaces)) return response
+  const filtered = namespaces.filter(item => typeof item === 'object' && item !== null
+    && typeof (item as { ns?: unknown }).ns === 'string' && allowed.has((item as { ns: string }).ns))
+  return { ...response, result: { ...result, value: { ...value, namespaces: filtered } } }
+}
+
+const EMPTY_NAMESPACES: ReadonlySet<string> = new Set()
+
+/** Namespaces the live configurable-provider directory declares for model configuration. */
+async function modelConfigNamespaces(api: ApiProxy): Promise<ReadonlySet<string>> {
+  const llm = (api as unknown as { llm?: { providers?: NativeMethod } }).llm
+  const providers = llm?.providers
+  if (typeof providers !== 'function') return EMPTY_NAMESPACES
+  const response = await withTimeout(
+    providers({ rpcId: 'bridge-model-config-scope' as never, payload: {} }, AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS)),
+    NATIVE_CALL_TIMEOUT_MS,
+    'The Host llm.providers call timed out.',
+  )
+  const value = unwrapNativeValue(response, 'llm.providers')
+  const list = typeof value === 'object' && value !== null ? (value as { providers?: unknown }).providers : undefined
+  if (!Array.isArray(list)) return EMPTY_NAMESPACES
+  const namespaces = new Set<string>()
+  for (const item of list) {
+    if (typeof item !== 'object' || item === null) continue
+    const settingsNs = (item as { settingsNs?: unknown }).settingsNs
+    if (typeof settingsNs === 'string' && settingsNs.length > 0) namespaces.add(settingsNs)
+  }
+  return namespaces
+}
+
+function unwrapNativeValue(response: RpcResponse<unknown>, method: string): unknown {
+  const result = response.result
+  if (typeof result !== 'object' || result === null || !('ok' in result) || result.ok !== true || !('value' in result)) {
+    throw new RpcError('INTERNAL_ERROR', `The Host ${method} call did not succeed.`)
+  }
+  return result.value
+}
+
+function deniedModelNamespace(ns: string): RpcError {
+  return new RpcError('METHOD_NOT_ALLOWED', `Harness settings namespace ${JSON.stringify(ns)} is not a model configuration section.`)
 }
 
 function deniedMethod(method: string): RpcError {
