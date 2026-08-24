@@ -315,10 +315,10 @@ describe('HarnessApiBridge', () => {
   })
 })
 
-describe('HarnessApiBridge model configuration scope', () => {
+describe('HarnessApiBridge remote settings scope', () => {
   const ok = (rpcId: string, value: unknown) => ({ rpcId, result: { ok: true as const, value } })
 
-  function providerApi(settingsFn?: (request: { rpcId: string; payload: unknown }) => unknown) {
+  function providerApi() {
     const providers = vi.fn(async (request: { rpcId: string }) => ok(request.rpcId, {
       providers: [
         { provider: 'deepseek', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: false },
@@ -336,10 +336,25 @@ describe('HarnessApiBridge model configuration scope', () => {
         settings: {
           describe: vi.fn(async (request: { rpcId: string }) => ok(request.rpcId, {
             writable: true,
-            hasDocument: false,
+            hasDocument: true,
             namespaces: [
-              { ns: 'llm-deepseek', schema: {}, value: {}, applies: 'live', secrets: [], revision: 1 },
-              { ns: 'llm-openai', schema: {}, value: {}, applies: 'live', secrets: [], revision: 2 },
+              {
+                ns: 'llm-deepseek',
+                schema: {},
+                value: { apiKeyEnv: 'DSH_DEEPSEEK_API_KEY' },
+                base: { apiKeyEnv: 'DSH_DEEPSEEK_API_KEY' },
+                applies: 'live',
+                secrets: [],
+                revision: 1,
+              },
+              {
+                ns: 'llm-openai',
+                schema: {},
+                value: { profiles: { main: { apiKeyEnv: 'DSH_OPENAI_API_KEY' } } },
+                applies: 'live',
+                secrets: [],
+                revision: 2,
+              },
               { ns: 'dsh-remote', schema: {}, value: {}, applies: 'restart', secrets: [], revision: 3 },
             ],
           })),
@@ -357,14 +372,14 @@ describe('HarnessApiBridge model configuration scope', () => {
     }
   }
 
-  it('allows settings writes only for namespaces the provider directory declares', async () => {
+  it('allows settings writes only for namespaces the live settings directory declares', async () => {
     const { api: harnessApi } = providerApi()
     const bridge = new HarnessApiBridge(harnessApi, vi.fn(async () => undefined))
 
     await expect(bridge.call({
       method: 'settings.mutate',
       rpcId: 'config-1',
-      payload: { ns: 'llm-deepseek', ops: [{ op: 'set', path: ['apiKeyEnv'], value: 'DSH_DEEPSEEK_KEY' }] },
+      payload: { ns: 'llm-deepseek', ops: [{ op: 'set', path: ['apiKeyEnv'], value: 'DSH_DEEPSEEK_API_KEY' }] },
     })).resolves.toMatchObject({ rpcId: 'config-1', result: { ok: true } })
 
     await expect(bridge.call({
@@ -383,7 +398,7 @@ describe('HarnessApiBridge model configuration scope', () => {
       method: 'settings.mutate',
       rpcId: 'config-4',
       payload: { ns: 'dsh-remote', ops: [{ op: 'set', path: ['serverUrl'], value: 'https://evil.example' }] },
-    })).rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
+    })).resolves.toMatchObject({ rpcId: 'config-4', result: { ok: true } })
 
     await expect(bridge.call({
       method: 'settings.update',
@@ -392,7 +407,7 @@ describe('HarnessApiBridge model configuration scope', () => {
     })).rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
   })
 
-  it('fails closed without a native provider directory or on oversized writes', async () => {
+  it('fails closed without a native settings directory or on oversized writes', async () => {
     const bare = new HarnessApiBridge(api({ settings: { mutate: vi.fn(async () => ok('x', {})) } }), vi.fn(async () => undefined))
     await expect(bare.call({
       method: 'settings.mutate',
@@ -415,17 +430,18 @@ describe('HarnessApiBridge model configuration scope', () => {
     })).rejects.toMatchObject({ code: 'INVALID_MESSAGE' })
   })
 
-  it('filters settings.describe down to model-configuration namespaces', async () => {
+  it('returns all registered namespaces while hiding the local document capability', async () => {
     const { api: harnessApi } = providerApi()
     const bridge = new HarnessApiBridge(harnessApi, vi.fn(async () => undefined))
 
     const response = await bridge.call({ method: 'settings.describe', rpcId: 'config-describe', payload: {} })
     expect(response.result).toMatchObject({ ok: true })
     const value = response.result as { ok: boolean; value: { namespaces: Array<{ ns: string }> } }
-    expect(value.value.namespaces.map(item => item.ns)).toEqual(['llm-deepseek', 'llm-openai'])
+    expect(value.value.namespaces.map(item => item.ns)).toEqual(['llm-deepseek', 'llm-openai', 'dsh-remote'])
+    expect(value.value).toMatchObject({ hasDocument: false })
   })
 
-  it('bounds credentials to env-var shaped refs and bounded values', async () => {
+  it('bounds credential refs and values while preserving official global reference semantics', async () => {
     const { api: harnessApi } = providerApi()
     const bridge = new HarnessApiBridge(harnessApi, vi.fn(async () => undefined))
 
@@ -458,6 +474,30 @@ describe('HarnessApiBridge model configuration scope', () => {
       rpcId: 'cred-big',
       payload: { ref: 'DSH_DEEPSEEK_API_KEY', value: 'x'.repeat(9 * 1024) },
     })).rejects.toMatchObject({ code: 'INVALID_MESSAGE' })
+
+    await expect(bridge.call({
+      method: 'credentials.describe',
+      rpcId: 'cred-unrelated-read',
+      payload: { refs: ['GITHUB_TOKEN'] },
+    })).resolves.toMatchObject({ rpcId: 'cred-unrelated-read', result: { ok: true } })
+
+    await expect(bridge.call({
+      method: 'credentials.set',
+      rpcId: 'cred-unrelated-write',
+      payload: { ref: 'GITHUB_TOKEN', value: 'poisoned' },
+    })).resolves.toMatchObject({ rpcId: 'cred-unrelated-write', result: { ok: true } })
+
+    await expect(bridge.call({
+      method: 'settings.mutate',
+      rpcId: 'cred-introduce-ref',
+      payload: { ns: 'llm-deepseek', ops: [{ op: 'set', path: ['apiKeyEnv'], value: 'GITHUB_TOKEN' }] },
+    })).resolves.toMatchObject({ rpcId: 'cred-introduce-ref', result: { ok: true } })
+
+    await expect(bridge.call({
+      method: 'settings.update',
+      rpcId: 'cred-introduce-nested-ref',
+      payload: { ns: 'llm-openai', patch: { profiles: { hostile: { apiKeyEnv: 'GITHUB_TOKEN' } } } },
+    })).resolves.toMatchObject({ rpcId: 'cred-introduce-nested-ref', result: { ok: true } })
   })
 
   it('restricts llm.discoverModels endpoints to HTTPS or localhost HTTP', async () => {
@@ -493,6 +533,56 @@ describe('HarnessApiBridge model configuration scope', () => {
       rpcId: 'discover-big-key',
       payload: { settingsNs: 'llm-deepseek', baseURL: 'https://api.example.com/v1', apiKey: 'x'.repeat(9 * 1024) },
     })).rejects.toMatchObject({ code: 'INVALID_MESSAGE' })
+  })
+
+  it('normalizes model-discovery failures without returning adapter messages or credentials', async () => {
+    const { api: harnessApi } = providerApi()
+    harnessApi.llm.discoverModels = vi.fn(async (request: { rpcId: string }) => ({
+      rpcId: request.rpcId,
+      result: {
+        ok: false as const,
+        error: {
+          code: 'model-discovery-failed',
+          message: 'provider rejected sk-secret',
+          details: { settingsNs: 'llm-deepseek', baseURL: 'https://api.example.com/v1?key=sk-secret' },
+        },
+      },
+    })) as never
+    const bridge = new HarnessApiBridge(harnessApi, vi.fn(async () => undefined))
+
+    const response = await bridge.call({
+      method: 'llm.discoverModels',
+      rpcId: 'discover-failed',
+      payload: { settingsNs: 'llm-deepseek', baseURL: 'https://api.example.com/v1', apiKey: 'sk-secret' },
+    })
+
+    expect(response).toEqual({
+      rpcId: 'discover-failed',
+      result: {
+        ok: false,
+        error: {
+          code: 'model-discovery-failed',
+          message: 'Model discovery failed.',
+          details: { settingsNs: 'llm-deepseek' },
+        },
+      },
+    })
+    expect(JSON.stringify(response)).not.toContain('sk-secret')
+
+    harnessApi.llm.discoverModels = vi.fn(async () => {
+      throw new Error('transport exposed sk-thrown')
+    }) as never
+    const throwingBridge = new HarnessApiBridge(harnessApi, vi.fn(async () => undefined))
+    const thrownResponse = await throwingBridge.call({
+      method: 'llm.discoverModels',
+      rpcId: 'discover-thrown',
+      payload: { settingsNs: 'llm-deepseek', baseURL: 'https://api.example.com/v1', apiKey: 'sk-thrown' },
+    })
+    expect(JSON.stringify(thrownResponse)).not.toContain('sk-thrown')
+    expect(thrownResponse).toMatchObject({
+      rpcId: 'discover-thrown',
+      result: { ok: false, error: { code: 'model-discovery-failed', message: 'Model discovery failed.' } },
+    })
   })
 
   it('keeps settings.openDocument and unlisted methods denied', async () => {

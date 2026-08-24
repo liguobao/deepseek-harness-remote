@@ -16517,32 +16517,37 @@ function scopeConfigPlaneMethod(api, method, native) {
       return async (request, signal) => {
         const payload = parseConfigPlane(discoverModelsSchema, request.payload, "llm.discoverModels");
         if (payload.baseURL !== void 0) validateDiscoverBaseUrl(payload.baseURL);
-        return native({ rpcId: request.rpcId, payload }, signal);
+        try {
+          const response = await native({ rpcId: request.rpcId, payload }, signal);
+          return sanitizeModelDiscoveryResponse(response, payload.settingsNs);
+        } catch {
+          return modelDiscoveryFailure(request.rpcId, payload.settingsNs);
+        }
       };
     case "settings.describe":
       return async (request, signal) => {
         parseConfigPlane(settingsDescribeSchema, request.payload, "settings.describe");
         const response = await native({ rpcId: request.rpcId, payload: {} }, signal);
-        return filterDescribeToModelNamespaces(api, response);
+        return disableRemoteSettingsDocument(response);
       };
     case "settings.update":
       return async (request, signal) => {
         const payload = parseConfigPlane(settingsUpdateSchema, request.payload, "settings.update");
-        await assertModelConfigNamespace(api, payload.ns);
+        await assertRegisteredSettingsNamespace(api, payload.ns);
         assertSerializedBytes(payload.patch, CONFIG_PLANE_SETTINGS_BYTES, "settings.update patch");
         return native({ rpcId: request.rpcId, payload }, signal);
       };
     case "settings.replace":
       return async (request, signal) => {
         const payload = parseConfigPlane(settingsReplaceSchema, request.payload, "settings.replace");
-        await assertModelConfigNamespace(api, payload.ns);
+        await assertRegisteredSettingsNamespace(api, payload.ns);
         assertSerializedBytes(payload.section, CONFIG_PLANE_SETTINGS_BYTES, "settings.replace section");
         return native({ rpcId: request.rpcId, payload }, signal);
       };
     case "settings.mutate":
       return async (request, signal) => {
         const payload = parseConfigPlane(settingsMutateSchema, request.payload, "settings.mutate");
-        await assertModelConfigNamespace(api, payload.ns);
+        await assertRegisteredSettingsNamespace(api, payload.ns);
         assertSerializedBytes(payload.ops, CONFIG_PLANE_SETTINGS_BYTES, "settings.mutate ops");
         return native({ rpcId: request.rpcId, payload }, signal);
       };
@@ -16597,39 +16602,53 @@ function assertSerializedBytes(value, maxBytes, label) {
     throw new RpcError("INVALID_MESSAGE", `The ${label} exceeds the ${maxBytes}-byte remote limit.`);
   }
 }
-async function assertModelConfigNamespace(api, ns) {
-  const allowed = await modelConfigNamespaces(api);
-  if (!allowed.has(ns)) throw deniedModelNamespace(ns);
+function sanitizeModelDiscoveryResponse(response, settingsNs) {
+  const result = response.result;
+  if (typeof result === "object" && result !== null && "ok" in result && result.ok === true) return response;
+  return modelDiscoveryFailure(response.rpcId, settingsNs);
 }
-async function filterDescribeToModelNamespaces(api, response) {
-  const allowed = await modelConfigNamespaces(api);
+function modelDiscoveryFailure(rpcId, settingsNs) {
+  return {
+    rpcId,
+    result: {
+      ok: false,
+      error: {
+        code: "model-discovery-failed",
+        message: "Model discovery failed.",
+        details: { settingsNs }
+      }
+    }
+  };
+}
+function disableRemoteSettingsDocument(response) {
   const result = response.result;
   if (typeof result !== "object" || result === null || !("ok" in result) || result.ok !== true) return response;
   const value = result.value;
   if (typeof value !== "object" || value === null) return response;
-  const namespaces = value.namespaces;
-  if (!Array.isArray(namespaces)) return response;
-  const filtered = namespaces.filter((item) => typeof item === "object" && item !== null && typeof item.ns === "string" && allowed.has(item.ns));
-  return { ...response, result: { ...result, value: { ...value, namespaces: filtered } } };
+  return { ...response, result: { ...result, value: { ...value, hasDocument: false } } };
 }
-var EMPTY_NAMESPACES = /* @__PURE__ */ new Set();
-async function modelConfigNamespaces(api) {
-  const llm = api.llm;
-  const providers = llm?.providers;
-  if (typeof providers !== "function") return EMPTY_NAMESPACES;
+var EMPTY_SETTINGS_NAMESPACES = /* @__PURE__ */ new Set();
+async function assertRegisteredSettingsNamespace(api, ns) {
+  const allowed = await registeredSettingsNamespaces(api);
+  if (!allowed.has(ns)) throw deniedSettingsNamespace(ns);
+}
+async function registeredSettingsNamespaces(api) {
+  const settings = api.settings;
+  const describe = settings?.describe;
+  if (typeof describe !== "function") return EMPTY_SETTINGS_NAMESPACES;
   const response = await withTimeout(
-    providers({ rpcId: "bridge-model-config-scope", payload: {} }, AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS)),
+    describe.call(settings, { rpcId: "bridge-settings-scope", payload: {} }, AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS)),
     NATIVE_CALL_TIMEOUT_MS,
-    "The Host llm.providers call timed out."
+    "The Host settings.describe call timed out."
   );
-  const value = unwrapNativeValue(response, "llm.providers");
-  const list = typeof value === "object" && value !== null ? value.providers : void 0;
-  if (!Array.isArray(list)) return EMPTY_NAMESPACES;
+  const value = unwrapNativeValue(response, "settings.describe");
+  const list = typeof value === "object" && value !== null ? value.namespaces : void 0;
+  if (!Array.isArray(list)) return EMPTY_SETTINGS_NAMESPACES;
   const namespaces = /* @__PURE__ */ new Set();
   for (const item of list) {
     if (typeof item !== "object" || item === null) continue;
-    const settingsNs = item.settingsNs;
-    if (typeof settingsNs === "string" && settingsNs.length > 0) namespaces.add(settingsNs);
+    const ns = item.ns;
+    if (typeof ns === "string" && ns.length > 0) namespaces.add(ns);
   }
   return namespaces;
 }
@@ -16640,8 +16659,8 @@ function unwrapNativeValue(response, method) {
   }
   return result.value;
 }
-function deniedModelNamespace(ns) {
-  return new RpcError("METHOD_NOT_ALLOWED", `Harness settings namespace ${JSON.stringify(ns)} is not a model configuration section.`);
+function deniedSettingsNamespace(ns) {
+  return new RpcError("METHOD_NOT_ALLOWED", `Harness settings namespace ${JSON.stringify(ns)} is not registered on the Host.`);
 }
 function deniedMethod(method) {
   return new RpcError("METHOD_NOT_ALLOWED", `Harness API method ${JSON.stringify(method)} is not available in remote mode.`);

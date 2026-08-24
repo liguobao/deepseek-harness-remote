@@ -107,7 +107,7 @@ schema 与大小校验。路径根与 locator 权限由 File Viewer provider 执
 
 明确禁止：
 
-- credentials 和 settings 读写；
+- `settings.openDocument` 以及对 Host 实时注册目录之外命名空间的 settings 写入；credentials 只允许官方全局引用语义下的有界 describe/set/unset，值只写且不得进入日志或响应；
 - native path open/picker；
 - 绕过 File Viewer provider 的文件访问、目录创建/修改/删除或通用文件系统 RPC；
 - File Viewer `openExternal`、文件写入、上传与执行；

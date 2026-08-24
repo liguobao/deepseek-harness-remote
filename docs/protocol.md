@@ -950,17 +950,17 @@ Result 是 Harness `ApiProxy` 的原生 `RpcResponse`，必须回显内层 `rpcI
 - goal create/edit/pause/resume/complete/clear
 - `commands.list`、`commands.execute`（经官方 Typert gateway 分发，使用 Host 对当前 Agent 的有效注册命令）
 - LLM provider/model list
-- 模型配置平面：`settings.describe/update/replace/mutate`、`credentials.describe/set/unset`、`llm.discoverModels`
+- Host 设置与模型发现平面：`settings.describe/update/replace/mutate`、`credentials.describe/set/unset`、`llm.discoverModels`
 
 `session.attachment` 只转发 Harness 原生的只读查询；Host ApiProxy 必须验证 attachment 已被指定 session 的持久化日志引用后才返回内容。它不能创建、上传、修改或枚举附件。明确禁止 native path open/picker、`settings.openDocument`、目录创建、绕过 File Viewer provider 的文件读取、attachment upload、download 以及任何未列出方法。`host.listDirectory` 只返回单层目录元数据。Host 应优先调用官方 ApiProxy browse capability；当桌面 Harness 只组合 `native` picker 时，Plugin 可在已认证的 Host bridge 内提供等价的只读元数据实现。该兜底必须限制结果数量，只返回目录名、绝对路径、面包屑、Home 路径和 hidden 标志，不得读取文件内容、写入文件系统或扩展为通用文件系统 RPC。`commands.list` 与 `commands.execute` 不是通用方法调用入口：Bridge 必须要求 payload 仅含 `agentId`（`execute` 另含长度受限的 `line`），并经官方 Typert gateway 使用 Host 对当前 Agent 解析出的有效命令目录和 handler。命令语法、名称解析、Agent scoped shadowing、参数校验和执行语义均由 Host 命令注册表负责，与本地 Harness UI 一致；未注册命令不会进入 handler。额外字段、缺失参数和超长输入在 Bridge 边界 fail closed。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
 
-模型配置平面只用于配置模型 Provider，必须满足以下作用域约束，否则在 Bridge 边界 fail closed：
+Host 设置平面允许已认证且通过本地 identity 固定的 Remote peer 配置 Host 当前注册的设置分区，必须满足以下作用域约束，否则在 Bridge 边界 fail closed：
 
-- `settings.update/replace/mutate` 的目标命名空间必须是 `llm.providers` 实时返回的 configurable-provider 目录中的 `settingsNs`（未命中即拒绝）；`patch`/`section`/`ops` 序列化后不得超过 64 KiB，`ops` 最多 64 条，`path` 最多 8 段且每段不超过 64 字节，`ns` 不超过 128 字节。
-- `settings.describe` 仅透传筛选后的结果：Bridge 把响应中的 `namespaces` 过滤到上述模型配置命名空间，远端 UI 不得看到 Host 的其他设置分区；写入仍可携带 `expectedRevision`，冲突语义由原生 seam 决定。
-- `credentials.describe/set/unset` 的引用名必须是 POSIX 环境变量形态（`^[A-Za-z_][A-Za-z0-9_]*$`，最长 128 字节），`set` 的 value 最长 8 KiB。credential 值只允许在 `credentials.set` 入站方向出现，不得写入日志、不得出现在任何响应里。
-- `llm.discoverModels` 只允许探测 HTTPS 端点（localhost 允许 HTTP），禁止 URL 内嵌凭据和 fragment；`baseURL` 最长 2048 字节，`apiKey` 最长 8 KiB，且仅作草稿探测，Host 不存储、不返回该 key。探测失败一律折叠为 `model-discovery-failed`，错误消息不得包含提交的凭据。
-- `settings.openDocument`、native path open/picker、目录创建、任意文件访问仍然禁止。上述所有写入都不允许命中白名单以外的命名空间、引用或端点。
+- `settings.update/replace/mutate` 的目标命名空间必须存在于 Host 原生 `settings.describe` 实时返回的目录中（未注册或目录不可用即拒绝）；`patch`/`section`/`ops` 序列化后不得超过 64 KiB，`ops` 最多 64 条，`path` 最多 8 段且每段不超过 64 字节，`ns` 不超过 128 字节。
+- `settings.describe` 返回原生 seam 当前注册的全部命名空间及其已经过原生 secret redaction 的值；Bridge 必须强制把 `hasDocument` 设为 `false`。写入仍可携带 `expectedRevision`，冲突语义由原生 seam 决定。
+- `credentials.describe/set/unset` 沿用 Harness 官方的全局 credential-reference 语义。引用名称必须是 POSIX 环境变量形态（`^[A-Za-z_][A-Za-z0-9_]*$`，最长 128 字节），`set` 的 value 最长 8 KiB。credential 值只允许在 `credentials.set` 入站方向出现，不得写入日志、不得出现在任何响应里。
+- `llm.discoverModels` 只允许探测 HTTPS 端点（localhost 允许 HTTP），禁止 URL 内嵌凭据和 fragment；`baseURL` 最长 2048 字节，`apiKey` 最长 8 KiB，且仅作草稿探测，Host 不存储、不返回该 key。Bridge 必须把所有探测失败折叠为固定的 `model-discovery-failed` 文案和不含 endpoint/key 的安全 details，不得透传 adapter 错误消息。
+- `settings.openDocument`、native path open/picker、目录创建、任意文件访问仍然禁止。设置写入不允许命中实时注册目录以外的命名空间；credential 引用、设置 payload 和模型发现端点必须继续满足上述边界。
 
 #### `harness.api.transfer.*`
 

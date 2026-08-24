@@ -40,7 +40,7 @@ Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新�
 - 不启动公网监听端口。
 - 不提供 PTY、SSH、远程桌面、任意文件系统访问或任意 Harness tool RPC；文件内容仅可由
   `dsh-file-viewer` provider 在其授权根/locator 内通过受限只读预览桥访问。
-- 不代理 credentials、settings、native path open/picker、目录写入、附件或下载 API。
+- settings/credentials 仅通过官方 seam 代理：设置写入限 Host 实时注册的命名空间，credential 值只写；不代理 `settings.openDocument`、native path open/picker、目录写入、attachment upload 或下载 API。
 - 不在本仓库实现 Server、Remote Web 或 Admin runtime。
 
 ## 5. 权限体验

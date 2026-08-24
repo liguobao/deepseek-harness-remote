@@ -163,13 +163,11 @@ const discoverModelsSchema = z.object({
  * `commands.*` follows the official Host registry so the authenticated Remote
  * UI sees the same effective command catalog and handlers as the local UI.
  *
- * The model-configuration plane (`settings.*` writes, `credentials.*`,
- * `llm.discoverModels`) is exposed only to configure model providers: every
- * `settings` target namespace must be one the live configurable-provider
- * directory declares via `llm.providers` (`settingsNs`), payloads are bounded
- * (see the config-plane schemas), credential references must be env-var shaped
- * with a bounded value, and `discoverModels` endpoints must be HTTPS (HTTP only
- * for localhost). Anything outside that scope fails closed.
+ * The authenticated Remote UI may configure every namespace currently
+ * registered with the official Host settings seam. Writes remain bounded and
+ * must target that live directory; credential values remain write-only;
+ * `settings.openDocument` stays local-only; and `discoverModels` endpoints must
+ * be HTTPS (HTTP only for localhost). Anything outside that scope fails closed.
  */
 export const HARNESS_API_ALLOWLIST = [
   'session.list',
@@ -650,11 +648,10 @@ function domainProperty(wireDomain: string): string {
 }
 
 /**
- * Config-plane methods that need scoping beyond the plain allowlist: the
- * model-configuration surface. `settings.*` writes target only namespaces the
- * configurable-provider directory declares, `credentials.*` carry env-var
- * shaped refs with bounded values, and `llm.discoverModels` probes only
- * HTTPS/localhost-HTTP endpoints.
+ * Config-plane methods that need scoping beyond the plain allowlist. Settings
+ * writes target only namespaces currently registered with the Host settings
+ * seam, credential payloads are bounded and write-only, and model discovery
+ * probes only HTTPS/localhost-HTTP endpoints with credential-free failures.
  */
 const CONFIG_PLANE_METHODS = [
   'llm.discoverModels',
@@ -675,32 +672,37 @@ function scopeConfigPlaneMethod(api: ApiProxy, method: ConfigPlaneMethod, native
       return async (request, signal) => {
         const payload = parseConfigPlane(discoverModelsSchema, request.payload, 'llm.discoverModels')
         if (payload.baseURL !== undefined) validateDiscoverBaseUrl(payload.baseURL)
-        return native({ rpcId: request.rpcId, payload }, signal)
+        try {
+          const response = await native({ rpcId: request.rpcId, payload }, signal)
+          return sanitizeModelDiscoveryResponse(response, payload.settingsNs)
+        } catch {
+          return modelDiscoveryFailure(request.rpcId, payload.settingsNs)
+        }
       }
     case 'settings.describe':
       return async (request, signal) => {
         parseConfigPlane(settingsDescribeSchema, request.payload, 'settings.describe')
         const response = await native({ rpcId: request.rpcId, payload: {} }, signal)
-        return filterDescribeToModelNamespaces(api, response)
+        return disableRemoteSettingsDocument(response)
       }
     case 'settings.update':
       return async (request, signal) => {
         const payload = parseConfigPlane(settingsUpdateSchema, request.payload, 'settings.update')
-        await assertModelConfigNamespace(api, payload.ns)
+        await assertRegisteredSettingsNamespace(api, payload.ns)
         assertSerializedBytes(payload.patch, CONFIG_PLANE_SETTINGS_BYTES, 'settings.update patch')
         return native({ rpcId: request.rpcId, payload }, signal)
       }
     case 'settings.replace':
       return async (request, signal) => {
         const payload = parseConfigPlane(settingsReplaceSchema, request.payload, 'settings.replace')
-        await assertModelConfigNamespace(api, payload.ns)
+        await assertRegisteredSettingsNamespace(api, payload.ns)
         assertSerializedBytes(payload.section, CONFIG_PLANE_SETTINGS_BYTES, 'settings.replace section')
         return native({ rpcId: request.rpcId, payload }, signal)
       }
     case 'settings.mutate':
       return async (request, signal) => {
         const payload = parseConfigPlane(settingsMutateSchema, request.payload, 'settings.mutate')
-        await assertModelConfigNamespace(api, payload.ns)
+        await assertRegisteredSettingsNamespace(api, payload.ns)
         assertSerializedBytes(payload.ops, CONFIG_PLANE_SETTINGS_BYTES, 'settings.mutate ops')
         return native({ rpcId: request.rpcId, payload }, signal)
       }
@@ -759,44 +761,59 @@ function assertSerializedBytes(value: unknown, maxBytes: number, label: string):
   }
 }
 
-async function assertModelConfigNamespace(api: ApiProxy, ns: string): Promise<void> {
-  const allowed = await modelConfigNamespaces(api)
-  if (!allowed.has(ns)) throw deniedModelNamespace(ns)
+function sanitizeModelDiscoveryResponse(response: RpcResponse<unknown>, settingsNs: string): RpcResponse<unknown> {
+  const result = response.result
+  if (typeof result === 'object' && result !== null && 'ok' in result && result.ok === true) return response
+  return modelDiscoveryFailure(response.rpcId, settingsNs)
 }
 
-async function filterDescribeToModelNamespaces(api: ApiProxy, response: RpcResponse<unknown>): Promise<RpcResponse<unknown>> {
-  const allowed = await modelConfigNamespaces(api)
+function modelDiscoveryFailure(rpcId: RpcResponse<unknown>['rpcId'], settingsNs: string): RpcResponse<unknown> {
+  return {
+    rpcId,
+    result: {
+      ok: false,
+      error: {
+        code: 'model-discovery-failed',
+        message: 'Model discovery failed.',
+        details: { settingsNs },
+      },
+    },
+  }
+}
+
+function disableRemoteSettingsDocument(response: RpcResponse<unknown>): RpcResponse<unknown> {
   const result = response.result
   if (typeof result !== 'object' || result === null || !('ok' in result) || result.ok !== true) return response
   const value = (result as { value?: unknown }).value
   if (typeof value !== 'object' || value === null) return response
-  const namespaces = (value as { namespaces?: unknown }).namespaces
-  if (!Array.isArray(namespaces)) return response
-  const filtered = namespaces.filter(item => typeof item === 'object' && item !== null
-    && typeof (item as { ns?: unknown }).ns === 'string' && allowed.has((item as { ns: string }).ns))
-  return { ...response, result: { ...result, value: { ...value, namespaces: filtered } } }
+  return { ...response, result: { ...result, value: { ...value, hasDocument: false } } }
 }
 
-const EMPTY_NAMESPACES: ReadonlySet<string> = new Set()
+const EMPTY_SETTINGS_NAMESPACES: ReadonlySet<string> = new Set()
 
-/** Namespaces the live configurable-provider directory declares for model configuration. */
-async function modelConfigNamespaces(api: ApiProxy): Promise<ReadonlySet<string>> {
-  const llm = (api as unknown as { llm?: { providers?: NativeMethod } }).llm
-  const providers = llm?.providers
-  if (typeof providers !== 'function') return EMPTY_NAMESPACES
+async function assertRegisteredSettingsNamespace(api: ApiProxy, ns: string): Promise<void> {
+  const allowed = await registeredSettingsNamespaces(api)
+  if (!allowed.has(ns)) throw deniedSettingsNamespace(ns)
+}
+
+/** Namespaces currently exposed by the official live Host settings directory. */
+async function registeredSettingsNamespaces(api: ApiProxy): Promise<ReadonlySet<string>> {
+  const settings = (api as unknown as { settings?: { describe?: NativeMethod } }).settings
+  const describe = settings?.describe
+  if (typeof describe !== 'function') return EMPTY_SETTINGS_NAMESPACES
   const response = await withTimeout(
-    providers({ rpcId: 'bridge-model-config-scope' as never, payload: {} }, AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS)),
+    describe.call(settings, { rpcId: 'bridge-settings-scope' as never, payload: {} }, AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS)),
     NATIVE_CALL_TIMEOUT_MS,
-    'The Host llm.providers call timed out.',
+    'The Host settings.describe call timed out.',
   )
-  const value = unwrapNativeValue(response, 'llm.providers')
-  const list = typeof value === 'object' && value !== null ? (value as { providers?: unknown }).providers : undefined
-  if (!Array.isArray(list)) return EMPTY_NAMESPACES
+  const value = unwrapNativeValue(response, 'settings.describe')
+  const list = typeof value === 'object' && value !== null ? (value as { namespaces?: unknown }).namespaces : undefined
+  if (!Array.isArray(list)) return EMPTY_SETTINGS_NAMESPACES
   const namespaces = new Set<string>()
   for (const item of list) {
     if (typeof item !== 'object' || item === null) continue
-    const settingsNs = (item as { settingsNs?: unknown }).settingsNs
-    if (typeof settingsNs === 'string' && settingsNs.length > 0) namespaces.add(settingsNs)
+    const ns = (item as { ns?: unknown }).ns
+    if (typeof ns === 'string' && ns.length > 0) namespaces.add(ns)
   }
   return namespaces
 }
@@ -809,8 +826,8 @@ function unwrapNativeValue(response: RpcResponse<unknown>, method: string): unkn
   return result.value
 }
 
-function deniedModelNamespace(ns: string): RpcError {
-  return new RpcError('METHOD_NOT_ALLOWED', `Harness settings namespace ${JSON.stringify(ns)} is not a model configuration section.`)
+function deniedSettingsNamespace(ns: string): RpcError {
+  return new RpcError('METHOD_NOT_ALLOWED', `Harness settings namespace ${JSON.stringify(ns)} is not registered on the Host.`)
 }
 
 function deniedMethod(method: string): RpcError {

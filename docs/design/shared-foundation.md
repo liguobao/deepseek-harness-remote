@@ -86,7 +86,7 @@ Plugin 不维护第二套 seq replay buffer 或 full-resync 机制。
 
 - Plugin 只建立出站连接，不监听公网端口。
 - 业务 payload 只能进入完成 Noise IK 和 membership/trust 校验的 channel。
-- Host 以固定 allowlist 代理 ApiProxy；File Viewer 使用独立的 stat/readRange/list allowlist。禁止 credentials/settings、任意目录访问、native open、附件、下载和文件写入。
+- Host 以固定 allowlist 代理 ApiProxy；已认证 Remote peer 可通过官方 seam 管理 Host 实时注册的 settings 命名空间和全局 credential 引用，credential 值只写且 payload 有界。File Viewer 使用独立的 stat/readRange/list allowlist。禁止 `settings.openDocument`、任意目录访问、native open、attachment upload、下载和文件写入。
 - 未知 method、错误 target、重放、counter gap、identity mismatch 全部 fail closed。
 - token、私钥、主机匹配码、prompt、源码、工具输出和 ciphertext 不写日志。
 

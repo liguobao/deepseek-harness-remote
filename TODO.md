@@ -31,7 +31,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [ ] 用两台真实 Harness + 外部 Server 跑通同账号授权、选择 Remote、创建/继续会话
 - [ ] 验证原生 mux/host stream、approval/question respond 与断线关闭行为
 - [ ] 用手机 Web 与电脑 Web 同时连接一个真实 Host，验证并发操作、同设备重连和流隔离
-- [ ] 验证 allowlist 覆盖官方 UI 的必需方法，并保持 credentials/settings/native path/目录写入/任意文件访问/附件/download 禁止
+- [ ] 验证 allowlist 覆盖官方 UI 的必需方法；允许已认证 Remote peer 通过官方 seam 管理 Host 实时注册的 settings 命名空间与全局 credential 引用（credential 值只写），并保持 `settings.openDocument`、native path、目录写入、任意文件访问、attachment upload 和 download 禁止
 - [ ] 用两台真实 Harness 验证 dsh-file-viewer 文本、图片、PDF、大文件分块与断线回落
 - [ ] 在 macOS、Windows、Linux 验证 native picker 只读目录兜底、symlink、权限错误和大目录截断
 - [ ] 完善账号过期、`DEVICE_OWNERSHIP_REQUIRED` 和 legacy owner 的显式恢复体验
