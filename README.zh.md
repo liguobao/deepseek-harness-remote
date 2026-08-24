@@ -49,7 +49,7 @@ DSH Desktop 已默认集成并启用 Remote，无需另行安装插件。
 为 `web` profile 安装确切的 npm 版本：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.3.29
+dsh plugin --profile web add ds-harness-remote@0.3.30
 ```
 
 项目地址：[npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)

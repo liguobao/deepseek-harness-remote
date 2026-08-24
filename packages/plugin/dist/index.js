@@ -4397,7 +4397,7 @@ var RemoteClientCore = class {
     try {
       await this.transport.connect();
     } catch (error) {
-      this.unsubscribeTransport?.();
+      this.unsubscribeTransport();
       this.unsubscribeTransport = void 0;
       this.unsubscribeClose?.();
       this.unsubscribeClose = void 0;
@@ -13212,7 +13212,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.29";
+var PLUGIN_VERSION = "0.3.30";
 
 // src/server-api.ts
 var HostServerApi = class {

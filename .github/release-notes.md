@@ -1,25 +1,51 @@
 ## English
 
-### Plugin
+This release includes changes since `v0.3.29` ([full comparison](https://github.com/liguobao/deepseek-harness-remote/compare/v0.3.29...v0.3.30)).
 
-- Provides the encrypted Remote Host and workspace entry for DeepSeek Harness, using the official ApiProxy data path.
-- Keeps peer trust, permission checks, and optional read-only file preview within the existing security boundaries.
+### Plugin and settings
 
-### Android
+- The authenticated Remote settings page can now manage every namespace currently registered by the Host through the official Harness ApiProxy, including `dsh-remote` itself and global credential references.
+- Configuration remains bounded and fail-closed: unknown namespaces are rejected, credential values are write-only, and the Host-local `settings.openDocument` action is never exposed remotely.
+- Model providers can be configured and queried from draft HTTPS endpoints (HTTP remains localhost-only). Discovery failures are normalized so adapter messages cannot echo submitted keys or endpoint details.
 
-- Refines device, connection, workspace, and conversation navigation, including reconnect, remembered workspace folding, and clearer device activity status.
-- Improves keyboard handling and compact conversation rendering, with collapsed live reasoning, tighter tool activity, and the DeepSeek assistant icon.
-- Includes image prompts, in-app update checks, and complete English and Simplified Chinese interfaces.
+### Browser
+
+- Adds a lightweight Chrome/Edge MV3 launcher that exchanges the existing signed-in Web authorization for isolated Browser device credentials, lists online Hosts, and opens the selected Host directly in Remote Web.
+- Restricts extension host permissions to the production Remote Web origin and adds the Chrome Web Store privacy documentation.
+
+### VS Code and reliability
+
+- Keeps VS Code connection state consistent after disconnects and serializes sign-in/sign-out transitions so stale operations cannot restore cleared state.
+- Revokes the device during sign-out using the latest rotated credentials.
+- Makes pull-request file inspection fail closed and limits Android APK builds to relevant changes.
+
+### Compatibility and artifacts
+
+- Ships Plugin `0.3.30` and Android `0.3.30` (`versionCode 14`).
+- Remote workspaces and sessions remain compatible with `0.3.15` Hosts; newer settings, file-viewer, command-catalog, and transfer capabilities remain gated by Host support.
 
 ## 中文
 
-### 插件
+本版本包含自 `v0.3.29` 以来的改动（[完整对比](https://github.com/liguobao/deepseek-harness-remote/compare/v0.3.29...v0.3.30)）。
 
-- 为 DeepSeek Harness 提供加密 Remote Host 与远程工作区入口，数据面继续使用官方 ApiProxy。
-- 设备信任、权限检查与可选只读文件预览继续遵循现有安全边界。
+### 插件与设置
 
-### Android
+- 已认证的 Remote 设置页现在可以通过 Harness 官方 ApiProxy 管理 Host 当前注册的全部命名空间，包括 `dsh-remote` 自身设置与全局 credential 引用。
+- 配置写入继续保持有界并 fail closed：拒绝未知命名空间，credential 值保持只写，Host 本地的 `settings.openDocument` 操作不会暴露到远端。
+- 支持远端配置模型 Provider，并从草稿 HTTPS 端点发现模型（HTTP 仍仅限 localhost）。模型发现失败会统一脱敏，adapter 错误无法回显提交的密钥或端点详情。
 
-- 优化设备、连接、工作区与对话导航，支持断线重连、记忆工作区折叠状态，并清晰展示设备活跃时间。
-- 改进输入法适配与紧凑对话渲染，思考过程默认折叠并持续更新，工具活动间距更紧凑，助手使用 DeepSeek 图标。
-- 支持图片 Prompt、应用内检查更新，以及完整英文和简体中文界面。
+### 浏览器
+
+- 新增轻量 Chrome/Edge MV3 入口：将 Web 端现有登录授权换取隔离的 Browser 设备凭证，展示在线 Host，并直接打开所选 Host 的 Remote Web。
+- 扩展 host 权限收敛到正式 Remote Web 站点，并补充 Chrome Web Store 隐私说明。
+
+### VS Code 与可靠性
+
+- 断线后保持 VS Code 连接状态一致，并串行化登录/退出流程，避免过期异步操作恢复已经清除的状态。
+- 退出登录时使用最新轮换后的凭证撤销设备。
+- PR 文件检查改为 fail closed，并仅在相关改动出现时构建 Android APK。
+
+### 兼容性与产物
+
+- 发布 Plugin `0.3.30` 与 Android `0.3.30`（`versionCode 14`）。
+- 远端 Workspace 与会话继续兼容 `0.3.15` Host；较新的设置、文件查看、命令目录和分块传输能力仍按 Host 支持情况启用。

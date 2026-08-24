@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.30
+
+- Lets authenticated Remote clients configure every settings namespace
+  currently registered by the Host through the official Harness ApiProxy,
+  including plugin settings and global credential references.
+- Keeps configuration writes bounded and fail-closed: unknown namespaces are
+  rejected, credential values remain write-only, and Host-local
+  `settings.openDocument` stays unavailable remotely.
+- Adds remote model-provider configuration and draft endpoint discovery while
+  sanitizing discovery failures so submitted keys and endpoints cannot be
+  echoed back through adapter errors.
+- Adds a lightweight Chrome/Edge MV3 launcher that exchanges existing Web
+  authorization for isolated Browser credentials, lists online Hosts, and
+  opens the selected Host in Remote Web.
+- Hardens VS Code disconnect and sign-out state, including serialized auth
+  transitions and revocation with the latest rotated device credentials.
+- Makes pull-request file inspection fail closed and limits Android APK builds
+  to relevant changes.
+- Advances the Plugin and Android app to `0.3.30` (`versionCode 14`).
+
 ## 0.3.29
 
 - Keeps the Android conversation smooth while a reply streams: scrolling now
