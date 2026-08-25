@@ -290,7 +290,22 @@ function useUpdateCheck() {
           flags: 1 | 2, // FLAG_ACTIVITY_NEW_TASK | FLAG_GRANT_READ_URI_PERMISSION
         })
       } catch {
-        Alert.alert(zhCN.settings.installFailedTitle, zhCN.settings.installFailedBody)
+        const applicationId = Application.applicationId
+        Alert.alert(
+          zhCN.settings.installFailedTitle,
+          zhCN.settings.installFailedBody,
+          applicationId === null
+            ? [{ text: zhCN.common.close }]
+            : [
+                { text: zhCN.common.cancel, style: 'cancel' },
+                {
+                  text: zhCN.settings.openInstallSettings,
+                  onPress: () => void IntentLauncher.startActivityAsync('android.settings.MANAGE_UNKNOWN_APP_SOURCES', {
+                    data: `package:${applicationId}`,
+                  }),
+                },
+              ],
+        )
       }
     } catch {
       Alert.alert(zhCN.settings.downloadFailedTitle, zhCN.settings.downloadFailedBody)
