@@ -1796,6 +1796,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
     remoteProgressProbeTurnDetail: "Checking the TURN relay path for restricted networks.",
     remoteProgressProbeRelay: "Preparing Relay",
     remoteProgressProbeRelayDetail: "Preparing the encrypted Server Relay fallback if direct paths do not open.",
+    remoteProgressTryingPrefix: "Trying ",
     remoteProgressLoadingWorkspaces: "Loading workspaces",
     remoteProgressLoadingWorkspacesDetail: "Reading the remote Harness workspace list through the tunnel.",
     remoteProgressOpeningWorkspace: "Opening workspace",
@@ -1988,6 +1989,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
     remoteProgressProbeTurnDetail: "\u68C0\u67E5\u53D7\u9650\u7F51\u7EDC\u4E0B\u53EF\u7528\u7684 TURN \u4E2D\u7EE7\u8DEF\u5F84\u3002",
     remoteProgressProbeRelay: "\u6B63\u5728\u51C6\u5907 Relay",
     remoteProgressProbeRelayDetail: "\u5982\u679C\u76F4\u8FDE\u8DEF\u5F84\u672A\u6253\u5F00\uFF0C\u5C06\u56DE\u843D\u5230\u52A0\u5BC6\u7684 Server Relay\u3002",
+    remoteProgressTryingPrefix: "\u6B63\u5728\u5C1D\u8BD5 ",
     remoteProgressLoadingWorkspaces: "\u6B63\u5728\u52A0\u8F7D\u5DE5\u4F5C\u533A",
     remoteProgressLoadingWorkspacesDetail: "\u901A\u8FC7\u96A7\u9053\u8BFB\u53D6\u8FDC\u7AEF Harness \u5DE5\u4F5C\u533A\u5217\u8868\u3002",
     remoteProgressOpeningWorkspace: "\u6B63\u5728\u6253\u5F00\u5DE5\u4F5C\u533A",
@@ -2102,6 +2104,9 @@ Minimum version required to store current data is: ` + bestVersion + `.
   function transportLabel(value, t) {
     return t(value === "lan" ? "remoteNetworkLan" : value === "p2p" ? "remoteNetworkP2p" : value === "turn" ? "remoteNetworkTurn" : "remoteNetworkRelay");
   }
+  function transportDiagnosticLabel(value) {
+    return value === "lan" ? "LAN" : value === "p2p" ? "P2P" : value === "turn" ? "TURN" : "Relay";
+  }
   function transportProgressCopy(value) {
     return value === "lan" ? { label: "remoteProgressProbeLan", detail: "remoteProgressProbeLanDetail" } : value === "p2p" ? { label: "remoteProgressProbeP2p", detail: "remoteProgressProbeP2pDetail" } : value === "turn" ? { label: "remoteProgressProbeTurn", detail: "remoteProgressProbeTurnDetail" } : { label: "remoteProgressProbeRelay", detail: "remoteProgressProbeRelayDetail" };
   }
@@ -2136,7 +2141,19 @@ Minimum version required to store current data is: ` + bestVersion + `.
       function RemoteProgressView(props) {
         let progress = props.progress;
         if (progress === void 0) return null;
-        let percent = Math.max(0, Math.min(100, Math.round(progress.percent)));
+        let percent = Math.max(0, Math.min(100, Math.round(progress.percent))), activeTransportIndex = progress.transports?.findIndex((transport) => transport === progress.activeTransport) ?? -1, detail = progress.transports !== void 0 && progress.activeTransport !== void 0 && activeTransportIndex > -1 ? React.createElement(
+          "span",
+          { className: "dshRemoteProgressRoute" },
+          props.t("remoteProgressTryingPrefix"),
+          progress.transports.map((transport, index) => React.createElement(
+            React.Fragment,
+            { key: `${transport}:${index}` },
+            index === 0 ? null : React.createElement("span", { className: "dshRemoteProgressRouteArrow", "aria-hidden": !0 }, " -> "),
+            React.createElement("span", {
+              className: index === activeTransportIndex ? "isActive" : void 0
+            }, transportDiagnosticLabel(transport))
+          ))
+        ) : props.t(progress.detail);
         return React.createElement(
           "div",
           {
@@ -2150,6 +2167,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
             React.createElement("strong", null, props.t(progress.label)),
             React.createElement("span", null, `${percent}%`)
           ),
+          React.createElement("p", null, detail),
           React.createElement("div", {
             className: "dshRemoteProgressBar",
             role: "progressbar",
@@ -2157,15 +2175,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
             "aria-valuemax": 100,
             "aria-valuenow": percent,
             "aria-label": props.t(progress.label)
-          }, React.createElement("span", { style: { width: `${percent}%` } })),
-          progress.transports === void 0 ? null : React.createElement("div", {
-            className: "dshRemoteProgressTransports",
-            "aria-label": props.t("preferredTransports")
-          }, progress.transports.map((transport, index) => React.createElement("span", {
-            key: `${transport}:${index}`,
-            className: transport === progress.activeTransport ? "isActive" : void 0
-          }, React.createElement("i", { "aria-hidden": !0 }, String(index + 1)), transportLabel(transport, props.t)))),
-          React.createElement("p", null, props.t(progress.detail))
+          }, React.createElement("span", { style: { width: `${percent}%` } }))
         );
       }
       async function runRemoteProgress(steps, setProgress, progressRun, action) {
@@ -3222,7 +3232,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           ".dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
           ".dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList>button>span{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteHostList>button strong{font-size:14px;font-weight:500}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary);font-size:12px}",
           ".dshRemoteSelectedHost{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}",
-          ".dshRemoteProgress{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}.dshRemoteProgressHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}.dshRemoteProgressHeader strong{font-size:13px;font-weight:600}.dshRemoteProgressHeader span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteProgressBar{height:6px;overflow:hidden;border-radius:999px;background:var(--dsw-alias-bg-layer-3)}.dshRemoteProgressBar>span{display:block;height:100%;border-radius:inherit;background:var(--dsw-alias-brand-primary);transition:width .22s ease-out}.dshRemoteProgressTransports{display:flex;flex-wrap:wrap;gap:6px}.dshRemoteProgressTransports>span{display:inline-flex;align-items:center;gap:5px;min-height:22px;padding:2px 8px 2px 4px;border-radius:999px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1}.dshRemoteProgressTransports>span.isActive{color:var(--dsw-alias-label-primary);box-shadow:inset 0 0 0 1px var(--dsw-alias-brand-primary)}.dshRemoteProgressTransports i{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-label-tertiary);color:var(--dsw-alias-bg-layer-1);font-style:normal;font-size:10px}.dshRemoteProgressTransports>span.isActive i{background:var(--dsw-alias-brand-primary)}.dshRemoteProgress p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}@media(prefers-reduced-motion:reduce){.dshRemoteProgressBar>span{transition:none}}",
+          ".dshRemoteProgress{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}.dshRemoteProgressHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}.dshRemoteProgressHeader strong{font-size:13px;font-weight:600}.dshRemoteProgressHeader span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteProgressBar{height:6px;overflow:hidden;border-radius:999px;background:var(--dsw-alias-bg-layer-3)}.dshRemoteProgressBar>span{display:block;height:100%;border-radius:inherit;background:var(--dsw-alias-brand-primary);transition:width .22s ease-out}.dshRemoteProgress p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}.dshRemoteProgressRoute{font-weight:500}.dshRemoteProgressRoute .isActive{color:var(--dsw-alias-state-success-primary);font-weight:700}.dshRemoteProgressRouteArrow{color:var(--dsw-alias-label-tertiary)}@media(prefers-reduced-motion:reduce){.dshRemoteProgressBar>span{transition:none}}",
           '.dshRemoteBrowser{display:flex;flex-direction:column}.dshRemoteCrumbs{display:flex;align-items:center;gap:4px;overflow:auto;padding:2px 0 10px}.dshRemoteCrumbs>button{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 7px;border-radius:6px;cursor:pointer}.dshRemoteCrumbs>button:not(:last-child)::after{content:" /";color:var(--dsw-alias-label-tertiary)}.dshRemoteCrumbs>button:disabled{color:var(--dsw-alias-label-primary);font-weight:600}',
           ".dshRemoteDirectoryList{min-height:72px;display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteDirectoryList>button{min-height:52px;display:grid;grid-template-columns:auto 1fr;column-gap:10px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:8px 4px;cursor:pointer}.dshRemoteDirectoryList>button:hover,.dshRemoteDirectoryList>button.isSelected{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteDirectoryList>button.isSelected{color:var(--dsw-alias-label-primary)}.dshRemoteDirectoryList>button>span:first-child{grid-row:1/3}.dshRemoteDirectoryList>button>small{grid-column:2;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis}.dshRemoteDirectoryList>p,.dshRemoteHint{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}",
           ".dshRemoteFolderBrowser{margin-top:14px}.dshRemoteFolderBrowser>p,.dshRemoteFolderList>p{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemoteFolderList{max-height:260px;overflow:auto;border-block:1px solid var(--dsw-alias-border-l2)}.dshRemoteFolderList>button{width:100%;min-height:42px;display:flex;align-items:center;gap:9px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:7px 6px;text-align:left;cursor:pointer}.dshRemoteFolderList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteFolderBrowser>small{display:block;margin-top:8px;color:var(--dsw-alias-state-warn-label)}",

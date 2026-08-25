@@ -289,6 +289,7 @@ const en = {
   remoteProgressProbeTurnDetail: 'Checking the TURN relay path for restricted networks.',
   remoteProgressProbeRelay: 'Preparing Relay',
   remoteProgressProbeRelayDetail: 'Preparing the encrypted Server Relay fallback if direct paths do not open.',
+  remoteProgressTryingPrefix: 'Trying ',
   remoteProgressLoadingWorkspaces: 'Loading workspaces',
   remoteProgressLoadingWorkspacesDetail: 'Reading the remote Harness workspace list through the tunnel.',
   remoteProgressOpeningWorkspace: 'Opening workspace',
@@ -483,6 +484,7 @@ const zh: Record<keyof typeof en, string> = {
   remoteProgressProbeTurnDetail: '检查受限网络下可用的 TURN 中继路径。',
   remoteProgressProbeRelay: '正在准备 Relay',
   remoteProgressProbeRelayDetail: '如果直连路径未打开，将回落到加密的 Server Relay。',
+  remoteProgressTryingPrefix: '正在尝试 ',
   remoteProgressLoadingWorkspaces: '正在加载工作区',
   remoteProgressLoadingWorkspacesDetail: '通过隧道读取远端 Harness 工作区列表。',
   remoteProgressOpeningWorkspace: '正在打开工作区',
@@ -645,6 +647,13 @@ function transportLabel(value: RemoteTransportPreference, t: Translate): string 
   return t('remoteNetworkRelay')
 }
 
+function transportDiagnosticLabel(value: RemoteTransportPreference): string {
+  if (value === 'lan') return 'LAN'
+  if (value === 'p2p') return 'P2P'
+  if (value === 'turn') return 'TURN'
+  return 'Relay'
+}
+
 function transportProgressCopy(value: RemoteTransportPreference): { label: LocaleKey; detail: LocaleKey } {
   if (value === 'lan') return { label: 'remoteProgressProbeLan', detail: 'remoteProgressProbeLanDetail' }
   if (value === 'p2p') return { label: 'remoteProgressProbeP2p', detail: 'remoteProgressProbeP2pDetail' }
@@ -714,6 +723,16 @@ window.__ModuleLoader__.load({
       const progress = props.progress
       if (progress === undefined) return null
       const percent = Math.max(0, Math.min(100, Math.round(progress.percent)))
+      const activeTransportIndex = progress.transports?.findIndex(transport => transport === progress.activeTransport) ?? -1
+      const detail = progress.transports !== undefined && progress.activeTransport !== undefined && activeTransportIndex > -1
+        ? React.createElement('span', { className: 'dshRemoteProgressRoute' },
+          props.t('remoteProgressTryingPrefix'),
+          progress.transports.map((transport, index) => React.createElement(React.Fragment, { key: `${transport}:${index}` },
+            index === 0 ? null : React.createElement('span', { className: 'dshRemoteProgressRouteArrow', 'aria-hidden': true }, ' -> '),
+            React.createElement('span', {
+              className: index === activeTransportIndex ? 'isActive' : undefined,
+            }, transportDiagnosticLabel(transport)))))
+        : props.t(progress.detail)
       return React.createElement('div', {
         className: 'dshRemoteProgress',
         role: 'status',
@@ -722,6 +741,7 @@ window.__ModuleLoader__.load({
       React.createElement('div', { className: 'dshRemoteProgressHeader' },
         React.createElement('strong', null, props.t(progress.label)),
         React.createElement('span', null, `${percent}%`)),
+      React.createElement('p', null, detail),
       React.createElement('div', {
         className: 'dshRemoteProgressBar',
         role: 'progressbar',
@@ -729,15 +749,7 @@ window.__ModuleLoader__.load({
         'aria-valuemax': 100,
         'aria-valuenow': percent,
         'aria-label': props.t(progress.label),
-      }, React.createElement('span', { style: { width: `${percent}%` } })),
-      progress.transports === undefined ? null : React.createElement('div', {
-        className: 'dshRemoteProgressTransports',
-        'aria-label': props.t('preferredTransports'),
-      }, progress.transports.map((transport, index) => React.createElement('span', {
-        key: `${transport}:${index}`,
-        className: transport === progress.activeTransport ? 'isActive' : undefined,
-      }, React.createElement('i', { 'aria-hidden': true }, String(index + 1)), transportLabel(transport, props.t)))),
-      React.createElement('p', null, props.t(progress.detail)))
+      }, React.createElement('span', { style: { width: `${percent}%` } })))
     }
 
     async function runRemoteProgress<T>(
@@ -1893,7 +1905,7 @@ window.__ModuleLoader__.load({
         '.dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}',
         '.dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList>button>span{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteHostList>button strong{font-size:14px;font-weight:500}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary);font-size:12px}',
         '.dshRemoteSelectedHost{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}',
-        '.dshRemoteProgress{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}.dshRemoteProgressHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}.dshRemoteProgressHeader strong{font-size:13px;font-weight:600}.dshRemoteProgressHeader span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteProgressBar{height:6px;overflow:hidden;border-radius:999px;background:var(--dsw-alias-bg-layer-3)}.dshRemoteProgressBar>span{display:block;height:100%;border-radius:inherit;background:var(--dsw-alias-brand-primary);transition:width .22s ease-out}.dshRemoteProgressTransports{display:flex;flex-wrap:wrap;gap:6px}.dshRemoteProgressTransports>span{display:inline-flex;align-items:center;gap:5px;min-height:22px;padding:2px 8px 2px 4px;border-radius:999px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1}.dshRemoteProgressTransports>span.isActive{color:var(--dsw-alias-label-primary);box-shadow:inset 0 0 0 1px var(--dsw-alias-brand-primary)}.dshRemoteProgressTransports i{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-label-tertiary);color:var(--dsw-alias-bg-layer-1);font-style:normal;font-size:10px}.dshRemoteProgressTransports>span.isActive i{background:var(--dsw-alias-brand-primary)}.dshRemoteProgress p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}@media(prefers-reduced-motion:reduce){.dshRemoteProgressBar>span{transition:none}}',
+        '.dshRemoteProgress{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}.dshRemoteProgressHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}.dshRemoteProgressHeader strong{font-size:13px;font-weight:600}.dshRemoteProgressHeader span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteProgressBar{height:6px;overflow:hidden;border-radius:999px;background:var(--dsw-alias-bg-layer-3)}.dshRemoteProgressBar>span{display:block;height:100%;border-radius:inherit;background:var(--dsw-alias-brand-primary);transition:width .22s ease-out}.dshRemoteProgress p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}.dshRemoteProgressRoute{font-weight:500}.dshRemoteProgressRoute .isActive{color:var(--dsw-alias-state-success-primary);font-weight:700}.dshRemoteProgressRouteArrow{color:var(--dsw-alias-label-tertiary)}@media(prefers-reduced-motion:reduce){.dshRemoteProgressBar>span{transition:none}}',
         '.dshRemoteBrowser{display:flex;flex-direction:column}.dshRemoteCrumbs{display:flex;align-items:center;gap:4px;overflow:auto;padding:2px 0 10px}.dshRemoteCrumbs>button{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 7px;border-radius:6px;cursor:pointer}.dshRemoteCrumbs>button:not(:last-child)::after{content:" /";color:var(--dsw-alias-label-tertiary)}.dshRemoteCrumbs>button:disabled{color:var(--dsw-alias-label-primary);font-weight:600}',
         '.dshRemoteDirectoryList{min-height:72px;display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteDirectoryList>button{min-height:52px;display:grid;grid-template-columns:auto 1fr;column-gap:10px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:8px 4px;cursor:pointer}.dshRemoteDirectoryList>button:hover,.dshRemoteDirectoryList>button.isSelected{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteDirectoryList>button.isSelected{color:var(--dsw-alias-label-primary)}.dshRemoteDirectoryList>button>span:first-child{grid-row:1/3}.dshRemoteDirectoryList>button>small{grid-column:2;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis}.dshRemoteDirectoryList>p,.dshRemoteHint{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}',
         '.dshRemoteFolderBrowser{margin-top:14px}.dshRemoteFolderBrowser>p,.dshRemoteFolderList>p{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemoteFolderList{max-height:260px;overflow:auto;border-block:1px solid var(--dsw-alias-border-l2)}.dshRemoteFolderList>button{width:100%;min-height:42px;display:flex;align-items:center;gap:9px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:7px 6px;text-align:left;cursor:pointer}.dshRemoteFolderList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteFolderBrowser>small{display:block;margin-top:8px;color:var(--dsw-alias-state-warn-label)}',
