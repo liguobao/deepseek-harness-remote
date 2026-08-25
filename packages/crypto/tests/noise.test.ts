@@ -55,6 +55,27 @@ describe('Noise IK secure session', () => {
     ciphertext[0] ^= 1
     expect(() => goodResponder.decrypt(ciphertext)).toThrow()
   })
+
+  it('rejects replayed transport ciphertext', () => {
+    const host = generateKeyPair(fixedBytes(6))
+    const client = generateKeyPair(fixedBytes(7))
+    const prologue = createNoisePrologue('connection-3', 'host-3', 'client-3')
+    const initiator = session('initiator', client, host.publicKey, prologue, 70)
+    const responder = session('responder', host, client.publicKey, prologue, 80)
+    responder.readHandshake(initiator.writeHandshake())
+    initiator.readHandshake(responder.writeHandshake())
+
+    expect(responder.receivingCounter()).toBe(0n)
+    const ciphertext = initiator.encrypt(new TextEncoder().encode('once'))
+    expect(new TextDecoder().decode(responder.decrypt(ciphertext))).toBe('once')
+    expect(initiator.sendingCounter()).toBe(1n)
+    expect(responder.receivingCounter()).toBe(1n)
+
+    expect(() => responder.decrypt(ciphertext)).toThrow()
+
+    const followUp = initiator.encrypt(new TextEncoder().encode('after'))
+    expect(new TextDecoder().decode(responder.decrypt(followUp))).toBe('after')
+  })
 })
 
 function session(
