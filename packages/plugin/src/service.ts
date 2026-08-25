@@ -54,6 +54,7 @@ export class HostPluginRuntime {
         undefined,
         this.logger,
         typertGateway?.(),
+        this.harnessVersion,
       )
       const fileViewer = new RemoteFileViewerBridge(
         () => this.fileViewerHost?.(),

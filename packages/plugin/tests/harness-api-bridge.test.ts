@@ -66,6 +66,35 @@ describe('HarnessApiBridge', () => {
     await expect(bridge.call({ method: 'host.createDirectory', rpcId: 'native-4', payload: {} })).rejects.toBeInstanceOf(RpcError)
   })
 
+  it('replaces the legacy host.describe placeholder with the discovered Harness version', async () => {
+    const describe = vi.fn(async (request: { rpcId: string }) => ({
+      rpcId: request.rpcId,
+      result: {
+        ok: true,
+        value: {
+          version: '0.0.1',
+          cwd: '/home/user',
+          home: '/home/user',
+          attachedSessions: 0,
+        },
+      },
+    }))
+    const bridge = new HarnessApiBridge(
+      api({ host: { describe } }),
+      vi.fn(async () => undefined),
+      8,
+      undefined,
+      undefined,
+      '0.1.1-rc.2',
+    )
+
+    await expect(bridge.call({ method: 'host.describe', rpcId: 'native-describe', payload: {} }))
+      .resolves.toMatchObject({
+        rpcId: 'native-describe',
+        result: { ok: true, value: { version: '0.1.1-rc.2', cwd: '/home/user' } },
+      })
+  })
+
   it('reassembles native image calls and chunks oversized attachment responses per peer', async () => {
     const imageData = 'A'.repeat(2 * 1024 * 1024)
     const attachment = vi.fn(async (request: { rpcId: string }) => ({

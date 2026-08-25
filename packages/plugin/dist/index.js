@@ -16183,11 +16183,12 @@ var API_TRANSFER_IDLE_MS = 2 * 6e4;
 var INLINE_TRANSFER_RESPONSE_BYTES = 2 * 1024 * 1024;
 var SESSION_HISTORY_PAGE_SIZES = [50, 30, 20, 12, 6, 3, 1];
 var HarnessApiBridge = class {
-  constructor(api, publish, maxStreams = 8, logger, typertGateway) {
+  constructor(api, publish, maxStreams = 8, logger, typertGateway, harnessVersion) {
     this.api = api;
     this.publish = publish;
     this.maxStreams = maxStreams;
     this.logger = logger;
+    this.harnessVersion = harnessVersion;
     this.methods = createMethodMap(api, typertGateway);
     this.mux = api.events.mux.bind(api.events);
     this.host = api.events.host.bind(api.events);
@@ -16225,6 +16226,7 @@ var HarnessApiBridge = class {
         const value = await listRemoteDirectory(typeof payload.path === "string" ? payload.path : void 0, signal);
         response = { rpcId: params.rpcId, result: { ok: true, value } };
       }
+      if (params.method === "host.describe") response = normalizeHostDescribeVersion(response, this.harnessVersion);
       this.logger?.debug("harness api call ok", {
         method: params.method,
         durationMs: Math.round(performance.now() - startedAt)
@@ -16454,6 +16456,24 @@ var HarnessApiBridge = class {
 function needsRemoteDirectoryFallback(response) {
   const result = response.result;
   return typeof result === "object" && result !== null && "ok" in result && result.ok === false && "error" in result && typeof result.error === "object" && result.error !== null && "code" in result.error && result.error.code === "directory-picker-unavailable";
+}
+function normalizeHostDescribeVersion(response, harnessVersion) {
+  if (!response.result.ok || harnessVersion === void 0) return response;
+  const value = response.result.value;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return response;
+  const description = value;
+  const selectedVersion = selectHarnessVersion(
+    normalizeHarnessVersion(description.version),
+    harnessVersion
+  );
+  if (selectedVersion === void 0 || description.version === selectedVersion) return response;
+  return {
+    ...response,
+    result: {
+      ...response.result,
+      value: { ...description, version: selectedVersion }
+    }
+  };
 }
 function createMethodMap(api, typertGateway) {
   const domains = api;
@@ -16775,7 +16795,8 @@ var HostPluginRuntime = class {
         (event, data) => send(createEvent(event, data)),
         void 0,
         this.logger,
-        typertGateway?.()
+        typertGateway?.(),
+        this.harnessVersion
       );
       const fileViewer = new RemoteFileViewerBridge(
         () => this.fileViewerHost?.(),
