@@ -21,7 +21,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-export const name = 'dsh-remote'
+export const name = 'ds-harness-remote'
 export { Config }
 
 export function apply(ctx: Context, input: ConfigInput = {}): void {
@@ -30,7 +30,7 @@ export function apply(ctx: Context, input: ConfigInput = {}): void {
 
 async function activate(ctx: Context, input: ConfigInput): Promise<void> {
   const settings = ctx.get('settings')
-  const settingsScope: SettingsScope<ConfigInput> | undefined = settings?.register(settingsNamespace('dsh-remote'), Config, {
+  const settingsScope: SettingsScope<ConfigInput> | undefined = settings?.register(settingsNamespace('ds-harness-remote'), Config, {
     base: input,
     applies: 'restart',
     validate: value => { resolveConfig(value) },

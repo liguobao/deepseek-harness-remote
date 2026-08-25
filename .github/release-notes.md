@@ -1,37 +1,27 @@
 ## English
 
-This release includes changes since `v0.3.30` ([full comparison](https://github.com/liguobao/deepseek-harness-remote/compare/v0.3.30...v0.3.31)).
+This release includes changes since `v0.3.31` ([full comparison](https://github.com/liguobao/deepseek-harness-remote/compare/v0.3.31...v0.3.32)).
 
-### Connection visibility
+### Desktop Remote
 
-- Remote Client connection progress now shows the LAN, P2P, TURN, and Relay probe sequence while opening a Host.
-- Desktop connection details display the preferred transport order with localized labels.
-- Android connection progress and device details show the same probe order before the secure channel is ready.
-
-### File Viewer
-
-- Remote File Viewer Save As is now offered only on LAN, P2P, and TURN routes; Relay and disconnected routes keep Save As disabled while preview reads remain bounded and read-only.
+- Remote Host rows keep showing the Harness version by sending `harnessVersion` during Host device registration as well as the control `hello` frame.
+- The Remote account sign-out action now sits next to the current device name in the Remote workspace window.
 
 ### Compatibility and artifacts
 
-- Ships Plugin `0.3.31` and Android `0.3.31` (`versionCode 15`).
-- Remote workspaces and sessions remain compatible with `0.3.15` Hosts; newer settings, file-viewer, command-catalog, and transfer capabilities remain gated by Host support.
+- Ships Plugin `0.3.32` and Android `0.3.32` (`versionCode 16`).
+- Remote workspaces and sessions remain compatible with `0.3.15` Hosts; newer settings, file-viewer, command-catalog, transfer, and version-display paths remain gated by Host and Server support.
 
 ## 中文
 
-本版本包含自 `v0.3.30` 以来的改动（[完整对比](https://github.com/liguobao/deepseek-harness-remote/compare/v0.3.30...v0.3.31)）。
+本版本包含自 `v0.3.31` 以来的改动（[完整对比](https://github.com/liguobao/deepseek-harness-remote/compare/v0.3.31...v0.3.32)）。
 
-### 连接可见性
+### 桌面 Remote
 
-- Remote Client 连接 Host 时会在进度中展示 LAN、P2P、TURN 与 Relay 的探测顺序。
-- 桌面连接详情会用本地化标签展示首选传输顺序。
-- Android 连接进度和设备详情也会显示同一组探测顺序。
-
-### File Viewer
-
-- 远端 File Viewer 的另存为只在 LAN、P2P 和 TURN 线路上启用；Relay 与断开状态会禁用另存为，同时预览读取仍保持有界只读。
+- Remote 主机行会继续显示 Harness 版本：Host 在设备注册 descriptor 和控制连接 `hello` 中都会上报 `harnessVersion`。
+- Remote 工作区窗口中，账号“退出”操作已移动到当前设备名称旁边。
 
 ### 兼容性与产物
 
-- 发布 Plugin `0.3.31` 与 Android `0.3.31`（`versionCode 15`）。
-- 远端 Workspace 与会话继续兼容 `0.3.15` Host；较新的设置、文件查看、命令目录和分块传输能力仍按 Host 支持情况启用。
+- 发布 Plugin `0.3.32` 与 Android `0.3.32`（`versionCode 16`）。
+- 远端 Workspace 与会话继续兼容 `0.3.15` Host；较新的设置、文件查看、命令目录、分块传输和版本显示路径仍按 Host 与 Server 支持情况启用。

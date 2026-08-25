@@ -386,7 +386,7 @@ describe('HarnessApiBridge remote settings scope', () => {
                 secrets: [],
                 revision: 2,
               },
-              { ns: 'dsh-remote', schema: {}, value: {}, applies: 'restart', secrets: [], revision: 3 },
+              { ns: 'ds-harness-remote', schema: {}, value: {}, applies: 'restart', secrets: [], revision: 3 },
             ],
           })),
           update: vi.fn(async (request: { rpcId: string }) => ok(request.rpcId, { ns: 'llm-deepseek', revision: 2 })),
@@ -428,7 +428,7 @@ describe('HarnessApiBridge remote settings scope', () => {
     await expect(bridge.call({
       method: 'settings.mutate',
       rpcId: 'config-4',
-      payload: { ns: 'dsh-remote', ops: [{ op: 'set', path: ['serverUrl'], value: 'https://evil.example' }] },
+      payload: { ns: 'ds-harness-remote', ops: [{ op: 'set', path: ['serverUrl'], value: 'https://evil.example' }] },
     })).resolves.toMatchObject({ rpcId: 'config-4', result: { ok: true } })
 
     await expect(bridge.call({
@@ -468,7 +468,7 @@ describe('HarnessApiBridge remote settings scope', () => {
     const response = await bridge.call({ method: 'settings.describe', rpcId: 'config-describe', payload: {} })
     expect(response.result).toMatchObject({ ok: true })
     const value = response.result as { ok: boolean; value: { namespaces: Array<{ ns: string }> } }
-    expect(value.value.namespaces.map(item => item.ns)).toEqual(['llm-deepseek', 'llm-openai', 'dsh-remote'])
+    expect(value.value.namespaces.map(item => item.ns)).toEqual(['llm-deepseek', 'llm-openai', 'ds-harness-remote'])
     expect(value.value).toMatchObject({ hasDocument: false })
   })
 

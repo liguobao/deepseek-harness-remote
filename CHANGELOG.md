@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.32
+
+- Keeps the desktop Remote Host list showing the Harness version by sending
+  `harnessVersion` during Host device registration as well as the control
+  `hello` frame.
+- Moves the Remote account sign-out action next to the current device name in
+  the desktop Remote workspace window.
+- Advances the Plugin and Android app to `0.3.32` (`versionCode 16`).
+
 ## 0.3.31
 
 - Shows the Remote Client connection probe order during Host connection, including LAN, P2P, TURN, and Relay steps in the desktop progress UI.

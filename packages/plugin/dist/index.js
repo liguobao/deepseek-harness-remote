@@ -13212,7 +13212,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.31";
+var PLUGIN_VERSION = "0.3.32";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -17052,13 +17052,13 @@ function decodeBase64(value) {
 }
 
 // src/index.ts
-var name = "dsh-remote";
+var name = "ds-harness-remote";
 function apply(ctx, input = {}) {
   ctx.inject(["settings", "apiProxy", "connection", "typertGateway"], (runtimeContext) => activate(runtimeContext, input));
 }
 async function activate(ctx, input) {
   const settings = ctx.get("settings");
-  const settingsScope = settings?.register(settingsNamespace("dsh-remote"), Config, {
+  const settingsScope = settings?.register(settingsNamespace("ds-harness-remote"), Config, {
     base: input,
     applies: "restart",
     validate: (value) => {

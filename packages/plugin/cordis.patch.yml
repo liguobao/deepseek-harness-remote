@@ -1,5 +1,5 @@
 - insert:
-    - id: dsh-remote
+    - id: ds-harness-remote
       name: 'ds-harness-remote'
       config:
         enabled: true

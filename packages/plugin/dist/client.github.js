@@ -1691,7 +1691,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
   var CONTROL_RPC_PREFIX = "/ds-harness-remote";
 
   // src/client.ts
-  var clientModuleId = "dsh-remote", localeNamespace = "dsh-remote", en = {
+  var clientModuleId = "ds-harness-remote", localeNamespace = "dsh-remote", en = {
     pluginTitle: "DeepSeek Remote",
     pluginDescription: "Connect once. Available anytime.",
     expandSettings: "Show settings: {name}",
@@ -3351,8 +3351,8 @@ Minimum version required to store current data is: ` + bestVersion + `.
           })
         }, RemoteWorkspaceAction)), ctx.slots.inject("settings.plugin.item", () => ctx.slots.register({
           name: "settings.plugin.item",
-          key: "dsh-remote",
-          id: "dsh-remote",
+          key: "ds-harness-remote",
+          id: "ds-harness-remote",
           order: 30,
           locale: localeNamespace,
           inject: () => ({ control })

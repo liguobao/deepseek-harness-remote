@@ -55,7 +55,7 @@ replay buffer 或自定义 pending approval 状态机。
 ## 3. 插件生命周期
 
 ```ts
-export const name = 'dsh-remote'
+export const name = 'ds-harness-remote'
 
 export function apply(ctx, config) {
   ctx.inject(['settings', 'apiProxy', 'connection'], runtimeCtx => activate(runtimeCtx, config))

@@ -8,7 +8,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const pluginManifest = JSON.parse(readFileSync(join(root, 'packages/plugin/package.json'), 'utf8'))
 
-assert.equal(manifest.name, 'dsh-remote', 'root package must keep the stable DSH installation id')
+assert.equal(manifest.name, 'ds-harness-remote', 'root package must use the canonical DSH installation id')
+assert.equal(pluginManifest.name, manifest.name, 'root and npm plugin package ids must stay unified')
 assert.equal(manifest.description, 'DeepSeek 远程连接', 'root package must expose the Chinese plugin name')
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml', 'root package must declare a DSH bundle patch')
 assert.equal(manifest.dsh?.client?.platform, 'web', 'root package must declare its browser client face')
@@ -30,16 +31,11 @@ for (const file of [
 }
 
 const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
-assert.match(patch, /^\s*- id:\s*dsh-remote\s*$/m, 'root patch must keep the stable Cordis instance id')
+assert.match(patch, /^\s*- id:\s*ds-harness-remote\s*$/m, 'root patch must use the canonical Cordis instance id')
 assert.match(
   patch,
   new RegExp(`name:\\s*['"]?${manifest.name.replaceAll('-', '\\-')}['"]?`),
   'root patch must load the installed GitHub root package',
-)
-assert.doesNotMatch(
-  patch,
-  new RegExp(`name:\\s*['"]?${pluginManifest.name.replaceAll('-', '\\-')}['"]?`),
-  'root patch must not load the separately published nested npm package',
 )
 
 const rootHostEntry = readFileSync(join(root, 'index.js'), 'utf8')

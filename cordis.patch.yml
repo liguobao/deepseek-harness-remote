@@ -1,10 +1,9 @@
 # GitHub installs resolve this repository's root package. Keep this patch at
-# the root and point it at the root package name so DSH Desktop can recognize
-# and load the repository directly as a bundle. The nested npm package keeps
-# its own patch under packages/plugin; do not use that package name here.
+# the root and point it at the package/plugin id so DSH Desktop can recognize
+# and load the repository directly as a bundle.
 - insert:
-    - id: dsh-remote
-      name: dsh-remote
+    - id: ds-harness-remote
+      name: ds-harness-remote
       config:
         enabled: true
         role: host
