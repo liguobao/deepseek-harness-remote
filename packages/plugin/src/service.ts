@@ -77,6 +77,7 @@ export class HostPluginRuntime {
     })
     if (this.serverApi !== undefined) {
       this.harnessVersion = await this.readHarnessVersion()
+      this.serverApi.setHarnessVersion(this.harnessVersion)
       this.serverApi.bindIdentity(this.identity)
       this.serverConnection = this.createServerConnection(this.identity)
       this.serverConnection.start()

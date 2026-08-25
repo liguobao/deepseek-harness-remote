@@ -65,6 +65,7 @@ describe('HostServerApi', () => {
     }) as unknown as typeof fetch
     const store = new ServerCredentialStore(directory)
     const api = new HostServerApi('https://dsh.r2049.cn/', store, fetchMock)
+    api.setHarnessVersion('0.1.0-rc.8')
     const identity = hostIdentity()
 
     await api.authorizeWithAccount(identity, 'host@example.com', 'correct horse battery staple')
@@ -81,7 +82,7 @@ describe('HostServerApi', () => {
       v: 1,
       device: { deviceId: identity.deviceId, role: 'host', identityKey: identity.publicKey },
     })
-    expect(registeredDevice.device).not.toHaveProperty('harnessVersion')
+    expect(registeredDevice.device).toHaveProperty('harnessVersion', '0.1.0-rc.8')
     expect(calls[2]?.init?.headers).toMatchObject({ Authorization: 'Bearer access-token-value' })
     const stored = await readFile(join(directory, 'server-credentials.json'), 'utf8')
     expect(stored).toContain('host@example.com')
@@ -103,6 +104,7 @@ describe('HostServerApi', () => {
     const fetchMock = vi.fn(async () => json(tokens())) as unknown as typeof fetch
     const store = new ServerCredentialStore(directory)
     const api = new HostServerApi('https://dsh.r2049.cn', store, fetchMock)
+    api.setHarnessVersion('0.1.0-rc.8')
     const identity = hostIdentity()
 
     await expect(api.authorizeHostWithCode(identity, 'abcd-efgh')).resolves.toEqual({
@@ -112,7 +114,12 @@ describe('HostServerApi', () => {
     expect(String(vi.mocked(fetchMock).mock.calls[0]?.[0])).toBe('https://dsh.r2049.cn/api/v1/devices/register-with-code')
     expect(JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]?.[1]?.body))).toMatchObject({
       code: 'ABCD-EFGH',
-      device: { deviceId: identity.deviceId, role: 'host', identityKey: identity.publicKey },
+      device: {
+        deviceId: identity.deviceId,
+        role: 'host',
+        identityKey: identity.publicKey,
+        harnessVersion: '0.1.0-rc.8',
+      },
     })
     await expect(store.load('https://dsh.r2049.cn', identity.deviceId)).resolves.toMatchObject({
       authorizationMethod: 'host_registration_code',
@@ -125,6 +132,7 @@ describe('HostServerApi', () => {
     const fetchMock = vi.fn(async () => json(tokens())) as unknown as typeof fetch
     const store = new ServerCredentialStore(directory)
     const api = new ClientServerApi('https://dsh.r2049.cn', store, fetchMock)
+    api.setHarnessVersion('0.1.0-rc.8')
     const identity = hostIdentity()
 
     await expect(api.authorizeOwnedRole(identity, 'authorizing-device-token', 'owner@example.com')).resolves.toEqual({
@@ -136,9 +144,11 @@ describe('HostServerApi', () => {
     expect(vi.mocked(fetchMock).mock.calls[0]?.[1]?.headers).toMatchObject({
       Authorization: 'Bearer authorizing-device-token',
     })
-    expect(JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]?.[1]?.body))).toMatchObject({
+    const registeredDevice = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]?.[1]?.body))
+    expect(registeredDevice).toMatchObject({
       device: { deviceId: identity.deviceId, role: 'client' },
     })
+    expect(registeredDevice.device).not.toHaveProperty('harnessVersion')
     await expect(store.load('https://dsh.r2049.cn', identity.deviceId)).resolves.toMatchObject({
       authorizationMethod: 'owned_device',
       account: 'owner@example.com',

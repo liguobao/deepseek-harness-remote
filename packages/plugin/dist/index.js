@@ -13226,8 +13226,12 @@ var HostServerApi = class {
   identity;
   credentials;
   credentialsPromise;
+  harnessVersion;
   bindIdentity(identity) {
     this.identity = identity;
+  }
+  setHarnessVersion(version) {
+    this.harnessVersion = version;
   }
   currentAuthorization() {
     if (this.credentials === void 0) return void 0;
@@ -13435,7 +13439,8 @@ var HostServerApi = class {
       role: this.role,
       platform: platform(),
       identityKey: identity.publicKey,
-      clientVersion: PLUGIN_VERSION
+      clientVersion: PLUGIN_VERSION,
+      ...this.role === "host" && this.harnessVersion !== void 0 ? { harnessVersion: this.harnessVersion } : {}
     };
   }
   saveTokens(identity, tokens, authorization) {
@@ -13879,6 +13884,7 @@ var ClientModeRuntime = class {
       available: this.config.serverUrl !== void 0,
       identityReady: this.identity !== void 0,
       deviceId: this.identity?.deviceId,
+      deviceName: this.identity?.name,
       serverUrl: this.config.serverUrl,
       ...this.proxySwitch.status(),
       connected: this.connected !== void 0,
@@ -14788,6 +14794,7 @@ var PluginControlRuntime = class {
     return {
       mode: "local",
       available: false,
+      deviceName: hostname2(),
       hostAuthorizationAvailable: this.host !== void 0,
       ...this.host === void 0 ? {} : { host: this.host.hostStatus() }
     };
@@ -16829,6 +16836,7 @@ var HostPluginRuntime = class {
     });
     if (this.serverApi !== void 0) {
       this.harnessVersion = await this.readHarnessVersion();
+      this.serverApi.setHarnessVersion(this.harnessVersion);
       this.serverApi.bindIdentity(this.identity);
       this.serverConnection = this.createServerConnection(this.identity);
       this.serverConnection.start();

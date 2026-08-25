@@ -68,6 +68,7 @@ export class HostServerApi {
   private identity?: HostIdentity
   private credentials?: ServerCredentials
   private credentialsPromise?: Promise<ServerCredentials>
+  private harnessVersion?: string
 
   constructor(
     serverUrl: string,
@@ -79,6 +80,8 @@ export class HostServerApi {
   }
 
   bindIdentity(identity: HostIdentity): void { this.identity = identity }
+
+  setHarnessVersion(version: string | undefined): void { this.harnessVersion = version }
 
   currentAuthorization(): DeviceAuthorization | undefined {
     if (this.credentials === undefined) return undefined
@@ -317,6 +320,7 @@ export class HostServerApi {
       platform: platform(),
       identityKey: identity.publicKey,
       clientVersion: PLUGIN_VERSION,
+      ...(this.role === 'host' && this.harnessVersion !== undefined ? { harnessVersion: this.harnessVersion } : {}),
     }
   }
 

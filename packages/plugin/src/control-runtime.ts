@@ -237,6 +237,7 @@ export class PluginControlRuntime {
     return {
       mode: 'local',
       available: false,
+      deviceName: hostname(),
       hostAuthorizationAvailable: this.host !== undefined,
       ...(this.host === undefined ? {} : { host: this.host.hostStatus() }),
     }

@@ -146,6 +146,7 @@ export class ClientModeRuntime {
       available: this.config.serverUrl !== undefined,
       identityReady: this.identity !== undefined,
       deviceId: this.identity?.deviceId,
+      deviceName: this.identity?.name,
       serverUrl: this.config.serverUrl,
       ...this.proxySwitch.status(),
       connected: this.connected !== undefined,
