@@ -5,7 +5,7 @@ This release includes changes since `v0.3.30` ([full comparison](https://github.
 ### Desktop Remote
 
 - Remote Host rows keep showing the Harness version by sending `harnessVersion` during Host device registration as well as the control `hello` frame.
-- The Remote account sign-out action now sits next to the current device name in the Remote workspace window.
+- The Remote workspace Host heading now keeps the current-device control and account sign-out actions together, without repeating the local hostname.
 
 ### Plugin identity
 
@@ -34,7 +34,7 @@ This release includes changes since `v0.3.30` ([full comparison](https://github.
 ### 桌面 Remote
 
 - Remote 主机行会继续显示 Harness 版本：Host 在设备注册 descriptor 和控制连接 `hello` 中都会上报 `harnessVersion`。
-- Remote 工作区窗口中，账号“退出”操作已移动到当前设备名称旁边。
+- Remote 工作区窗口中，“主机”、当前设备控制开关和账号“退出”操作集中显示在同一处，不再重复显示本地主机名。
 
 ### 插件标识
 
