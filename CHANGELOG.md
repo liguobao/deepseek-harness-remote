@@ -7,6 +7,8 @@
   `hello` frame.
 - Moves the Remote account sign-out action next to the current device name in
   the desktop Remote workspace window.
+- Unifies the DSH plugin package, Cordis instance, settings namespace, and
+  client module ids on `ds-harness-remote`.
 - Advances the Plugin and Android app to `0.3.32` (`versionCode 16`).
 
 ## 0.3.31
