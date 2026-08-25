@@ -25,8 +25,13 @@ const zhCN = {
   devices: {
     title: '设备', myDevices: '我的设备', lead: '选择一台设备，继续你的工作', emptyTitle: '还没有可用设备', emptyBody: '在电脑上安装 DSH Remote 插件并登录同一账号，设备就会出现在这里。', options: '管理设备', encrypted: '安全连接',
     connectionInterrupted: '连接已断开', trustExplanation: '确认后，此手机会记住这台设备的安全身份。如果身份发生变化，将停止连接以保护你的数据。', trust: '信任并继续', connectReady: '连接后即可查看并继续电脑上的对话。', offlineHelp: '这台设备已离线。请确认电脑上的 DSH Remote 插件正在运行。', secureConnect: '连接设备',
-    connectingTitle: '连接设备', connecting: '正在连接', connectionProgress: '连接进度', retryConnection: '重新连接', cancelConnection: '取消连接', openInfo: '查看设备和连接信息',
-    probeSequence: (order: string) => `按顺序探测：${order}`,
+    connectingTitle: '连接设备', connecting: '正在连接', connectionReady: '已就绪', retryConnection: '重新连接', cancelConnection: '取消连接', openInfo: '查看设备和连接信息',
+    connectionProbeLabels: {
+      lan: '探测 LAN',
+      p2p: '探测 P2P',
+      turn: '探测 TURN',
+      relay: '准备 Relay',
+    },
     connectionSteps: {
       authenticating: { title: '验证设备', body: '确认账号与设备访问权限' },
       transport: { title: '选择连接路径', body: '尝试局域网、P2P 或服务器转发' },

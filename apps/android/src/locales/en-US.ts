@@ -27,8 +27,13 @@ const enUS = {
   devices: {
     title: 'Devices', myDevices: 'My devices', lead: 'Choose a device to continue your work', emptyTitle: 'No devices available', emptyBody: 'Install the DSH Remote plugin on your computer and sign in to the same account. The device will appear here.', options: 'Manage device', encrypted: 'Secure connection',
     connectionInterrupted: 'Connection interrupted', trustExplanation: 'After confirmation, this phone remembers the device’s secure identity. If that identity changes, the connection stops to protect your data.', trust: 'Trust and continue', connectReady: 'Connect to view and continue conversations on your computer.', offlineHelp: 'This device is offline. Make sure the DSH Remote plugin is running on your computer.', secureConnect: 'Connect securely',
-    connectingTitle: 'Connect device', connecting: 'Connecting', connectionProgress: 'Connection progress', retryConnection: 'Connect again', cancelConnection: 'Cancel connection', openInfo: 'View device and connection information',
-    probeSequence: (order: string) => `Probing in order: ${order}`,
+    connectingTitle: 'Connect device', connecting: 'Connecting', connectionReady: 'Ready', retryConnection: 'Connect again', cancelConnection: 'Cancel connection', openInfo: 'View device and connection information',
+    connectionProbeLabels: {
+      lan: 'Probing LAN',
+      p2p: 'Probing P2P',
+      turn: 'Probing TURN',
+      relay: 'Preparing Relay',
+    },
     connectionSteps: {
       authenticating: { title: 'Verify device', body: 'Confirm account and device access' },
       transport: { title: 'Choose a connection path', body: 'Try LAN, P2P, or server relay' },

@@ -80,6 +80,7 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
   const disconnect = useAppStore(state => state.disconnect)
   const clearError = useAppStore(state => state.clearError)
   const [attempt, setAttempt] = useState(0)
+  const [activeProbeIndex, setActiveProbeIndex] = useState(0)
   const launchedAttempt = useRef(-1)
   const leaving = useRef(false)
   const onConnectedRef = useRef(onConnected)
@@ -94,17 +95,31 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
       onConnectedRef.current()
       return
     }
-    void connect(device).then(connected => {
-      if (active && !leaving.current && connected) onConnectedRef.current()
+    void connect(device).then(async connected => {
+      if (!connected) return
+      // Match the Plugin hand-off: let assistive technology and the visible
+      // progress state announce completion before replacing this screen.
+      await new Promise(resolve => setTimeout(resolve, 220))
+      if (active && !leaving.current) onConnectedRef.current()
     })
     return () => { active = false }
   }, [attempt, connect, device])
 
+  useEffect(() => {
+    setActiveProbeIndex(0)
+    if (connectionStage !== 'transport' || connection.phase !== 'connecting' || connectionProbeOrder.length < 2) return
+    const timers = connectionProbeOrder.slice(1).map((_, index) => setTimeout(
+      () => setActiveProbeIndex(index + 1),
+      360 * (index + 1),
+    ))
+    return () => timers.forEach(clearTimeout)
+  }, [attempt, connection.phase, connectionProbeOrder, connectionStage])
+
   const currentStage = connectionStage ?? 'authenticating'
+  const currentProbe = connectionProbeOrder[activeProbeIndex]
   const currentIndex = currentStage === 'ready'
     ? connectionStages.length
     : Math.max(0, connectionStages.indexOf(currentStage))
-  const progress = [18, 42, 70, 92, 100][currentIndex] ?? 18
   const failed = selectedDevice?.deviceId === device.deviceId
     && connection.phase === 'offline'
     && connection.error !== undefined
@@ -127,21 +142,11 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
         <View style={styles.connectionHero}>
           <View style={styles.connectionDeviceIcon}><Laptop size={30} color={colors.primary} /></View>
           <View style={styles.connectionHeading}>
-            <Text style={styles.connectionStatus}>{zhCN.devices.connecting}</Text>
+            <Text accessibilityLiveRegion="polite" style={styles.connectionStatus}>
+              {currentStage === 'ready' ? zhCN.devices.connectionReady : zhCN.devices.connecting}
+            </Text>
             <Text style={styles.connectionDeviceName} numberOfLines={2}>{device.name}</Text>
           </View>
-        </View>
-
-        <View style={styles.progressHeader}>
-          <Text style={styles.progressLabel}>{zhCN.devices.connectionProgress}</Text>
-          <Text style={styles.progressValue}>{progress}%</Text>
-        </View>
-        <View
-          accessibilityRole="progressbar"
-          accessibilityValue={{ min: 0, max: 100, now: progress }}
-          style={styles.progressTrack}
-        >
-          <View style={[styles.progressFill, { width: `${progress}%` }]} />
         </View>
 
         <View style={styles.connectionSteps}>
@@ -150,9 +155,9 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
             const active = index === currentIndex && !failed
             const stepFailed = index === currentIndex && failed
             const copy = zhCN.devices.connectionSteps[stage]
-            const stepBody = stage === 'transport' && connectionProbeOrder.length > 0
-              ? zhCN.devices.probeSequence(probeOrderText(connectionProbeOrder))
-              : copy.body
+            const title = stage === 'transport' && active && currentProbe !== undefined
+              ? zhCN.devices.connectionProbeLabels[currentProbe]
+              : copy.title
             return (
               <View key={stage} style={styles.connectionStep}>
                 <View style={styles.stepMarker}>
@@ -171,14 +176,19 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
                   {index < connectionStages.length - 1 && <View style={[styles.stepConnector, completed && styles.stepConnectorComplete]} />}
                 </View>
                 <View style={styles.stepCopy}>
-                  <Text style={[styles.stepTitle, (active || completed) && styles.stepTitleCurrent]}>{copy.title}</Text>
-                  <Text style={styles.stepBody}>{stepBody}</Text>
+                  <Text accessibilityLiveRegion={active ? 'polite' : 'none'} style={[styles.stepTitle, (active || completed) && styles.stepTitleCurrent]}>{title}</Text>
+                  {(stage !== 'transport' || connectionProbeOrder.length === 0) && <Text style={styles.stepBody}>{copy.body}</Text>}
                   {stage === 'transport' && connectionProbeOrder.length > 0 && (
-                    <View style={styles.probeList}>
+                    <View style={styles.progressRoute}>
                       {connectionProbeOrder.map((transport, probeIndex) => (
-                        <View key={`${transport}:${probeIndex}`} style={styles.probeChip}>
-                          <Text style={styles.probeIndex}>{probeIndex + 1}</Text>
-                          <Text style={styles.probeText}>{probeTransportLabel(transport)}</Text>
+                        <View key={`${transport}:${probeIndex}`} style={styles.progressRouteSegment}>
+                          {probeIndex > 0 && <Text style={styles.progressRouteArrow}>→</Text>}
+                          <Text style={[
+                            styles.progressRouteLabel,
+                            active && probeIndex === activeProbeIndex && styles.progressRouteLabelActive,
+                          ]}>
+                            {probeTransportDiagnosticLabel(transport)}
+                          </Text>
                         </View>
                       ))}
                     </View>
@@ -427,6 +437,13 @@ function probeTransportLabel(transport: ConnectionProbeTransport): string {
   return zhCN.status.relay
 }
 
+function probeTransportDiagnosticLabel(transport: ConnectionProbeTransport): string {
+  if (transport === 'lan') return 'LAN'
+  if (transport === 'p2p') return 'P2P'
+  if (transport === 'turn') return 'TURN'
+  return 'Relay'
+}
+
 function connectionBadgeStatus(
   isSelected: boolean,
   phase: 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'offline',
@@ -453,12 +470,7 @@ const styles = StyleSheet.create({
   connectionHeading: { alignSelf: 'stretch', alignItems: 'center', gap: spacing.xxs },
   connectionStatus: { ...type.smallStrong, color: colors.muted, textAlign: 'center' },
   connectionDeviceName: { ...type.title, color: colors.ink, textAlign: 'center' },
-  progressHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
-  progressLabel: { ...type.smallStrong, color: colors.ink },
-  progressValue: { ...type.caption, color: colors.primary },
-  progressTrack: { height: 6, borderRadius: radius.pill, backgroundColor: colors.surfaceStrong, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.primary },
-  connectionSteps: { marginTop: spacing.xxl },
+  connectionSteps: { marginTop: spacing.xs },
   connectionStep: { flexDirection: 'row', alignItems: 'stretch', gap: spacing.sm },
   stepMarker: { width: 30, alignItems: 'center' },
   stepCircle: { width: 30, height: 30, borderRadius: radius.pill, backgroundColor: colors.surfaceStrong, alignItems: 'center', justifyContent: 'center' },
@@ -473,10 +485,11 @@ const styles = StyleSheet.create({
   stepTitle: { ...type.bodyStrong, color: colors.muted },
   stepTitleCurrent: { color: colors.ink },
   stepBody: { ...type.small, color: colors.muted, marginTop: 2 },
-  probeList: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm },
-  probeChip: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs, paddingVertical: 5, paddingHorizontal: spacing.xs, borderRadius: radius.sm, backgroundColor: colors.surfaceStrong },
-  probeIndex: { ...type.caption, minWidth: 16, height: 16, borderRadius: radius.pill, overflow: 'hidden', textAlign: 'center', color: colors.white, backgroundColor: colors.primary },
-  probeText: { ...type.caption, color: colors.ink },
+  progressRoute: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginTop: spacing.sm },
+  progressRouteSegment: { flexDirection: 'row', alignItems: 'center' },
+  progressRouteArrow: { ...type.small, color: colors.subtle, paddingHorizontal: spacing.xxs },
+  progressRouteLabel: { ...type.small, color: colors.muted },
+  progressRouteLabelActive: { ...type.smallStrong, color: colors.success },
   deviceHero: { paddingVertical: spacing.xxl, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   deviceIcon: { width: 56, height: 56, borderRadius: radius.lg, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   deviceHeroCopy: { flex: 1 },
