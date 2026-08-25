@@ -16948,11 +16948,16 @@ function shortId5(value) {
 }
 
 // src/remote-file-content-provider.ts
-function createRemoteFileContentProvider(call) {
+var REMOTE_FILE_SAVE_AS_MAX_BYTES = 100 * 1024 * 1024;
+function createRemoteFileContentProvider(call, options = {}) {
   return {
     id: "dsh-remote-files",
     priority: 1e4,
     supports: () => true,
+    saveAsAllowed: () => ({
+      allowed: currentSaveAsAllowed(options.saveAsAllowed),
+      maxBytes: options.saveAsMaxBytes ?? REMOTE_FILE_SAVE_AS_MAX_BYTES
+    }),
     async stat(locator, signal) {
       const value = await call("fileviewer.stat", { path: locator }, signal);
       if (!value.exists) return void 0;
@@ -17000,6 +17005,9 @@ function createRemoteFileContentProvider(call) {
       }));
     }
   };
+}
+function currentSaveAsAllowed(value) {
+  return typeof value === "function" ? value() : value === true;
 }
 function decodeBase64(value) {
   const binary = atob(value);

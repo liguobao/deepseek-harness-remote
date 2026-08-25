@@ -1626,11 +1626,19 @@ Minimum version required to store current data is: ` + bestVersion + `.
   function shouldUseRemoteFileViewer(status) {
     return status.mode === "remote" && status.remoteFeatures?.fileViewer === !0;
   }
-  function createRemoteFileContentProvider(call) {
+  var REMOTE_FILE_SAVE_AS_MAX_BYTES = 100 * 1024 * 1024;
+  function shouldAllowRemoteFileSaveAs(status) {
+    return shouldUseRemoteFileViewer(status) && (status.transport === "LAN" || status.transport === "P2P" || status.transport === "TURN");
+  }
+  function createRemoteFileContentProvider(call, options = {}) {
     return {
       id: "dsh-remote-files",
       priority: 1e4,
       supports: () => !0,
+      saveAsAllowed: () => ({
+        allowed: currentSaveAsAllowed(options.saveAsAllowed),
+        maxBytes: options.saveAsMaxBytes ?? REMOTE_FILE_SAVE_AS_MAX_BYTES
+      }),
       async stat(locator, signal) {
         let value = await call("fileviewer.stat", { path: locator }, signal);
         if (value.exists)
@@ -1669,6 +1677,9 @@ Minimum version required to store current data is: ` + bestVersion + `.
         }));
       }
     };
+  }
+  function currentSaveAsAllowed(value) {
+    return typeof value == "function" ? value() : value === !0;
   }
   function decodeBase64(value) {
     let binary = atob(value), bytes = new Uint8Array(binary.length);
@@ -3240,14 +3251,15 @@ Minimum version required to store current data is: ` + bestVersion + `.
         }, "dsh-remote: resume selected workspace"), ctx.inject(["fileViewer"], (fileViewerContext) => {
           let viewer = fileViewerContext.get("fileViewer");
           viewer !== void 0 && fileViewerContext.effect(() => {
-            let active = !0, unregister, sync = async () => {
+            let active = !0, unregister, latestSaveAsAllowed = !1, sync = async () => {
               try {
                 let status = await control("status");
                 if (!active) return;
                 let supported = shouldUseRemoteFileViewer(status);
-                supported && unregister === void 0 ? unregister = viewer.registerContentProvider(createRemoteFileContentProvider(
-                  (endpoint, payload) => control(endpoint, payload)
-                )) : !supported && unregister !== void 0 && (unregister(), unregister = void 0);
+                latestSaveAsAllowed = shouldAllowRemoteFileSaveAs(status), supported && unregister === void 0 ? unregister = viewer.registerContentProvider(createRemoteFileContentProvider(
+                  (endpoint, payload) => control(endpoint, payload),
+                  { saveAsAllowed: () => latestSaveAsAllowed, saveAsMaxBytes: REMOTE_FILE_SAVE_AS_MAX_BYTES }
+                )) : !supported && unregister !== void 0 && (unregister(), unregister = void 0, latestSaveAsAllowed = !1);
               } catch {
               }
             };

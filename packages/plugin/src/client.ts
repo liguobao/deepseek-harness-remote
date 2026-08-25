@@ -1,6 +1,8 @@
 import QRCode from 'qrcode'
 import {
+  REMOTE_FILE_SAVE_AS_MAX_BYTES,
   createRemoteFileContentProvider,
+  shouldAllowRemoteFileSaveAs,
   shouldUseRemoteFileViewer,
   type RemoteFileContentProvider,
 } from './remote-file-content-provider.js'
@@ -1956,18 +1958,22 @@ window.__ModuleLoader__.load({
         fileViewerContext.effect(() => {
           let active = true
           let unregister: (() => void) | undefined
+          let latestSaveAsAllowed = false
           const sync = async (): Promise<void> => {
             try {
               const status = await control<RemoteStatus>('status')
               if (!active) return
               const supported = shouldUseRemoteFileViewer(status)
+              latestSaveAsAllowed = shouldAllowRemoteFileSaveAs(status)
               if (supported && unregister === undefined) {
                 unregister = viewer.registerContentProvider(createRemoteFileContentProvider(
                   (endpoint, payload) => control(endpoint, payload),
+                  { saveAsAllowed: () => latestSaveAsAllowed, saveAsMaxBytes: REMOTE_FILE_SAVE_AS_MAX_BYTES },
                 ))
               } else if (!supported && unregister !== undefined) {
                 unregister()
                 unregister = undefined
+                latestSaveAsAllowed = false
               }
             } catch {
               // Keep the last known registration while the loopback control

@@ -26,6 +26,7 @@ export interface RemoteFileContentProvider {
   read(locator: string, request: RemoteFileReadRequest): Promise<Uint8Array>
   list(locator: string, signal: AbortSignal): Promise<RemoteFileContentEntry[]>
   openExternal?: (locator: string, signal: AbortSignal) => Promise<void>
+  saveAsAllowed?: (locator: string) => boolean | { allowed: boolean; maxBytes?: number }
 }
 
 export type RemoteFileControlCall = <T>(
@@ -36,12 +37,19 @@ export type RemoteFileControlCall = <T>(
 
 export interface RemoteFileViewerStatus {
   mode: 'local' | 'remote'
+  transport?: 'LAN' | 'P2P' | 'TURN' | 'Relay' | 'Disconnected'
   remoteFeatures?: { fileViewer: boolean }
 }
 
 /** Fail closed for legacy/unknown Hosts that predate remote file-viewer support. */
 export function shouldUseRemoteFileViewer(status: RemoteFileViewerStatus): boolean {
   return status.mode === 'remote' && status.remoteFeatures?.fileViewer === true
+}
+
+export const REMOTE_FILE_SAVE_AS_MAX_BYTES = 100 * 1024 * 1024
+
+export function shouldAllowRemoteFileSaveAs(status: RemoteFileViewerStatus): boolean {
+  return shouldUseRemoteFileViewer(status) && (status.transport === 'LAN' || status.transport === 'P2P' || status.transport === 'TURN')
 }
 
 interface RemoteStatWire {
@@ -74,11 +82,15 @@ interface RemoteListWire {
 }
 
 /** Browser-side provider registered into dsh-file-viewer's `fileViewer` service. */
-export function createRemoteFileContentProvider(call: RemoteFileControlCall): RemoteFileContentProvider {
+export function createRemoteFileContentProvider(call: RemoteFileControlCall, options: { saveAsAllowed?: boolean | (() => boolean); saveAsMaxBytes?: number } = {}): RemoteFileContentProvider {
   return {
     id: 'dsh-remote-files',
     priority: 10_000,
     supports: () => true,
+    saveAsAllowed: () => ({
+      allowed: currentSaveAsAllowed(options.saveAsAllowed),
+      maxBytes: options.saveAsMaxBytes ?? REMOTE_FILE_SAVE_AS_MAX_BYTES,
+    }),
     async stat(locator, signal) {
       const value = await call<RemoteStatWire>('fileviewer.stat', { path: locator }, signal)
       if (!value.exists) return undefined
@@ -126,6 +138,10 @@ export function createRemoteFileContentProvider(call: RemoteFileControlCall): Re
       }))
     },
   }
+}
+
+function currentSaveAsAllowed(value: boolean | (() => boolean) | undefined): boolean {
+  return typeof value === 'function' ? value() : value === true
 }
 
 function decodeBase64(value: string): Uint8Array {
