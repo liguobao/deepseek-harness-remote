@@ -150,6 +150,7 @@ export class ClientModeRuntime {
       ...this.proxySwitch.status(),
       connected: this.connected !== undefined,
       transport: this.connected?.client.getStats().mode ?? 'Disconnected',
+      preferredTransports: this.config.forceRelay ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
       remoteFeatures: this.connected?.features ?? remoteHostFeatures(),
       ...(this.pendingWorkspaceSelection === undefined
         ? {}

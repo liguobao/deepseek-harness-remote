@@ -4,10 +4,10 @@ var __export = (target, all) => {
     __defProp(target, name2, { get: all[name2], enumerable: true });
 };
 
-// src/index.ts
+// packages/plugin/src/index.ts
 import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
+// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
 var external_exports = {};
 __export(external_exports, {
   BRAND: () => BRAND,
@@ -119,7 +119,7 @@ __export(external_exports, {
   void: () => voidType
 });
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js
+// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
   util2.assertEqual = (_) => {
@@ -253,7 +253,7 @@ var getParsedType = (data) => {
   }
 };
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/ZodError.js
+// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/ZodError.js
 var ZodIssueCode = util.arrayToEnum([
   "invalid_type",
   "invalid_literal",
@@ -371,7 +371,7 @@ ZodError.create = (issues) => {
   return error;
 };
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/locales/en.js
+// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/locales/en.js
 var errorMap = (issue, _ctx) => {
   let message;
   switch (issue.code) {
@@ -474,7 +474,7 @@ var errorMap = (issue, _ctx) => {
 };
 var en_default = errorMap;
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/errors.js
+// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/errors.js
 var overrideErrorMap = en_default;
 function setErrorMap(map) {
   overrideErrorMap = map;
@@ -483,7 +483,7 @@ function getErrorMap() {
   return overrideErrorMap;
 }
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js
+// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
   const { data, path, errorMaps, issueData } = params;
   const fullPath = [...path, ...issueData.path || []];
@@ -593,14 +593,14 @@ var isDirty = (x) => x.status === "dirty";
 var isValid = (x) => x.status === "valid";
 var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js
+// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
   errorUtil2.errToObj = (message) => typeof message === "string" ? { message } : message || {};
   errorUtil2.toString = (message) => typeof message === "string" ? message : message?.message;
 })(errorUtil || (errorUtil = {}));
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js
+// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
   constructor(parent, value, path, key) {
     this._cachedPath = [];
@@ -4048,7 +4048,7 @@ var coerce = {
 };
 var NEVER = INVALID;
 
-// ../protocol/dist/index.js
+// packages/protocol/dist/index.js
 var PROTOCOL_VERSION = 1;
 var SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024;
 var MAX_SECURE_MESSAGE_BYTES = 4 * 1024 * 1024;
@@ -4366,7 +4366,7 @@ function cryptoRandomId() {
   return `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
-// ../client-core/dist/index.js
+// packages/client-core/dist/index.js
 var RemoteClientError = class extends Error {
   code;
   constructor(code, message, options) {
@@ -4525,7 +4525,7 @@ function transportSendError(error) {
   return error instanceof Error ? error : new Error("remote transport send failed", { cause: error });
 }
 
-// ../webrtc/dist/transport.js
+// packages/webrtc/dist/transport.js
 var BaseTransport = class {
   handlers = /* @__PURE__ */ new Set();
   closeHandlers = /* @__PURE__ */ new Set();
@@ -4547,7 +4547,7 @@ var BaseTransport = class {
   }
 };
 
-// ../webrtc/dist/util.js
+// packages/webrtc/dist/util.js
 async function socketText(data) {
   if (typeof data === "string")
     return data;
@@ -4568,7 +4568,7 @@ function fromBase64Url(value) {
   return new Uint8Array(Buffer.from(padded, "base64"));
 }
 
-// ../webrtc/dist/rtc-adapter.js
+// packages/webrtc/dist/rtc-adapter.js
 var RTC_DATA_CHANNEL_LABEL = "dsh";
 var RTC_DATA_CHANNEL_OPTIONS = { ordered: true };
 function browserRtcFactory() {
@@ -4705,7 +4705,7 @@ function adaptDataChannel(raw) {
   };
 }
 
-// ../webrtc/dist/rtc-chunking.js
+// packages/webrtc/dist/rtc-chunking.js
 var RTC_CHUNK_MAGIC = new Uint8Array([82, 84, 67, 72]);
 var RTC_CHUNK_HEADER_BYTES = 12;
 var RTC_CHUNK_PAYLOAD_BYTES = 8 * 1024;
@@ -4814,7 +4814,7 @@ function isChunk(frame) {
   return true;
 }
 
-// ../webrtc/dist/rtc-data-channel.js
+// packages/webrtc/dist/rtc-data-channel.js
 var DEFAULT_NEGOTIATE_TIMEOUT_MS = 8e3;
 var RtcDataChannelTransport = class {
   pc;
@@ -5267,7 +5267,7 @@ function asError(error) {
   return error instanceof Error ? error : new RtcConnectError("RTC_FAILED", "WebRTC negotiation failed.");
 }
 
-// ../webrtc/dist/adaptive-transport.js
+// packages/webrtc/dist/adaptive-transport.js
 var DEFAULT_CAPABILITIES = ["transport.p2p", "transport.turn", "transport.relay", "harness.api.v1"];
 var DEFAULT_PREFERRED_TRANSPORTS = ["lan", "p2p", "turn", "relay"];
 var AdaptiveTransport = class extends BaseTransport {
@@ -5626,7 +5626,7 @@ function socketState(readyState) {
   return "closed";
 }
 
-// src/api-proxy-switch.ts
+// packages/plugin/src/api-proxy-switch.ts
 var SWITCHED_DOMAINS = [
   "sessions",
   "subagents",
@@ -5723,11 +5723,11 @@ var ApiProxySwitch = class {
   }
 };
 
-// ../../node_modules/.pnpm/@noble+ciphers@1.3.0/node_modules/@noble/ciphers/esm/cryptoNode.js
+// node_modules/.pnpm/@noble+ciphers@1.3.0/node_modules/@noble/ciphers/esm/cryptoNode.js
 import * as nc from "node:crypto";
 var crypto = nc && typeof nc === "object" && "webcrypto" in nc ? nc.webcrypto : nc && typeof nc === "object" && "randomBytes" in nc ? nc : void 0;
 
-// ../../node_modules/.pnpm/@noble+ciphers@1.3.0/node_modules/@noble/ciphers/esm/webcrypto.js
+// node_modules/.pnpm/@noble+ciphers@1.3.0/node_modules/@noble/ciphers/esm/webcrypto.js
 function randomBytes(bytesLength = 32) {
   if (crypto && typeof crypto.getRandomValues === "function") {
     return crypto.getRandomValues(new Uint8Array(bytesLength));
@@ -5738,11 +5738,11 @@ function randomBytes(bytesLength = 32) {
   throw new Error("crypto.getRandomValues must be defined");
 }
 
-// ../../node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/cryptoNode.js
+// node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/cryptoNode.js
 import * as nc2 from "node:crypto";
 var crypto2 = nc2 && typeof nc2 === "object" && "webcrypto" in nc2 ? nc2.webcrypto : nc2 && typeof nc2 === "object" && "randomBytes" in nc2 ? nc2 : void 0;
 
-// ../../node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/utils.js
+// node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/utils.js
 function isBytes(a) {
   return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array";
 }
@@ -5869,7 +5869,7 @@ function randomBytes2(bytesLength = 32) {
   throw new Error("crypto.getRandomValues must be defined");
 }
 
-// ../../node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/_md.js
+// node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/_md.js
 function setBigUint64(view, byteOffset, value, isLE3) {
   if (typeof view.setBigUint64 === "function")
     return view.setBigUint64(byteOffset, value, isLE3);
@@ -5991,7 +5991,7 @@ var SHA512_IV = /* @__PURE__ */ Uint32Array.from([
   327033209
 ]);
 
-// ../../node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/_u64.js
+// node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/_u64.js
 var U32_MASK64 = /* @__PURE__ */ BigInt(2 ** 32 - 1);
 var _32n = /* @__PURE__ */ BigInt(32);
 function fromBig(n, le = false) {
@@ -6026,7 +6026,7 @@ var add4H = (low, Ah, Bh, Ch, Dh) => Ah + Bh + Ch + Dh + (low / 2 ** 32 | 0) | 0
 var add5L = (Al, Bl, Cl, Dl, El) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0) + (El >>> 0);
 var add5H = (low, Ah, Bh, Ch, Dh, Eh) => Ah + Bh + Ch + Dh + Eh + (low / 2 ** 32 | 0) | 0;
 
-// ../../node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/sha2.js
+// node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/sha2.js
 var K512 = /* @__PURE__ */ (() => split([
   "0x428a2f98d728ae22",
   "0x7137449123ef65cd",
@@ -6226,7 +6226,7 @@ var SHA512 = class extends HashMD {
 };
 var sha512 = /* @__PURE__ */ createHasher(() => new SHA512());
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/utils.js
+// node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/utils.js
 var _0n = /* @__PURE__ */ BigInt(0);
 var _1n = /* @__PURE__ */ BigInt(1);
 function _abool2(value, title = "") {
@@ -6339,7 +6339,7 @@ function memoized(fn) {
   };
 }
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/modular.js
+// node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/modular.js
 var _0n2 = BigInt(0);
 var _1n2 = BigInt(1);
 var _2n = /* @__PURE__ */ BigInt(2);
@@ -6665,7 +6665,7 @@ function Field(ORDER, bitLenOrOpts, isLE3 = false, opts = {}) {
   return Object.freeze(f);
 }
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/curve.js
+// node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/curve.js
 var _0n3 = BigInt(0);
 var _1n3 = BigInt(1);
 function negateCt(condition, item) {
@@ -6928,7 +6928,7 @@ function _createCurveFields(type, CURVE, curveOpts = {}, FpFnLE) {
   return { CURVE, Fp: Fp2, Fn: Fn2 };
 }
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/edwards.js
+// node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/edwards.js
 var _0n4 = BigInt(0);
 var _1n4 = BigInt(1);
 var _2n2 = BigInt(2);
@@ -7479,7 +7479,7 @@ function twistedEdwards(c) {
   return _eddsa_new_output_to_legacy(c, EDDSA);
 }
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/montgomery.js
+// node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/montgomery.js
 var _0n5 = BigInt(0);
 var _1n5 = BigInt(1);
 var _2n3 = BigInt(2);
@@ -7599,7 +7599,7 @@ function montgomery(curveDef) {
   };
 }
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/ed25519.js
+// node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/ed25519.js
 var _0n6 = /* @__PURE__ */ BigInt(0);
 var _1n6 = BigInt(1);
 var _2n4 = BigInt(2);
@@ -7834,7 +7834,7 @@ _RistrettoPoint.ZERO = /* @__PURE__ */ (() => new _RistrettoPoint(ed25519.Point.
 _RistrettoPoint.Fp = /* @__PURE__ */ (() => Fp)();
 _RistrettoPoint.Fn = /* @__PURE__ */ (() => Fn)();
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/constants.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/constants.js
 var MAX_KEY_LEN = 32;
 var MAX_TAG_LEN = 16;
 var MAX_MESSAGE_LEN = 65535;
@@ -7844,7 +7844,7 @@ var MAX_TOKENS_PER_HS_MESSAGE = 8;
 var MAX_HS_MESSAGES_PER_ROLE = 8;
 var HYBRID_DUAL_LAYER = new TextEncoder().encode("clatter.hybrid_dual_layer.outer");
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/errors.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/errors.js
 var CipherError = class extends Error {
   code;
   constructor(code, message) {
@@ -7880,7 +7880,7 @@ var TransportError = class extends Error {
   }
 };
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/handshakePattern.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/handshakePattern.js
 function checkMsgLens(initiator, responder) {
   for (const g of initiator) {
     if (g.length > MAX_TOKENS_PER_HS_MESSAGE) {
@@ -8049,7 +8049,7 @@ var HandshakePattern = class _HandshakePattern {
   }
 };
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/cipherState.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/cipherState.js
 var U64_MAX = 0xfffffffffffffffn;
 var CipherState = class {
   C;
@@ -8121,7 +8121,7 @@ var CipherStates = class {
   }
 };
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/symmetricState.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/symmetricState.js
 function deriveCipherKey(temp, C) {
   return temp.slice(0, C.keyLen);
 }
@@ -8208,7 +8208,7 @@ function concat(a, b) {
   return o;
 }
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/transportState.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/transportState.js
 function mapCipher(e) {
   if (e instanceof TransportError)
     return e;
@@ -8370,7 +8370,7 @@ var TransportState = class {
   }
 };
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_u64.js
+// node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_u64.js
 var U32_MASK642 = /* @__PURE__ */ (() => BigInt(2 ** 32 - 1))();
 var _32n2 = /* @__PURE__ */ BigInt(32);
 function fromBig2(n, le = false) {
@@ -8415,7 +8415,7 @@ var add4H2 = (low, Ah, Bh, Ch, Dh) => Ah + Bh + Ch + Dh + (low / 2 ** 32 | 0) | 
 var add5L2 = (Al, Bl, Cl, Dl, El) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0) + (El >>> 0);
 var add5H2 = (low, Ah, Bh, Ch, Dh, Eh) => Ah + Bh + Ch + Dh + Eh + (low / 2 ** 32 | 0) | 0;
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/utils.js
+// node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/utils.js
 function isBytes2(a) {
   return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array" && "BYTES_PER_ELEMENT" in a && a.BYTES_PER_ELEMENT === 1;
 }
@@ -8590,7 +8590,7 @@ var oidNist = (suffix) => ({
   oid: Uint8Array.from([6, 9, 96, 134, 72, 1, 101, 3, 4, 2, suffix])
 });
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_md.js
+// node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_md.js
 function Chi2(a, b, c) {
   return a & b ^ ~a & c;
 }
@@ -8721,7 +8721,7 @@ var SHA512_IV2 = /* @__PURE__ */ Uint32Array.from([
   327033209
 ]);
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/sha2.js
+// node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/sha2.js
 var SHA256_K = /* @__PURE__ */ Uint32Array.from([
   1116352408,
   1899447441,
@@ -9118,7 +9118,7 @@ var sha5122 = /* @__PURE__ */ createHasher2(
   /* @__PURE__ */ oidNist(3)
 );
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/utils.js
+// node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/utils.js
 function aarray(item, title, inner = () => {
 }) {
   if (!Array.isArray(item))
@@ -9237,7 +9237,7 @@ function validateObject2(object, fields = {}, optFields = {}, title = "object") 
   iter(optFields, true);
 }
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/modular.js
+// node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/modular.js
 var _0n8 = /* @__PURE__ */ BigInt(0);
 var _1n8 = /* @__PURE__ */ BigInt(1);
 var _2n5 = /* @__PURE__ */ BigInt(2);
@@ -9666,7 +9666,7 @@ function Field2(ORDER, opts = {}) {
   return new _Field(ORDER, opts);
 }
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/curve.js
+// node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/curve.js
 var _0n9 = /* @__PURE__ */ BigInt(0);
 var _1n9 = /* @__PURE__ */ BigInt(1);
 var _4n3 = /* @__PURE__ */ BigInt(4);
@@ -10053,7 +10053,7 @@ function createKeygen(randomSecretKey, getPublicKey) {
   };
 }
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/edwards.js
+// node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/edwards.js
 var _0n10 = /* @__PURE__ */ BigInt(0);
 var _1n10 = /* @__PURE__ */ BigInt(1);
 var _2n6 = /* @__PURE__ */ BigInt(2);
@@ -10347,7 +10347,7 @@ function edwards2(params, extraOpts = {}) {
   return Point;
 }
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/montgomery.js
+// node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/montgomery.js
 var _0n11 = /* @__PURE__ */ BigInt(0);
 var _1n11 = /* @__PURE__ */ BigInt(1);
 var _2n7 = /* @__PURE__ */ BigInt(2);
@@ -10494,7 +10494,7 @@ function montgomery2(curveDef) {
   });
 }
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/ed25519.js
+// node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/ed25519.js
 var _0n12 = /* @__PURE__ */ BigInt(0);
 var _1n12 = /* @__PURE__ */ BigInt(1);
 var _2n8 = /* @__PURE__ */ BigInt(2);
@@ -10580,7 +10580,7 @@ var x255192 = /* @__PURE__ */ (() => {
   });
 })();
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/dhX25519.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/dhX25519.js
 var PK = 32;
 var X25519_NAME = "25519";
 function x25519Keygen(rng) {
@@ -10594,12 +10594,12 @@ function dhPubKeyLen() {
   return PK;
 }
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/protocolNames.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/protocolNames.js
 function nqProtocolName(patternName, cipher, hash) {
   return `Noise_${patternName}_${X25519_NAME}_${cipher.name}_${hash.name}`;
 }
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/nqHandshake.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/nqHandshake.js
 var PK2 = () => dhPubKeyLen();
 var NqHandshake = class {
   pattern;
@@ -10972,7 +10972,7 @@ function raiseInv() {
   throw new HandshakeError("InvalidState");
 }
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_blake.js
+// node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_blake.js
 var BSIGMA = /* @__PURE__ */ Uint8Array.from([
   0,
   1,
@@ -11247,7 +11247,7 @@ function G2s(a, b, c, d, x) {
   return { a, b, c, d };
 }
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/blake2.js
+// node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/blake2.js
 var B2B_IV = /* @__PURE__ */ Uint32Array.from([
   4089235720,
   1779033703,
@@ -11680,7 +11680,7 @@ var _BLAKE2s = class extends _BLAKE2 {
 };
 var blake2s = /* @__PURE__ */ createHasher2((opts) => new _BLAKE2s(opts));
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/hmac.js
+// node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/hmac.js
 var _HMAC = class {
   oHash;
   iHash;
@@ -11757,7 +11757,7 @@ var hmac = /* @__PURE__ */ (() => {
   return hmac_;
 })();
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/crypto/hash.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/crypto/hash.js
 function makeHash(name2, hash, hashLen, blockLen) {
   const doHash = (data) => hash.create().update(data).digest();
   const hmac1 = (key, data) => hmac(hash, key, data);
@@ -11792,7 +11792,7 @@ var sha512H = makeHash("SHA512", sha5122, 64, 128);
 var blake2bH = makeHash("BLAKE2b", blake2b, 64, 128);
 var blake2sH = makeHash("BLAKE2s", blake2s, 32, 64);
 
-// ../../node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/utils.js
+// node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/utils.js
 function isBytes4(a) {
   return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array" && "BYTES_PER_ELEMENT" in a && a.BYTES_PER_ELEMENT === 1;
 }
@@ -11959,7 +11959,7 @@ function copyBytes4(bytes) {
   return Uint8Array.from(abytes4(bytes));
 }
 
-// ../../node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/_arx.js
+// node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/_arx.js
 var encodeStr = (str) => Uint8Array.from(str.split(""), (c) => c.charCodeAt(0));
 var sigma16_32 = /* @__PURE__ */ (() => swap32IfBE2(u322(encodeStr("expand 16-byte k"))))();
 var sigma32_32 = /* @__PURE__ */ (() => swap32IfBE2(u322(encodeStr("expand 32-byte k"))))();
@@ -12086,7 +12086,7 @@ function createCipher(core, opts) {
   };
 }
 
-// ../../node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/_poly1305.js
+// node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/_poly1305.js
 function u8to16(a, i) {
   return a[i++] & 255 | (a[i++] & 255) << 8;
 }
@@ -12337,7 +12337,7 @@ var Poly1305 = class {
 };
 var poly1305 = /* @__PURE__ */ wrapMacConstructor(32, (key) => new Poly1305(key));
 
-// ../../node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/chacha.js
+// node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/chacha.js
 function chachaCore(s2, k, n, out, cnt, rounds = 20) {
   let y00 = s2[0], y01 = s2[1], y02 = s2[2], y03 = s2[3], y04 = k[0], y05 = k[1], y06 = k[2], y07 = k[3], y08 = k[4], y09 = k[5], y10 = k[6], y11 = k[7], y12 = cnt, y13 = n[0], y14 = n[1], y15 = n[2];
   let x00 = y00, x01 = y01, x02 = y02, x03 = y03, x04 = y04, x05 = y05, x06 = y06, x07 = y07, x08 = y08, x09 = y09, x10 = y10, x11 = y11, x12 = y12, x13 = y13, x14 = y14, x15 = y15;
@@ -12487,7 +12487,7 @@ var chacha20poly1305 = /* @__PURE__ */ wrapCipher(
   /* @__PURE__ */ _poly1305_aead(chacha20)
 );
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/crypto/cipher.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/crypto/cipher.js
 var U64_MAX2 = 0xfffffffffffffffn;
 function chachaNonce(n) {
   const b = new Uint8Array(12);
@@ -12549,7 +12549,7 @@ var chachaPoly = /* @__PURE__ */ (() => {
   };
 })();
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/noiseNq.js
+// node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/noiseNq.js
 function noiseIk() {
   return new HandshakePattern("IK", [], [
     1
@@ -12570,7 +12570,7 @@ function noiseIk() {
   ]]);
 }
 
-// ../crypto/dist/noise.js
+// packages/crypto/dist/noise.js
 var NOISE_IK_PROTOCOL = "Noise_IK_25519_ChaChaPoly_SHA256";
 var NoiseIkSession = class {
   handshake;
@@ -12702,7 +12702,7 @@ function constantTimeEqual(left, right) {
   return different === 0;
 }
 
-// ../crypto/dist/index.js
+// packages/crypto/dist/index.js
 function generateKeyPair(privateKeyBytes) {
   const privateKey = privateKeyBytes ?? x25519.utils.randomPrivateKey();
   if (privateKey.byteLength !== 32)
@@ -12727,7 +12727,7 @@ function fromBase64Url2(value) {
   return new Uint8Array(Buffer.from(padded, "base64"));
 }
 
-// src/client-secure-transport.ts
+// packages/plugin/src/client-secure-transport.ts
 var ClientSecureTransport = class {
   constructor(inner, identity, host) {
     this.inner = inner;
@@ -12841,10 +12841,10 @@ async function waitForResponder(inner, noise) {
   });
 }
 
-// src/control-route.ts
+// packages/plugin/src/control-route.ts
 var CONTROL_RPC_PREFIX = "/ds-harness-remote";
 
-// src/ids.ts
+// packages/plugin/src/ids.ts
 import { randomBytes as randomBytes6 } from "node:crypto";
 function uuidV7(now = Date.now()) {
   if (!Number.isSafeInteger(now) || now < 0 || now > 281474976710655) {
@@ -12862,7 +12862,7 @@ function uuidV7(now = Date.now()) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-// src/remote-api-proxy.ts
+// packages/plugin/src/remote-api-proxy.ts
 var DIRECT_API_CALL_BYTES = 2 * 1024 * 1024;
 var RemoteHarnessApiProxy = class {
   constructor(client) {
@@ -13129,10 +13129,10 @@ function base64ToBytes(value) {
   return bytes;
 }
 
-// src/server-api.ts
+// packages/plugin/src/server-api.ts
 import { platform } from "node:os";
 
-// src/config.ts
+// packages/plugin/src/config.ts
 import { hostname } from "node:os";
 import s from "@deepseek-ai/schemastery";
 var Config = s.object({
@@ -13211,10 +13211,10 @@ function normalizeServerUrl(value) {
   return url.origin;
 }
 
-// src/version.ts
+// packages/plugin/src/version.ts
 var PLUGIN_VERSION = "0.3.30";
 
-// src/server-api.ts
+// packages/plugin/src/server-api.ts
 var HostServerApi = class {
   constructor(serverUrl, store, fetchImplementation = fetch, role = "host") {
     this.store = store;
@@ -13595,7 +13595,7 @@ function requireRecord(value, name2) {
   return value;
 }
 
-// src/typert-gateway-switch.ts
+// packages/plugin/src/typert-gateway-switch.ts
 var REMOTE_COMMAND_METHODS = ["execute", "list"];
 var ALL_REMOTE_COMMANDS = { execute: true, list: true };
 var TypertGatewaySwitch = class {
@@ -13645,7 +13645,7 @@ function isRemoteCommandMethod(method) {
   return REMOTE_COMMAND_METHODS.includes(method);
 }
 
-// src/werift-rtc.ts
+// packages/plugin/src/werift-rtc.ts
 import { networkInterfaces } from "node:os";
 var cachedFactory;
 async function loadWeriftFactory() {
@@ -13838,7 +13838,7 @@ function isPrivate(ip) {
   return parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31;
 }
 
-// src/client-runtime.ts
+// packages/plugin/src/client-runtime.ts
 var REMOTE_COMMAND_LIST_MIN_VERSION = [0, 3, 16];
 var REMOTE_FILE_VIEWER_MIN_VERSION = [0, 3, 17];
 var ClientModeRuntime = class {
@@ -13883,6 +13883,7 @@ var ClientModeRuntime = class {
       ...this.proxySwitch.status(),
       connected: this.connected !== void 0,
       transport: this.connected?.client.getStats().mode ?? "Disconnected",
+      preferredTransports: this.config.forceRelay ? ["relay"] : ["lan", "p2p", "turn", "relay"],
       remoteFeatures: this.connected?.features ?? remoteHostFeatures(),
       ...this.pendingWorkspaceSelection === void 0 ? {} : { workspaceSelection: { ...this.pendingWorkspaceSelection } },
       hostAuthorizationAvailable: this.host !== void 0,
@@ -14355,10 +14356,10 @@ function diagnosticReason(error) {
   return code === void 0 ? message : `${code}: ${message}`;
 }
 
-// src/control-runtime.ts
+// packages/plugin/src/control-runtime.ts
 import { hostname as hostname2 } from "node:os";
 
-// src/identity-store.ts
+// packages/plugin/src/identity-store.ts
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -14533,7 +14534,7 @@ function safeErrorMessage(error) {
   return error instanceof Error ? error.message : "invalid identity data";
 }
 
-// src/server-credentials.ts
+// packages/plugin/src/server-credentials.ts
 import { chmod as chmod2, mkdir as mkdir2, readFile as readFile2, rename as rename2, rm as rm2, stat as stat2, writeFile as writeFile2 } from "node:fs/promises";
 import { dirname as dirname2, join as join2 } from "node:path";
 var credentialSchema = external_exports.object({
@@ -14602,7 +14603,7 @@ function safeMessage(error) {
   return error instanceof Error ? error.message : "invalid credential data";
 }
 
-// src/control-runtime.ts
+// packages/plugin/src/control-runtime.ts
 var PluginControlRuntime = class {
   constructor(config, identityDirectory, settings, client, host) {
     this.config = config;
@@ -14829,7 +14830,7 @@ function fail2(error) {
   };
 }
 
-// src/logging.ts
+// packages/plugin/src/logging.ts
 var levels = ["debug", "info", "warn", "error"];
 var secretKey = /authorization|cookie|token|secret|private|shared|ciphertext|payload|prompt|source|workspace|output|registrationCode|deviceCode/i;
 var SafeLogger = class {
@@ -14862,11 +14863,11 @@ function redact(value, key = "") {
   return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [childKey, redact(child, childKey)]));
 }
 
-// src/service.ts
+// packages/plugin/src/service.ts
 import { randomUUID } from "node:crypto";
 import { RpcId } from "@deepseek-ai/dsh-host-apiproxy/api";
 
-// src/connection-controller.ts
+// packages/plugin/src/connection-controller.ts
 var ConnectionController = class {
   constructor(identities, createRouter, logger) {
     this.identities = identities;
@@ -15034,7 +15035,7 @@ function shortId2(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
 }
 
-// src/harness-version.ts
+// packages/plugin/src/harness-version.ts
 import { readFile as readFile3 } from "node:fs/promises";
 import { dirname as dirname3, isAbsolute, join as join3 } from "node:path";
 var LEGACY_PLACEHOLDER_VERSION = "0.0.1";
@@ -15064,7 +15065,7 @@ async function readHarnessDistributionVersion(entrypoint = process.argv[1]) {
   return void 0;
 }
 
-// src/rpc-router.ts
+// packages/plugin/src/rpc-router.ts
 var wireRequestSchema = external_exports.object({ method: external_exports.string().min(1), params: external_exports.unknown() }).strict();
 var apiMethods = /* @__PURE__ */ new Set([
   "harness.api.call",
@@ -15175,12 +15176,12 @@ function diagnosticReason3(error) {
   return message.replace(/[\r\n]+/g, " ").slice(0, 160) || "Unknown Host request failure.";
 }
 
-// src/file-viewer-contract.ts
+// packages/plugin/src/file-viewer-contract.ts
 var REMOTE_FILE_CHUNK_BYTES = 512 * 1024;
 var MAX_REMOTE_FILE_LOCATOR_CHARS = 4096;
 var MAX_REMOTE_DIRECTORY_ENTRIES = 1e3;
 
-// src/file-viewer-bridge.ts
+// packages/plugin/src/file-viewer-bridge.ts
 var locatorSchema = external_exports.string().min(1).max(MAX_REMOTE_FILE_LOCATOR_CHARS);
 var callSchema = external_exports.discriminatedUnion("endpoint", [
   external_exports.object({
@@ -15295,7 +15296,7 @@ function isOversizedListing(value) {
   return typeof value === "object" && value !== null && "entries" in value && Array.isArray(value.entries) && value.entries.length > MAX_REMOTE_DIRECTORY_ENTRIES;
 }
 
-// src/server-connection.ts
+// packages/plugin/src/server-connection.ts
 var DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 8e3;
 var HostServerConnection = class {
   constructor(config, identity, identities, api, connections, logger, createWebSocket = (url) => new WebSocket(url), rtcFactoryProvider, hostCapabilities = () => ["harness.api.v1"], harnessVersion) {
@@ -15982,7 +15983,7 @@ function closeCode(code) {
   return "CONNECTION_FAILED";
 }
 
-// src/remote-directory-browser.ts
+// packages/plugin/src/remote-directory-browser.ts
 import { readdir, stat as stat3 } from "node:fs/promises";
 import { homedir as homedir2, platform as platform2 } from "node:os";
 import { basename, dirname as dirname4, isAbsolute as isAbsolute2, parse, resolve } from "node:path";
@@ -16027,7 +16028,7 @@ function crumbs(path) {
   return result;
 }
 
-// src/harness-api-bridge.ts
+// packages/plugin/src/harness-api-bridge.ts
 var callSchema2 = external_exports.object({
   method: external_exports.string().min(1).max(80),
   rpcId: external_exports.string().min(1).max(128),
@@ -16760,7 +16761,7 @@ function concatChunks(chunks, totalBytes) {
   return result;
 }
 
-// src/service.ts
+// packages/plugin/src/service.ts
 var HostPluginRuntime = class {
   constructor(config, identities, apiProxy, logger, typertGateway, fileViewerHost) {
     this.config = config;
@@ -16947,7 +16948,7 @@ function shortId5(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
 }
 
-// src/remote-file-content-provider.ts
+// packages/plugin/src/remote-file-content-provider.ts
 var REMOTE_FILE_SAVE_AS_MAX_BYTES = 100 * 1024 * 1024;
 function createRemoteFileContentProvider(call, options = {}) {
   return {
@@ -17016,7 +17017,7 @@ function decodeBase64(value) {
   return bytes;
 }
 
-// src/index.ts
+// packages/plugin/src/index.ts
 var name = "dsh-remote";
 function apply(ctx, input = {}) {
   ctx.inject(["settings", "apiProxy", "connection", "typertGateway"], (runtimeContext) => activate(runtimeContext, input));

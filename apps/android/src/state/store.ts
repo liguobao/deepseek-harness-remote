@@ -31,6 +31,7 @@ import {
 } from '../services/storage'
 import type {
   ChatItem,
+  ConnectionProbeTransport,
   ConnectionStage,
   ConnectionSnapshot,
   DeviceIdentity,
@@ -61,6 +62,7 @@ interface AppState {
   selectedDevice?: RemoteDevice
   connection: ConnectionSnapshot
   connectionStage?: ConnectionStage
+  connectionProbeOrder: ConnectionProbeTransport[]
   hostDescriptor?: HostDescriptor
   workspaces: WorkspaceView[]
   archivedSessionIds: string[]
@@ -130,6 +132,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   bootPhase: 'loading',
   devices: [],
   connection: disconnected,
+  connectionProbeOrder: [],
   workspaces: [],
   archivedSessionIds: [],
   sessions: [],
@@ -298,6 +301,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedDevice: device,
       connection: { phase: 'connecting', stats: { mode: 'Disconnected', connected: false } },
       connectionStage: 'authenticating',
+      connectionProbeOrder: [],
       hostDescriptor: undefined,
       workspaces: [],
       sessions: [],
@@ -312,7 +316,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         : preference === 'turn'
           ? ['turn', 'relay'] as const
           : await resolveAutomaticPreferredTransports()
-      set({ connectionStage: 'transport' })
+      set({ connectionStage: 'transport', connectionProbeOrder: [...preferredTransports] })
       await connection.connect(
         config.baseUrl,
         identity,
@@ -367,6 +371,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       connection: disconnected,
       connectionStage: undefined,
+      connectionProbeOrder: [],
       selectedDevice: undefined,
       hostDescriptor: undefined,
       workspaces: [],
@@ -871,13 +876,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function initialData(): Pick<AppState,
   'config' | 'account' | 'devices' | 'selectedDevice' | 'connection' | 'hostDescriptor' | 'workspaces' |
   'archivedSessionIds' | 'sessions' | 'selectedSession' | 'messages' | 'sessionModels' | 'modelSelecting' | 'permissionSelecting' |
-  'historyHasMore' | 'historyLoadingOlder' | 'oldestLoadedSeq' | 'transportPreference' | 'authPhase' | 'refreshing' | 'busyAction' | 'error'> {
+  'historyHasMore' | 'historyLoadingOlder' | 'oldestLoadedSeq' | 'transportPreference' | 'authPhase' | 'refreshing' | 'busyAction' | 'error' |
+  'connectionProbeOrder'> {
   return {
     config: undefined,
     account: undefined,
     devices: [],
     selectedDevice: undefined,
     connection: disconnected,
+    connectionProbeOrder: [],
     hostDescriptor: undefined,
     workspaces: [],
     archivedSessionIds: [],

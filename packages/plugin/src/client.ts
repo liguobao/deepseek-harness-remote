@@ -32,6 +32,8 @@ interface FileViewerClientServiceLike {
   registerContentProvider(provider: RemoteFileContentProvider): () => void
 }
 
+type RemoteTransportPreference = 'lan' | 'p2p' | 'turn' | 'relay'
+
 interface RemoteStatus {
   mode: 'local' | 'remote'
   target?: { deviceId: string; name: string }
@@ -40,6 +42,7 @@ interface RemoteStatus {
   serverUrl?: string
   connected?: boolean
   transport?: 'LAN' | 'P2P' | 'TURN' | 'Relay' | 'Disconnected'
+  preferredTransports?: RemoteTransportPreference[]
   remoteFeatures?: { commandList: boolean; fileViewer: boolean }
   network?: RemoteNetworkDetails
   hostAuthorizationAvailable: boolean
@@ -61,7 +64,7 @@ interface RemoteNetworkDetails {
   connectedAt?: number
   controlChannelUrl: string
   controlChannelState: 'connecting' | 'open' | 'closing' | 'closed'
-  preferredTransports: Array<'lan' | 'p2p' | 'turn' | 'relay'>
+  preferredTransports: RemoteTransportPreference[]
   local: { deviceId: string; name: string; platform: string }
   remote: { deviceId: string; name: string; platform: string }
   webRtc?: {
@@ -278,6 +281,14 @@ const en = {
   remoteProgressAuthorizingPeerDetail: 'Confirming account membership and pinned Host identity.',
   remoteProgressOpeningChannel: 'Opening encrypted channel',
   remoteProgressOpeningChannelDetail: 'Trying LAN, P2P, TURN, then Relay if needed.',
+  remoteProgressProbeLan: 'Probing LAN',
+  remoteProgressProbeLanDetail: 'Checking whether the Host is reachable on the local network.',
+  remoteProgressProbeP2p: 'Probing P2P',
+  remoteProgressProbeP2pDetail: 'Checking direct internet candidates between this device and the Host.',
+  remoteProgressProbeTurn: 'Probing TURN',
+  remoteProgressProbeTurnDetail: 'Checking the TURN relay path for restricted networks.',
+  remoteProgressProbeRelay: 'Preparing Relay',
+  remoteProgressProbeRelayDetail: 'Preparing the encrypted Server Relay fallback if direct paths do not open.',
   remoteProgressLoadingWorkspaces: 'Loading workspaces',
   remoteProgressLoadingWorkspacesDetail: 'Reading the remote Harness workspace list through the tunnel.',
   remoteProgressOpeningWorkspace: 'Opening workspace',
@@ -464,6 +475,14 @@ const zh: Record<keyof typeof en, string> = {
   remoteProgressAuthorizingPeerDetail: '正在确认账号成员关系和已固定的 Host 身份。',
   remoteProgressOpeningChannel: '正在建立加密通道',
   remoteProgressOpeningChannelDetail: '依次尝试局域网、P2P、TURN，必要时回落到 Relay。',
+  remoteProgressProbeLan: '正在探测局域网',
+  remoteProgressProbeLanDetail: '检查当前设备是否能通过本地网络直连 Host。',
+  remoteProgressProbeP2p: '正在探测 P2P',
+  remoteProgressProbeP2pDetail: '检查当前设备和 Host 之间的互联网直连候选路径。',
+  remoteProgressProbeTurn: '正在探测 TURN',
+  remoteProgressProbeTurnDetail: '检查受限网络下可用的 TURN 中继路径。',
+  remoteProgressProbeRelay: '正在准备 Relay',
+  remoteProgressProbeRelayDetail: '如果直连路径未打开，将回落到加密的 Server Relay。',
   remoteProgressLoadingWorkspaces: '正在加载工作区',
   remoteProgressLoadingWorkspacesDetail: '通过隧道读取远端 Harness 工作区列表。',
   remoteProgressOpeningWorkspace: '正在打开工作区',
@@ -564,10 +583,18 @@ interface RemoteConnectionProgress {
   label: LocaleKey
   detail: LocaleKey
   percent: number
+  transports?: RemoteTransportPreference[]
+  activeTransport?: RemoteTransportPreference
 }
 
 interface RemoteConnectionProgressStep extends RemoteConnectionProgress {
   delayMs?: number
+}
+
+const defaultPreferredTransports: readonly RemoteTransportPreference[] = ['lan', 'p2p', 'turn', 'relay']
+
+function normalizedPreferredTransports(value: readonly RemoteTransportPreference[] | undefined): RemoteTransportPreference[] {
+  return value === undefined || value.length === 0 ? [...defaultPreferredTransports] : [...value]
 }
 
 function formatLocalTime(value: number): string {
@@ -609,6 +636,36 @@ function serverHostname(value: string): string {
   } catch {
     return value
   }
+}
+
+function transportLabel(value: RemoteTransportPreference, t: Translate): string {
+  if (value === 'lan') return t('remoteNetworkLan')
+  if (value === 'p2p') return t('remoteNetworkP2p')
+  if (value === 'turn') return t('remoteNetworkTurn')
+  return t('remoteNetworkRelay')
+}
+
+function transportProgressCopy(value: RemoteTransportPreference): { label: LocaleKey; detail: LocaleKey } {
+  if (value === 'lan') return { label: 'remoteProgressProbeLan', detail: 'remoteProgressProbeLanDetail' }
+  if (value === 'p2p') return { label: 'remoteProgressProbeP2p', detail: 'remoteProgressProbeP2pDetail' }
+  if (value === 'turn') return { label: 'remoteProgressProbeTurn', detail: 'remoteProgressProbeTurnDetail' }
+  return { label: 'remoteProgressProbeRelay', detail: 'remoteProgressProbeRelayDetail' }
+}
+
+function connectHostProgressSteps(preferredTransports: readonly RemoteTransportPreference[] | undefined): RemoteConnectionProgressStep[] {
+  const transports = normalizedPreferredTransports(preferredTransports)
+  return [
+    { label: 'remoteProgressCheckingHost', detail: 'remoteProgressCheckingHostDetail', percent: 12 },
+    { label: 'remoteProgressAuthorizingPeer', detail: 'remoteProgressAuthorizingPeerDetail', percent: 30, delayMs: 280 },
+    ...transports.map((transport, index) => ({
+      ...transportProgressCopy(transport),
+      percent: Math.min(76, 42 + index * 10),
+      delayMs: 680 + index * 360,
+      transports,
+      activeTransport: transport,
+    })),
+    { label: 'remoteProgressLoadingWorkspaces', detail: 'remoteProgressLoadingWorkspacesDetail', percent: 84, delayMs: 1_520, transports },
+  ]
 }
 
 function connectionErrorMessage(code: string, t: Translate): string {
@@ -673,6 +730,13 @@ window.__ModuleLoader__.load({
         'aria-valuenow': percent,
         'aria-label': props.t(progress.label),
       }, React.createElement('span', { style: { width: `${percent}%` } })),
+      progress.transports === undefined ? null : React.createElement('div', {
+        className: 'dshRemoteProgressTransports',
+        'aria-label': props.t('preferredTransports'),
+      }, progress.transports.map((transport, index) => React.createElement('span', {
+        key: `${transport}:${index}`,
+        className: transport === progress.activeTransport ? 'isActive' : undefined,
+      }, React.createElement('i', { 'aria-hidden': true }, String(index + 1)), transportLabel(transport, props.t)))),
       React.createElement('p', null, props.t(progress.detail)))
     }
 
@@ -700,13 +764,6 @@ window.__ModuleLoader__.load({
         if (progressRun.current === runId) setProgress(undefined)
       }
     }
-
-    const connectHostProgressSteps: RemoteConnectionProgressStep[] = [
-      { label: 'remoteProgressCheckingHost', detail: 'remoteProgressCheckingHostDetail', percent: 12 },
-      { label: 'remoteProgressAuthorizingPeer', detail: 'remoteProgressAuthorizingPeerDetail', percent: 32, delayMs: 280 },
-      { label: 'remoteProgressOpeningChannel', detail: 'remoteProgressOpeningChannelDetail', percent: 58, delayMs: 760 },
-      { label: 'remoteProgressLoadingWorkspaces', detail: 'remoteProgressLoadingWorkspacesDetail', percent: 82, delayMs: 1_350 },
-    ]
 
     const openWorkspaceProgressSteps: RemoteConnectionProgressStep[] = [
       { label: 'remoteProgressOpeningWorkspace', detail: 'remoteProgressOpeningWorkspaceDetail', percent: 30 },
@@ -1094,7 +1151,7 @@ window.__ModuleLoader__.load({
         setError(undefined)
         try {
           setWorkspaces(await runRemoteProgress(
-            connectHostProgressSteps,
+            connectHostProgressSteps(status?.preferredTransports),
             setProgress,
             progressRun,
             () => props.control<RemoteWorkspaceView[]>('workspaces.list', { targetDeviceId: host.deviceId }),
@@ -1475,7 +1532,7 @@ window.__ModuleLoader__.load({
         try {
           const action = (): Promise<unknown> => props.control('mode.set', { mode, ...(targetDeviceId === undefined ? {} : { targetDeviceId }) })
           if (mode === 'remote') {
-            await runRemoteProgress(connectHostProgressSteps, setProgress, progressRun, action)
+            await runRemoteProgress(connectHostProgressSteps(status?.preferredTransports), setProgress, progressRun, action)
           } else {
             await action()
           }
@@ -1751,7 +1808,7 @@ window.__ModuleLoader__.load({
           React.createElement('dl', null,
             fact(t('connectionId'), detailValue(network.connectionId), true),
             fact(t('connectedAt'), network.connectedAt === undefined ? t('notProvided') : formatLocalTime(network.connectedAt)),
-            fact(t('preferredTransports'), network.preferredTransports.map(value => value.toUpperCase()).join(' → ')),
+            fact(t('preferredTransports'), network.preferredTransports.map(value => transportLabel(value, t)).join(' → ')),
             fact(t('controlChannel'), `WebSocket · ${controlStateLabel}`),
             fact(t('controlAddress'), network.controlChannelUrl, true))),
         webRtc === undefined ? null : React.createElement('section', { className: 'dshRemoteRouteSection' },
@@ -1826,7 +1883,7 @@ window.__ModuleLoader__.load({
         '.dshRemoteModeButton:is(button):hover{background:var(--dsw-alias-interactive-bg-hover)}',
         '.dshRemoteSidebarEntry{box-sizing:border-box;position:relative;min-width:0;display:block;overflow:hidden}.dshRemoteSidebarEntry .dshRemoteModeButton{box-sizing:border-box;width:100%;min-width:0}.dshRemoteSidebarEntry.isWide{width:calc(100% + 8px);height:34px;margin:4px -4px}.dshRemoteSidebarEntry.isWide .dshRemoteModeButton{height:34px;min-height:34px;padding:6px 48px 6px 10px;border-radius:12px}.dshRemoteSidebarEntry.isRail{width:36px;height:54px}.dshRemoteSidebarEntry.isRail .dshRemoteModeButton{width:36px;height:36px;min-height:36px;justify-content:center;gap:0;margin:8px 0 10px;padding:0;border-radius:50%}.dshRemoteSidebarEntry.isActive .dshRemoteModeButton{color:var(--dsw-alias-label-secondary);background:transparent}.dshRemoteSidebarLabel{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshRemoteExitLink{position:absolute;top:50%;right:10px;transform:translateY(-50%);white-space:nowrap;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:0;font:inherit;font-size:12px;line-height:20px;cursor:pointer}.dshRemoteExitLink:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}.dshRemoteExitLink:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px;border-radius:2px}.dshRemoteExitLink:disabled{opacity:.45;cursor:default;text-decoration:none}',
         '.dshRemoteComputerIcon{box-sizing:border-box;width:18px;height:18px;flex:0 0 18px;color:var(--dsw-alias-label-secondary)}',
-        '.dshRemoteSessionHeader{position:fixed;z-index:25;top:12px;left:50%;transform:translateX(-50%);max-width:calc(100vw - 360px);height:28px;display:inline-flex;align-items:center;gap:7px;color:var(--dsw-alias-label-secondary);font-size:12px;white-space:nowrap}.dshRemoteSessionHeader>svg{width:15px;height:15px;flex:0 0 auto}.dshRemoteSessionTarget{min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis}.dshRemoteNetwork{flex:0 0 auto;border:0;background:transparent;color:inherit;font:inherit;padding:3px 2px;display:inline-flex;align-items:center;gap:5px;cursor:pointer}.dshRemoteNetwork:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}.dshRemoteNetwork:disabled{cursor:default}.dshRemoteNetwork>i{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}.dshRemoteNetwork.isOnline>i{background:var(--dsw-alias-state-success-primary)}.dshRemoteNetwork.isOffline{color:var(--dsw-alias-state-error-primary)}.dshRemoteNetwork.isOffline>i{background:currentColor}.dshRemoteEncrypted{flex:0 0 auto;color:var(--dsw-alias-label-tertiary)}.dshRemoteHeaderExitLink{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:3px 2px;font:inherit;text-decoration:none;cursor:pointer}.dshRemoteHeaderExitLink:hover{text-decoration:underline;color:var(--dsw-alias-label-primary)}.dshRemoteHeaderExitLink:disabled{opacity:.45;cursor:default;text-decoration:none}.dshRemoteNetwork:focus-visible,.dshRemoteHeaderExitLink:focus-visible,.dshRemoteRoutePanel>header button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.dshRemoteRouteBackdrop{position:fixed;inset:0;z-index:26}.dshRemoteRoutePanel{box-sizing:border-box;position:absolute;top:48px;right:28px;width:min(680px,calc(100vw - 32px));max-height:calc(100vh - 72px);overflow:auto;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:16px;white-space:normal}.dshRemoteRoutePanel>header{position:sticky;top:-16px;z-index:1;display:flex;align-items:center;justify-content:space-between;margin:-16px -16px 0;padding:16px;background:var(--dsw-alias-bg-layer-1)}.dshRemoteRoutePanel>header strong{font-size:14px}.dshRemoteRoutePanel>header button{width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:inherit;font-size:20px;cursor:pointer}.dshRemoteRoutePanel>header button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteRoutePanel ol{display:flex;align-items:stretch;margin:12px 0 0;padding:0 0 16px;border-bottom:1px solid var(--dsw-alias-border-l2);list-style:none}.dshRemoteRoutePanel li{position:relative;min-width:0;flex:1;display:flex;flex-direction:column;gap:4px;padding-right:20px}.dshRemoteRoutePanel li:not(:last-child)::after{content:"→";position:absolute;right:7px;top:21px;color:var(--dsw-alias-label-tertiary)}.dshRemoteRoutePanel li small{color:var(--dsw-alias-label-tertiary)}.dshRemoteRoutePanel li strong,.dshRemoteRoutePanel li span{overflow:hidden;text-overflow:ellipsis}.dshRemoteRoutePanel li strong{font-size:13px}.dshRemoteRoutePanel li span{color:var(--dsw-alias-label-secondary);font-size:11px}.dshRemoteRouteSection{padding-top:16px}.dshRemoteRouteSection h3{margin:0 0 10px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}.dshRemoteRouteSection dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px;margin:0}.dshRemoteRouteSection dl>div{min-width:0;display:grid;grid-template-columns:minmax(104px,auto) minmax(0,1fr);gap:10px;padding:7px 0;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12px;line-height:1.45}.dshRemoteRouteSection dt{color:var(--dsw-alias-label-tertiary)}.dshRemoteRouteSection dd{min-width:0;margin:0;text-align:right;overflow-wrap:anywhere}.dshRemoteRouteSection dd.isMono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}.dshRemoteRoutePanel>p{margin:16px 0 0;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5}@media(max-width:620px){.dshRemoteSessionHeader{top:8px;max-width:calc(100vw - 112px)}.dshRemoteSessionHeader>svg{display:none}.dshRemoteSessionTarget{max-width:130px}.dshRemoteEncrypted{display:none}.dshRemoteRoutePanel{top:42px;right:12px;max-height:calc(100vh - 56px)}.dshRemoteRoutePanel ol{flex-direction:column;gap:18px}.dshRemoteRoutePanel li:not(:last-child)::after{content:"↓";top:auto;right:auto;bottom:-16px;left:3px}.dshRemoteRouteSection dl{grid-template-columns:1fr}}',
+        '.dshRemoteSessionHeader{position:fixed;z-index:25;top:12px;left:50%;transform:translateX(-50%);max-width:calc(100vw - 360px);height:28px;display:inline-flex;align-items:center;gap:7px;color:var(--dsw-alias-label-secondary);font-size:12px;white-space:nowrap}.dshRemoteSessionHeader>svg{width:15px;height:15px;flex:0 0 auto}.dshRemoteSessionTarget{min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis}.dshRemoteNetwork{flex:0 0 auto;border:0;background:transparent;color:inherit;font:inherit;padding:3px 2px;display:inline-flex;align-items:center;gap:5px;cursor:pointer}.dshRemoteNetwork:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}.dshRemoteNetwork:disabled{cursor:default}.dshRemoteNetwork>i{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-tertiary)}.dshRemoteNetwork.isOnline>i{background:var(--dsw-alias-state-success-primary)}.dshRemoteNetwork.isOffline{color:var(--dsw-alias-state-error-primary)}.dshRemoteNetwork.isOffline>i{background:currentColor}.dshRemoteEncrypted{flex:0 0 auto;color:var(--dsw-alias-label-tertiary)}.dshRemoteHeaderExitLink{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:3px 2px;font:inherit;text-decoration:none;cursor:pointer}.dshRemoteHeaderExitLink:hover{text-decoration:underline;color:var(--dsw-alias-label-primary)}.dshRemoteHeaderExitLink:disabled{opacity:.45;cursor:default;text-decoration:none}.dshRemoteNetwork:focus-visible,.dshRemoteHeaderExitLink:focus-visible,.dshRemoteRoutePanel>header button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.dshRemoteRouteBackdrop{position:fixed;inset:0;z-index:26}.dshRemoteRoutePanel{box-sizing:border-box;position:absolute;top:48px;right:28px;width:min(680px,calc(100vw - 32px));max-height:calc(100vh - 72px);overflow:auto;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:16px;white-space:normal}.dshRemoteRoutePanel>header{position:sticky;top:-16px;z-index:1;display:flex;align-items:center;justify-content:space-between;margin:-16px -16px 0;padding:16px;background:var(--dsw-alias-bg-layer-1)}.dshRemoteRoutePanel>header strong{font-size:14px}.dshRemoteRoutePanel>header button{width:28px;height:28px;border:0;border-radius:7px;background:transparent;color:inherit;font-size:20px;cursor:pointer}.dshRemoteRoutePanel>header button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteRoutePanel ol{display:flex;align-items:stretch;margin:12px 0 0;padding:0 0 16px;border-bottom:1px solid var(--dsw-alias-border-l2);list-style:none}.dshRemoteRoutePanel li{position:relative;min-width:0;flex:1;display:flex;flex-direction:column;gap:4px;padding-right:20px}.dshRemoteRoutePanel li:not(:last-child)::after{content:"→";position:absolute;right:7px;top:21px;color:var(--dsw-alias-label-tertiary)}.dshRemoteRoutePanel li small{color:var(--dsw-alias-label-tertiary)}.dshRemoteRoutePanel li strong,.dshRemoteRoutePanel li span{overflow:hidden;text-overflow:ellipsis}.dshRemoteRoutePanel li strong{font-size:13px}.dshRemoteRoutePanel li span{color:var(--dsw-alias-label-secondary);font-size:11px}.dshRemoteRouteSection{padding-top:16px}.dshRemoteRouteSection h3{margin:0 0 10px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}.dshRemoteRouteSection dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px;margin:0}.dshRemoteRouteSection dl>div{min-width:0;display:grid;grid-template-columns:minmax(104px,auto) minmax(0,1fr);gap:10px;padding:7px 0;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12px;line-height:1.45}.dshRemoteRouteSection dt{color:var(--dsw-alias-label-tertiary)}.dshRemoteRouteSection dd{min-width:0;margin:0;text-align:right;overflow-wrap:anywhere}.dshRemoteRouteSection dd.isMono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}.dshRemoteRoutePanel>p{margin:16px 0 0;padding-top:12px;border-top:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5}@media(max-width:620px){.dshRemoteSessionHeader{top:8px;max-width:calc(100vw - 112px)}.dshRemoteSessionHeader>svg{display:none}.dshRemoteSessionTarget{max-width:130px}.dshRemoteEncrypted{display:none}.dshRemoteRoutePanel{top:42px;right:12px;max-height:calc(100vh - 56px)}.dshRemoteRoutePanel ol{flex-direction:column;gap:18px}.dshRemoteRoutePanel li:not(:last-child)::after{content:"↓";top:auto;right:auto;bottom:-16px;left:3px}.dshRemoteRouteSection dl{grid-template-columns:1fr}.dshRemoteRouteSection dl>div{grid-template-columns:1fr;gap:2px}.dshRemoteRouteSection dd{text-align:left}}',
         '.dshRemoteSessionHeader{left:auto;right:148px;transform:none;max-width:calc(100vw - 420px)}@media(max-width:760px){.dshRemoteSessionHeader{left:auto;right:104px;transform:none;max-width:calc(100vw - 124px)}}',
         '.dshRemoteModeButton:focus-visible,.dshRemotePage button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
         '.dshRemotePage{width:min(720px,100%);max-height:min(760px,calc(100vh - 40px));display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:14px;overflow:hidden;animation:dshRemotePageIn .18s cubic-bezier(.25,1,.5,1)}',
@@ -1836,7 +1893,7 @@ window.__ModuleLoader__.load({
         '.dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}',
         '.dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList>button>span{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteHostList>button strong{font-size:14px;font-weight:500}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary);font-size:12px}',
         '.dshRemoteSelectedHost{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}',
-        '.dshRemoteProgress{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}.dshRemoteProgressHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}.dshRemoteProgressHeader strong{font-size:13px;font-weight:600}.dshRemoteProgressHeader span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteProgressBar{height:6px;overflow:hidden;border-radius:999px;background:var(--dsw-alias-bg-layer-3)}.dshRemoteProgressBar>span{display:block;height:100%;border-radius:inherit;background:var(--dsw-alias-brand-primary);transition:width .22s ease-out}.dshRemoteProgress p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}@media(prefers-reduced-motion:reduce){.dshRemoteProgressBar>span{transition:none}}',
+        '.dshRemoteProgress{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}.dshRemoteProgressHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}.dshRemoteProgressHeader strong{font-size:13px;font-weight:600}.dshRemoteProgressHeader span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteProgressBar{height:6px;overflow:hidden;border-radius:999px;background:var(--dsw-alias-bg-layer-3)}.dshRemoteProgressBar>span{display:block;height:100%;border-radius:inherit;background:var(--dsw-alias-brand-primary);transition:width .22s ease-out}.dshRemoteProgressTransports{display:flex;flex-wrap:wrap;gap:6px}.dshRemoteProgressTransports>span{display:inline-flex;align-items:center;gap:5px;min-height:22px;padding:2px 8px 2px 4px;border-radius:999px;background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1}.dshRemoteProgressTransports>span.isActive{color:var(--dsw-alias-label-primary);box-shadow:inset 0 0 0 1px var(--dsw-alias-brand-primary)}.dshRemoteProgressTransports i{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-label-tertiary);color:var(--dsw-alias-bg-layer-1);font-style:normal;font-size:10px}.dshRemoteProgressTransports>span.isActive i{background:var(--dsw-alias-brand-primary)}.dshRemoteProgress p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}@media(prefers-reduced-motion:reduce){.dshRemoteProgressBar>span{transition:none}}',
         '.dshRemoteBrowser{display:flex;flex-direction:column}.dshRemoteCrumbs{display:flex;align-items:center;gap:4px;overflow:auto;padding:2px 0 10px}.dshRemoteCrumbs>button{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 7px;border-radius:6px;cursor:pointer}.dshRemoteCrumbs>button:not(:last-child)::after{content:" /";color:var(--dsw-alias-label-tertiary)}.dshRemoteCrumbs>button:disabled{color:var(--dsw-alias-label-primary);font-weight:600}',
         '.dshRemoteDirectoryList{min-height:72px;display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteDirectoryList>button{min-height:52px;display:grid;grid-template-columns:auto 1fr;column-gap:10px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:8px 4px;cursor:pointer}.dshRemoteDirectoryList>button:hover,.dshRemoteDirectoryList>button.isSelected{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteDirectoryList>button.isSelected{color:var(--dsw-alias-label-primary)}.dshRemoteDirectoryList>button>span:first-child{grid-row:1/3}.dshRemoteDirectoryList>button>small{grid-column:2;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis}.dshRemoteDirectoryList>p,.dshRemoteHint{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}',
         '.dshRemoteFolderBrowser{margin-top:14px}.dshRemoteFolderBrowser>p,.dshRemoteFolderList>p{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemoteFolderList{max-height:260px;overflow:auto;border-block:1px solid var(--dsw-alias-border-l2)}.dshRemoteFolderList>button{width:100%;min-height:42px;display:flex;align-items:center;gap:9px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:7px 6px;text-align:left;cursor:pointer}.dshRemoteFolderList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteFolderBrowser>small{display:block;margin-top:8px;color:var(--dsw-alias-state-warn-label)}',

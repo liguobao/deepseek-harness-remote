@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Archive, ChevronDown, ChevronUp, CircleCheck, CirclePlus, Laptop, MessageSquareText, Settings, ShieldCheck } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
-import type { ConnectionStage, RemoteDevice, RemoteSession } from '../types'
+import type { ConnectionProbeTransport, ConnectionStage, RemoteDevice, RemoteSession } from '../types'
 import {
   Button,
   EmptyState,
@@ -75,6 +75,7 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
   const selectedDevice = useAppStore(state => state.selectedDevice)
   const connection = useAppStore(state => state.connection)
   const connectionStage = useAppStore(state => state.connectionStage)
+  const connectionProbeOrder = useAppStore(state => state.connectionProbeOrder)
   const connect = useAppStore(state => state.connectDevice)
   const disconnect = useAppStore(state => state.disconnect)
   const clearError = useAppStore(state => state.clearError)
@@ -149,6 +150,9 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
             const active = index === currentIndex && !failed
             const stepFailed = index === currentIndex && failed
             const copy = zhCN.devices.connectionSteps[stage]
+            const stepBody = stage === 'transport' && connectionProbeOrder.length > 0
+              ? zhCN.devices.probeSequence(probeOrderText(connectionProbeOrder))
+              : copy.body
             return (
               <View key={stage} style={styles.connectionStep}>
                 <View style={styles.stepMarker}>
@@ -168,7 +172,17 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
                 </View>
                 <View style={styles.stepCopy}>
                   <Text style={[styles.stepTitle, (active || completed) && styles.stepTitleCurrent]}>{copy.title}</Text>
-                  <Text style={styles.stepBody}>{copy.body}</Text>
+                  <Text style={styles.stepBody}>{stepBody}</Text>
+                  {stage === 'transport' && connectionProbeOrder.length > 0 && (
+                    <View style={styles.probeList}>
+                      {connectionProbeOrder.map((transport, probeIndex) => (
+                        <View key={`${transport}:${probeIndex}`} style={styles.probeChip}>
+                          <Text style={styles.probeIndex}>{probeIndex + 1}</Text>
+                          <Text style={styles.probeText}>{probeTransportLabel(transport)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                 </View>
               </View>
             )
@@ -195,6 +209,7 @@ export function DeviceDetailScreen({ device, onBack, onConnect, onWorkspaces }: 
 }) {
   const selected = useAppStore(state => state.selectedDevice)
   const connection = useAppStore(state => state.connection)
+  const connectionProbeOrder = useAppStore(state => state.connectionProbeOrder)
   const descriptor = useAppStore(state => state.hostDescriptor)
   const workspaces = useAppStore(state => state.workspaces)
   const trust = useAppStore(state => state.trustDevice)
@@ -262,6 +277,7 @@ export function DeviceDetailScreen({ device, onBack, onConnect, onWorkspaces }: 
                 <SectionTitle>{zhCN.devices.secureConnection}</SectionTitle>
                 <View style={styles.group}>
                   <KeyValue label={zhCN.devices.path} value={connectionPath(connection.stats.mode)} />
+                  {connectionProbeOrder.length > 0 && <KeyValue label={zhCN.devices.probeOrder} value={probeOrderText(connectionProbeOrder)} />}
                   <KeyValue label={zhCN.devices.encryption} value="Noise IK · ChaCha20-Poly1305" />
                 </View>
 
@@ -400,6 +416,17 @@ function connectionPath(mode: string | undefined): string {
   return mode === undefined ? zhCN.common.unavailable : names[mode] ?? mode
 }
 
+function probeOrderText(order: readonly ConnectionProbeTransport[]): string {
+  return order.map(probeTransportLabel).join(' -> ')
+}
+
+function probeTransportLabel(transport: ConnectionProbeTransport): string {
+  if (transport === 'lan') return zhCN.status.lan
+  if (transport === 'p2p') return zhCN.status.p2p
+  if (transport === 'turn') return zhCN.status.turn
+  return zhCN.status.relay
+}
+
 function connectionBadgeStatus(
   isSelected: boolean,
   phase: 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'offline',
@@ -446,6 +473,10 @@ const styles = StyleSheet.create({
   stepTitle: { ...type.bodyStrong, color: colors.muted },
   stepTitleCurrent: { color: colors.ink },
   stepBody: { ...type.small, color: colors.muted, marginTop: 2 },
+  probeList: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm },
+  probeChip: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs, paddingVertical: 5, paddingHorizontal: spacing.xs, borderRadius: radius.sm, backgroundColor: colors.surfaceStrong },
+  probeIndex: { ...type.caption, minWidth: 16, height: 16, borderRadius: radius.pill, overflow: 'hidden', textAlign: 'center', color: colors.white, backgroundColor: colors.primary },
+  probeText: { ...type.caption, color: colors.ink },
   deviceHero: { paddingVertical: spacing.xxl, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   deviceIcon: { width: 56, height: 56, borderRadius: radius.lg, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   deviceHeroCopy: { flex: 1 },

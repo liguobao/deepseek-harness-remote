@@ -15,6 +15,8 @@ export type ConnectionStage =
   | 'loading'
   | 'ready'
 
+export type ConnectionProbeTransport = 'lan' | 'p2p' | 'turn' | 'relay'
+
 export interface ServerConfig {
   baseUrl: string
   account?: string
