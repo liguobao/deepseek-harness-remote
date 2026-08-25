@@ -13212,7 +13212,7 @@ function normalizeServerUrl(value) {
 }
 
 // packages/plugin/src/version.ts
-var PLUGIN_VERSION = "0.3.30";
+var PLUGIN_VERSION = "0.3.31";
 
 // packages/plugin/src/server-api.ts
 var HostServerApi = class {

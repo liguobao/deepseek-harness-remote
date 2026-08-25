@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.31
+
+- Shows the Remote Client connection probe order during Host connection, including LAN, P2P, TURN, and Relay steps in the desktop progress UI.
+- Adds the preferred transport order to the desktop connection details panel with localized labels.
+- Shows the same probe order on Android connection progress and device connection information screens.
+- Gates remote File Viewer browser-side Save As by route: LAN, P2P, and TURN are allowed, while Relay and disconnected routes stay disabled.
+- Advances the Plugin and Android app to `0.3.31` (`versionCode 15`).
+
 ## 0.3.30
 
 - Lets authenticated Remote clients configure every settings namespace
