@@ -4,15 +4,26 @@ class FakeCore {
   private readonly closeHandlers = new Set<() => void>()
   private readonly eventHandlers = new Set<(event: unknown) => void>()
   readonly calls: string[] = []
+  readonly rpcCalls: Array<{ method: string; params?: unknown }> = []
   closeCount = 0
   private closeNotified = false
   private rejectPendingRpc?: (error: Error) => void
 
   async connect(): Promise<void> {}
-  async rpc(method: string): Promise<unknown> {
+  async rpc(method: string, params?: unknown): Promise<unknown> {
     this.calls.push(method)
+    this.rpcCalls.push({ method, params })
     if (method === 'harness.api.stream.open' && testState.blockStreamOpen) {
       return new Promise((_, reject) => { this.rejectPendingRpc = reject })
+    }
+    if (method === 'harness.api.call') {
+      const request = params as { method?: unknown; rpcId?: unknown }
+      if (request.method === 'commands.execute') {
+        return {
+          rpcId: String(request.rpcId),
+          result: { ok: true, value: { commandId: 'permission', result: { kind: 'success' } } },
+        }
+      }
     }
     return {}
   }
@@ -118,5 +129,21 @@ describe('RemoteConnection close state', () => {
     expect(connection.connectedHost).toBeUndefined()
     expect(core.closeCount).toBe(1)
     expect(closed).toHaveBeenCalledOnce()
+  })
+
+  it('sends the complete Host command payload when changing approval mode', async () => {
+    const connection = new RemoteConnection()
+    await connection.connect('https://server.example.com', identity, host, 'access-token', true)
+    const core = testState.cores[0]!
+
+    await connection.selectPermission('session-1', 'default')
+
+    expect(core.rpcCalls).toContainEqual({
+      method: 'harness.api.call',
+      params: expect.objectContaining({
+        method: 'commands.execute',
+        payload: { agentId: 'session-1', line: '/permission default', images: [] },
+      }),
+    })
   })
 })

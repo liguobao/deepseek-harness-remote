@@ -49,7 +49,7 @@ describe('TypertGatewaySwitch', () => {
 })
 
 function command(): Parameters<TypertGatewayLike['invoke']>[0] {
-  return { namespace: 'commands', method: 'execute', args: { agentId: 's1', line: '/permission danger-full-access' } }
+  return { namespace: 'commands', method: 'execute', args: { agentId: 's1', line: '/permission danger-full-access', images: [] } }
 }
 
 function commandList(): Parameters<TypertGatewayLike['invoke']>[0] {

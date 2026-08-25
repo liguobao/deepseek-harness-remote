@@ -98,7 +98,7 @@ export class RemoteConnection {
   async selectPermission(sessionId: string, preset: string): Promise<void> {
     const execution = await this.call<{ result: { kind: 'success' | 'error'; text?: string } } | undefined>(
       'commands.execute',
-      { agentId: sessionId, line: `/permission ${preset}` },
+      { agentId: sessionId, line: `/permission ${preset}`, images: [] },
     )
     if (execution === undefined) throw new Error('Harness does not provide the permission command.')
     if (execution.result.kind === 'error') throw new Error(execution.result.text ?? 'Harness rejected the permission preset.')

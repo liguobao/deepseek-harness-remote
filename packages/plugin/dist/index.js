@@ -16070,7 +16070,11 @@ var transferReadSchema = external_exports.object({ transferId: transferIdSchema,
 var transferCloseSchema = external_exports.object({ transferId: transferIdSchema }).strict();
 var commandExecuteSchema = external_exports.object({
   agentId: external_exports.string().min(1).max(128),
-  line: external_exports.string().min(1).max(2048)
+  line: external_exports.string().min(1).max(2048),
+  // The official Harness command endpoint requires the `images` wire field.
+  // Remote command execution keeps attachments out of scope, so only an empty
+  // list is accepted and legacy clients that omit it are normalized below.
+  images: external_exports.array(external_exports.never()).length(0).optional()
 }).strict();
 var commandListSchema = external_exports.object({
   agentId: external_exports.string().min(1).max(128)
@@ -16484,7 +16488,8 @@ function createMethodMap(api, typertGateway) {
       const [namespace, commandMethod] = method.split(".");
       const implementation2 = async (request, signal) => {
         if (commandMethod === "execute") {
-          const args2 = commandExecuteSchema.parse(request.payload);
+          const payload = commandExecuteSchema.parse(request.payload);
+          const args2 = { ...payload, images: payload.images ?? [] };
           const value2 = await typertGateway.invoke({
             namespace,
             method: "execute",

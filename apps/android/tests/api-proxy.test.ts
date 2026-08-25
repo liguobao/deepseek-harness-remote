@@ -243,7 +243,7 @@ describe('Remote ApiProxy tunnel client', () => {
     await proxy.sessionSelectPermission('s1', 'default')
     expect(core.rpcCalls).toHaveBeenCalledWith('harness.api.call', expect.objectContaining({
       method: 'commands.execute',
-      payload: { agentId: 's1', line: '/permission default' },
+      payload: { agentId: 's1', line: '/permission default', images: [] },
     }), undefined)
     await expect(proxy.sessionSelectPermission('s1', '../unsafe')).rejects.toMatchObject({ code: 'INVALID_MESSAGE' })
   })

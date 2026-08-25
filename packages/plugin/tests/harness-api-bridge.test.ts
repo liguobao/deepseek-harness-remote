@@ -148,7 +148,7 @@ describe('HarnessApiBridge', () => {
 
   it('forwards the Host command registry through the Typert gateway with strict payload limits', async () => {
     const denied = new HarnessApiBridge(api({}), vi.fn(async () => undefined))
-    await expect(denied.call({ method: 'commands.execute', rpcId: 'cmd-denied', payload: { agentId: 'session-1', line: '/goal complete' } }))
+    await expect(denied.call({ method: 'commands.execute', rpcId: 'cmd-denied', payload: { agentId: 'session-1', line: '/goal complete', images: [] } }))
       .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
     await expect(denied.call({ method: 'commands.list', rpcId: 'list-denied', payload: { agentId: 'session-1' } }))
       .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
@@ -174,13 +174,15 @@ describe('HarnessApiBridge', () => {
     expect(invoke).toHaveBeenCalledWith({
       namespace: 'commands',
       method: 'execute',
-      args: { agentId: 'session-1', line: '/goal complete' },
+      args: { agentId: 'session-1', line: '/goal complete', images: [] },
       signal: expect.any(AbortSignal),
     })
 
     // The bridge still rejects malformed envelopes and oversized input before
     // they reach the Host. Command syntax and availability belong to the Host.
     await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-extra', payload: { agentId: 'session-1', line: '/goal complete', extra: true } }))
+      .rejects.toBeDefined()
+    await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-images', payload: { agentId: 'session-1', line: '/goal complete', images: [{ mediaType: 'image/png', data: 'aW1hZ2U=' }] } }))
       .rejects.toBeDefined()
     await expect(bridged.call({ method: 'commands.execute', rpcId: 'cmd-empty', payload: { agentId: 'session-1', line: '' } }))
       .rejects.toBeDefined()

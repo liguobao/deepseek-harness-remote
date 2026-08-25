@@ -248,7 +248,7 @@ export class RemoteApiProxy {
     }
     const execution = await this.call<{
       result: { kind: 'success' | 'error'; text?: string }
-    } | undefined>('commands.execute', { agentId: sessionId, line: `/permission ${preset}` })
+    } | undefined>('commands.execute', { agentId: sessionId, line: `/permission ${preset}`, images: [] })
     if (execution === undefined) throw new ApiProxyError('UNSUPPORTED', 'The Host does not provide the permission command.')
     if (execution.result.kind === 'error') throw new ApiProxyError('COMMAND_FAILED', execution.result.text ?? 'The Host rejected the permission preset.')
   }
