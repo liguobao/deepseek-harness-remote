@@ -1798,6 +1798,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
     remoteProgressProbeRelay: "Preparing Relay",
     remoteProgressProbeRelayDetail: "Preparing the encrypted Server Relay fallback if direct paths do not open.",
     remoteProgressTryingPrefix: "Trying ",
+    remoteProgressUsingPrefix: "Using ",
     remoteProgressLoadingWorkspaces: "Loading workspaces",
     remoteProgressLoadingWorkspacesDetail: "Reading the remote Harness workspace list through the tunnel.",
     remoteProgressOpeningWorkspace: "Opening workspace",
@@ -1992,6 +1993,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
     remoteProgressProbeRelay: "\u6B63\u5728\u51C6\u5907 Relay",
     remoteProgressProbeRelayDetail: "\u5982\u679C\u76F4\u8FDE\u8DEF\u5F84\u672A\u6253\u5F00\uFF0C\u5C06\u56DE\u843D\u5230\u52A0\u5BC6\u7684 Server Relay\u3002",
     remoteProgressTryingPrefix: "\u6B63\u5728\u5C1D\u8BD5 ",
+    remoteProgressUsingPrefix: "\u5DF2\u8FDE\u63A5 ",
     remoteProgressLoadingWorkspaces: "\u6B63\u5728\u52A0\u8F7D\u5DE5\u4F5C\u533A",
     remoteProgressLoadingWorkspacesDetail: "\u901A\u8FC7\u96A7\u9053\u8BFB\u53D6\u8FDC\u7AEF Harness \u5DE5\u4F5C\u533A\u5217\u8868\u3002",
     remoteProgressOpeningWorkspace: "\u6B63\u5728\u6253\u5F00\u5DE5\u4F5C\u533A",
@@ -2113,19 +2115,38 @@ Minimum version required to store current data is: ` + bestVersion + `.
     return value === "lan" ? { label: "remoteProgressProbeLan", detail: "remoteProgressProbeLanDetail" } : value === "p2p" ? { label: "remoteProgressProbeP2p", detail: "remoteProgressProbeP2pDetail" } : value === "turn" ? { label: "remoteProgressProbeTurn", detail: "remoteProgressProbeTurnDetail" } : { label: "remoteProgressProbeRelay", detail: "remoteProgressProbeRelayDetail" };
   }
   function connectHostProgressSteps(preferredTransports) {
-    let transports = normalizedPreferredTransports(preferredTransports);
+    let transports = normalizedPreferredTransports(preferredTransports), probeTransports = transports.filter((transport) => transport !== "relay" || transports.length === 1);
     return [
       { label: "remoteProgressCheckingHost", detail: "remoteProgressCheckingHostDetail", percent: 12 },
       { label: "remoteProgressAuthorizingPeer", detail: "remoteProgressAuthorizingPeerDetail", percent: 30, delayMs: 280 },
-      ...transports.map((transport, index) => ({
+      ...probeTransports.map((transport, index) => ({
         ...transportProgressCopy(transport),
         percent: Math.min(76, 42 + index * 10),
         delayMs: 680 + index * 360,
-        transports,
-        activeTransport: transport
+        transports: probeTransports,
+        activeTransport: transport,
+        routeVerb: "trying"
       })),
       { label: "remoteProgressLoadingWorkspaces", detail: "remoteProgressLoadingWorkspacesDetail", percent: 84, delayMs: 1520, transports }
     ];
+  }
+  function statusTransportPreference(status) {
+    if (status?.transport === "LAN") return "lan";
+    if (status?.transport === "P2P") return "p2p";
+    if (status?.transport === "TURN") return "turn";
+    if (status?.transport === "Relay") return "relay";
+  }
+  function connectedProgress(status) {
+    let activeTransport = statusTransportPreference(status);
+    if (activeTransport !== void 0)
+      return {
+        label: "remoteProgressReady",
+        detail: "remoteProgressReadyDetail",
+        percent: 100,
+        transports: [activeTransport],
+        activeTransport,
+        routeVerb: "using"
+      };
   }
   function connectionErrorMessage(code, t) {
     return t(code === "ACCOUNT_AUTH_REQUIRED" || code === "AUTH_INVALID" || code === "TOKEN_EXPIRED" ? "connectionAuthorizationExpired" : code === "DEVICE_REVOKED" ? "connectionDeviceRevoked" : code === "DEVICE_OWNERSHIP_REQUIRED" ? "connectionOwnershipRequired" : code === "RATE_LIMITED" ? "connectionRateLimited" : code === "UNSUPPORTED_VERSION" ? "connectionVersionMismatch" : code === "INVALID_MESSAGE" ? "connectionInvalidResponse" : code === "CONNECTION_FAILED" || code === "SERVER_NOT_CONFIGURED" ? "connectionReachability" : "connectionUnexpected");
@@ -2146,7 +2167,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
         let percent = Math.max(0, Math.min(100, Math.round(progress.percent))), activeTransportIndex = progress.transports?.findIndex((transport) => transport === progress.activeTransport) ?? -1, detail = progress.transports !== void 0 && progress.activeTransport !== void 0 && activeTransportIndex > -1 ? React.createElement(
           "span",
           { className: "dshRemoteProgressRoute" },
-          props.t("remoteProgressTryingPrefix"),
+          props.t(progress.routeVerb === "using" ? "remoteProgressUsingPrefix" : "remoteProgressTryingPrefix"),
           progress.transports.map((transport, index) => React.createElement(
             React.Fragment,
             { key: `${transport}:${index}` },
@@ -2180,7 +2201,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           }, React.createElement("span", { style: { width: `${percent}%` } }))
         );
       }
-      async function runRemoteProgress(steps, setProgress, progressRun, action) {
+      async function runRemoteProgress(steps, setProgress, progressRun, action, readyProgress) {
         let runId = progressRun.current + 1;
         progressRun.current = runId;
         let apply2 = (next) => {
@@ -2190,7 +2211,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
         let timers = rest.map((step) => window.setTimeout(() => apply2(step), step.delayMs ?? 0));
         try {
           let result = await action();
-          return apply2({ label: "remoteProgressReady", detail: "remoteProgressReadyDetail", percent: 100 }), await new Promise((resolve) => window.setTimeout(resolve, 220)), result;
+          return apply2(readyProgress?.(result) ?? { label: "remoteProgressReady", detail: "remoteProgressReadyDetail", percent: 100 }), await new Promise((resolve) => window.setTimeout(resolve, 520)), result;
         } finally {
           timers.forEach((timer) => window.clearTimeout(timer)), progressRun.current === runId && setProgress(void 0);
         }
@@ -2492,12 +2513,18 @@ Minimum version required to store current data is: ` + bestVersion + `.
         }, t(provider === "github" ? "githubLogin" : "zhihuLogin")), selectHost = async (host) => {
           setBusy(!0), setError(void 0);
           try {
-            setWorkspaces(await runRemoteProgress(
+            let result = await runRemoteProgress(
               connectHostProgressSteps(status?.preferredTransports),
               setProgress,
               progressRun,
-              () => props.control("workspaces.list", { targetDeviceId: host.deviceId })
-            )), setSelectedHost(host), setPath(""), setAddingWorkspace(!1), setDirectory(void 0);
+              async () => {
+                let nextWorkspaces = await props.control("workspaces.list", { targetDeviceId: host.deviceId }), nextStatus = await props.control("status").catch(() => {
+                });
+                return nextStatus !== void 0 && setStatus(nextStatus), { workspaces: nextWorkspaces, status: nextStatus };
+              },
+              (result2) => connectedProgress(result2.status)
+            );
+            setWorkspaces(result.workspaces), setSelectedHost(host), setPath(""), setAddingWorkspace(!1), setDirectory(void 0);
           } catch (reason) {
             setError(messageOf(reason));
           } finally {
@@ -2573,15 +2600,17 @@ Minimum version required to store current data is: ` + bestVersion + `.
           if (!(selectedHost === void 0 || path.trim() === "")) {
             setBusy(!0), setError(void 0);
             try {
-              await runRemoteProgress(
+              let nextStatus = await runRemoteProgress(
                 openWorkspaceProgressSteps,
                 setProgress,
                 progressRun,
                 () => props.control("workspace.open", {
                   targetDeviceId: selectedHost.deviceId,
                   path: path.trim()
-                })
-              ), window.location.reload();
+                }),
+                connectedProgress
+              );
+              setStatus(nextStatus), window.location.reload();
             } catch (reason) {
               setError(messageOf(reason)), setBusy(!1);
             }
@@ -2927,7 +2956,13 @@ Minimum version required to store current data is: ` + bestVersion + `.
           setBusy(!0), setError(void 0);
           try {
             let action = () => props.control("mode.set", { mode, ...targetDeviceId === void 0 ? {} : { targetDeviceId } });
-            mode === "remote" ? await runRemoteProgress(connectHostProgressSteps(status?.preferredTransports), setProgress, progressRun, action) : await action(), window.location.reload();
+            setStatus(mode === "remote" ? await runRemoteProgress(
+              connectHostProgressSteps(status?.preferredTransports),
+              setProgress,
+              progressRun,
+              action,
+              connectedProgress
+            ) : await action()), window.location.reload();
           } catch (reason) {
             setError(messageOf(reason)), setBusy(!1);
           }
@@ -3075,7 +3110,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           } finally {
             setBusy(!1);
           }
-        }, transport = status.transport ?? "Disconnected", networkLabel = t(transport === "P2P" ? "remoteNetworkP2p" : transport === "TURN" ? "remoteNetworkTurn" : transport === "Relay" ? "remoteNetworkRelay" : transport === "LAN" ? "remoteNetworkLan" : "remoteNetworkOffline"), networkOnline = status.connected === !0 && transport !== "Disconnected", routeVia = t(transport === "P2P" ? "connectionRouteP2p" : transport === "TURN" ? "connectionRouteTurn" : transport === "Relay" ? "connectionRouteRelay" : "connectionRouteLan"), routeViaDetail = t(transport === "P2P" ? "connectionRouteP2pDetail" : transport === "TURN" ? "connectionRouteTurnDetail" : transport === "Relay" ? "connectionRouteRelayDetail" : "connectionRouteLanDetail"), network = status.network, webRtc = network?.webRtc, controlStateLabel = network?.controlChannelState === "connecting" ? t("controlStateConnecting") : network?.controlChannelState === "open" ? t("controlStateOpen") : network?.controlChannelState === "closing" ? t("controlStateClosing") : t("controlStateClosed"), detailValue = (value) => value === void 0 || value === "" ? t("notProvided") : String(value), candidateLabel = (value) => value === "host" ? t("candidateHost") : value === "srflx" ? t("candidateSrflx") : value === "prflx" ? t("candidatePrflx") : value === "relay" ? t("candidateRelay") : detailValue(value), fact = (label, value, mono = !1) => React.createElement(
+        }, transport = status.network?.webRtc?.mode ?? status.transport ?? "Disconnected", networkLabel = t(transport === "P2P" ? "remoteNetworkP2p" : transport === "TURN" ? "remoteNetworkTurn" : transport === "Relay" ? "remoteNetworkRelay" : transport === "LAN" ? "remoteNetworkLan" : "remoteNetworkOffline"), networkOnline = status.connected === !0 && transport !== "Disconnected", routeVia = t(transport === "P2P" ? "connectionRouteP2p" : transport === "TURN" ? "connectionRouteTurn" : transport === "Relay" ? "connectionRouteRelay" : "connectionRouteLan"), routeViaDetail = t(transport === "P2P" ? "connectionRouteP2pDetail" : transport === "TURN" ? "connectionRouteTurnDetail" : transport === "Relay" ? "connectionRouteRelayDetail" : "connectionRouteLanDetail"), network = status.network, webRtc = network?.webRtc, controlStateLabel = network?.controlChannelState === "connecting" ? t("controlStateConnecting") : network?.controlChannelState === "open" ? t("controlStateOpen") : network?.controlChannelState === "closing" ? t("controlStateClosing") : t("controlStateClosed"), detailValue = (value) => value === void 0 || value === "" ? t("notProvided") : String(value), candidateLabel = (value) => value === "host" ? t("candidateHost") : value === "srflx" ? t("candidateSrflx") : value === "prflx" ? t("candidatePrflx") : value === "relay" ? t("candidateRelay") : detailValue(value), fact = (label, value, mono = !1) => React.createElement(
           "div",
           null,
           React.createElement("dt", null, label),

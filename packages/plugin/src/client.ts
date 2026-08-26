@@ -292,6 +292,7 @@ const en = {
   remoteProgressProbeRelay: 'Preparing Relay',
   remoteProgressProbeRelayDetail: 'Preparing the encrypted Server Relay fallback if direct paths do not open.',
   remoteProgressTryingPrefix: 'Trying ',
+  remoteProgressUsingPrefix: 'Using ',
   remoteProgressLoadingWorkspaces: 'Loading workspaces',
   remoteProgressLoadingWorkspacesDetail: 'Reading the remote Harness workspace list through the tunnel.',
   remoteProgressOpeningWorkspace: 'Opening workspace',
@@ -488,6 +489,7 @@ const zh: Record<keyof typeof en, string> = {
   remoteProgressProbeRelay: '正在准备 Relay',
   remoteProgressProbeRelayDetail: '如果直连路径未打开，将回落到加密的 Server Relay。',
   remoteProgressTryingPrefix: '正在尝试 ',
+  remoteProgressUsingPrefix: '已连接 ',
   remoteProgressLoadingWorkspaces: '正在加载工作区',
   remoteProgressLoadingWorkspacesDetail: '通过隧道读取远端 Harness 工作区列表。',
   remoteProgressOpeningWorkspace: '正在打开工作区',
@@ -590,6 +592,7 @@ interface RemoteConnectionProgress {
   percent: number
   transports?: RemoteTransportPreference[]
   activeTransport?: RemoteTransportPreference
+  routeVerb?: 'trying' | 'using'
 }
 
 interface RemoteConnectionProgressStep extends RemoteConnectionProgress {
@@ -666,18 +669,41 @@ function transportProgressCopy(value: RemoteTransportPreference): { label: Local
 
 function connectHostProgressSteps(preferredTransports: readonly RemoteTransportPreference[] | undefined): RemoteConnectionProgressStep[] {
   const transports = normalizedPreferredTransports(preferredTransports)
+  const probeTransports = transports.filter(transport => transport !== 'relay' || transports.length === 1)
   return [
     { label: 'remoteProgressCheckingHost', detail: 'remoteProgressCheckingHostDetail', percent: 12 },
     { label: 'remoteProgressAuthorizingPeer', detail: 'remoteProgressAuthorizingPeerDetail', percent: 30, delayMs: 280 },
-    ...transports.map((transport, index) => ({
+    ...probeTransports.map((transport, index) => ({
       ...transportProgressCopy(transport),
       percent: Math.min(76, 42 + index * 10),
       delayMs: 680 + index * 360,
-      transports,
+      transports: probeTransports,
       activeTransport: transport,
+      routeVerb: 'trying' as const,
     })),
     { label: 'remoteProgressLoadingWorkspaces', detail: 'remoteProgressLoadingWorkspacesDetail', percent: 84, delayMs: 1_520, transports },
   ]
+}
+
+function statusTransportPreference(status: RemoteStatus | undefined): RemoteTransportPreference | undefined {
+  if (status?.transport === 'LAN') return 'lan'
+  if (status?.transport === 'P2P') return 'p2p'
+  if (status?.transport === 'TURN') return 'turn'
+  if (status?.transport === 'Relay') return 'relay'
+  return undefined
+}
+
+function connectedProgress(status: RemoteStatus | undefined): RemoteConnectionProgress | undefined {
+  const activeTransport = statusTransportPreference(status)
+  if (activeTransport === undefined) return undefined
+  return {
+    label: 'remoteProgressReady',
+    detail: 'remoteProgressReadyDetail',
+    percent: 100,
+    transports: [activeTransport],
+    activeTransport,
+    routeVerb: 'using',
+  }
 }
 
 function connectionErrorMessage(code: string, t: Translate): string {
@@ -729,7 +755,7 @@ window.__ModuleLoader__.load({
       const activeTransportIndex = progress.transports?.findIndex(transport => transport === progress.activeTransport) ?? -1
       const detail = progress.transports !== undefined && progress.activeTransport !== undefined && activeTransportIndex > -1
         ? React.createElement('span', { className: 'dshRemoteProgressRoute' },
-          props.t('remoteProgressTryingPrefix'),
+          props.t(progress.routeVerb === 'using' ? 'remoteProgressUsingPrefix' : 'remoteProgressTryingPrefix'),
           progress.transports.map((transport, index) => React.createElement(React.Fragment, { key: `${transport}:${index}` },
             index === 0 ? null : React.createElement('span', { className: 'dshRemoteProgressRouteArrow', 'aria-hidden': true }, ' -> '),
             React.createElement('span', {
@@ -760,6 +786,7 @@ window.__ModuleLoader__.load({
       setProgress: (value: RemoteConnectionProgress | undefined) => void,
       progressRun: { current: number },
       action: () => Promise<T>,
+      readyProgress?: (result: T) => RemoteConnectionProgress | undefined,
     ): Promise<T> {
       const runId = progressRun.current + 1
       progressRun.current = runId
@@ -771,8 +798,8 @@ window.__ModuleLoader__.load({
       const timers = rest.map(step => window.setTimeout(() => apply(step), step.delayMs ?? 0))
       try {
         const result = await action()
-        apply({ label: 'remoteProgressReady', detail: 'remoteProgressReadyDetail', percent: 100 })
-        await new Promise(resolve => window.setTimeout(resolve, 220))
+        apply(readyProgress?.(result) ?? { label: 'remoteProgressReady', detail: 'remoteProgressReadyDetail', percent: 100 })
+        await new Promise(resolve => window.setTimeout(resolve, 520))
         return result
       } finally {
         timers.forEach(timer => window.clearTimeout(timer))
@@ -1165,12 +1192,19 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError(undefined)
         try {
-          setWorkspaces(await runRemoteProgress(
+          const result = await runRemoteProgress(
             connectHostProgressSteps(status?.preferredTransports),
             setProgress,
             progressRun,
-            () => props.control<RemoteWorkspaceView[]>('workspaces.list', { targetDeviceId: host.deviceId }),
-          ))
+            async () => {
+              const nextWorkspaces = await props.control<RemoteWorkspaceView[]>('workspaces.list', { targetDeviceId: host.deviceId })
+              const nextStatus = await props.control<RemoteStatus>('status').catch(() => undefined)
+              if (nextStatus !== undefined) setStatus(nextStatus)
+              return { workspaces: nextWorkspaces, status: nextStatus }
+            },
+            result => connectedProgress(result.status),
+          )
+          setWorkspaces(result.workspaces)
           setSelectedHost(host)
           setPath('')
           setAddingWorkspace(false)
@@ -1287,15 +1321,17 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError(undefined)
         try {
-          await runRemoteProgress(
+          const nextStatus = await runRemoteProgress(
             openWorkspaceProgressSteps,
             setProgress,
             progressRun,
-            () => props.control('workspace.open', {
+            () => props.control<RemoteStatus>('workspace.open', {
               targetDeviceId: selectedHost.deviceId,
               path: path.trim(),
             }),
+            connectedProgress,
           )
+          setStatus(nextStatus)
           window.location.reload()
         } catch (reason) {
           setError(messageOf(reason))
@@ -1546,11 +1582,17 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError(undefined)
         try {
-          const action = (): Promise<unknown> => props.control('mode.set', { mode, ...(targetDeviceId === undefined ? {} : { targetDeviceId }) })
+          const action = (): Promise<RemoteStatus> => props.control<RemoteStatus>('mode.set', { mode, ...(targetDeviceId === undefined ? {} : { targetDeviceId }) })
           if (mode === 'remote') {
-            await runRemoteProgress(connectHostProgressSteps(status?.preferredTransports), setProgress, progressRun, action)
+            setStatus(await runRemoteProgress(
+              connectHostProgressSteps(status?.preferredTransports),
+              setProgress,
+              progressRun,
+              action,
+              connectedProgress,
+            ))
           } else {
-            await action()
+            setStatus(await action())
           }
           window.location.reload()
         } catch (reason) {
@@ -1727,7 +1769,7 @@ window.__ModuleLoader__.load({
           setBusy(false)
         }
       }
-      const transport = status.transport ?? 'Disconnected'
+      const transport = status.network?.webRtc?.mode ?? status.transport ?? 'Disconnected'
       const networkLabel = transport === 'P2P'
         ? t('remoteNetworkP2p')
         : transport === 'TURN'
