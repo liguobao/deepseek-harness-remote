@@ -67,7 +67,6 @@ export class RpcRouter {
         durationMs: Math.round(performance.now() - startedAt),
         code: response.payload.code,
         retryable: response.payload.retryable,
-        reason: diagnosticReason(error),
       })
       return response
     } finally {
@@ -105,9 +104,4 @@ function errorResponse(requestId: string, error: unknown): RemoteMessage<RpcErro
   if (error instanceof RpcError) return createRpcError(requestId, error.code, error.message, error.details, error.retryable)
   if (error instanceof z.ZodError) return createRpcError(requestId, 'INVALID_MESSAGE', 'The RPC parameters are invalid.')
   return createRpcError(requestId, 'INTERNAL_ERROR', 'The Host could not complete the request.')
-}
-
-function diagnosticReason(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  return message.replace(/[\r\n]+/g, ' ').slice(0, 160) || 'Unknown Host request failure.'
 }

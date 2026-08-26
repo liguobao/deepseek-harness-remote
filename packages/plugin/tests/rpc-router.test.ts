@@ -2,6 +2,7 @@ import { createRpcRequest } from '@dsh-remote/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { HarnessApiBridge } from '../src/harness-api-bridge.js'
 import type { RemoteFileViewerBridge } from '../src/file-viewer-bridge.js'
+import type { SafeLogger } from '../src/logging.js'
 import { RpcRouter } from '../src/rpc-router.js'
 
 describe('RpcRouter', () => {
@@ -60,9 +61,35 @@ describe('RpcRouter', () => {
     expect(fileViewer.call).toHaveBeenCalledWith({ endpoint: 'stat', payload: { path: '/workspace/report.md' } })
     expect(response).toMatchObject({ type: 'rpc.response', payload: { result: { exists: true } } })
   })
+
+  it('does not log errors returned by Host bridges', async () => {
+    const secret = 'prompt=/home/user/private.ts token=sk-secret'
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    } as unknown as SafeLogger
+    const router = createRouter({ call: vi.fn(async () => { throw new Error(secret) }) }, undefined, logger)
+
+    const response = await router.handle(createRpcRequest('harness.api.call', {
+      method: 'session.list', rpcId: 'native-secret', payload: {},
+    }))
+
+    expect(response).toMatchObject({ type: 'rpc.error', payload: { code: 'INTERNAL_ERROR' } })
+    expect(logger.warn).toHaveBeenCalledWith('host rpc failed', expect.objectContaining({
+      method: 'harness.api.call',
+      code: 'INTERNAL_ERROR',
+    }))
+    expect(JSON.stringify(vi.mocked(logger.warn).mock.calls)).not.toContain(secret)
+  })
 })
 
-function createRouter(overrides: Record<string, unknown> = {}, fileViewer?: RemoteFileViewerBridge): RpcRouter {
+function createRouter(
+  overrides: Record<string, unknown> = {},
+  fileViewer?: RemoteFileViewerBridge,
+  logger?: SafeLogger,
+): RpcRouter {
   return new RpcRouter({
     call: vi.fn(),
     respond: vi.fn(),
@@ -75,5 +102,5 @@ function createRouter(overrides: Record<string, unknown> = {}, fileViewer?: Remo
     closeTransfer: vi.fn(),
     closeAll: vi.fn(async () => undefined),
     ...overrides,
-  } as unknown as HarnessApiBridge, undefined, undefined, fileViewer)
+  } as unknown as HarnessApiBridge, undefined, logger, fileViewer)
 }
