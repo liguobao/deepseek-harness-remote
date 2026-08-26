@@ -159,6 +159,8 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
 
   const connectionRetrying = reconnectingSession || connection.phase === 'connecting' || connection.phase === 'reconnecting'
   const connected = connection.phase === 'connected' && !reconnectingSession
+  const canStop = connected && (busy === 'send-message' || busy === 'stop-session' || session.running)
+  const stopping = busy === 'stop-session'
   const permissions = sessionPermissions(session)
   const currentPermission = permissions?.options.find(option => option.value === permissions.currentValue)
 
@@ -179,8 +181,8 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         onBack={onBack}
         action={!connected
           ? <IconButton label={zhCN.chat.reconnect} icon={RefreshCw} onPress={() => void reconnectCurrentSession()} disabled={connectionRetrying} />
-          : busy === 'send-message' || session.running
-            ? <IconButton label={zhCN.chat.stop} icon={CircleStop} onPress={() => void stopSession()} disabled={busy === 'stop-session'} />
+          : canStop
+            ? <IconButton label={zhCN.chat.stop} icon={CircleStop} onPress={() => void stopSession()} disabled={stopping} />
             : undefined}
       />
 
@@ -276,16 +278,29 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
             editable={connected}
             selectionColor={colors.accent}
           />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={zhCN.chat.send}
-            accessibilityState={{ disabled: !connected || (draft.trim().length === 0 && images.length === 0) }}
-            disabled={!connected || (draft.trim().length === 0 && images.length === 0)}
-            onPress={() => void submit()}
-            style={({ pressed }) => [styles.sendButton, pressed && styles.sendPressed, (!connected || (draft.trim().length === 0 && images.length === 0)) && styles.sendDisabled]}
-          >
-            <Send size={19} color={colors.white} />
-          </Pressable>
+          {canStop
+            ? <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={zhCN.chat.stop}
+                accessibilityState={{ disabled: stopping, busy: stopping }}
+                disabled={stopping}
+                onPress={() => void stopSession()}
+                style={({ pressed }) => [styles.stopButton, pressed && !stopping && styles.stopPressed, stopping && styles.sendDisabled]}
+              >
+                {stopping
+                  ? <ActivityIndicator size="small" color={colors.white} />
+                  : <CircleStop size={20} color={colors.white} />}
+              </Pressable>
+            : <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={zhCN.chat.send}
+                accessibilityState={{ disabled: !connected || (draft.trim().length === 0 && images.length === 0) }}
+                disabled={!connected || (draft.trim().length === 0 && images.length === 0)}
+                onPress={() => void submit()}
+                style={({ pressed }) => [styles.sendButton, pressed && styles.sendPressed, (!connected || (draft.trim().length === 0 && images.length === 0)) && styles.sendDisabled]}
+              >
+                <Send size={19} color={colors.white} />
+              </Pressable>}
         </View>
         <Text style={styles.composerHint}>{zhCN.chat.policyHint}</Text>
       </View>
@@ -841,6 +856,8 @@ const styles = StyleSheet.create({
   composerInput: { ...type.body, color: colors.ink, flex: 1, minHeight: 40, maxHeight: 126, paddingVertical: 8, paddingLeft: spacing.xs },
   sendButton: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   sendPressed: { backgroundColor: colors.primaryPressed },
+  stopButton: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center' },
+  stopPressed: { opacity: 0.78 },
   sendDisabled: { backgroundColor: colors.disabled },
   composerHint: { ...type.caption, color: colors.muted, textAlign: 'center', marginTop: 5 },
 })
