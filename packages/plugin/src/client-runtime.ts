@@ -1,6 +1,12 @@
 import type { ApiProxy, RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RemoteClientCore } from '@dsh-remote/client-core'
-import { AdaptiveTransport, type RtcConnectionDiagnostics, type RtcPeerConnectionFactory } from '@dsh-remote/webrtc'
+import {
+  AdaptiveTransport,
+  stunOnlyIceServers,
+  type RtcConnectionDiagnostics,
+  type RtcIceServer,
+  type RtcPeerConnectionFactory,
+} from '@dsh-remote/webrtc'
 import { ApiProxySwitch, type HarnessMode } from './api-proxy-switch.js'
 import { ClientSecureTransport } from './client-secure-transport.js'
 import type { ResolvedConfig } from './config.js'
@@ -35,6 +41,9 @@ export interface RemoteHostFeatures {
 
 const REMOTE_COMMAND_LIST_MIN_VERSION = [0, 3, 16] as const
 const REMOTE_FILE_VIEWER_MIN_VERSION = [0, 3, 17] as const
+const DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 12_000
+
+type TransportAttempt = 'direct' | 'turn' | 'relay'
 
 export interface RemoteDirectoryEntry {
   name: string
@@ -371,66 +380,78 @@ export class ClientModeRuntime {
       ? undefined
       : await this.rtcFactoryProvider({ routeTargets: [this.server.baseUrl] }).catch(() => undefined)
     let webRtcFallback = false
-    const createTransport = (relayOnly: boolean): AdaptiveTransport => new AdaptiveTransport(
+    const createTransport = (attempt: TransportAttempt): AdaptiveTransport => new AdaptiveTransport(
       websocketUrl(this.server.baseUrl),
       {
         role: 'client',
         deviceId: identity.deviceId,
         accessToken: credentials.accessToken,
         targetDeviceId,
-        forceRelay: this.config.forceRelay || relayOnly,
-        preferredTransports: this.config.forceRelay || relayOnly ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
-        ...(rtcFactory === undefined || relayOnly ? {} : { rtcFactory }),
-        fetchIceServers: async connectionId => this.server.turnCredentials(connectionId),
+        forceRelay: this.config.forceRelay || attempt === 'relay',
+        preferredTransports: preferredTransportsForAttempt(attempt),
+        negotiateTimeoutMs: attempt === 'direct' ? DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS : undefined,
+        ...(rtcFactory === undefined || attempt === 'relay' ? {} : { rtcFactory }),
+        fetchIceServers: async connectionId => iceServersForAttempt(attempt, await this.server.turnCredentials(connectionId)),
         onWebRtcFallback: (error, diagnostics) => {
           webRtcFallback = true
-          this.logger.warn('remote Harness WebRTC failed; using relay', {
+          this.logger.warn(attempt === 'direct'
+            ? 'remote Harness direct WebRTC failed; trying TURN'
+            : 'remote Harness TURN WebRTC failed; using relay', {
             targetDeviceId: shortId(target.deviceId),
+            attempt,
             reason: diagnosticReason(error),
             ...webrtcDiagnosticsLogFields(diagnostics),
           })
         },
       },
     )
-    let transport = createTransport(false)
-    let client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 60_000)
+    const attempts: TransportAttempt[] = this.config.forceRelay || rtcFactory === undefined
+      ? ['relay']
+      : ['direct', 'turn', 'relay']
+    let transport: AdaptiveTransport | undefined
+    let client: RemoteClientCore | undefined
     try {
-      await client.connect()
-      signal?.throwIfAborted()
-      if (webRtcFallback) {
-        // Older Hosts can keep the timed-out RTC responder attached to this
-        // logical connection and later tear down an already-working Relay
-        // channel. Reconnect with a fresh Relay-only connection id so fallback
-        // remains compatible without requiring a coordinated Host upgrade.
-        await client.close()
-        transport = createTransport(true)
+      for (const attempt of attempts) {
+        webRtcFallback = false
+        transport = createTransport(attempt)
         client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 60_000)
         await client.connect()
         signal?.throwIfAborted()
-        this.logger.info('remote Harness relay fallback re-established', {
-          targetDeviceId: shortId(target.deviceId),
-        })
+        if (attempt === 'relay' || !webRtcFallback) break
+        await client.close()
+        client = undefined
+        transport = undefined
+        if (attempt === 'turn') {
+          this.logger.info('remote Harness relay fallback re-established', {
+            targetDeviceId: shortId(target.deviceId),
+          })
+        }
       }
-      client.onClose(() => {
-        if (this.connected?.client !== client) return
+      if (client === undefined || transport === undefined) {
+        throw new ClientModeError('CONNECTION_FAILED', 'Unable to establish a remote transport.', true)
+      }
+      const connectedClient = client
+      const connectedTransport = transport
+      connectedClient.onClose(() => {
+        if (this.connected?.client !== connectedClient) return
         this.connected = undefined
         this.pendingWorkspaceSelection = undefined
         this.proxySwitch.selectLocal()
         this.gatewaySwitch.selectLocal()
-        void client.close().catch(() => undefined)
+        void connectedClient.close().catch(() => undefined)
         this.logger.warn('remote Harness transport closed; falling back to local mode', {
           targetDeviceId: shortId(target.deviceId),
         })
       })
-      const connectionDetails = await transport.connectionDetails().catch(() => undefined)
+      const connectionDetails = await connectedTransport.connectionDetails().catch(() => undefined)
       this.logger.info('remote Harness transport ready', {
         targetDeviceId: shortId(target.deviceId),
-        transport: client.getStats().mode,
+        transport: connectedClient.getStats().mode,
         ...webrtcDiagnosticsLogFields(connectionDetails?.webRtc?.diagnostics),
       })
-      return { client, target, transport, features: remoteHostFeatures(serverDevice.clientVersion) }
+      return { client: connectedClient, target, transport: connectedTransport, features: remoteHostFeatures(serverDevice.clientVersion) }
     } catch (error) {
-      await client.close().catch(() => undefined)
+      await client?.close().catch(() => undefined)
       throw error
     }
   }
@@ -695,4 +716,14 @@ function diagnosticReason(error: Error): string {
   const code = 'code' in error && typeof error.code === 'string' ? error.code : undefined
   const message = error.message.replace(/[\r\n\t]+/g, ' ').slice(0, 240)
   return code === undefined ? message : `${code}: ${message}`
+}
+
+function preferredTransportsForAttempt(attempt: TransportAttempt): Array<'lan' | 'p2p' | 'turn' | 'relay'> {
+  if (attempt === 'direct') return ['lan', 'p2p', 'relay']
+  if (attempt === 'turn') return ['turn', 'relay']
+  return ['relay']
+}
+
+function iceServersForAttempt(attempt: TransportAttempt, iceServers: RtcIceServer[]): RtcIceServer[] {
+  return attempt === 'direct' ? stunOnlyIceServers(iceServers) : iceServers
 }

@@ -24,6 +24,7 @@ import {
 } from '@dsh-remote/protocol'
 import {
   RtcDataChannelTransport,
+  stunOnlyIceServers,
   type RtcConnectionDiagnostics,
   type RtcIceServer,
   type RtcPeerConnectionFactory,
@@ -55,6 +56,7 @@ interface PendingTunnel {
   connectionId: string
   membershipId: string
   peer: TrustedPeer
+  preferredTransports: ConnectIncomingPayload['preferredTransports']
   noise: NoiseIkSession
   transport: 'negotiating' | SelectedTransport
   transportMode?: 'LAN' | 'P2P' | 'TURN'
@@ -62,7 +64,7 @@ interface PendingTunnel {
   channel?: ServerNoiseChannel
 }
 
-const DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 8_000
+const DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 12_000
 
 export class HostServerConnection {
   private socket?: WebSocketLike
@@ -356,6 +358,7 @@ export class HostServerConnection {
       connectionId: payload.connectionId,
       membershipId: descriptor.membershipId,
       peer,
+      preferredTransports: payload.preferredTransports,
       noise,
       transport: 'negotiating',
     })
@@ -465,6 +468,7 @@ export class HostServerConnection {
         code: errorCode(error),
       })
     }
+    if (!tunnel.preferredTransports.includes('turn')) iceServers = stunOnlyIceServers(iceServers)
     const rtc = new RtcDataChannelTransport({
       role: 'responder',
       factory: this.rtcFactory,

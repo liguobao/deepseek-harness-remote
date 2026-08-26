@@ -4671,6 +4671,21 @@ function summarizeAddress(address) {
   }
   return { addressFamily: "ipv4", addressScope: summarizeIpv4Scope(parts) };
 }
+function stunOnlyIceServers(iceServers) {
+  const direct = [];
+  for (const server of iceServers) {
+    const sourceUrls = Array.isArray(server.urls) ? server.urls : [server.urls];
+    const urls = sourceUrls.filter(isStunUrl);
+    if (urls.length === 0)
+      continue;
+    direct.push({ urls: Array.isArray(server.urls) ? urls : urls[0] });
+  }
+  return direct;
+}
+function isStunUrl(url) {
+  const value = url.trim().toLowerCase();
+  return value.startsWith("stun:") || value.startsWith("stuns:");
+}
 function emptyCandidateSummary() {
   return { candidateType: "unknown", addressFamily: "unknown", addressScope: "unknown" };
 }
@@ -5825,7 +5840,7 @@ var AdaptiveTransport = class extends BaseTransport {
       factory,
       iceServers,
       onSignal: (signal) => this.sendRtcSignal(signal),
-      negotiateTimeoutMs: this.serverNegotiateTimeoutMs ?? this.options.negotiateTimeoutMs,
+      negotiateTimeoutMs: negotiateTimeout(this.serverNegotiateTimeoutMs, this.options.negotiateTimeoutMs),
       label: `client->${this.options.targetDeviceId}`,
       onDiagnostic: (event) => {
         this.lastRtcDiagnostics = event.diagnostics;
@@ -5924,6 +5939,13 @@ function socketState(readyState) {
   if (readyState === 2)
     return "closing";
   return "closed";
+}
+function negotiateTimeout(serverMs, localMs) {
+  if (serverMs === void 0)
+    return localMs;
+  if (localMs === void 0)
+    return serverMs;
+  return Math.max(serverMs, localMs);
 }
 
 // src/api-proxy-switch.ts
@@ -14490,6 +14512,7 @@ function isPrivate(ip) {
 // src/client-runtime.ts
 var REMOTE_COMMAND_LIST_MIN_VERSION = [0, 3, 16];
 var REMOTE_FILE_VIEWER_MIN_VERSION = [0, 3, 17];
+var DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 12e3;
 var ClientModeRuntime = class {
   constructor(config, identities, server, apiProxy, typertGateway, logger, host, rtcFactoryProvider = loadNodeRtcFactory) {
     this.config = config;
@@ -14729,62 +14752,74 @@ var ClientModeRuntime = class {
     const credentials = await this.server.authenticate(identity);
     const rtcFactory = this.config.forceRelay ? void 0 : await this.rtcFactoryProvider({ routeTargets: [this.server.baseUrl] }).catch(() => void 0);
     let webRtcFallback = false;
-    const createTransport = (relayOnly) => new AdaptiveTransport(
+    const createTransport = (attempt) => new AdaptiveTransport(
       websocketUrl(this.server.baseUrl),
       {
         role: "client",
         deviceId: identity.deviceId,
         accessToken: credentials.accessToken,
         targetDeviceId,
-        forceRelay: this.config.forceRelay || relayOnly,
-        preferredTransports: this.config.forceRelay || relayOnly ? ["relay"] : ["lan", "p2p", "turn", "relay"],
-        ...rtcFactory === void 0 || relayOnly ? {} : { rtcFactory },
-        fetchIceServers: async (connectionId) => this.server.turnCredentials(connectionId),
+        forceRelay: this.config.forceRelay || attempt === "relay",
+        preferredTransports: preferredTransportsForAttempt(attempt),
+        negotiateTimeoutMs: attempt === "direct" ? DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS : void 0,
+        ...rtcFactory === void 0 || attempt === "relay" ? {} : { rtcFactory },
+        fetchIceServers: async (connectionId) => iceServersForAttempt(attempt, await this.server.turnCredentials(connectionId)),
         onWebRtcFallback: (error, diagnostics) => {
           webRtcFallback = true;
-          this.logger.warn("remote Harness WebRTC failed; using relay", {
+          this.logger.warn(attempt === "direct" ? "remote Harness direct WebRTC failed; trying TURN" : "remote Harness TURN WebRTC failed; using relay", {
             targetDeviceId: shortId(target.deviceId),
+            attempt,
             reason: diagnosticReason(error),
             ...webrtcDiagnosticsLogFields(diagnostics)
           });
         }
       }
     );
-    let transport = createTransport(false);
-    let client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 6e4);
+    const attempts = this.config.forceRelay || rtcFactory === void 0 ? ["relay"] : ["direct", "turn", "relay"];
+    let transport;
+    let client;
     try {
-      await client.connect();
-      signal?.throwIfAborted();
-      if (webRtcFallback) {
-        await client.close();
-        transport = createTransport(true);
+      for (const attempt of attempts) {
+        webRtcFallback = false;
+        transport = createTransport(attempt);
         client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 6e4);
         await client.connect();
         signal?.throwIfAborted();
-        this.logger.info("remote Harness relay fallback re-established", {
-          targetDeviceId: shortId(target.deviceId)
-        });
+        if (attempt === "relay" || !webRtcFallback) break;
+        await client.close();
+        client = void 0;
+        transport = void 0;
+        if (attempt === "turn") {
+          this.logger.info("remote Harness relay fallback re-established", {
+            targetDeviceId: shortId(target.deviceId)
+          });
+        }
       }
-      client.onClose(() => {
-        if (this.connected?.client !== client) return;
+      if (client === void 0 || transport === void 0) {
+        throw new ClientModeError("CONNECTION_FAILED", "Unable to establish a remote transport.", true);
+      }
+      const connectedClient = client;
+      const connectedTransport = transport;
+      connectedClient.onClose(() => {
+        if (this.connected?.client !== connectedClient) return;
         this.connected = void 0;
         this.pendingWorkspaceSelection = void 0;
         this.proxySwitch.selectLocal();
         this.gatewaySwitch.selectLocal();
-        void client.close().catch(() => void 0);
+        void connectedClient.close().catch(() => void 0);
         this.logger.warn("remote Harness transport closed; falling back to local mode", {
           targetDeviceId: shortId(target.deviceId)
         });
       });
-      const connectionDetails = await transport.connectionDetails().catch(() => void 0);
+      const connectionDetails = await connectedTransport.connectionDetails().catch(() => void 0);
       this.logger.info("remote Harness transport ready", {
         targetDeviceId: shortId(target.deviceId),
-        transport: client.getStats().mode,
+        transport: connectedClient.getStats().mode,
         ...webrtcDiagnosticsLogFields(connectionDetails?.webRtc?.diagnostics)
       });
-      return { client, target, transport, features: remoteHostFeatures(serverDevice.clientVersion) };
+      return { client: connectedClient, target, transport: connectedTransport, features: remoteHostFeatures(serverDevice.clientVersion) };
     } catch (error) {
-      await client.close().catch(() => void 0);
+      await client?.close().catch(() => void 0);
       throw error;
     }
   }
@@ -15021,6 +15056,14 @@ function diagnosticReason(error) {
   const code = "code" in error && typeof error.code === "string" ? error.code : void 0;
   const message = error.message.replace(/[\r\n\t]+/g, " ").slice(0, 240);
   return code === void 0 ? message : `${code}: ${message}`;
+}
+function preferredTransportsForAttempt(attempt) {
+  if (attempt === "direct") return ["lan", "p2p", "relay"];
+  if (attempt === "turn") return ["turn", "relay"];
+  return ["relay"];
+}
+function iceServersForAttempt(attempt, iceServers) {
+  return attempt === "direct" ? stunOnlyIceServers(iceServers) : iceServers;
 }
 
 // src/control-runtime.ts
@@ -15965,7 +16008,7 @@ function isOversizedListing(value) {
 }
 
 // src/server-connection.ts
-var DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 8e3;
+var DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 12e3;
 var HostServerConnection = class {
   constructor(config, identity, identities, api, connections, logger, createWebSocket = (url) => new WebSocket(url), rtcFactoryProvider, hostCapabilities = () => ["harness.api.v1"], harnessVersion) {
     this.config = config;
@@ -16255,6 +16298,7 @@ var HostServerConnection = class {
       connectionId: payload.connectionId,
       membershipId: descriptor.membershipId,
       peer,
+      preferredTransports: payload.preferredTransports,
       noise,
       transport: "negotiating"
     });
@@ -16344,6 +16388,7 @@ var HostServerConnection = class {
         code: errorCode(error)
       });
     }
+    if (!tunnel.preferredTransports.includes("turn")) iceServers = stunOnlyIceServers(iceServers);
     const rtc = new RtcDataChannelTransport({
       role: "responder",
       factory: this.rtcFactory,

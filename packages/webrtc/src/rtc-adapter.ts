@@ -166,6 +166,22 @@ export function summarizeAddress(address: string | undefined): { addressFamily: 
   return { addressFamily: 'ipv4', addressScope: summarizeIpv4Scope(parts) }
 }
 
+export function stunOnlyIceServers(iceServers: readonly RtcIceServer[]): RtcIceServer[] {
+  const direct: RtcIceServer[] = []
+  for (const server of iceServers) {
+    const sourceUrls = Array.isArray(server.urls) ? server.urls : [server.urls]
+    const urls = sourceUrls.filter(isStunUrl)
+    if (urls.length === 0) continue
+    direct.push({ urls: Array.isArray(server.urls) ? urls : urls[0]! })
+  }
+  return direct
+}
+
+function isStunUrl(url: string): boolean {
+  const value = url.trim().toLowerCase()
+  return value.startsWith('stun:') || value.startsWith('stuns:')
+}
+
 function emptyCandidateSummary(): RtcCandidateSummary {
   return { candidateType: 'unknown', addressFamily: 'unknown', addressScope: 'unknown' }
 }

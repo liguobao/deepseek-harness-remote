@@ -1,13 +1,23 @@
 import { RemoteClientCore } from '@dsh-remote/client-core'
 import { NoiseIkSession, createNoisePrologue } from '@dsh-remote/crypto'
 import { SecureMessageCodec, type HarnessApiCallParams } from '@dsh-remote/protocol'
-import { AdaptiveTransport, type RemoteTransport, type SecureHandshakeTransport } from '@dsh-remote/webrtc'
+import {
+  AdaptiveTransport,
+  stunOnlyIceServers,
+  type RemoteTransport,
+  type RtcIceServer,
+  type SecureHandshakeTransport,
+} from '@dsh-remote/webrtc'
 import { ServerApi } from './server-api.js'
 import type { ChatMessage, DeviceIdentity, DirectoryListing, HistoryEntry, HostDescriptor, ModelSelection, MuxFrame, RemoteHost, RemoteSession, RemoteWorkspace, SessionModels } from './types.js'
 import { loadNodeRtcFactory } from './werift-rtc.js'
 
 type NativeResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 interface NativeResponse<T> { rpcId: string; result: NativeResult<T> }
+
+type TransportAttempt = 'direct' | 'turn' | 'relay'
+
+const DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 12_000
 
 export class RemoteConnection {
   private core?: RemoteClientCore
@@ -25,32 +35,36 @@ export class RemoteConnection {
     const rtcFactory = forceRelay ? undefined : await loadNodeRtcFactory({ routeTargets: [serverUrl] })
     const server = new ServerApi(serverUrl, accessToken)
     let webRtcFallback = false
-    const createCore = (relayOnly: boolean): RemoteClientCore => {
+    const createCore = (attempt: TransportAttempt): RemoteClientCore => {
       const transport = new AdaptiveTransport(wsUrl.toString(), {
         role: 'client', deviceId: identity.deviceId, accessToken, targetDeviceId: host.deviceId,
-        forceRelay: forceRelay || relayOnly,
-        preferredTransports: forceRelay || relayOnly ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
-        ...(rtcFactory === undefined || relayOnly ? {} : { rtcFactory }),
-        fetchIceServers: connectionId => server.turnCredentials(connectionId),
+        forceRelay: forceRelay || attempt === 'relay',
+        preferredTransports: preferredTransportsForAttempt(attempt),
+        negotiateTimeoutMs: attempt === 'direct' ? DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS : undefined,
+        ...(rtcFactory === undefined || attempt === 'relay' ? {} : { rtcFactory }),
+        fetchIceServers: async connectionId => iceServersForAttempt(attempt, await server.turnCredentials(connectionId)),
         onWebRtcFallback: () => { webRtcFallback = true },
       })
       return new RemoteClientCore(new SecureTransport(transport, identity, host), 60_000)
     }
-    let core = createCore(false)
+    const attempts: TransportAttempt[] = forceRelay || rtcFactory === undefined ? ['relay'] : ['direct', 'turn', 'relay']
+    let core: RemoteClientCore | undefined
     const prepareCore = (nextCore: RemoteClientCore): void => {
       this.core = nextCore
       nextCore.onClose(() => this.handleCoreClose(nextCore))
     }
-    prepareCore(core)
     try {
-      await core.connect()
-      if (webRtcFallback) {
-        this.core = undefined
-        await core.close()
-        core = createCore(true)
+      for (const attempt of attempts) {
+        webRtcFallback = false
+        core = createCore(attempt)
         prepareCore(core)
         await core.connect()
+        if (attempt === 'relay' || !webRtcFallback) break
+        if (this.core === core) this.core = undefined
+        await core.close()
+        core = undefined
       }
+      if (core === undefined) throw new Error('Unable to establish a remote transport.')
       const closeMux = await this.openMuxStream(core)
       if (this.core !== core) {
         await closeMux().catch(() => undefined)
@@ -179,6 +193,16 @@ export class RemoteConnection {
       try { handler() } catch { /* One UI handler must not block the remaining handlers. */ }
     }
   }
+}
+
+function preferredTransportsForAttempt(attempt: TransportAttempt): Array<'lan' | 'p2p' | 'turn' | 'relay'> {
+  if (attempt === 'direct') return ['lan', 'p2p', 'relay']
+  if (attempt === 'turn') return ['turn', 'relay']
+  return ['relay']
+}
+
+function iceServersForAttempt(attempt: TransportAttempt, iceServers: RtcIceServer[]): RtcIceServer[] {
+  return attempt === 'direct' ? stunOnlyIceServers(iceServers) : iceServers
 }
 
 function foldHistory(entries: HistoryEntry[]): ChatMessage[] {

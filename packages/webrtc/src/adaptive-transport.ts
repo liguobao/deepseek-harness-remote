@@ -339,7 +339,7 @@ export class AdaptiveTransport extends BaseTransport {
       factory,
       iceServers,
       onSignal: signal => this.sendRtcSignal(signal),
-      negotiateTimeoutMs: this.serverNegotiateTimeoutMs ?? this.options.negotiateTimeoutMs,
+      negotiateTimeoutMs: negotiateTimeout(this.serverNegotiateTimeoutMs, this.options.negotiateTimeoutMs),
       label: `client->${this.options.targetDeviceId}`,
       onDiagnostic: event => {
         this.lastRtcDiagnostics = event.diagnostics
@@ -441,4 +441,10 @@ function socketState(readyState: number | undefined): AdaptiveConnectionDetails[
   if (readyState === 1) return 'open'
   if (readyState === 2) return 'closing'
   return 'closed'
+}
+
+function negotiateTimeout(serverMs: number | undefined, localMs: number | undefined): number | undefined {
+  if (serverMs === undefined) return localMs
+  if (localMs === undefined) return serverMs
+  return Math.max(serverMs, localMs)
 }

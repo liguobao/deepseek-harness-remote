@@ -7,6 +7,7 @@ import type {
   RtcStats,
   RtcStatsEntry,
 } from '../src/rtc-adapter.js'
+import { stunOnlyIceServers } from '../src/rtc-adapter.js'
 import {
   detectSelectedPath,
   detectSelectedTransport,
@@ -143,6 +144,27 @@ describe('detectSelectedTransport', () => {
 
   it('returns undefined when no selected pair exists', () => {
     expect(detectSelectedTransport(asStats([{ type: 'local-candidate', candidateType: 'host', id: 'lc' }]))).toBeUndefined()
+  })
+})
+
+describe('stunOnlyIceServers', () => {
+  it('keeps direct STUN URLs and strips TURN URLs and credentials', () => {
+    expect(stunOnlyIceServers([
+      {
+        urls: [
+          'stun:turn.example.com:3478',
+          'turn:turn.example.com:3478?transport=udp',
+          'turns:turn.example.com:5349?transport=tcp',
+        ],
+        username: 'turn-user',
+        credential: 'turn-secret',
+      },
+      { urls: 'stuns:stun.example.com:5349' },
+      { urls: 'turn:relay.example.com:3478?transport=tcp', username: 'relay', credential: 'secret' },
+    ])).toEqual([
+      { urls: ['stun:turn.example.com:3478'] },
+      { urls: 'stuns:stun.example.com:5349' },
+    ])
   })
 })
 
