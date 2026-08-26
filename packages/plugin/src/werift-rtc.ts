@@ -21,6 +21,7 @@ import type {
   RtcStats,
 } from '@dsh-remote/webrtc'
 import { summarizeAddress, summarizeIceCandidate } from '@dsh-remote/webrtc'
+import { loadExternalNativeRtcFactory } from './native-rtc-helper.js'
 
 interface WeriftModule {
   RTCPeerConnection: new (config?: WeriftConfig) => WeriftPeerConnection
@@ -135,7 +136,10 @@ interface NativeDataChannel {
  * werift remains the no-native fallback for environments that cannot load it.
  */
 export async function loadNodeRtcFactory(options: WeriftFactoryOptions = {}): Promise<RtcPeerConnectionFactory | undefined> {
-  return await loadNativeRtcFactory().catch(() => undefined) ?? await loadWeriftFactory(options)
+  const nativeFactory = isElectronRuntime()
+    ? await loadExternalNativeRtcFactory().catch(() => undefined)
+    : await loadNativeRtcFactory().catch(() => undefined)
+  return nativeFactory ?? await loadWeriftFactory(options)
 }
 
 /** Load (once) a werift-backed factory, or `undefined` when it cannot be loaded. */
@@ -166,6 +170,11 @@ async function loadNativeRtcFactory(): Promise<RtcPeerConnectionFactory | undefi
   } catch {
     return undefined
   }
+}
+
+function isElectronRuntime(): boolean {
+  const versions = process.versions as NodeJS.ProcessVersions & { electron?: string }
+  return typeof versions.electron === 'string' || process.env.ELECTRON_RUN_AS_NODE === '1'
 }
 
 function buildNativeRtcFactory(

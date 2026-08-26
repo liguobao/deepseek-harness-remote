@@ -1,6 +1,8 @@
+import { createRequire } from 'node:module'
 import type { NetworkInterfaceInfo } from 'node:os'
 import { RtcDataChannelTransport } from '@dsh-remote/webrtc'
 import { describe, expect, it } from 'vitest'
+import { buildExternalNativeRtcFactory } from '../src/native-rtc-helper.js'
 import {
   buildWeriftFactory,
   detectHostIpv4Candidates,
@@ -11,6 +13,7 @@ import {
 } from '../src/werift-rtc.js'
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+const require = createRequire(import.meta.url)
 
 async function waitFor(condition: () => boolean, label: string, timeoutMs = 8_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
@@ -241,6 +244,39 @@ describe('werift RTC backend', () => {
     await responder.close()
   }, 20_000)
 
+  it('establishes an ordered DataChannel through the isolated native helper when available', async () => {
+    if (!hasNativeRtc()) {
+      expect(true).toBe(true)
+      return
+    }
+    const factory = buildExternalNativeRtcFactory(process.execPath)
+
+    const received: Uint8Array[] = []
+    const initiator = new RtcDataChannelTransport({
+      role: 'initiator',
+      factory,
+      onSignal: signal => responder.handleSignal(signal),
+      negotiateTimeoutMs: 8_000,
+    })
+    const responder = new RtcDataChannelTransport({
+      role: 'responder',
+      factory,
+      onSignal: signal => initiator.handleSignal(signal),
+      negotiateTimeoutMs: 8_000,
+    })
+    responder.onMessage(data => received.push(data))
+
+    await Promise.all([initiator.connect(), responder.connect()])
+    await initiator.send(new TextEncoder().encode('hello-from-helper'))
+    await waitFor(() => received.length === 1, 'helper receive')
+
+    expect(new TextDecoder().decode(received[0]!)).toBe('hello-from-helper')
+    expect(initiator.selectedTransport() ?? responder.selectedTransport()).toBe('p2p')
+
+    await initiator.close()
+    await responder.close()
+  }, 20_000)
+
   it('delivers many concurrent ordered frames without loss or reordering', async () => {
     const factory = await loadWeriftFactory()
     expect(factory).toBeDefined()
@@ -272,6 +308,15 @@ describe('werift RTC backend', () => {
     await responder.close()
   }, 30_000)
 })
+
+function hasNativeRtc(): boolean {
+  try {
+    require('@roamhq/wrtc')
+    return true
+  } catch {
+    return false
+  }
+}
 
 function ipv4(address: string): NetworkInterfaceInfo {
   return {

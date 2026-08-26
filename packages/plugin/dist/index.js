@@ -13975,11 +13975,510 @@ function isRemoteCommandMethod(method) {
 // src/werift-rtc.ts
 import { createSocket } from "node:dgram";
 import { networkInterfaces } from "node:os";
+
+// src/native-rtc-helper.ts
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { delimiter, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+var cachedExternalFactory;
+var cachedExternalFactoryResolved = false;
+var cachedNodeBinary;
+var cachedNodeBinaryResolved = false;
+async function loadExternalNativeRtcFactory() {
+  if (cachedExternalFactory !== void 0) return cachedExternalFactory;
+  if (cachedExternalFactoryResolved) return void 0;
+  cachedExternalFactoryResolved = true;
+  const nodeBinary = resolveExternalNodeBinaryForRtc();
+  if (nodeBinary === void 0) return void 0;
+  cachedExternalFactory = buildExternalNativeRtcFactory(nodeBinary);
+  return cachedExternalFactory;
+}
+function buildExternalNativeRtcFactory(nodeBinary, requireFrom = fileURLToPath(import.meta.url)) {
+  return {
+    create(configuration) {
+      return new ExternalNativePeerConnection(nodeBinary, requireFrom, configuration);
+    }
+  };
+}
+function resolveExternalNodeBinaryForRtc() {
+  if (cachedNodeBinaryResolved) return cachedNodeBinary;
+  cachedNodeBinaryResolved = true;
+  const requireFrom = fileURLToPath(import.meta.url);
+  for (const candidate of nodeBinaryCandidates()) {
+    if (isUsableExternalNode(candidate, requireFrom)) {
+      cachedNodeBinary = candidate;
+      return candidate;
+    }
+  }
+  return void 0;
+}
+function nodeBinaryCandidates() {
+  const candidates = [];
+  const add3 = (value) => {
+    if (value === void 0 || value.trim() === "") return;
+    if (!candidates.includes(value)) candidates.push(value);
+  };
+  add3(process.env.DSH_REMOTE_NODE);
+  add3(process.env.NODE);
+  add3(process.execPath);
+  for (const part of (process.env.PATH ?? "").split(delimiter)) add3(join(part, process.platform === "win32" ? "node.exe" : "node"));
+  add3("/opt/homebrew/bin/node");
+  add3("/usr/local/bin/node");
+  add3("/usr/bin/node");
+  add3(join(process.env.HOME ?? "", ".volta", "bin", process.platform === "win32" ? "node.exe" : "node"));
+  add3(join(process.env.HOME ?? "", ".asdf", "shims", process.platform === "win32" ? "node.exe" : "node"));
+  add3(join(process.env.HOME ?? "", ".local", "bin", process.platform === "win32" ? "node.exe" : "node"));
+  for (const nvmNode of nvmNodeCandidates()) add3(nvmNode);
+  return candidates;
+}
+function nvmNodeCandidates() {
+  const root = join(process.env.HOME ?? "", ".nvm", "versions", "node");
+  if (root === "" || !existsSync(root)) return [];
+  try {
+    return readdirSync(root).map((version) => join(root, version, "bin", process.platform === "win32" ? "node.exe" : "node")).sort((left, right) => right.localeCompare(left, "en", { numeric: true }));
+  } catch {
+    return [];
+  }
+}
+function isUsableExternalNode(candidate, requireFrom) {
+  if (!isExecutableFile(candidate)) return false;
+  const env = { ...process.env, DSH_REMOTE_RTC_HELPER_REQUIRE_FROM: requireFrom };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const probe = spawnSync(candidate, [
+    "--input-type=module",
+    "--eval",
+    [
+      "import { createRequire } from 'node:module';",
+      "const require = createRequire(process.env.DSH_REMOTE_RTC_HELPER_REQUIRE_FROM);",
+      "if (process.versions.electron) throw new Error('electron-node');",
+      "const wrtc = require('@roamhq/wrtc');",
+      "const RTCPeerConnection = wrtc.RTCPeerConnection ?? wrtc.default?.RTCPeerConnection;",
+      "if (typeof RTCPeerConnection !== 'function') throw new Error('missing-rtc');",
+      "console.log(`node:${process.versions.node}`);"
+    ].join("")
+  ], {
+    cwd: dirname(requireFrom),
+    env,
+    encoding: "utf8",
+    timeout: 3e3
+  });
+  return probe.status === 0 && probe.stdout.startsWith("node:");
+}
+function isExecutableFile(candidate) {
+  try {
+    const stat4 = statSync(candidate);
+    if (!stat4.isFile()) return false;
+    if (process.platform === "win32") return true;
+    return (stat4.mode & 73) !== 0;
+  } catch {
+    return false;
+  }
+}
+var ExternalNativePeerConnection = class {
+  constructor(nodeBinary, requireFrom, configuration) {
+    this.nodeBinary = nodeBinary;
+    this.requireFrom = requireFrom;
+    this.child = spawn(this.nodeBinary, ["--input-type=module", "--eval", HELPER_SOURCE], {
+      cwd: dirname(this.requireFrom),
+      env: { ...process.env, DSH_REMOTE_RTC_HELPER_REQUIRE_FROM: this.requireFrom },
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    this.child.stdout.setEncoding("utf8");
+    this.child.stdout.on("data", (chunk) => this.handleStdout(String(chunk)));
+    this.child.stderr.on("data", () => void 0);
+    this.child.on("exit", () => this.handleExit());
+    this.child.on("error", (error) => this.handleExit(error));
+    this.child.stdin.on("error", (error) => this.handleExit(error));
+    this.ready = this.request("init", { iceServers: configuration.iceServers ?? [] }).then(() => void 0);
+  }
+  connectionState = "new";
+  iceConnectionState = "new";
+  iceGatheringState = "new";
+  signalingState = "stable";
+  onconnectionstatechange = null;
+  oniceconnectionstatechange = null;
+  onicegatheringstatechange = null;
+  onicecandidate = null;
+  ondatachannel = null;
+  child;
+  pending = /* @__PURE__ */ new Map();
+  channels = /* @__PURE__ */ new Map();
+  nextRequestId = 1;
+  nextChannelId = 1;
+  stdout = "";
+  closed = false;
+  ready;
+  createDataChannel(label, options) {
+    const channelId = this.nextChannelId++;
+    const channel = new ExternalNativeDataChannel(this, channelId, label, options?.ordered ?? true);
+    this.channels.set(channelId, channel);
+    this.notify("createDataChannel", { channelId, label, options: { ordered: options?.ordered ?? true } });
+    return channel;
+  }
+  async createOffer() {
+    await this.ready;
+    return this.request("createOffer", {});
+  }
+  async createAnswer() {
+    await this.ready;
+    return this.request("createAnswer", {});
+  }
+  async setLocalDescription(description) {
+    await this.ready;
+    await this.request("setLocalDescription", { description });
+  }
+  async setRemoteDescription(description) {
+    await this.ready;
+    await this.request("setRemoteDescription", { description });
+  }
+  async addIceCandidate(candidate) {
+    await this.ready;
+    await this.request("addIceCandidate", { candidate: candidate ?? null });
+  }
+  async getStats() {
+    await this.ready;
+    return this.request("getStats", {});
+  }
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.notify("close", {});
+    const timer = setTimeout(() => {
+      if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill();
+    }, 1e3);
+    timer.unref?.();
+  }
+  sendChannelData(channelId, data) {
+    const payload = typeof data === "string" ? { channelId, text: data } : { channelId, base64: Buffer.from(data).toString("base64") };
+    this.notify("channelSend", payload);
+  }
+  closeChannel(channelId) {
+    this.notify("channelClose", { channelId });
+  }
+  request(method, payload) {
+    if (this.closed) return Promise.reject(new Error("native rtc helper is closed"));
+    const id = this.nextRequestId++;
+    const promise = new Promise((resolve2, reject) => {
+      this.pending.set(id, { resolve: resolve2, reject });
+    });
+    this.write({ id, method, payload });
+    return promise;
+  }
+  notify(method, payload) {
+    if (this.closed && method !== "close") return;
+    this.write({ method, payload });
+  }
+  write(message) {
+    try {
+      this.child.stdin.write(`${JSON.stringify(message)}
+`);
+    } catch {
+      this.handleExit(new Error("native rtc helper stdin is closed"));
+    }
+  }
+  handleStdout(chunk) {
+    this.stdout += chunk;
+    for (; ; ) {
+      const newline = this.stdout.indexOf("\n");
+      if (newline < 0) return;
+      const line = this.stdout.slice(0, newline);
+      this.stdout = this.stdout.slice(newline + 1);
+      if (line.trim() === "") continue;
+      try {
+        this.handleMessage(JSON.parse(line));
+      } catch {
+        this.handleExit(new Error("native rtc helper sent invalid JSON"));
+      }
+    }
+  }
+  handleMessage(message) {
+    if ("id" in message) {
+      const pending = this.pending.get(message.id);
+      if (pending === void 0) return;
+      this.pending.delete(message.id);
+      if (message.ok) pending.resolve(message.value);
+      else pending.reject(new Error(message.error ?? "native rtc helper command failed"));
+      return;
+    }
+    if (message.event === "state") {
+      this.connectionState = message.connectionState;
+      this.iceConnectionState = message.iceConnectionState;
+      this.iceGatheringState = message.iceGatheringState;
+      this.signalingState = message.signalingState;
+      this.onconnectionstatechange?.();
+      this.oniceconnectionstatechange?.();
+      this.onicegatheringstatechange?.();
+      return;
+    }
+    if (message.event === "icecandidate") {
+      this.onicecandidate?.({ candidate: message.candidate });
+      return;
+    }
+    if (message.event === "datachannel") {
+      const channel = this.channelFor(message.channelId, message.label, message.ordered);
+      this.ondatachannel?.({ channel });
+      channel.updateState(message.readyState, message.bufferedAmount);
+      return;
+    }
+    if (message.event === "channel-state") {
+      this.channels.get(message.channelId)?.updateState(message.readyState, message.bufferedAmount);
+      return;
+    }
+    if (message.event === "channel-message") {
+      const channel = this.channels.get(message.channelId);
+      if (channel === void 0) return;
+      if (message.text !== void 0) channel.emitMessage(message.text);
+      else if (message.base64 !== void 0) channel.emitMessage(bufferToArrayBuffer(Buffer.from(message.base64, "base64")));
+      return;
+    }
+    if (message.event === "channel-error") {
+      this.channels.get(message.channelId)?.emitError();
+    }
+  }
+  channelFor(channelId, label, ordered) {
+    const existing = this.channels.get(channelId);
+    if (existing !== void 0) return existing;
+    const channel = new ExternalNativeDataChannel(this, channelId, label, ordered);
+    this.channels.set(channelId, channel);
+    return channel;
+  }
+  handleExit(error) {
+    if (!this.closed) this.closed = true;
+    const reason = error ?? new Error("native rtc helper exited");
+    for (const pending of this.pending.values()) pending.reject(reason);
+    this.pending.clear();
+    for (const channel of this.channels.values()) channel.updateState("closed", 0);
+  }
+};
+var ExternalNativeDataChannel = class {
+  constructor(owner, channelId, label, ordered) {
+    this.owner = owner;
+    this.channelId = channelId;
+    this.label = label;
+    this.ordered = ordered;
+  }
+  readyState = "connecting";
+  bufferedAmount = 0;
+  binaryType = "arraybuffer";
+  onopen = null;
+  onmessage = null;
+  onclose = null;
+  onerror = null;
+  onbufferedamountlow = null;
+  send(data) {
+    this.owner.sendChannelData(this.channelId, data);
+  }
+  close() {
+    this.owner.closeChannel(this.channelId);
+  }
+  updateState(readyState, bufferedAmount) {
+    const previous = this.readyState;
+    this.readyState = readyState;
+    this.bufferedAmount = bufferedAmount;
+    if (previous !== "open" && readyState === "open") this.onopen?.();
+    if (previous !== "closed" && readyState === "closed") this.onclose?.();
+    if (bufferedAmount === 0) this.onbufferedamountlow?.();
+  }
+  emitMessage(data) {
+    this.onmessage?.({ data });
+  }
+  emitError() {
+    this.onerror?.();
+  }
+};
+function bufferToArrayBuffer(buffer) {
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+}
+var HELPER_SOURCE = String.raw`
+import { createRequire } from 'node:module'
+import { createInterface } from 'node:readline'
+
+const require = createRequire(process.env.DSH_REMOTE_RTC_HELPER_REQUIRE_FROM || (process.cwd() + '/package.json'))
+const wrtc = require('@roamhq/wrtc')
+const RTCPeerConnection = wrtc.RTCPeerConnection ?? wrtc.default?.RTCPeerConnection
+if (typeof RTCPeerConnection !== 'function') throw new Error('missing RTCPeerConnection')
+
+let pc
+let nextRemoteChannelId = 100000
+const channels = new Map()
+let chain = Promise.resolve()
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + '\n')
+}
+
+function respond(id, ok, value, error) {
+  if (id === undefined) return
+  send(ok ? { id, ok: true, value } : { id, ok: false, error: String(error?.message ?? error ?? 'command failed') })
+}
+
+function state() {
+  return {
+    event: 'state',
+    connectionState: pc?.connectionState ?? 'closed',
+    iceConnectionState: pc?.iceConnectionState ?? 'closed',
+    iceGatheringState: pc?.iceGatheringState ?? 'complete',
+    signalingState: pc?.signalingState ?? 'closed',
+  }
+}
+
+function emitState() {
+  send(state())
+}
+
+function normalizeCandidate(candidate) {
+  if (candidate === null || candidate === undefined) return null
+  if (typeof candidate.toJSON === 'function') return candidate.toJSON()
+  return {
+    candidate: candidate.candidate,
+    sdpMid: candidate.sdpMid,
+    sdpMLineIndex: candidate.sdpMLineIndex,
+    usernameFragment: candidate.usernameFragment,
+  }
+}
+
+function attachChannel(channelId, channel) {
+  channels.set(channelId, channel)
+  try { channel.binaryType = 'arraybuffer' } catch {}
+  const emitChannel = () => send({
+    event: 'channel-state',
+    channelId,
+    readyState: channel.readyState,
+    bufferedAmount: channel.bufferedAmount ?? 0,
+  })
+  channel.onopen = emitChannel
+  channel.onclose = emitChannel
+  channel.onerror = () => send({ event: 'channel-error', channelId })
+  channel.onmessage = event => {
+    const data = event.data
+    if (typeof data === 'string') {
+      send({ event: 'channel-message', channelId, text: data })
+      return
+    }
+    send({ event: 'channel-message', channelId, base64: Buffer.from(data).toString('base64') })
+  }
+  send({
+    event: 'datachannel',
+    channelId,
+    label: channel.label,
+    ordered: channel.ordered,
+    readyState: channel.readyState,
+    bufferedAmount: channel.bufferedAmount ?? 0,
+  })
+}
+
+function serializeStats(stats) {
+  const entries = []
+  const push = (key, value) => {
+    const copy = {}
+    for (const [entryKey, entryValue] of Object.entries(value ?? {})) {
+      if (typeof entryValue !== 'function') copy[entryKey] = entryValue
+    }
+    entries.push([String(key), copy])
+  }
+  if (typeof stats?.forEach === 'function') stats.forEach((value, key) => push(key, value))
+  else for (const [key, value] of stats ?? []) push(key, value)
+  return entries
+}
+
+async function handle(command) {
+  const { id, method, payload = {} } = command
+  try {
+    if (method === 'init') {
+      pc = new RTCPeerConnection({ iceServers: payload.iceServers ?? [] })
+      pc.onconnectionstatechange = emitState
+      pc.oniceconnectionstatechange = emitState
+      pc.onicegatheringstatechange = emitState
+      pc.onsignalingstatechange = emitState
+      pc.onicecandidate = event => send({ event: 'icecandidate', candidate: normalizeCandidate(event.candidate) })
+      pc.ondatachannel = event => attachChannel(nextRemoteChannelId++, event.channel)
+      emitState()
+      respond(id, true, {})
+      return
+    }
+    if (method === 'createDataChannel') {
+      const channel = pc.createDataChannel(payload.label, payload.options)
+      attachChannel(payload.channelId, channel)
+      respond(id, true, {})
+      return
+    }
+    if (method === 'createOffer') {
+      respond(id, true, await pc.createOffer())
+      return
+    }
+    if (method === 'createAnswer') {
+      respond(id, true, await pc.createAnswer())
+      return
+    }
+    if (method === 'setLocalDescription') {
+      await pc.setLocalDescription(payload.description)
+      emitState()
+      respond(id, true, {})
+      return
+    }
+    if (method === 'setRemoteDescription') {
+      await pc.setRemoteDescription(payload.description)
+      emitState()
+      respond(id, true, {})
+      return
+    }
+    if (method === 'addIceCandidate') {
+      await pc.addIceCandidate(payload.candidate)
+      respond(id, true, {})
+      return
+    }
+    if (method === 'getStats') {
+      respond(id, true, serializeStats(await pc.getStats()))
+      return
+    }
+    if (method === 'channelSend') {
+      const channel = channels.get(payload.channelId)
+      if (channel === undefined) throw new Error('unknown data channel')
+      channel.send(payload.text ?? Buffer.from(payload.base64, 'base64'))
+      respond(id, true, {})
+      return
+    }
+    if (method === 'channelClose') {
+      channels.get(payload.channelId)?.close()
+      respond(id, true, {})
+      return
+    }
+    if (method === 'close') {
+      for (const channel of channels.values()) {
+        try { channel.close() } catch {}
+      }
+      channels.clear()
+      try { pc?.close() } catch {}
+      respond(id, true, {})
+      setTimeout(() => process.exit(0), 0)
+      return
+    }
+    throw new Error('unknown method ' + method)
+  } catch (error) {
+    respond(id, false, undefined, error)
+  }
+}
+
+const rl = createInterface({ input: process.stdin })
+rl.on('line', line => {
+  chain = chain.then(() => handle(JSON.parse(line))).catch(error => {
+    send({ id: -1, ok: false, error: String(error?.message ?? error) })
+  })
+})
+process.stdin.on('end', () => {
+  try { pc?.close() } catch {}
+  process.exit(0)
+})
+`;
+
+// src/werift-rtc.ts
 var cachedFactory;
 var cachedWerift;
 var cachedNativeFactory;
 async function loadNodeRtcFactory(options = {}) {
-  return await loadNativeRtcFactory().catch(() => void 0) ?? await loadWeriftFactory(options);
+  const nativeFactory = isElectronRuntime() ? await loadExternalNativeRtcFactory().catch(() => void 0) : await loadNativeRtcFactory().catch(() => void 0);
+  return nativeFactory ?? await loadWeriftFactory(options);
 }
 async function loadWeriftFactory(options = {}) {
   const cacheable = isCacheableFactoryOptions(options);
@@ -14006,6 +14505,10 @@ async function loadNativeRtcFactory() {
   } catch {
     return void 0;
   }
+}
+function isElectronRuntime() {
+  const versions = process.versions;
+  return typeof versions.electron === "string" || process.env.ELECTRON_RUN_AS_NODE === "1";
 }
 function buildNativeRtcFactory(RTCPeerConnection2) {
   return {
@@ -15073,7 +15576,7 @@ import { hostname as hostname2 } from "node:os";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname as dirname2, join as join2 } from "node:path";
 var identitySchema = external_exports.object({
   schemaVersion: external_exports.literal(1),
   deviceId: external_exports.string().uuid(),
@@ -15102,14 +15605,14 @@ var IdentityStore = class {
   peers = /* @__PURE__ */ new Map();
   constructor(options = {}) {
     const env = options.env ?? process.env;
-    const dshHome = env.DSH_HOME || join(options.homeDirectory ?? homedir(), ".dsh");
-    this.directory = options.directory ?? join(dshHome, "remote");
+    const dshHome = env.DSH_HOME || join2(options.homeDirectory ?? homedir(), ".dsh");
+    this.directory = options.directory ?? join2(dshHome, "remote");
   }
   async loadOrCreate(deviceName) {
     await mkdir(this.directory, { recursive: true, mode: 448 });
     await chmod(this.directory, 448);
-    const devicePath = join(this.directory, "device.json");
-    const keyPath = join(this.directory, "device.key");
+    const devicePath = join2(this.directory, "device.json");
+    const keyPath = join2(this.directory, "device.key");
     const [hasDevice, hasKey] = await Promise.all([exists(devicePath), exists(keyPath)]);
     if (hasDevice !== hasKey) {
       throw new IdentityInvalidError("device identity is incomplete; repair it explicitly before reconnecting");
@@ -15178,7 +15681,7 @@ var IdentityStore = class {
     return removed;
   }
   async loadPeers() {
-    const path = join(this.directory, "trusted-peers.json");
+    const path = join2(this.directory, "trusted-peers.json");
     if (!await exists(path)) {
       await atomicJsonWrite(path, { schemaVersion: 1, peers: [] }, 384);
     }
@@ -15194,7 +15697,7 @@ var IdentityStore = class {
     this.peers = peers;
   }
   async savePeers() {
-    await atomicJsonWrite(join(this.directory, "trusted-peers.json"), {
+    await atomicJsonWrite(join2(this.directory, "trusted-peers.json"), {
       schemaVersion: 1,
       peers: [...this.peers.values()]
     }, 384);
@@ -15203,7 +15706,7 @@ var IdentityStore = class {
 function serverStorageDirectory(root, serverUrl, role) {
   const origin = new URL(serverUrl).origin;
   const scope = createHash("sha256").update(origin).digest("hex").slice(0, 24);
-  return join(root, "servers", scope, role);
+  return join2(root, "servers", scope, role);
 }
 function fingerprint(publicKey) {
   const compact = createHash("sha256").update(fromBase64Url2(publicKey)).digest("hex").slice(0, 12).toUpperCase();
@@ -15221,7 +15724,7 @@ async function atomicJsonWrite(path, value, mode) {
 `, mode);
 }
 async function atomicTextWrite(path, value, mode) {
-  await mkdir(dirname(path), { recursive: true, mode: 448 });
+  await mkdir(dirname2(path), { recursive: true, mode: 448 });
   const temporary = `${path}.${process.pid}.${uuidV7()}.tmp`;
   await writeFile(temporary, value, { encoding: "utf8", mode, flag: "wx" });
   await chmod(temporary, mode);
@@ -15246,7 +15749,7 @@ function safeErrorMessage(error) {
 
 // src/server-credentials.ts
 import { chmod as chmod2, mkdir as mkdir2, readFile as readFile2, rename as rename2, rm as rm2, stat as stat2, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname2, join as join2 } from "node:path";
+import { dirname as dirname3, join as join3 } from "node:path";
 var credentialSchema = external_exports.object({
   schemaVersion: external_exports.literal(1),
   serverUrl: external_exports.string().url(),
@@ -15261,7 +15764,7 @@ var credentialSchema = external_exports.object({
 var ServerCredentialStore = class {
   path;
   constructor(directory) {
-    this.path = join2(directory, "server-credentials.json");
+    this.path = join3(directory, "server-credentials.json");
   }
   async load(serverUrl, deviceId) {
     if (!await exists2(this.path)) return void 0;
@@ -15288,7 +15791,7 @@ var ServerCredentialsInvalidError = class extends Error {
   code = "SERVER_CREDENTIALS_INVALID";
 };
 async function atomicWrite(path, contents) {
-  await mkdir2(dirname2(path), { recursive: true, mode: 448 });
+  await mkdir2(dirname3(path), { recursive: true, mode: 448 });
   const temporary = `${path}.${process.pid}.${uuidV7()}.tmp`;
   await writeFile2(temporary, contents, { encoding: "utf8", mode: 384, flag: "wx" });
   await chmod2(temporary, 384);
@@ -15748,7 +16251,7 @@ function shortId2(value) {
 
 // src/harness-version.ts
 import { readFile as readFile3 } from "node:fs/promises";
-import { dirname as dirname3, isAbsolute, join as join3 } from "node:path";
+import { dirname as dirname4, isAbsolute, join as join4 } from "node:path";
 var LEGACY_PLACEHOLDER_VERSION = "0.0.1";
 function normalizeHarnessVersion(value) {
   if (typeof value !== "string") return void 0;
@@ -15762,14 +16265,14 @@ function selectHarnessVersion(reportedVersion, distributionVersion) {
 }
 async function readHarnessDistributionVersion(entrypoint = process.argv[1]) {
   if (entrypoint === void 0 || !isAbsolute(entrypoint)) return void 0;
-  let directory = dirname3(entrypoint);
+  let directory = dirname4(entrypoint);
   for (let depth = 0; depth < 8; depth += 1) {
     try {
-      const manifest = JSON.parse(await readFile3(join3(directory, "package.json"), "utf8"));
+      const manifest = JSON.parse(await readFile3(join4(directory, "package.json"), "utf8"));
       if (manifest.name === "@deepseek-ai/dsh") return normalizeHarnessVersion(manifest.version);
     } catch {
     }
-    const parent = dirname3(directory);
+    const parent = dirname4(directory);
     if (parent === directory) break;
     directory = parent;
   }
@@ -16734,7 +17237,7 @@ function closeCode(code) {
 // src/remote-directory-browser.ts
 import { readdir, stat as stat3 } from "node:fs/promises";
 import { homedir as homedir2, platform as platform2 } from "node:os";
-import { basename, dirname as dirname4, isAbsolute as isAbsolute2, parse, resolve } from "node:path";
+import { basename, dirname as dirname5, isAbsolute as isAbsolute2, parse, resolve } from "node:path";
 var MAX_ENTRIES = 500;
 async function listRemoteDirectory(path, signal) {
   signal?.throwIfAborted();
@@ -16767,7 +17270,7 @@ function crumbs(path) {
   let current = path;
   while (current !== root) {
     segments.unshift(basename(current));
-    current = dirname4(current);
+    current = dirname5(current);
   }
   for (const segment of segments) {
     current = resolve(current, segment);
