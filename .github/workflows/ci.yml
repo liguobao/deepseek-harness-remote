@@ -121,17 +121,21 @@ jobs:
       - name: Build workspace packages
         run: pnpm --filter './packages/**' -r build
 
-      - name: Pack npm plugin
+      - name: Pack npm packages
         run: |
-          mkdir -p artifacts/plugin
-          pnpm pack --pack-destination "$GITHUB_WORKSPACE/artifacts/plugin"
-          pnpm --dir packages/plugin pack --pack-destination "$GITHUB_WORKSPACE/artifacts/plugin"
+          mkdir -p artifacts/packages/root artifacts/packages/workspace
+          pnpm pack --pack-destination "$GITHUB_WORKSPACE/artifacts/packages/root"
 
-      - name: Upload npm plugin
+          for package_json in packages/*/package.json; do
+            package_dir="${package_json%/package.json}"
+            pnpm --dir "$package_dir" pack --pack-destination "$GITHUB_WORKSPACE/artifacts/packages/workspace"
+          done
+
+      - name: Upload npm packages
         uses: actions/upload-artifact@v7
         with:
-          name: dsh-remote-plugin-${{ github.sha }}
-          path: artifacts/plugin/*.tgz
+          name: dsh-remote-packages-${{ github.sha }}
+          path: artifacts/packages/**/*.tgz
           if-no-files-found: error
           retention-days: 14
 
