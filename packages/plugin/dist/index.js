@@ -13534,7 +13534,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.32";
+var PLUGIN_VERSION = "0.3.33";
 
 // src/server-api.ts
 var HostServerApi = class {

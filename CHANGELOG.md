@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.33
+
+- Uses an isolated native WebRTC helper under Electron so DSH Desktop can use
+  the native Node RTC backend without loading the addon inside the signed app
+  process.
+- Prefers direct ICE before TURN/Relay and keeps selected candidate-pair
+  telemetry in the desktop connection details.
+- Fixes desktop Remote progress so the final route reflects the actual
+  connected transport, such as `P2P`, instead of always ending on Relay.
+- Advances the Plugin to `0.3.33`; Android remains at `0.3.32`
+  (`versionCode 16`).
+
 ## 0.3.32
 
 - Keeps the desktop Remote Host list showing the Harness version by sending
