@@ -3,14 +3,14 @@ const zhCN = {
     back: '返回', retry: '重试', close: '关闭', cancel: '取消', refresh: '刷新', delete: '删除', unavailable: '不可用', unknown: '未知',
   },
   app: {
-    oauthCancelled: '未完成知乎授权，请再试一次。', oauthInvalid: '登录信息已失效，请重新登录。',
+    oauthCancelled: '未完成授权，请再试一次。', oauthInvalid: '登录信息已失效，请重新登录。',
     loadingTagline: '随时随地开始你的工作。', loadingIdentity: '正在准备安全身份…', bootFailed: 'DSH Remote 无法启动', secureStorageUnavailable: '暂时无法读取此手机的安全数据，请重试。',
     deviceUnavailable: '找不到这台设备', deviceNoLongerTrusted: '它可能已被移除或退出当前账号。', backToDevices: '返回设备列表',
   },
   status: { online: '在线', offline: '离线', disconnected: '未连接', lan: '局域网直连', relay: '服务器转发', p2p: 'P2P 直连', turn: 'TURN 转发', waiting: '连接中', running: '运行中' },
   setup: {
     title: '登录', signIn: '登录账号', signInAgain: '重新登录', lead: '授权此手机后，即可查看同一账号下的设备并继续对话。',
-    oauth: '知乎授权', passwordMethod: '邮箱登录', zhihu: '使用知乎账号登录', oauthHint: '会打开浏览器完成授权，然后自动返回这里。',
+    oauth: '知乎', githubOAuth: 'GitHub', passwordMethod: '邮箱', zhihu: '使用知乎账号登录', github: '使用 GitHub 账号登录', oauthHint: '会打开浏览器完成授权，然后自动返回这里。',
     email: '邮箱', emailPlaceholder: '输入邮箱', password: '密码', passwordPlaceholder: '输入密码', passwordHint: '密码只用于本次登录，不会保存在手机上。',
     server: '服务地址', serverHint: '请使用 HTTPS 地址。', trustTitle: '保护你的设备和对话', trustBody: '对话内容会加密传输。只有登录同一账号的可信设备才能访问。',
   },
@@ -54,7 +54,7 @@ const zhCN = {
   },
   validation: { serverRequired: '请输入服务地址。', serverInvalid: '服务地址格式不正确。例如：https://remote.example.com', httpsRequired: '请使用 HTTPS 地址。本地开发环境可以使用 HTTP。', serverPartsForbidden: '请只输入服务地址，不要包含账号信息、查询参数或页面锚点。' },
   runtime: {
-    identityNotReady: '此手机尚未准备完成，请稍后重试。', zhihuUnsupported: '当前服务不支持知乎授权，请改用邮箱登录。', hostClosed: '与设备的连接已断开。', openSessionFirst: '请先打开对话，再回答这个请求。', networkUnavailable: '当前没有可用网络，恢复网络后会尝试重新连接。', connectHostFirst: '请先连接电脑端设备。', hostMissingKey: '这台设备没有可用的安全密钥，请先重新确认并信任它。', unexpectedRelayDevice: '安全连接对应的设备与所选设备不一致。', secureChannelNotConnected: '安全连接尚未建立。', secureHandshakeTimedOut: '建立安全连接超时，请重试。', secureHandshakeOrder: '安全连接握手顺序无效。', secureHandshakeIncomplete: '安全连接握手未完成。', secureHandshakeFailed: '无法完成安全连接握手。',
+    identityNotReady: '此手机尚未准备完成，请稍后重试。', zhihuUnsupported: '当前服务不支持知乎授权，请改用其他登录方式。', githubUnsupported: '当前服务不支持 GitHub 授权，请改用其他登录方式。', hostClosed: '与设备的连接已断开。', openSessionFirst: '请先打开对话，再回答这个请求。', networkUnavailable: '当前没有可用网络，恢复网络后会尝试重新连接。', connectHostFirst: '请先连接电脑端设备。', hostMissingKey: '这台设备没有可用的安全密钥，请先重新确认并信任它。', unexpectedRelayDevice: '安全连接对应的设备与所选设备不一致。', secureChannelNotConnected: '安全连接尚未建立。', secureHandshakeTimedOut: '建立安全连接超时，请重试。', secureHandshakeOrder: '安全连接握手顺序无效。', secureHandshakeIncomplete: '安全连接握手未完成。', secureHandshakeFailed: '无法完成安全连接握手。',
   },
   errors: {
     ACCOUNT_AUTH_REQUIRED: '请先登录，再连接这台手机。', AUTH_INVALID: '登录状态已失效，请重新登录。', AUTH_REQUIRED: '需要重新登录才能继续。', TOKEN_EXPIRED: '登录已过期，请重新登录。', TOKEN_REUSED: '为了保护账号安全，此手机已退出登录。请重新登录。', DEVICE_NOT_FOUND: '找不到这台设备，请刷新设备列表。', DEVICE_REVOKED: '此手机已被移出当前账号，请重新登录。', DEVICE_OWNERSHIP_REQUIRED: '此手机的登录信息已失效，请重新登录。', MEMBERSHIP_REQUIRED: '你已无权访问这台设备。请确认两端登录了同一账号。', HOST_OFFLINE: '这台设备已离线。请确认 DeepSeek Harness 和 DSH Remote 插件正在运行。', DEVICE_OFFLINE: '这台设备已离线。请确认 DeepSeek Harness 和 DSH Remote 插件正在运行。', PEER_IDENTITY_MISMATCH: '这台设备的安全身份已变化。请先确认设备安全，再重新信任。', RATE_LIMITED: '操作太频繁，请稍后再试。', CONNECTION_FAILED: '无法连接这台设备。请检查网络后重试。', P2P_FAILED: '直接连接失败，正在改用服务器转发。', RELAY_UNAVAILABLE: '暂时无法通过服务器连接，请稍后重试。', TURN_UNAVAILABLE: '暂时无法建立稳定连接，正在尝试其他方式。', SECURE_CHANNEL_FAILED: '无法建立安全连接，请重试。', RPC_TIMEOUT: '设备响应超时，请重试。', UNSUPPORTED_VERSION: 'DSH Remote 版本不兼容，请更新 App 后重试。', METHOD_NOT_ALLOWED: '当前设置不允许从手机执行此操作。', PERMISSION_NOT_PENDING: '这个请求已处理或已过期。', SESSION_NOT_FOUND: '找不到这段对话，请返回对话列表后刷新。', HARNESS_UNAVAILABLE: '这台设备上的 DeepSeek Harness 暂时不可用。请确认它正在运行。', AGENT_BUSY: 'DeepSeek Harness 正在处理其他操作，请稍后再试。', FULL_RESYNC_REQUIRED: '电脑上的对话已更新，请重新打开此对话。',

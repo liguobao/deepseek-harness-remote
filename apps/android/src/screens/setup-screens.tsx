@@ -9,6 +9,7 @@ import { useAppStore } from '../state/store'
 import { SOURCE_CODE_URL } from '../lib/links'
 import { Button, Field, KeyValue, Screen, TopBar } from '../ui/components'
 import { transportPreferenceOptions } from '../types'
+import type { LoginMethod } from '../types'
 import { colors, radius, spacing, type } from '../ui/theme'
 import { strings as zhCN, type LanguagePreference } from '../locales/i18n'
 
@@ -18,16 +19,26 @@ const updateUrl = 'https://github.com/liguobao/deepseek-harness-remote/releases/
 const releaseApiUrl = 'https://api.github.com/repos/liguobao/deepseek-harness-remote/releases/latest'
 const developerUrl = 'https://www.zhihu.com/people/codelover'
 
+type SetupLoginMethod = Extract<LoginMethod, 'oauth' | 'github-oauth' | 'password'>
+
+function loginMethodLabel(method?: LoginMethod): string {
+  if (method === 'oauth') return zhCN.setup.oauth
+  if (method === 'github-oauth') return zhCN.setup.githubOAuth
+  if (method === 'password') return zhCN.setup.passwordMethod
+  return zhCN.common.unknown
+}
+
 export function ServerSetupScreen({ onComplete, onBack }: { onComplete: () => void; onBack?: () => void }) {
   const config = useAppStore(state => state.config)
   const busy = useAppStore(state => state.busyAction === 'server')
   const oauthBusy = useAppStore(state => state.busyAction === 'oauth')
   const configure = useAppStore(state => state.configureServer)
   const startOAuth = useAppStore(state => state.startOAuth)
+  const startGithubOAuth = useAppStore(state => state.startGithubOAuth)
   const [serverUrl, setServerUrl] = useState(config?.baseUrl ?? process.env.EXPO_PUBLIC_DSH_REMOTE_SERVER ?? defaultServerUrl)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [loginMethod, setLoginMethod] = useState<'oauth' | 'password'>('oauth')
+  const [loginMethod, setLoginMethod] = useState<SetupLoginMethod>('oauth')
 
   const submit = async () => {
     if (await configure(serverUrl, email, password)) onComplete()
@@ -35,6 +46,11 @@ export function ServerSetupScreen({ onComplete, onBack }: { onComplete: () => vo
 
   const signInWithZhihu = async () => {
     const url = await startOAuth(serverUrl)
+    if (url !== undefined) await Linking.openURL(url)
+  }
+
+  const signInWithGithub = async () => {
+    const url = await startGithubOAuth(serverUrl)
     if (url !== undefined) await Linking.openURL(url)
   }
 
@@ -53,6 +69,9 @@ export function ServerSetupScreen({ onComplete, onBack }: { onComplete: () => vo
             <Pressable accessibilityRole="tab" accessibilityState={{ selected: loginMethod === 'oauth' }} onPress={() => setLoginMethod('oauth')} style={[styles.methodTab, loginMethod === 'oauth' && styles.methodTabActive]}>
               <Text style={[styles.methodTabText, loginMethod === 'oauth' && styles.methodTabTextActive]}>{zhCN.setup.oauth}</Text>
             </Pressable>
+            <Pressable accessibilityRole="tab" accessibilityState={{ selected: loginMethod === 'github-oauth' }} onPress={() => setLoginMethod('github-oauth')} style={[styles.methodTab, loginMethod === 'github-oauth' && styles.methodTabActive]}>
+              <Text style={[styles.methodTabText, loginMethod === 'github-oauth' && styles.methodTabTextActive]}>{zhCN.setup.githubOAuth}</Text>
+            </Pressable>
             <Pressable accessibilityRole="tab" accessibilityState={{ selected: loginMethod === 'password' }} onPress={() => setLoginMethod('password')} style={[styles.methodTab, loginMethod === 'password' && styles.methodTabActive]}>
               <Text style={[styles.methodTabText, loginMethod === 'password' && styles.methodTabTextActive]}>{zhCN.setup.passwordMethod}</Text>
             </Pressable>
@@ -63,7 +82,12 @@ export function ServerSetupScreen({ onComplete, onBack }: { onComplete: () => vo
                 <Button label={zhCN.setup.zhihu} onPress={() => void signInWithZhihu()} loading={oauthBusy} />
                 <Text style={styles.oauthHint}>{zhCN.setup.oauthHint}</Text>
               </>
-            : <>
+            : loginMethod === 'github-oauth'
+              ? <>
+                  <Button label={zhCN.setup.github} onPress={() => void signInWithGithub()} loading={oauthBusy} />
+                  <Text style={styles.oauthHint}>{zhCN.setup.oauthHint}</Text>
+                </>
+              : <>
                 <Field label={zhCN.setup.email} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" textContentType="username" placeholder={zhCN.setup.emailPlaceholder} />
                 <Field label={zhCN.setup.password} value={password} onChangeText={setPassword} secureTextEntry textContentType="password" returnKeyType="go" onSubmitEditing={() => { if (canSubmit) void submit() }} placeholder={zhCN.setup.passwordPlaceholder} hint={zhCN.setup.passwordHint} />
                 <Button label={zhCN.setup.title} onPress={() => void submit()} loading={busy} disabled={!canSubmit} />
@@ -148,7 +172,7 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
         <View style={styles.group}>
           <KeyValue label={zhCN.settings.server} value={config?.baseUrl ?? zhCN.settings.notConfigured} />
           <KeyValue label={zhCN.settings.account} value={account ?? zhCN.settings.notSignedIn} />
-          <KeyValue label={zhCN.settings.loginMethod} value={config?.loginMethod === 'oauth' ? zhCN.setup.oauth : config?.loginMethod === 'password' ? zhCN.setup.passwordMethod : zhCN.common.unknown} />
+          <KeyValue label={zhCN.settings.loginMethod} value={loginMethodLabel(config?.loginMethod)} />
           <KeyValue label={zhCN.settings.protocol} value="DSH Remote v1" />
         </View>
 
