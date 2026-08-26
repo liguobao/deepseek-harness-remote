@@ -334,9 +334,11 @@ Host 插件的账号登录、设备注册、凭证轮换和 WebSocket 接入约�
   HttpOnly Cookie 校验；未配置凭据时回跳 `?error=oauth_not_configured`。
 - 登录方式二：GitHub OAuth（`/api/v1/auth/oauth/github/start` → GitHub 授权 →
   `/api/v1/auth/oauth/github/callback`）；使用不可变 GitHub user id 绑定站点账号。
+- Android Client 可对两种 OAuth 使用固定 `dshremote://oauth` 回跳并领取一次性
+  Web token 来注册本机 device；其他外部 `return_to` 仍必须拒绝或规范化为 `/app`。
 - 桌面扫码登录由 `POST /api/v1/auth/oauth/qr/start?provider=zhihu|github` 创建短期
   一次性会话，原插件轮询 `GET /api/v1/auth/oauth/qr/{qrId}` 领取结果。省略 provider
-  时默认知乎以兼容旧客户端；两种 provider 的 Web token 都不进入二维码或手机回调 URL。
+  时默认知乎以兼容旧客户端；两种 provider 的 Web token 都不进入二维码、手机回调 URL 或日志。
 - 登录方式三：邮箱密码，注册需要邀请码
   （`POST /api/v1/auth/register` / `POST /api/v1/auth/login`）。
 - web 会话为 HS256 JWT（`typ=web`），与设备令牌隔离；账号接口

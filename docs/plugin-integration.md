@@ -94,7 +94,7 @@ GET /api/v1/auth/oauth/github/status
 {serverUrl}/api/v1/auth/oauth/github/start?return_to=/app
 ```
 
-当前 Server 完成授权后会回到同源 `/app?token=<accountToken>`。`return_to` 只接受 Server 内部绝对路径，不接受插件自定义 scheme 或外部 URL。
+当前 Server 完成 Web 授权后会回到同源 `/app?token=<accountToken>`。Android Client 可使用固定 App scheme `dshremote://oauth` 作为 `return_to`，Server 会回跳 `dshremote://oauth?token=<accountToken>`；除此之外的外部 URL 或自定义 scheme 必须被规范化为 `/app`，避免开放重定向。
 
 桌面插件使用一次性扫码会话，`provider` 可为 `zhihu` 或 `github`；省略时为兼容旧客户端默认使用 `zhihu`：
 
