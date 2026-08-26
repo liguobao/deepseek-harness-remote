@@ -209,7 +209,9 @@ export class HostPluginRuntime {
       this.connections,
       this.logger,
       undefined,
-      this.config.forceRelay ? undefined : loadWeriftFactory,
+      this.config.forceRelay
+        ? undefined
+        : () => loadWeriftFactory({ routeTargets: this.config.serverUrl === undefined ? [] : [this.config.serverUrl] }),
       () => this.fileViewerHost?.() === undefined
         ? ['harness.api.v1']
         : ['harness.api.v1', 'fileviewer.read.v1'],

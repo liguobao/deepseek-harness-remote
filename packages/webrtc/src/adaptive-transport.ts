@@ -14,7 +14,9 @@ import { browserRtcFactory, type RtcIceServer, type RtcPeerConnectionFactory } f
 import {
   RtcConnectError,
   RtcDataChannelTransport,
+  type RtcConnectionDiagnostics,
   type RtcConnectionDetails,
+  type RtcDiagnosticEvent,
   type RtcSelectedTransport,
   type RtcSignal,
 } from './rtc-data-channel.js'
@@ -33,7 +35,8 @@ export interface AdaptiveTransportOptions {
   negotiateTimeoutMs?: number
   rtcFactory?: RtcPeerConnectionFactory
   fetchIceServers?: (connectionId: string) => Promise<RtcIceServer[]>
-  onWebRtcFallback?: (error: Error) => void
+  onWebRtcFallback?: (error: Error, diagnostics?: RtcConnectionDiagnostics) => void
+  onWebRtcDiagnostic?: (event: RtcDiagnosticEvent) => void
 }
 
 export interface AdaptiveConnectionDetails {
@@ -74,6 +77,7 @@ export class AdaptiveTransport extends BaseTransport {
   private webrtcEnabled = true
   private serverNegotiateTimeoutMs?: number
   private connectedAt?: number
+  private lastRtcDiagnostics?: RtcConnectionDiagnostics
 
   constructor(
     private readonly url: string,
@@ -288,6 +292,7 @@ export class AdaptiveTransport extends BaseTransport {
     const wantWebRtc = !this.options.forceRelay && this.webrtcEnabled
       && (preferred.includes('lan') || preferred.includes('p2p') || preferred.includes('turn'))
     let selected: SelectedTransport = 'relay'
+    this.lastRtcDiagnostics = undefined
     if (wantWebRtc) {
       try {
         const rtcSelected = await this.tryWebRtc()
@@ -295,7 +300,7 @@ export class AdaptiveTransport extends BaseTransport {
         selected = rtcSelected
       } catch (error) {
         const reason = error instanceof Error ? error : new Error('WebRTC negotiation failed.')
-        try { this.options.onWebRtcFallback?.(reason) } catch { /* diagnostics must not block fallback */ }
+        try { this.options.onWebRtcFallback?.(reason, this.lastRtcDiagnostics) } catch { /* diagnostics must not block fallback */ }
         await this.rtc?.close()
         this.rtc = undefined
         this.dataMode = 'relay'
@@ -336,6 +341,10 @@ export class AdaptiveTransport extends BaseTransport {
       onSignal: signal => this.sendRtcSignal(signal),
       negotiateTimeoutMs: this.serverNegotiateTimeoutMs ?? this.options.negotiateTimeoutMs,
       label: `client->${this.options.targetDeviceId}`,
+      onDiagnostic: event => {
+        this.lastRtcDiagnostics = event.diagnostics
+        try { this.options.onWebRtcDiagnostic?.(event) } catch { /* diagnostics must not block negotiation */ }
+      },
     })
     this.rtc = rtc
     rtc.onMessage(data => {
@@ -351,10 +360,12 @@ export class AdaptiveTransport extends BaseTransport {
     try {
       await rtc.connect()
     } catch (error) {
+      this.lastRtcDiagnostics = rtc.diagnostics()
       await rtc.close()
       this.rtc = undefined
       throw error
     }
+    this.lastRtcDiagnostics = rtc.diagnostics()
     return rtc.selectedTransport() ?? 'p2p'
   }
 

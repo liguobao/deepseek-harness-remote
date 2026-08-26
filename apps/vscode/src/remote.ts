@@ -22,7 +22,7 @@ export class RemoteConnection {
     await this.close()
     const wsUrl = new URL('/ws/v1/connect', serverUrl)
     wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:'
-    const rtcFactory = forceRelay ? undefined : await loadWeriftFactory()
+    const rtcFactory = forceRelay ? undefined : await loadWeriftFactory({ routeTargets: [serverUrl] })
     const server = new ServerApi(serverUrl, accessToken)
     let webRtcFallback = false
     const createCore = (relayOnly: boolean): RemoteClientCore => {

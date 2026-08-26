@@ -2,9 +2,16 @@ import type { TransportStats } from '@dsh-remote/protocol'
 import {
   RTC_DATA_CHANNEL_LABEL,
   RTC_DATA_CHANNEL_OPTIONS,
+  summarizeAddress,
+  summarizeIceCandidate,
+  type RtcAddressFamily,
+  type RtcAddressScope,
+  type RtcCandidateSummary,
+  type RtcCandidateType,
   type RtcDataChannel,
   type RtcIceCandidateInit,
   type RtcIceServer,
+  type RtcPeerConnectionDiagnosticEvent,
   type RtcPeerConnection,
   type RtcPeerConnectionFactory,
   type RtcStats,
@@ -40,7 +47,62 @@ export interface RtcConnectionDetails extends RtcPathDetails {
   connectionState: string
   iceConnectionState: string
   dataChannelState?: RtcDataChannel['readyState']
+  diagnostics: RtcConnectionDiagnostics
 }
+
+export interface RtcCandidateTelemetry {
+  total: number
+  byType: Partial<Record<RtcCandidateType, number>>
+  byFamily: Partial<Record<RtcAddressFamily, number>>
+  byScope: Partial<Record<RtcAddressScope, number>>
+  byProtocol: Record<string, number>
+}
+
+export interface RtcCandidatePairTelemetry {
+  total: number
+  nominated: number
+  selected: number
+  byState: Record<string, number>
+  byLocalType: Partial<Record<RtcCandidateType, number>>
+  byRemoteType: Partial<Record<RtcCandidateType, number>>
+  byLocalFamily: Partial<Record<RtcAddressFamily, number>>
+  byRemoteFamily: Partial<Record<RtcAddressFamily, number>>
+  byLocalScope: Partial<Record<RtcAddressScope, number>>
+  byRemoteScope: Partial<Record<RtcAddressScope, number>>
+}
+
+export interface RtcSelectedPathTelemetry {
+  transport?: RtcSelectedTransport
+  mode?: RtcPathMode
+  localCandidateType?: string
+  remoteCandidateType?: string
+  protocol?: string
+  relayProtocol?: string
+  currentRoundTripTimeMs?: number
+  availableOutgoingBitrate?: number
+}
+
+export interface RtcConnectionDiagnostics {
+  role: RtcRole
+  label?: string
+  connectionState: string
+  iceConnectionState: string
+  iceGatheringState: string
+  localCandidates: RtcCandidateTelemetry
+  remoteCandidates: RtcCandidateTelemetry
+  candidatePairs: RtcCandidatePairTelemetry
+  filteredLocalCandidates: RtcCandidateTelemetry
+  filteredCandidatePairs: RtcCandidateTelemetry
+  selectedPath?: RtcSelectedPathTelemetry
+}
+
+export type RtcDiagnosticEvent =
+  | { type: 'local-candidate'; candidate: RtcCandidateSummary; diagnostics: RtcConnectionDiagnostics }
+  | { type: 'remote-candidate'; candidate: RtcCandidateSummary; action: 'buffered' | 'added' | 'ignored'; diagnostics: RtcConnectionDiagnostics }
+  | { type: 'local-candidate-filtered'; candidate: RtcCandidateSummary; reason: string; diagnostics: RtcConnectionDiagnostics }
+  | { type: 'candidate-pair-filtered'; localCandidate?: RtcCandidateSummary; reason: string; diagnostics: RtcConnectionDiagnostics }
+  | { type: 'state-change'; connectionState: string; iceConnectionState: string; iceGatheringState: string; diagnostics: RtcConnectionDiagnostics }
+  | { type: 'selected-path'; selectedPath: RtcSelectedPathTelemetry; diagnostics: RtcConnectionDiagnostics }
 
 export type RtcSignal =
   | { type: 'offer'; sdp: string }
@@ -62,6 +124,8 @@ export interface RtcDataChannelTransportOptions {
   sendTimeoutMs?: number
   /** Human-readable diagnostic label; never logged with sensitive content. */
   label?: string
+  /** Candidate/state telemetry hook. Events never contain SDP, credentials, or payload bytes. */
+  onDiagnostic?: (event: RtcDiagnosticEvent) => void
 }
 
 const DEFAULT_NEGOTIATE_TIMEOUT_MS = 8_000
@@ -82,6 +146,8 @@ export class RtcDataChannelTransport {
   private readonly negotiateTimeoutMs: number
   private readonly channelLabel: string
   private readonly sendTimeoutMs?: number
+  private readonly label?: string
+  private readonly onDiagnostic?: (event: RtcDiagnosticEvent) => void
 
   private channel?: RtcDataChannel
   private readonly remoteCandidates: RtcIceCandidateInit[] = []
@@ -106,6 +172,12 @@ export class RtcDataChannelTransport {
   private bytesReceived = 0
   private selected?: RtcSelectedTransport
   private selectedMode?: RtcPathMode
+  private selectedPathTelemetry?: RtcSelectedPathTelemetry
+  private readonly localCandidateTelemetry = emptyCandidateTelemetry()
+  private readonly remoteCandidateTelemetry = emptyCandidateTelemetry()
+  private candidatePairTelemetry = emptyCandidatePairTelemetry()
+  private readonly filteredLocalCandidateTelemetry = emptyCandidateTelemetry()
+  private readonly filteredCandidatePairTelemetry = emptyCandidateTelemetry()
   private lastBufferedAmount = 0
 
   constructor(options: RtcDataChannelTransportOptions) {
@@ -114,16 +186,31 @@ export class RtcDataChannelTransport {
     this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS
     this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL
     this.sendTimeoutMs = options.sendTimeoutMs
+    this.label = options.label
+    this.onDiagnostic = options.onDiagnostic
 
-    this.pc = options.factory.create({ iceServers: options.iceServers })
+    this.pc = options.factory.create({
+      iceServers: options.iceServers,
+      onDiagnostic: event => this.handlePeerDiagnostic(event),
+    })
     this.pc.ondatachannel = event => this.adoptChannel(event.channel)
     this.pc.onicecandidate = event => {
       if (event.candidate !== null && !this.closed) {
+        const candidate = summarizeIceCandidate(event.candidate)
+        recordCandidate(this.localCandidateTelemetry, candidate)
+        this.emitDiagnostic({ type: 'local-candidate', candidate, diagnostics: this.diagnostics() })
         this.onSignal({ type: 'ice', candidate: event.candidate })
       }
     }
-    this.pc.onconnectionstatechange = () => this.checkConnectionState()
-    this.pc.oniceconnectionstatechange = () => this.checkConnectionState()
+    this.pc.onconnectionstatechange = () => {
+      this.emitStateChange()
+      this.checkConnectionState()
+    }
+    this.pc.oniceconnectionstatechange = () => {
+      this.emitStateChange()
+      this.checkConnectionState()
+    }
+    this.pc.onicegatheringstatechange = () => this.emitStateChange()
   }
 
   /** Begin negotiation; resolves when the DataChannel is open. */
@@ -135,7 +222,7 @@ export class RtcDataChannelTransport {
       this.openResolve = resolve
       this.openReject = reject
       this.negotiateTimer = setTimeout(() => {
-        this.failOpen(new RtcConnectError('RTC_CONNECT_TIMEOUT', `WebRTC negotiation timed out after ${this.negotiateTimeoutMs}ms.`))
+        void this.failOpenAfterStats(new RtcConnectError('RTC_CONNECT_TIMEOUT', `WebRTC negotiation timed out after ${this.negotiateTimeoutMs}ms.`))
       }, this.negotiateTimeoutMs)
       if (this.role === 'initiator') {
         void this.startInitiator().catch(error => this.failOpen(asError(error)))
@@ -189,10 +276,26 @@ export class RtcDataChannelTransport {
     return this.selectedMode
   }
 
+  diagnostics(): RtcConnectionDiagnostics {
+    return {
+      role: this.role,
+      ...(this.label === undefined ? {} : { label: this.label }),
+      connectionState: this.pc.connectionState,
+      iceConnectionState: this.pc.iceConnectionState,
+      iceGatheringState: this.pc.iceGatheringState,
+      localCandidates: cloneCandidateTelemetry(this.localCandidateTelemetry),
+      remoteCandidates: cloneCandidateTelemetry(this.remoteCandidateTelemetry),
+      candidatePairs: cloneCandidatePairTelemetry(this.candidatePairTelemetry),
+      filteredLocalCandidates: cloneCandidateTelemetry(this.filteredLocalCandidateTelemetry),
+      filteredCandidatePairs: cloneCandidateTelemetry(this.filteredCandidatePairTelemetry),
+      ...(this.selectedPathTelemetry === undefined ? {} : { selectedPath: { ...this.selectedPathTelemetry } }),
+    }
+  }
+
   async connectionDetails(): Promise<RtcConnectionDetails> {
     let statsDetails: RtcPathDetails = {}
     try {
-      statsDetails = inspectSelectedPath(await this.pc.getStats())
+      statsDetails = await this.refreshStatsDiagnostics()
     } catch {
       // Peer/DataChannel state remains useful if the RTC backend withholds stats.
     }
@@ -202,6 +305,7 @@ export class RtcDataChannelTransport {
       connectionState: this.pc.connectionState,
       iceConnectionState: this.pc.iceConnectionState,
       dataChannelState: this.channel?.readyState,
+      diagnostics: this.diagnostics(),
     }
   }
 
@@ -294,13 +398,19 @@ export class RtcDataChannelTransport {
   }
 
   private async handleIce(candidate: RtcIceCandidateInit): Promise<void> {
+    const summary = summarizeIceCandidate(candidate)
     if (!this.remoteDescriptionSet) {
+      recordCandidate(this.remoteCandidateTelemetry, summary)
+      this.emitDiagnostic({ type: 'remote-candidate', candidate: summary, action: 'buffered', diagnostics: this.diagnostics() })
       this.remoteCandidates.push(candidate)
       return
     }
     try {
       await this.pc.addIceCandidate(candidate)
+      recordCandidate(this.remoteCandidateTelemetry, summary)
+      this.emitDiagnostic({ type: 'remote-candidate', candidate: summary, action: 'added', diagnostics: this.diagnostics() })
     } catch {
+      this.emitDiagnostic({ type: 'remote-candidate', candidate: summary, action: 'ignored', diagnostics: this.diagnostics() })
       // Ignore malformed/duplicate candidates; the connection either proceeds
       // or the negotiation timeout surfaces the failure.
     }
@@ -357,9 +467,15 @@ export class RtcDataChannelTransport {
 
   private async resolveSelectedTransport(): Promise<void> {
     try {
-      const selected = inspectSelectedPath(await this.pc.getStats())
+      const selected = await this.refreshStatsDiagnostics()
       this.selected = selected?.transport
       this.selectedMode = selected?.mode
+      this.selectedPathTelemetry = selectedPathTelemetry(selected)
+      this.emitDiagnostic({
+        type: 'selected-path',
+        selectedPath: this.selectedPathTelemetry,
+        diagnostics: this.diagnostics(),
+      })
     } catch {
       this.selected = undefined
       this.selectedMode = undefined
@@ -370,8 +486,16 @@ export class RtcDataChannelTransport {
     if (this.closed || this.opened) return
     if (this.pc.connectionState === 'failed' || this.pc.iceConnectionState === 'failed'
       || this.pc.connectionState === 'closed' || this.pc.iceConnectionState === 'closed') {
-      this.failOpen(new RtcConnectError('RTC_FAILED', 'WebRTC peer connection failed before the data channel opened.'))
+      void this.failOpenAfterStats(new RtcConnectError('RTC_FAILED', 'WebRTC peer connection failed before the data channel opened.'))
     }
+  }
+
+  private async failOpenAfterStats(error: Error): Promise<void> {
+    await Promise.race([
+      this.refreshStatsDiagnostics().catch(() => undefined),
+      sleep(250),
+    ])
+    this.failOpen(error)
   }
 
   private failOpen(error: Error): void {
@@ -433,6 +557,46 @@ export class RtcDataChannelTransport {
     if (this.watchdogTimer !== undefined) clearTimeout(this.watchdogTimer)
     this.watchdogTimer = undefined
     this.lastBufferedAmount = 0
+  }
+
+  private async refreshStatsDiagnostics(): Promise<RtcPathDetails> {
+    const stats = [...await this.pc.getStats()]
+    this.candidatePairTelemetry = inspectCandidatePairs(stats)
+    return inspectSelectedPath(stats)
+  }
+
+  private handlePeerDiagnostic(event: RtcPeerConnectionDiagnosticEvent): void {
+    if (event.type === 'local-candidate-filtered') {
+      recordCandidate(this.filteredLocalCandidateTelemetry, event.candidate)
+      this.emitDiagnostic({
+        type: event.type,
+        candidate: event.candidate,
+        reason: event.reason,
+        diagnostics: this.diagnostics(),
+      })
+      return
+    }
+    if (event.localCandidate !== undefined) recordCandidate(this.filteredCandidatePairTelemetry, event.localCandidate)
+    this.emitDiagnostic({
+      type: event.type,
+      localCandidate: event.localCandidate,
+      reason: event.reason,
+      diagnostics: this.diagnostics(),
+    })
+  }
+
+  private emitStateChange(): void {
+    this.emitDiagnostic({
+      type: 'state-change',
+      connectionState: this.pc.connectionState,
+      iceConnectionState: this.pc.iceConnectionState,
+      iceGatheringState: this.pc.iceGatheringState,
+      diagnostics: this.diagnostics(),
+    })
+  }
+
+  private emitDiagnostic(event: RtcDiagnosticEvent): void {
+    try { this.onDiagnostic?.(event) } catch { /* diagnostics must not affect transport state */ }
   }
 }
 
@@ -506,6 +670,32 @@ export function inspectSelectedPath(stats: RtcStats): RtcPathDetails {
   return {}
 }
 
+export function inspectCandidatePairs(stats: RtcStats): RtcCandidatePairTelemetry {
+  const candidates = new Map<string, RtcStatsEntry>()
+  const telemetry = emptyCandidatePairTelemetry()
+  const pairs: RtcStatsEntry[] = []
+  for (const [reportId, entry] of stats) {
+    if (entry.type === 'local-candidate' || entry.type === 'remote-candidate') {
+      if (typeof entry.candidateType === 'string' && entry.id !== undefined) {
+        candidates.set(String(entry.id), entry)
+      }
+    } else if (entry.type === 'candidate-pair') {
+      pairs.push({ ...entry, id: entry.id ?? reportId })
+    }
+  }
+  for (const pair of pairs) {
+    telemetry.total += 1
+    if (pair.nominated === true) telemetry.nominated += 1
+    if (pair.selected === true) telemetry.selected += 1
+    increment(telemetry.byState, stringStat(pair, 'state') ?? (pair.selected === true ? 'selected' : 'unknown'))
+    const local = candidates.get(String(pair.localCandidateId))
+    const remote = candidates.get(String(pair.remoteCandidateId))
+    recordCandidateStats(telemetry.byLocalType, telemetry.byLocalFamily, telemetry.byLocalScope, local)
+    recordCandidateStats(telemetry.byRemoteType, telemetry.byRemoteFamily, telemetry.byRemoteScope, remote)
+  }
+  return telemetry
+}
+
 function candidateAddress(candidate: RtcStatsEntry | undefined): string | undefined {
   const address = stringStat(candidate, 'address') ?? stringStat(candidate, 'ip')
   if (address === undefined) return undefined
@@ -521,6 +711,104 @@ function stringStat(entry: RtcStatsEntry | undefined, key: string): string | und
 function numberStat(entry: RtcStatsEntry | undefined, key: string): number | undefined {
   const value = entry?.[key]
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function emptyCandidateTelemetry(): RtcCandidateTelemetry {
+  return {
+    total: 0,
+    byType: {},
+    byFamily: {},
+    byScope: {},
+    byProtocol: {},
+  }
+}
+
+function cloneCandidateTelemetry(value: RtcCandidateTelemetry): RtcCandidateTelemetry {
+  return {
+    total: value.total,
+    byType: { ...value.byType },
+    byFamily: { ...value.byFamily },
+    byScope: { ...value.byScope },
+    byProtocol: { ...value.byProtocol },
+  }
+}
+
+function emptyCandidatePairTelemetry(): RtcCandidatePairTelemetry {
+  return {
+    total: 0,
+    nominated: 0,
+    selected: 0,
+    byState: {},
+    byLocalType: {},
+    byRemoteType: {},
+    byLocalFamily: {},
+    byRemoteFamily: {},
+    byLocalScope: {},
+    byRemoteScope: {},
+  }
+}
+
+function cloneCandidatePairTelemetry(value: RtcCandidatePairTelemetry): RtcCandidatePairTelemetry {
+  return {
+    total: value.total,
+    nominated: value.nominated,
+    selected: value.selected,
+    byState: { ...value.byState },
+    byLocalType: { ...value.byLocalType },
+    byRemoteType: { ...value.byRemoteType },
+    byLocalFamily: { ...value.byLocalFamily },
+    byRemoteFamily: { ...value.byRemoteFamily },
+    byLocalScope: { ...value.byLocalScope },
+    byRemoteScope: { ...value.byRemoteScope },
+  }
+}
+
+function recordCandidate(telemetry: RtcCandidateTelemetry, candidate: RtcCandidateSummary): void {
+  telemetry.total += 1
+  increment(telemetry.byType, candidate.candidateType)
+  increment(telemetry.byFamily, candidate.addressFamily)
+  increment(telemetry.byScope, candidate.addressScope)
+  if (candidate.protocol !== undefined) increment(telemetry.byProtocol, candidate.protocol)
+}
+
+function recordCandidateStats(
+  byType: Partial<Record<RtcCandidateType, number>>,
+  byFamily: Partial<Record<RtcAddressFamily, number>>,
+  byScope: Partial<Record<RtcAddressScope, number>>,
+  candidate: RtcStatsEntry | undefined,
+): void {
+  const candidateType = candidateTypeStat(candidate)
+  const address = summarizeAddress(candidateAddressValue(candidate))
+  increment(byType, candidateType)
+  increment(byFamily, address.addressFamily)
+  increment(byScope, address.addressScope)
+}
+
+function candidateTypeStat(candidate: RtcStatsEntry | undefined): RtcCandidateType {
+  const value = stringStat(candidate, 'candidateType')
+  if (value === 'host' || value === 'srflx' || value === 'prflx' || value === 'relay') return value
+  return 'unknown'
+}
+
+function candidateAddressValue(candidate: RtcStatsEntry | undefined): string | undefined {
+  return stringStat(candidate, 'address') ?? stringStat(candidate, 'ip')
+}
+
+function increment(map: Record<string, number>, key: string): void {
+  map[key] = (map[key] ?? 0) + 1
+}
+
+function selectedPathTelemetry(details: RtcPathDetails): RtcSelectedPathTelemetry {
+  return {
+    ...(details.transport === undefined ? {} : { transport: details.transport }),
+    ...(details.mode === undefined ? {} : { mode: details.mode }),
+    ...(details.localCandidateType === undefined ? {} : { localCandidateType: details.localCandidateType }),
+    ...(details.remoteCandidateType === undefined ? {} : { remoteCandidateType: details.remoteCandidateType }),
+    ...(details.protocol === undefined ? {} : { protocol: details.protocol }),
+    ...(details.relayProtocol === undefined ? {} : { relayProtocol: details.relayProtocol }),
+    ...(details.currentRoundTripTimeMs === undefined ? {} : { currentRoundTripTimeMs: details.currentRoundTripTimeMs }),
+    ...(details.availableOutgoingBitrate === undefined ? {} : { availableOutgoingBitrate: details.availableOutgoingBitrate }),
+  }
 }
 
 function requireSdp(description: { type: 'offer' | 'answer'; sdp?: string }): string {

@@ -1,6 +1,6 @@
 import type { ApiProxy, RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RemoteClientCore } from '@dsh-remote/client-core'
-import { AdaptiveTransport, type RtcPeerConnectionFactory } from '@dsh-remote/webrtc'
+import { AdaptiveTransport, type RtcConnectionDiagnostics, type RtcPeerConnectionFactory } from '@dsh-remote/webrtc'
 import { ApiProxySwitch, type HarnessMode } from './api-proxy-switch.js'
 import { ClientSecureTransport } from './client-secure-transport.js'
 import type { ResolvedConfig } from './config.js'
@@ -19,7 +19,7 @@ import {
 } from './server-api.js'
 import { TypertGatewaySwitch } from './typert-gateway-switch.js'
 import type { RemoteFileViewerEndpoint } from './file-viewer-contract.js'
-import { loadWeriftFactory } from './werift-rtc.js'
+import { loadWeriftFactory, type WeriftFactoryOptions } from './werift-rtc.js'
 
 interface ConnectedRemote {
   client: RemoteClientCore
@@ -117,7 +117,7 @@ export class ClientModeRuntime {
     typertGateway: TypertGatewayLike,
     private readonly logger: SafeLogger,
     private readonly host?: HostAuthorizationControl,
-    private readonly rtcFactoryProvider: () => Promise<RtcPeerConnectionFactory | undefined> = loadWeriftFactory,
+    private readonly rtcFactoryProvider: (options?: WeriftFactoryOptions) => Promise<RtcPeerConnectionFactory | undefined> = loadWeriftFactory,
   ) {
     this.proxySwitch = new ApiProxySwitch(apiProxy)
     this.gatewaySwitch = new TypertGatewaySwitch(typertGateway)
@@ -369,7 +369,7 @@ export class ClientModeRuntime {
     const credentials = await this.server.authenticate(identity)
     const rtcFactory = this.config.forceRelay
       ? undefined
-      : await this.rtcFactoryProvider().catch(() => undefined)
+      : await this.rtcFactoryProvider({ routeTargets: [this.server.baseUrl] }).catch(() => undefined)
     let webRtcFallback = false
     const createTransport = (relayOnly: boolean): AdaptiveTransport => new AdaptiveTransport(
       websocketUrl(this.server.baseUrl),
@@ -382,11 +382,12 @@ export class ClientModeRuntime {
         preferredTransports: this.config.forceRelay || relayOnly ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
         ...(rtcFactory === undefined || relayOnly ? {} : { rtcFactory }),
         fetchIceServers: async connectionId => this.server.turnCredentials(connectionId),
-        onWebRtcFallback: error => {
+        onWebRtcFallback: (error, diagnostics) => {
           webRtcFallback = true
           this.logger.warn('remote Harness WebRTC failed; using relay', {
             targetDeviceId: shortId(target.deviceId),
             reason: diagnosticReason(error),
+            ...webrtcDiagnosticsLogFields(diagnostics),
           })
         },
       },
@@ -421,9 +422,11 @@ export class ClientModeRuntime {
           targetDeviceId: shortId(target.deviceId),
         })
       })
+      const connectionDetails = await transport.connectionDetails().catch(() => undefined)
       this.logger.info('remote Harness transport ready', {
         targetDeviceId: shortId(target.deviceId),
         transport: client.getStats().mode,
+        ...webrtcDiagnosticsLogFields(connectionDetails?.webRtc?.diagnostics),
       })
       return { client, target, transport, features: remoteHostFeatures(serverDevice.clientVersion) }
     } catch (error) {
@@ -582,6 +585,21 @@ function websocketUrl(baseUrl: string): string {
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   url.pathname = `${url.pathname.replace(/\/$/, '')}/ws/v1/connect`
   return url.toString()
+}
+
+function webrtcDiagnosticsLogFields(diagnostics: RtcConnectionDiagnostics | undefined): Record<string, unknown> {
+  if (diagnostics === undefined) return {}
+  return {
+    rtcConnectionState: diagnostics.connectionState,
+    rtcIceConnectionState: diagnostics.iceConnectionState,
+    rtcIceGatheringState: diagnostics.iceGatheringState,
+    rtcLocalCandidates: diagnostics.localCandidates,
+    rtcRemoteCandidates: diagnostics.remoteCandidates,
+    rtcCandidatePairs: diagnostics.candidatePairs,
+    rtcFilteredLocalCandidates: diagnostics.filteredLocalCandidates,
+    rtcFilteredCandidatePairs: diagnostics.filteredCandidatePairs,
+    ...(diagnostics.selectedPath === undefined ? {} : { rtcSelectedPath: diagnostics.selectedPath }),
+  }
 }
 
 function record(value: unknown): Record<string, unknown> {

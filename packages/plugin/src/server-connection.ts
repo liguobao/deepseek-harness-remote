@@ -24,6 +24,7 @@ import {
 } from '@dsh-remote/protocol'
 import {
   RtcDataChannelTransport,
+  type RtcConnectionDiagnostics,
   type RtcIceServer,
   type RtcPeerConnectionFactory,
   type RtcSelectedTransport,
@@ -471,6 +472,16 @@ export class HostServerConnection {
       onSignal: signal => this.sendRtcSignal(tunnel, signal),
       negotiateTimeoutMs: DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS,
       label: `host<-${tunnel.peer.deviceId}`,
+      onDiagnostic: event => {
+        if (event.type !== 'local-candidate-filtered' && event.type !== 'candidate-pair-filtered') return
+        this.logger.debug('webrtc candidate filtered', {
+          connectionId: shortId(tunnel.connectionId),
+          peerDeviceId: shortId(tunnel.peer.deviceId),
+          type: event.type,
+          reason: event.reason,
+          candidate: event.type === 'local-candidate-filtered' ? event.candidate : event.localCandidate,
+        })
+      },
     })
     tunnel.rtc = rtc
     rtc.onMessage(data => tunnel.channel?.receive(undefined, data))
@@ -516,6 +527,7 @@ export class HostServerConnection {
       connectionId: shortId(tunnel.connectionId),
       peerDeviceId: shortId(tunnel.peer.deviceId),
       transport: tunnel.transportMode ?? selected,
+      ...webrtcDiagnosticsLogFields(rtcDiagnostics(tunnel.rtc)),
     })
   }
 
@@ -529,6 +541,7 @@ export class HostServerConnection {
       this.logger.warn('webrtc data channel failed; disconnecting peer', {
         connectionId: shortId(tunnel.connectionId),
         reason: diagnosticReason(error),
+        ...webrtcDiagnosticsLogFields(rtcDiagnostics(rtc)),
       })
       await this.dropTunnel(tunnel.connectionId, 'CONNECTION_FAILED')
       return
@@ -539,6 +552,7 @@ export class HostServerConnection {
     this.logger.warn('webrtc negotiation failed; falling back to relay', {
       connectionId: shortId(tunnel.connectionId),
       reason: diagnosticReason(error),
+      ...webrtcDiagnosticsLogFields(rtcDiagnostics(rtc)),
     })
   }
 
@@ -781,6 +795,28 @@ function asError(error: unknown): Error { return error instanceof Error ? error 
 function diagnosticReason(error: unknown): string {
   const message = asError(error).message.replace(/[\r\n]+/g, ' ').slice(0, 160)
   return message || 'Unknown Server connection error.'
+}
+function webrtcDiagnosticsLogFields(diagnostics: RtcConnectionDiagnostics | undefined): Record<string, unknown> {
+  if (diagnostics === undefined) return {}
+  return {
+    rtcConnectionState: diagnostics.connectionState,
+    rtcIceConnectionState: diagnostics.iceConnectionState,
+    rtcIceGatheringState: diagnostics.iceGatheringState,
+    rtcLocalCandidates: diagnostics.localCandidates,
+    rtcRemoteCandidates: diagnostics.remoteCandidates,
+    rtcCandidatePairs: diagnostics.candidatePairs,
+    rtcFilteredLocalCandidates: diagnostics.filteredLocalCandidates,
+    rtcFilteredCandidatePairs: diagnostics.filteredCandidatePairs,
+    ...(diagnostics.selectedPath === undefined ? {} : { rtcSelectedPath: diagnostics.selectedPath }),
+  }
+}
+function rtcDiagnostics(rtc: RtcDataChannelTransport): RtcConnectionDiagnostics | undefined {
+  try {
+    const candidate = rtc as RtcDataChannelTransport & { diagnostics?: () => RtcConnectionDiagnostics }
+    return typeof candidate.diagnostics === 'function' ? candidate.diagnostics() : undefined
+  } catch {
+    return undefined
+  }
 }
 function errorCode(error: unknown): string { return error instanceof ServerApiError || error instanceof ControlConnectionError ? error.code : 'CONNECTION_FAILED' }
 function isRetryable(error: unknown): boolean { return error instanceof ServerApiError ? error.retryable : errorCode(error) !== 'DEVICE_REVOKED' }

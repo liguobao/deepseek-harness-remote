@@ -4574,7 +4574,7 @@ var RTC_DATA_CHANNEL_OPTIONS = { ordered: true };
 function browserRtcFactory() {
   return {
     create(configuration) {
-      const raw = new RTCPeerConnection(configuration);
+      const raw = new RTCPeerConnection({ iceServers: configuration.iceServers });
       return {
         get connectionState() {
           return raw.connectionState;
@@ -4645,6 +4645,82 @@ function browserRtcFactory() {
       };
     }
   };
+}
+function summarizeIceCandidate(candidate) {
+  const value = candidate?.candidate?.trim();
+  if (value === void 0 || value.length === 0)
+    return emptyCandidateSummary();
+  const parts = value.replace(/^candidate:/, "").split(/\s+/);
+  const typeIndex = parts.indexOf("typ");
+  const relatedAddressIndex = parts.indexOf("raddr");
+  return {
+    candidateType: parseCandidateType(parts[typeIndex + 1]),
+    protocol: normalizeProtocol(parts[2]),
+    ...summarizeAddress(parts[4]),
+    ...relatedAddressIndex < 0 ? {} : relatedAddressSummary(parts[relatedAddressIndex + 1])
+  };
+}
+function summarizeAddress(address) {
+  if (address === void 0 || address.length === 0)
+    return { addressFamily: "unknown", addressScope: "unknown" };
+  if (address.includes(":"))
+    return { addressFamily: "ipv6", addressScope: summarizeIpv6Scope(address) };
+  const parts = address.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return { addressFamily: "unknown", addressScope: "unknown" };
+  }
+  return { addressFamily: "ipv4", addressScope: summarizeIpv4Scope(parts) };
+}
+function emptyCandidateSummary() {
+  return { candidateType: "unknown", addressFamily: "unknown", addressScope: "unknown" };
+}
+function parseCandidateType(value) {
+  if (value === "host" || value === "srflx" || value === "prflx" || value === "relay")
+    return value;
+  return "unknown";
+}
+function normalizeProtocol(value) {
+  if (value === void 0 || value.length === 0)
+    return void 0;
+  return value.toLowerCase();
+}
+function relatedAddressSummary(address) {
+  const summary = summarizeAddress(address);
+  return {
+    relatedAddressFamily: summary.addressFamily,
+    relatedAddressScope: summary.addressScope
+  };
+}
+function summarizeIpv4Scope(parts) {
+  if (parts[0] === 0 || parts[0] >= 240)
+    return "reserved";
+  if (parts[0] === 127)
+    return "loopback";
+  if (parts[0] === 169 && parts[1] === 254)
+    return "link-local";
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127)
+    return "cgnat";
+  if (parts[0] >= 224)
+    return "reserved";
+  if (parts[0] === 10)
+    return "private";
+  if (parts[0] === 192 && parts[1] === 168)
+    return "private";
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
+    return "private";
+  return "public";
+}
+function summarizeIpv6Scope(address) {
+  const value = address.toLowerCase();
+  if (value === "::1")
+    return "loopback";
+  if (value.startsWith("fe80:"))
+    return "link-local";
+  if (value.startsWith("fc") || value.startsWith("fd"))
+    return "private";
+  if (value.startsWith("ff"))
+    return "reserved";
+  return "public";
 }
 function adaptDataChannel(raw) {
   return {
@@ -4823,6 +4899,8 @@ var RtcDataChannelTransport = class {
   negotiateTimeoutMs;
   channelLabel;
   sendTimeoutMs;
+  label;
+  onDiagnostic;
   channel;
   remoteCandidates = [];
   remoteDescriptionSet = false;
@@ -4843,6 +4921,12 @@ var RtcDataChannelTransport = class {
   bytesReceived = 0;
   selected;
   selectedMode;
+  selectedPathTelemetry;
+  localCandidateTelemetry = emptyCandidateTelemetry();
+  remoteCandidateTelemetry = emptyCandidateTelemetry();
+  candidatePairTelemetry = emptyCandidatePairTelemetry();
+  filteredLocalCandidateTelemetry = emptyCandidateTelemetry();
+  filteredCandidatePairTelemetry = emptyCandidateTelemetry();
   lastBufferedAmount = 0;
   constructor(options) {
     this.role = options.role;
@@ -4850,15 +4934,30 @@ var RtcDataChannelTransport = class {
     this.negotiateTimeoutMs = options.negotiateTimeoutMs ?? DEFAULT_NEGOTIATE_TIMEOUT_MS;
     this.channelLabel = options.channelLabel ?? RTC_DATA_CHANNEL_LABEL;
     this.sendTimeoutMs = options.sendTimeoutMs;
-    this.pc = options.factory.create({ iceServers: options.iceServers });
+    this.label = options.label;
+    this.onDiagnostic = options.onDiagnostic;
+    this.pc = options.factory.create({
+      iceServers: options.iceServers,
+      onDiagnostic: (event) => this.handlePeerDiagnostic(event)
+    });
     this.pc.ondatachannel = (event) => this.adoptChannel(event.channel);
     this.pc.onicecandidate = (event) => {
       if (event.candidate !== null && !this.closed) {
+        const candidate = summarizeIceCandidate(event.candidate);
+        recordCandidate(this.localCandidateTelemetry, candidate);
+        this.emitDiagnostic({ type: "local-candidate", candidate, diagnostics: this.diagnostics() });
         this.onSignal({ type: "ice", candidate: event.candidate });
       }
     };
-    this.pc.onconnectionstatechange = () => this.checkConnectionState();
-    this.pc.oniceconnectionstatechange = () => this.checkConnectionState();
+    this.pc.onconnectionstatechange = () => {
+      this.emitStateChange();
+      this.checkConnectionState();
+    };
+    this.pc.oniceconnectionstatechange = () => {
+      this.emitStateChange();
+      this.checkConnectionState();
+    };
+    this.pc.onicegatheringstatechange = () => this.emitStateChange();
   }
   /** Begin negotiation; resolves when the DataChannel is open. */
   connect(signal) {
@@ -4871,7 +4970,7 @@ var RtcDataChannelTransport = class {
       this.openResolve = resolve2;
       this.openReject = reject;
       this.negotiateTimer = setTimeout(() => {
-        this.failOpen(new RtcConnectError("RTC_CONNECT_TIMEOUT", `WebRTC negotiation timed out after ${this.negotiateTimeoutMs}ms.`));
+        void this.failOpenAfterStats(new RtcConnectError("RTC_CONNECT_TIMEOUT", `WebRTC negotiation timed out after ${this.negotiateTimeoutMs}ms.`));
       }, this.negotiateTimeoutMs);
       if (this.role === "initiator") {
         void this.startInitiator().catch((error) => this.failOpen(asError(error)));
@@ -4922,10 +5021,25 @@ var RtcDataChannelTransport = class {
   selectedPathMode() {
     return this.selectedMode;
   }
+  diagnostics() {
+    return {
+      role: this.role,
+      ...this.label === void 0 ? {} : { label: this.label },
+      connectionState: this.pc.connectionState,
+      iceConnectionState: this.pc.iceConnectionState,
+      iceGatheringState: this.pc.iceGatheringState,
+      localCandidates: cloneCandidateTelemetry(this.localCandidateTelemetry),
+      remoteCandidates: cloneCandidateTelemetry(this.remoteCandidateTelemetry),
+      candidatePairs: cloneCandidatePairTelemetry(this.candidatePairTelemetry),
+      filteredLocalCandidates: cloneCandidateTelemetry(this.filteredLocalCandidateTelemetry),
+      filteredCandidatePairs: cloneCandidateTelemetry(this.filteredCandidatePairTelemetry),
+      ...this.selectedPathTelemetry === void 0 ? {} : { selectedPath: { ...this.selectedPathTelemetry } }
+    };
+  }
   async connectionDetails() {
     let statsDetails = {};
     try {
-      statsDetails = inspectSelectedPath(await this.pc.getStats());
+      statsDetails = await this.refreshStatsDiagnostics();
     } catch {
     }
     return {
@@ -4933,7 +5047,8 @@ var RtcDataChannelTransport = class {
       mode: statsDetails.mode ?? this.selectedMode,
       connectionState: this.pc.connectionState,
       iceConnectionState: this.pc.iceConnectionState,
-      dataChannelState: this.channel?.readyState
+      dataChannelState: this.channel?.readyState,
+      diagnostics: this.diagnostics()
     };
   }
   getStats() {
@@ -5029,13 +5144,19 @@ var RtcDataChannelTransport = class {
     }
   }
   async handleIce(candidate) {
+    const summary = summarizeIceCandidate(candidate);
     if (!this.remoteDescriptionSet) {
+      recordCandidate(this.remoteCandidateTelemetry, summary);
+      this.emitDiagnostic({ type: "remote-candidate", candidate: summary, action: "buffered", diagnostics: this.diagnostics() });
       this.remoteCandidates.push(candidate);
       return;
     }
     try {
       await this.pc.addIceCandidate(candidate);
+      recordCandidate(this.remoteCandidateTelemetry, summary);
+      this.emitDiagnostic({ type: "remote-candidate", candidate: summary, action: "added", diagnostics: this.diagnostics() });
     } catch {
+      this.emitDiagnostic({ type: "remote-candidate", candidate: summary, action: "ignored", diagnostics: this.diagnostics() });
     }
   }
   async flushRemoteCandidates() {
@@ -5100,9 +5221,15 @@ var RtcDataChannelTransport = class {
   }
   async resolveSelectedTransport() {
     try {
-      const selected = inspectSelectedPath(await this.pc.getStats());
+      const selected = await this.refreshStatsDiagnostics();
       this.selected = selected?.transport;
       this.selectedMode = selected?.mode;
+      this.selectedPathTelemetry = selectedPathTelemetry(selected);
+      this.emitDiagnostic({
+        type: "selected-path",
+        selectedPath: this.selectedPathTelemetry,
+        diagnostics: this.diagnostics()
+      });
     } catch {
       this.selected = void 0;
       this.selectedMode = void 0;
@@ -5112,8 +5239,15 @@ var RtcDataChannelTransport = class {
     if (this.closed || this.opened)
       return;
     if (this.pc.connectionState === "failed" || this.pc.iceConnectionState === "failed" || this.pc.connectionState === "closed" || this.pc.iceConnectionState === "closed") {
-      this.failOpen(new RtcConnectError("RTC_FAILED", "WebRTC peer connection failed before the data channel opened."));
+      void this.failOpenAfterStats(new RtcConnectError("RTC_FAILED", "WebRTC peer connection failed before the data channel opened."));
     }
+  }
+  async failOpenAfterStats(error) {
+    await Promise.race([
+      this.refreshStatsDiagnostics().catch(() => void 0),
+      sleep(250)
+    ]);
+    this.failOpen(error);
   }
   failOpen(error) {
     if (this.closed || this.opened || this.openReject === void 0)
@@ -5176,6 +5310,46 @@ var RtcDataChannelTransport = class {
     this.watchdogTimer = void 0;
     this.lastBufferedAmount = 0;
   }
+  async refreshStatsDiagnostics() {
+    const stats = [...await this.pc.getStats()];
+    this.candidatePairTelemetry = inspectCandidatePairs(stats);
+    return inspectSelectedPath(stats);
+  }
+  handlePeerDiagnostic(event) {
+    if (event.type === "local-candidate-filtered") {
+      recordCandidate(this.filteredLocalCandidateTelemetry, event.candidate);
+      this.emitDiagnostic({
+        type: event.type,
+        candidate: event.candidate,
+        reason: event.reason,
+        diagnostics: this.diagnostics()
+      });
+      return;
+    }
+    if (event.localCandidate !== void 0)
+      recordCandidate(this.filteredCandidatePairTelemetry, event.localCandidate);
+    this.emitDiagnostic({
+      type: event.type,
+      localCandidate: event.localCandidate,
+      reason: event.reason,
+      diagnostics: this.diagnostics()
+    });
+  }
+  emitStateChange() {
+    this.emitDiagnostic({
+      type: "state-change",
+      connectionState: this.pc.connectionState,
+      iceConnectionState: this.pc.iceConnectionState,
+      iceGatheringState: this.pc.iceGatheringState,
+      diagnostics: this.diagnostics()
+    });
+  }
+  emitDiagnostic(event) {
+    try {
+      this.onDiagnostic?.(event);
+    } catch {
+    }
+  }
 };
 var RtcConnectError = class extends Error {
   code;
@@ -5237,6 +5411,33 @@ function inspectSelectedPath(stats) {
   }
   return {};
 }
+function inspectCandidatePairs(stats) {
+  const candidates = /* @__PURE__ */ new Map();
+  const telemetry = emptyCandidatePairTelemetry();
+  const pairs = [];
+  for (const [reportId, entry] of stats) {
+    if (entry.type === "local-candidate" || entry.type === "remote-candidate") {
+      if (typeof entry.candidateType === "string" && entry.id !== void 0) {
+        candidates.set(String(entry.id), entry);
+      }
+    } else if (entry.type === "candidate-pair") {
+      pairs.push({ ...entry, id: entry.id ?? reportId });
+    }
+  }
+  for (const pair of pairs) {
+    telemetry.total += 1;
+    if (pair.nominated === true)
+      telemetry.nominated += 1;
+    if (pair.selected === true)
+      telemetry.selected += 1;
+    increment(telemetry.byState, stringStat(pair, "state") ?? (pair.selected === true ? "selected" : "unknown"));
+    const local = candidates.get(String(pair.localCandidateId));
+    const remote = candidates.get(String(pair.remoteCandidateId));
+    recordCandidateStats(telemetry.byLocalType, telemetry.byLocalFamily, telemetry.byLocalScope, local);
+    recordCandidateStats(telemetry.byRemoteType, telemetry.byRemoteFamily, telemetry.byRemoteScope, remote);
+  }
+  return telemetry;
+}
 function candidateAddress(candidate) {
   const address = stringStat(candidate, "address") ?? stringStat(candidate, "ip");
   if (address === void 0)
@@ -5252,6 +5453,91 @@ function numberStat(entry, key) {
   const value = entry?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : void 0;
 }
+function emptyCandidateTelemetry() {
+  return {
+    total: 0,
+    byType: {},
+    byFamily: {},
+    byScope: {},
+    byProtocol: {}
+  };
+}
+function cloneCandidateTelemetry(value) {
+  return {
+    total: value.total,
+    byType: { ...value.byType },
+    byFamily: { ...value.byFamily },
+    byScope: { ...value.byScope },
+    byProtocol: { ...value.byProtocol }
+  };
+}
+function emptyCandidatePairTelemetry() {
+  return {
+    total: 0,
+    nominated: 0,
+    selected: 0,
+    byState: {},
+    byLocalType: {},
+    byRemoteType: {},
+    byLocalFamily: {},
+    byRemoteFamily: {},
+    byLocalScope: {},
+    byRemoteScope: {}
+  };
+}
+function cloneCandidatePairTelemetry(value) {
+  return {
+    total: value.total,
+    nominated: value.nominated,
+    selected: value.selected,
+    byState: { ...value.byState },
+    byLocalType: { ...value.byLocalType },
+    byRemoteType: { ...value.byRemoteType },
+    byLocalFamily: { ...value.byLocalFamily },
+    byRemoteFamily: { ...value.byRemoteFamily },
+    byLocalScope: { ...value.byLocalScope },
+    byRemoteScope: { ...value.byRemoteScope }
+  };
+}
+function recordCandidate(telemetry, candidate) {
+  telemetry.total += 1;
+  increment(telemetry.byType, candidate.candidateType);
+  increment(telemetry.byFamily, candidate.addressFamily);
+  increment(telemetry.byScope, candidate.addressScope);
+  if (candidate.protocol !== void 0)
+    increment(telemetry.byProtocol, candidate.protocol);
+}
+function recordCandidateStats(byType, byFamily, byScope, candidate) {
+  const candidateType = candidateTypeStat(candidate);
+  const address = summarizeAddress(candidateAddressValue(candidate));
+  increment(byType, candidateType);
+  increment(byFamily, address.addressFamily);
+  increment(byScope, address.addressScope);
+}
+function candidateTypeStat(candidate) {
+  const value = stringStat(candidate, "candidateType");
+  if (value === "host" || value === "srflx" || value === "prflx" || value === "relay")
+    return value;
+  return "unknown";
+}
+function candidateAddressValue(candidate) {
+  return stringStat(candidate, "address") ?? stringStat(candidate, "ip");
+}
+function increment(map, key) {
+  map[key] = (map[key] ?? 0) + 1;
+}
+function selectedPathTelemetry(details) {
+  return {
+    ...details.transport === void 0 ? {} : { transport: details.transport },
+    ...details.mode === void 0 ? {} : { mode: details.mode },
+    ...details.localCandidateType === void 0 ? {} : { localCandidateType: details.localCandidateType },
+    ...details.remoteCandidateType === void 0 ? {} : { remoteCandidateType: details.remoteCandidateType },
+    ...details.protocol === void 0 ? {} : { protocol: details.protocol },
+    ...details.relayProtocol === void 0 ? {} : { relayProtocol: details.relayProtocol },
+    ...details.currentRoundTripTimeMs === void 0 ? {} : { currentRoundTripTimeMs: details.currentRoundTripTimeMs },
+    ...details.availableOutgoingBitrate === void 0 ? {} : { availableOutgoingBitrate: details.availableOutgoingBitrate }
+  };
+}
 function requireSdp(description) {
   if (typeof description.sdp !== "string" || description.sdp.length === 0) {
     throw new RtcConnectError("RTC_FAILED", "The RTC backend produced an empty session description.");
@@ -5265,6 +5551,9 @@ function toArrayBuffer(data) {
 }
 function asError(error) {
   return error instanceof Error ? error : new RtcConnectError("RTC_FAILED", "WebRTC negotiation failed.");
+}
+function sleep(ms) {
+  return new Promise((resolve2) => setTimeout(resolve2, ms));
 }
 
 // ../webrtc/dist/adaptive-transport.js
@@ -5288,6 +5577,7 @@ var AdaptiveTransport = class extends BaseTransport {
   webrtcEnabled = true;
   serverNegotiateTimeoutMs;
   connectedAt;
+  lastRtcDiagnostics;
   constructor(url, options) {
     super();
     this.url = url;
@@ -5487,6 +5777,7 @@ var AdaptiveTransport = class extends BaseTransport {
     const preferred = this.options.preferredTransports ?? [...DEFAULT_PREFERRED_TRANSPORTS];
     const wantWebRtc = !this.options.forceRelay && this.webrtcEnabled && (preferred.includes("lan") || preferred.includes("p2p") || preferred.includes("turn"));
     let selected = "relay";
+    this.lastRtcDiagnostics = void 0;
     if (wantWebRtc) {
       try {
         const rtcSelected = await this.tryWebRtc();
@@ -5495,7 +5786,7 @@ var AdaptiveTransport = class extends BaseTransport {
       } catch (error) {
         const reason = error instanceof Error ? error : new Error("WebRTC negotiation failed.");
         try {
-          this.options.onWebRtcFallback?.(reason);
+          this.options.onWebRtcFallback?.(reason, this.lastRtcDiagnostics);
         } catch {
         }
         await this.rtc?.close();
@@ -5535,7 +5826,14 @@ var AdaptiveTransport = class extends BaseTransport {
       iceServers,
       onSignal: (signal) => this.sendRtcSignal(signal),
       negotiateTimeoutMs: this.serverNegotiateTimeoutMs ?? this.options.negotiateTimeoutMs,
-      label: `client->${this.options.targetDeviceId}`
+      label: `client->${this.options.targetDeviceId}`,
+      onDiagnostic: (event) => {
+        this.lastRtcDiagnostics = event.diagnostics;
+        try {
+          this.options.onWebRtcDiagnostic?.(event);
+        } catch {
+        }
+      }
     });
     this.rtc = rtc;
     rtc.onMessage((data) => {
@@ -5549,10 +5847,12 @@ var AdaptiveTransport = class extends BaseTransport {
     try {
       await rtc.connect();
     } catch (error) {
+      this.lastRtcDiagnostics = rtc.diagnostics();
       await rtc.close();
       this.rtc = void 0;
       throw error;
     }
+    this.lastRtcDiagnostics = rtc.diagnostics();
     return rtc.selectedTransport() ?? "p2p";
   }
   sendRtcSignal(signal) {
@@ -13651,33 +13951,66 @@ function isRemoteCommandMethod(method) {
 }
 
 // src/werift-rtc.ts
+import { createSocket } from "node:dgram";
 import { networkInterfaces } from "node:os";
 var cachedFactory;
-async function loadWeriftFactory() {
-  if (cachedFactory !== void 0) return cachedFactory;
+var cachedWerift;
+async function loadWeriftFactory(options = {}) {
+  const cacheable = isCacheableFactoryOptions(options);
+  if (cacheable && cachedFactory !== void 0) return cachedFactory;
   try {
-    const werift = await import("werift");
-    cachedFactory = buildWeriftFactory(werift);
-    return cachedFactory;
+    const werift = cachedWerift ?? await import("werift");
+    cachedWerift = werift;
+    const routeCandidates = options.preferredHostIpv4Candidates ?? await detectRouteHostIpv4Candidates(options.routeTargets ?? [], options.routeProbeTimeoutMs);
+    const factory = buildWeriftFactory(werift, { ...options, preferredHostIpv4Candidates: routeCandidates });
+    if (cacheable) cachedFactory = factory;
+    return factory;
   } catch {
     return void 0;
   }
 }
-function buildWeriftFactory(werift) {
+function buildWeriftFactory(werift, options = {}) {
   return {
     create(configuration) {
-      const hostIpv4 = detectHostIpv4();
+      const hostIpv4Candidates = detectHostIpv4Candidates(
+        options.interfaces ?? networkInterfaces(),
+        options.preferredHostIpv4Candidates
+      );
+      const allowedHostIpv4 = new Set(hostIpv4Candidates);
       const raw = new werift.RTCPeerConnection({
-        iceServers: configuration.iceServers ?? [],
+        iceServers: orderIceServersForWerift(configuration.iceServers ?? []),
+        iceUseIpv4: true,
         iceUseIpv6: false,
         iceUseLinkLocalAddress: false,
-        ...hostIpv4 === void 0 ? {} : { iceInterfaceAddresses: { udp4: hostIpv4 } }
+        ...hostIpv4Candidates.length === 0 ? {} : {
+          iceAdditionalHostAddresses: hostIpv4Candidates,
+          iceFilterCandidatePair: (pair) => {
+            const allowed = shouldUseCandidatePair(pair, allowedHostIpv4);
+            if (!allowed) {
+              configuration.onDiagnostic?.({
+                type: "candidate-pair-filtered",
+                localCandidate: summarizeWeriftCandidate(localCandidate(pair)),
+                reason: "local-host-not-allowed"
+              });
+            }
+            return allowed;
+          }
+        }
       });
       let onIceCandidate = null;
       let onDataChannel = null;
       raw.onicecandidate = (event) => {
         if (onIceCandidate === null) return;
-        onIceCandidate({ candidate: event.candidate === void 0 ? null : event.candidate.toJSON() });
+        const candidate = event.candidate === void 0 ? null : event.candidate.toJSON();
+        if (candidate !== null && !shouldAdvertiseCandidate(candidate, allowedHostIpv4)) {
+          configuration.onDiagnostic?.({
+            type: "local-candidate-filtered",
+            candidate: summarizeIceCandidate(candidate),
+            reason: "local-host-not-allowed"
+          });
+          return;
+        }
+        onIceCandidate({ candidate });
       };
       raw.ondatachannel = (event) => {
         if (onDataChannel === null) return;
@@ -13726,8 +14059,8 @@ function buildWeriftFactory(werift) {
         get ondatachannel() {
           return onDataChannel;
         },
-        createDataChannel(label, options) {
-          return adaptDataChannel2(raw.createDataChannel(label, { ordered: options?.ordered ?? true }));
+        createDataChannel(label, options2) {
+          return adaptDataChannel2(raw.createDataChannel(label, { ordered: options2?.ordered ?? true }));
         },
         createOffer() {
           return raw.createOffer();
@@ -13813,23 +14146,164 @@ function toArrayBuffer2(data) {
   if (typeof data === "string") return data;
   return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
 }
-function detectHostIpv4() {
-  const preferred = [];
-  const fallback = [];
-  for (const [name2, addresses] of Object.entries(networkInterfaces())) {
-    if (isVirtualInterface(name2)) continue;
+function detectHostIpv4Candidates(interfaces, preferredHostIpv4Candidates = []) {
+  const candidates = [];
+  const routePreference = new Map(preferredHostIpv4Candidates.map((ip, index) => [ip, 1e4 - index]));
+  for (const [name2, addresses] of Object.entries(interfaces)) {
+    const interfaceScore = physicalInterfaceScore(name2);
+    if (interfaceScore === void 0) continue;
     for (const address of addresses ?? []) {
-      if (address.internal || address.family !== "IPv4") continue;
+      if (address.internal || !isIpv4Family(address.family)) continue;
       const ip = address.address;
-      if (ip.startsWith("127.") || ip.startsWith("169.254.") || isCgnat(ip)) continue;
-      if (isPrivate(ip)) preferred.push(ip);
-      else fallback.push(ip);
+      if (!isUsableIpv4(ip)) continue;
+      candidates.push({
+        name: name2,
+        ip,
+        score: interfaceScore + (isPrivate(ip) ? 1e3 : 0) + (routePreference.get(ip) ?? 0)
+      });
     }
   }
-  return preferred[0] ?? fallback[0];
+  candidates.sort((left, right) => {
+    const score = right.score - left.score;
+    if (score !== 0) return score;
+    const name2 = left.name.localeCompare(right.name, "en");
+    return name2 === 0 ? left.ip.localeCompare(right.ip, "en", { numeric: true }) : name2;
+  });
+  return [...new Set(candidates.map((candidate) => candidate.ip))];
 }
-function isVirtualInterface(name2) {
-  return /^(utun|ppp|bridge|awdl|llw|gif|stf|anpi|ap\d|en[1-9]\d*$)/i.test(name2);
+async function detectRouteHostIpv4Candidates(targets, timeoutMs = 500) {
+  const detected = await Promise.all(targets.map(async (target) => {
+    const routeTarget = parseRouteTarget(target);
+    return routeTarget === void 0 ? void 0 : await detectRouteHostIpv4(routeTarget, timeoutMs).catch(() => void 0);
+  }));
+  return [...new Set(detected.filter((ip) => ip !== void 0 && isUsableIpv4(ip)))];
+}
+function shouldUseCandidatePair(pair, allowedHostIpv4) {
+  if (allowedHostIpv4.size === 0) return true;
+  const candidate = localCandidate(pair);
+  if (candidate === void 0) return true;
+  return shouldUseLocalCandidate(candidate, allowedHostIpv4);
+}
+function shouldAdvertiseCandidate(candidate, allowedHostIpv4) {
+  if (allowedHostIpv4.size === 0) return true;
+  const parsed = parseIceCandidate(candidate);
+  if (parsed === void 0) return true;
+  return shouldUseLocalCandidate(parsed, allowedHostIpv4);
+}
+function shouldUseLocalCandidate(candidate, allowedHostIpv4) {
+  if (candidate.type === "host") return candidate.host !== void 0 && allowedHostIpv4.has(candidate.host);
+  if (candidate.type === "srflx" && candidate.relatedAddress !== void 0) {
+    return allowedHostIpv4.has(candidate.relatedAddress);
+  }
+  return true;
+}
+function localCandidate(pair) {
+  try {
+    return pair.localCandidate;
+  } catch {
+    return void 0;
+  }
+}
+function summarizeWeriftCandidate(candidate) {
+  if (candidate === void 0) return void 0;
+  const address = summarizeAddress(candidate.host);
+  const related = summarizeAddress(candidate.relatedAddress);
+  return {
+    candidateType: candidate.type === "host" || candidate.type === "srflx" || candidate.type === "prflx" || candidate.type === "relay" ? candidate.type : "unknown",
+    ...address,
+    ...candidate.relatedAddress === void 0 ? {} : { relatedAddressFamily: related.addressFamily, relatedAddressScope: related.addressScope }
+  };
+}
+function orderIceServersForWerift(iceServers) {
+  return iceServers.map((server) => {
+    const urls = Array.isArray(server.urls) ? [...server.urls] : [server.urls];
+    urls.sort((left, right) => iceUrlScore(left) - iceUrlScore(right));
+    return { ...server, urls: Array.isArray(server.urls) ? urls : urls[0] ?? server.urls };
+  });
+}
+function iceUrlScore(url) {
+  const value = url.trim().toLowerCase();
+  if (value.startsWith("stun:") || value.startsWith("stuns:")) return 0;
+  if (value.startsWith("turn:") && value.includes("transport=tcp")) return 10;
+  if (value.startsWith("turns:") && value.includes("transport=tcp")) return 20;
+  if (value.startsWith("turn:") && value.includes("transport=udp")) return 30;
+  if (value.startsWith("turns:")) return 40;
+  if (value.startsWith("turn:")) return 50;
+  return 100;
+}
+function parseRouteTarget(value) {
+  try {
+    const url = new URL(value);
+    const port = Number(url.port || (url.protocol === "http:" ? "80" : "443"));
+    if (!Number.isSafeInteger(port) || port <= 0 || port > 65535 || url.hostname.length === 0) return void 0;
+    return { host: url.hostname, port };
+  } catch {
+    return void 0;
+  }
+}
+async function detectRouteHostIpv4(target, timeoutMs) {
+  const socket = createSocket("udp4");
+  try {
+    return await new Promise((resolve2, reject) => {
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve2(void 0);
+      }, timeoutMs);
+      const cleanup = () => {
+        clearTimeout(timer);
+        socket.off("error", onError);
+      };
+      const onError = (error) => {
+        cleanup();
+        reject(error);
+      };
+      socket.once("error", onError);
+      socket.connect(target.port, target.host, () => {
+        cleanup();
+        const address = socket.address();
+        resolve2(typeof address === "string" ? void 0 : address.address);
+      });
+    });
+  } finally {
+    socket.close();
+  }
+}
+function isCacheableFactoryOptions(options) {
+  return options.interfaces === void 0 && options.preferredHostIpv4Candidates === void 0 && options.routeTargets === void 0;
+}
+function parseIceCandidate(candidate) {
+  const value = candidate.candidate?.trim();
+  if (value === void 0 || value.length === 0) return void 0;
+  const parts = value.replace(/^candidate:/, "").split(/\s+/);
+  const typeIndex = parts.indexOf("typ");
+  if (typeIndex < 0) return void 0;
+  const host = parts[4];
+  const type = parts[typeIndex + 1];
+  const relatedAddressIndex = parts.indexOf("raddr");
+  return {
+    ...host === void 0 ? {} : { host },
+    ...type === void 0 ? {} : { type },
+    ...relatedAddressIndex < 0 || parts[relatedAddressIndex + 1] === void 0 ? {} : { relatedAddress: parts[relatedAddressIndex + 1] }
+  };
+}
+function physicalInterfaceScore(name2) {
+  const value = name2.toLowerCase();
+  if (/^(utun|tun|tap|ppp|bridge|awdl|llw|gif|stf|anpi|ap\d|vmnet|veth|docker|br-|vboxnet|lo)/.test(value)) {
+    return void 0;
+  }
+  if (/^(eth|eno|ens|enp)/.test(value)) return 500;
+  if (/^(en|wlan|wl|wifi|wi-fi)/.test(value)) return 450;
+  return 300;
+}
+function isIpv4Family(family) {
+  return family === "IPv4" || family === 4;
+}
+function isUsableIpv4(ip) {
+  const parts = ip.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  if (parts[0] === 0 || parts[0] === 127 || parts[0] >= 224) return false;
+  if (parts[0] === 169 && parts[1] === 254) return false;
+  return !isCgnat(ip);
 }
 function isCgnat(ip) {
   const parts = ip.split(".").map(Number);
@@ -14083,7 +14557,7 @@ var ClientModeRuntime = class {
     const presence = await this.server.presenceFor(targetDeviceId);
     if (!presence.online) throw new ClientModeError("HOST_OFFLINE", "The selected Host is offline.", true);
     const credentials = await this.server.authenticate(identity);
-    const rtcFactory = this.config.forceRelay ? void 0 : await this.rtcFactoryProvider().catch(() => void 0);
+    const rtcFactory = this.config.forceRelay ? void 0 : await this.rtcFactoryProvider({ routeTargets: [this.server.baseUrl] }).catch(() => void 0);
     let webRtcFallback = false;
     const createTransport = (relayOnly) => new AdaptiveTransport(
       websocketUrl(this.server.baseUrl),
@@ -14096,11 +14570,12 @@ var ClientModeRuntime = class {
         preferredTransports: this.config.forceRelay || relayOnly ? ["relay"] : ["lan", "p2p", "turn", "relay"],
         ...rtcFactory === void 0 || relayOnly ? {} : { rtcFactory },
         fetchIceServers: async (connectionId) => this.server.turnCredentials(connectionId),
-        onWebRtcFallback: (error) => {
+        onWebRtcFallback: (error, diagnostics) => {
           webRtcFallback = true;
           this.logger.warn("remote Harness WebRTC failed; using relay", {
             targetDeviceId: shortId(target.deviceId),
-            reason: diagnosticReason(error)
+            reason: diagnosticReason(error),
+            ...webrtcDiagnosticsLogFields(diagnostics)
           });
         }
       }
@@ -14131,9 +14606,11 @@ var ClientModeRuntime = class {
           targetDeviceId: shortId(target.deviceId)
         });
       });
+      const connectionDetails = await transport.connectionDetails().catch(() => void 0);
       this.logger.info("remote Harness transport ready", {
         targetDeviceId: shortId(target.deviceId),
-        transport: client.getStats().mode
+        transport: client.getStats().mode,
+        ...webrtcDiagnosticsLogFields(connectionDetails?.webRtc?.diagnostics)
       });
       return { client, target, transport, features: remoteHostFeatures(serverDevice.clientVersion) };
     } catch (error) {
@@ -14283,6 +14760,20 @@ function websocketUrl(baseUrl) {
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = `${url.pathname.replace(/\/$/, "")}/ws/v1/connect`;
   return url.toString();
+}
+function webrtcDiagnosticsLogFields(diagnostics) {
+  if (diagnostics === void 0) return {};
+  return {
+    rtcConnectionState: diagnostics.connectionState,
+    rtcIceConnectionState: diagnostics.iceConnectionState,
+    rtcIceGatheringState: diagnostics.iceGatheringState,
+    rtcLocalCandidates: diagnostics.localCandidates,
+    rtcRemoteCandidates: diagnostics.remoteCandidates,
+    rtcCandidatePairs: diagnostics.candidatePairs,
+    rtcFilteredLocalCandidates: diagnostics.filteredLocalCandidates,
+    rtcFilteredCandidatePairs: diagnostics.filteredCandidatePairs,
+    ...diagnostics.selectedPath === void 0 ? {} : { rtcSelectedPath: diagnostics.selectedPath }
+  };
 }
 function record(value) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -15689,7 +16180,17 @@ var HostServerConnection = class {
       iceServers,
       onSignal: (signal) => this.sendRtcSignal(tunnel, signal),
       negotiateTimeoutMs: DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS,
-      label: `host<-${tunnel.peer.deviceId}`
+      label: `host<-${tunnel.peer.deviceId}`,
+      onDiagnostic: (event) => {
+        if (event.type !== "local-candidate-filtered" && event.type !== "candidate-pair-filtered") return;
+        this.logger.debug("webrtc candidate filtered", {
+          connectionId: shortId3(tunnel.connectionId),
+          peerDeviceId: shortId3(tunnel.peer.deviceId),
+          type: event.type,
+          reason: event.reason,
+          candidate: event.type === "local-candidate-filtered" ? event.candidate : event.localCandidate
+        });
+      }
     });
     tunnel.rtc = rtc;
     rtc.onMessage((data) => tunnel.channel?.receive(void 0, data));
@@ -15731,7 +16232,8 @@ var HostServerConnection = class {
     this.logger.info("webrtc data channel ready", {
       connectionId: shortId3(tunnel.connectionId),
       peerDeviceId: shortId3(tunnel.peer.deviceId),
-      transport: tunnel.transportMode ?? selected
+      transport: tunnel.transportMode ?? selected,
+      ...webrtcDiagnosticsLogFields2(rtcDiagnostics(tunnel.rtc))
     });
   }
   async handleRtcFailed(tunnel, rtc, error) {
@@ -15739,7 +16241,8 @@ var HostServerConnection = class {
     if (tunnel.transport === "p2p" || tunnel.transport === "turn") {
       this.logger.warn("webrtc data channel failed; disconnecting peer", {
         connectionId: shortId3(tunnel.connectionId),
-        reason: diagnosticReason4(error)
+        reason: diagnosticReason4(error),
+        ...webrtcDiagnosticsLogFields2(rtcDiagnostics(rtc))
       });
       await this.dropTunnel(tunnel.connectionId, "CONNECTION_FAILED");
       return;
@@ -15749,7 +16252,8 @@ var HostServerConnection = class {
     await rtc.close();
     this.logger.warn("webrtc negotiation failed; falling back to relay", {
       connectionId: shortId3(tunnel.connectionId),
-      reason: diagnosticReason4(error)
+      reason: diagnosticReason4(error),
+      ...webrtcDiagnosticsLogFields2(rtcDiagnostics(rtc))
     });
   }
   sendTransportSelected(tunnel, transport) {
@@ -15975,6 +16479,28 @@ function asError2(error) {
 function diagnosticReason4(error) {
   const message = asError2(error).message.replace(/[\r\n]+/g, " ").slice(0, 160);
   return message || "Unknown Server connection error.";
+}
+function webrtcDiagnosticsLogFields2(diagnostics) {
+  if (diagnostics === void 0) return {};
+  return {
+    rtcConnectionState: diagnostics.connectionState,
+    rtcIceConnectionState: diagnostics.iceConnectionState,
+    rtcIceGatheringState: diagnostics.iceGatheringState,
+    rtcLocalCandidates: diagnostics.localCandidates,
+    rtcRemoteCandidates: diagnostics.remoteCandidates,
+    rtcCandidatePairs: diagnostics.candidatePairs,
+    rtcFilteredLocalCandidates: diagnostics.filteredLocalCandidates,
+    rtcFilteredCandidatePairs: diagnostics.filteredCandidatePairs,
+    ...diagnostics.selectedPath === void 0 ? {} : { rtcSelectedPath: diagnostics.selectedPath }
+  };
+}
+function rtcDiagnostics(rtc) {
+  try {
+    const candidate = rtc;
+    return typeof candidate.diagnostics === "function" ? candidate.diagnostics() : void 0;
+  } catch {
+    return void 0;
+  }
 }
 function errorCode(error) {
   return error instanceof ServerApiError || error instanceof ControlConnectionError ? error.code : "CONNECTION_FAILED";
@@ -16954,7 +17480,7 @@ var HostPluginRuntime = class {
       this.connections,
       this.logger,
       void 0,
-      this.config.forceRelay ? void 0 : loadWeriftFactory,
+      this.config.forceRelay ? void 0 : () => loadWeriftFactory({ routeTargets: this.config.serverUrl === void 0 ? [] : [this.config.serverUrl] }),
       () => this.fileViewerHost?.() === void 0 ? ["harness.api.v1"] : ["harness.api.v1", "fileviewer.read.v1"],
       this.harnessVersion
     );

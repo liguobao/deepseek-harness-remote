@@ -8,8 +8,10 @@
  * a WebRTC offer (or run with `forceRelay`).
  */
 
-import { networkInterfaces } from 'node:os'
+import { createSocket } from 'node:dgram'
+import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
 import type {
+  RtcCandidateSummary,
   RtcDataChannel,
   RtcIceCandidateInit,
   RtcIceServer,
@@ -17,6 +19,7 @@ import type {
   RtcPeerConnectionFactory,
   RtcStats,
 } from '@dsh-remote/webrtc'
+import { summarizeAddress, summarizeIceCandidate } from '@dsh-remote/webrtc'
 
 interface WeriftModule {
   RTCPeerConnection: new (config?: WeriftConfig) => WeriftPeerConnection
@@ -24,9 +27,22 @@ interface WeriftModule {
 
 interface WeriftConfig {
   iceServers?: Array<{ urls: string | string[]; username?: string; credential?: string }>
+  iceAdditionalHostAddresses?: string[]
+  iceFilterCandidatePair?: (pair: WeriftCandidatePair) => boolean
+  iceUseIpv4?: boolean
   iceUseIpv6?: boolean
   iceUseLinkLocalAddress?: boolean
   iceInterfaceAddresses?: { udp4?: string; udp6?: string }
+}
+
+interface WeriftCandidate {
+  host?: string
+  type?: string
+  relatedAddress?: string
+}
+
+interface WeriftCandidatePair {
+  localCandidate?: WeriftCandidate
 }
 
 interface WeriftPeerConnection {
@@ -63,36 +79,78 @@ interface WeriftDataChannel {
 }
 
 let cachedFactory: RtcPeerConnectionFactory | undefined
+let cachedWerift: WeriftModule | undefined
 
 /** Load (once) a werift-backed factory, or `undefined` when it cannot be loaded. */
-export async function loadWeriftFactory(): Promise<RtcPeerConnectionFactory | undefined> {
-  if (cachedFactory !== undefined) return cachedFactory
+export async function loadWeriftFactory(options: WeriftFactoryOptions = {}): Promise<RtcPeerConnectionFactory | undefined> {
+  const cacheable = isCacheableFactoryOptions(options)
+  if (cacheable && cachedFactory !== undefined) return cachedFactory
   try {
-    const werift = (await import('werift')) as unknown as WeriftModule
-    cachedFactory = buildWeriftFactory(werift)
-    return cachedFactory
+    const werift = cachedWerift ?? ((await import('werift')) as unknown as WeriftModule)
+    cachedWerift = werift
+    const routeCandidates = options.preferredHostIpv4Candidates
+      ?? await detectRouteHostIpv4Candidates(options.routeTargets ?? [], options.routeProbeTimeoutMs)
+    const factory = buildWeriftFactory(werift, { ...options, preferredHostIpv4Candidates: routeCandidates })
+    if (cacheable) cachedFactory = factory
+    return factory
   } catch {
     return undefined
   }
 }
 
+export interface WeriftFactoryOptions {
+  interfaces?: NodeJS.Dict<NetworkInterfaceInfo[] | undefined>
+  preferredHostIpv4Candidates?: readonly string[]
+  routeTargets?: readonly string[]
+  routeProbeTimeoutMs?: number
+}
+
 /** Synchronous factory for tests and callers that already resolved werift. */
-export function buildWeriftFactory(werift: WeriftModule): RtcPeerConnectionFactory {
+export function buildWeriftFactory(werift: WeriftModule, options: WeriftFactoryOptions = {}): RtcPeerConnectionFactory {
   return {
     create(configuration) {
-      const hostIpv4 = detectHostIpv4()
+      const hostIpv4Candidates = detectHostIpv4Candidates(
+        options.interfaces ?? networkInterfaces(),
+        options.preferredHostIpv4Candidates,
+      )
+      const allowedHostIpv4 = new Set(hostIpv4Candidates)
       const raw = new werift.RTCPeerConnection({
-        iceServers: (configuration.iceServers ?? []) as RtcIceServer[],
+        iceServers: orderIceServersForWerift(configuration.iceServers ?? []) as RtcIceServer[],
+        iceUseIpv4: true,
         iceUseIpv6: false,
         iceUseLinkLocalAddress: false,
-        ...(hostIpv4 === undefined ? {} : { iceInterfaceAddresses: { udp4: hostIpv4 } }),
+        ...(hostIpv4Candidates.length === 0
+          ? {}
+          : {
+              iceAdditionalHostAddresses: hostIpv4Candidates,
+              iceFilterCandidatePair: pair => {
+                const allowed = shouldUseCandidatePair(pair, allowedHostIpv4)
+                if (!allowed) {
+                  configuration.onDiagnostic?.({
+                    type: 'candidate-pair-filtered',
+                    localCandidate: summarizeWeriftCandidate(localCandidate(pair)),
+                    reason: 'local-host-not-allowed',
+                  })
+                }
+                return allowed
+              },
+            }),
       })
 
       let onIceCandidate: ((event: { candidate: RtcIceCandidateInit | null }) => void) | null = null
       let onDataChannel: ((event: { channel: RtcDataChannel }) => void) | null = null
       raw.onicecandidate = event => {
         if (onIceCandidate === null) return
-        onIceCandidate({ candidate: event.candidate === undefined ? null : event.candidate.toJSON() })
+        const candidate = event.candidate === undefined ? null : event.candidate.toJSON()
+        if (candidate !== null && !shouldAdvertiseCandidate(candidate, allowedHostIpv4)) {
+          configuration.onDiagnostic?.({
+            type: 'local-candidate-filtered',
+            candidate: summarizeIceCandidate(candidate),
+            reason: 'local-host-not-allowed',
+          })
+          return
+        }
+        onIceCandidate({ candidate })
       }
       raw.ondatachannel = event => {
         if (onDataChannel === null) return
@@ -170,33 +228,206 @@ function toArrayBuffer(data: string | Uint8Array): ArrayBuffer | string {
 }
 
 /**
- * Pick the single best IPv4 host address for ICE gathering.
+ * Pick the safe IPv4 host addresses for ICE gathering.
  *
  * On macOS a host exposes many interfaces (WiFi `en0`, Thunderbolt `en1-4`,
  * `bridge*`, Apple Wireless Direct Link `awdl0`/`llw0`, and several VPN `utun*`
- * tunnels whose small MTUs drop large SCTP packets). Gathering a candidate for
- * every interface lets ICE select a bad path. Restrict werift to one real
- * interface and disable IPv6/link-local so the DataChannel rides the same
- * interface as the Server control connection.
+ * tunnels whose small MTUs drop large SCTP packets). Let werift/ICE compare
+ * real physical interfaces, but filter virtual and link-local Host candidates
+ * before they can become nominated paths.
  */
-function detectHostIpv4(): string | undefined {
-  const preferred: string[] = []
-  const fallback: string[] = []
-  for (const [name, addresses] of Object.entries(networkInterfaces())) {
-    if (isVirtualInterface(name)) continue
+export function detectHostIpv4Candidates(
+  interfaces: NodeJS.Dict<NetworkInterfaceInfo[] | undefined>,
+  preferredHostIpv4Candidates: readonly string[] = [],
+): string[] {
+  const candidates: Array<{ name: string; ip: string; score: number }> = []
+  const routePreference = new Map(preferredHostIpv4Candidates.map((ip, index) => [ip, 10_000 - index]))
+  for (const [name, addresses] of Object.entries(interfaces)) {
+    const interfaceScore = physicalInterfaceScore(name)
+    if (interfaceScore === undefined) continue
     for (const address of addresses ?? []) {
-      if (address.internal || address.family !== 'IPv4') continue
+      if (address.internal || !isIpv4Family(address.family)) continue
       const ip = address.address
-      if (ip.startsWith('127.') || ip.startsWith('169.254.') || isCgnat(ip)) continue
-      if (isPrivate(ip)) preferred.push(ip)
-      else fallback.push(ip)
+      if (!isUsableIpv4(ip)) continue
+      candidates.push({
+        name,
+        ip,
+        score: interfaceScore + (isPrivate(ip) ? 1_000 : 0) + (routePreference.get(ip) ?? 0),
+      })
     }
   }
-  return preferred[0] ?? fallback[0]
+  candidates.sort((left, right) => {
+    const score = right.score - left.score
+    if (score !== 0) return score
+    const name = left.name.localeCompare(right.name, 'en')
+    return name === 0 ? left.ip.localeCompare(right.ip, 'en', { numeric: true }) : name
+  })
+  return [...new Set(candidates.map(candidate => candidate.ip))]
 }
 
-function isVirtualInterface(name: string): boolean {
-  return /^(utun|ppp|bridge|awdl|llw|gif|stf|anpi|ap\d|en[1-9]\d*$)/i.test(name)
+export async function detectRouteHostIpv4Candidates(
+  targets: readonly string[],
+  timeoutMs = 500,
+): Promise<string[]> {
+  const detected = await Promise.all(targets.map(async target => {
+    const routeTarget = parseRouteTarget(target)
+    return routeTarget === undefined ? undefined : await detectRouteHostIpv4(routeTarget, timeoutMs).catch(() => undefined)
+  }))
+  return [...new Set(detected.filter((ip): ip is string => ip !== undefined && isUsableIpv4(ip)))]
+}
+
+function shouldUseCandidatePair(pair: WeriftCandidatePair, allowedHostIpv4: ReadonlySet<string>): boolean {
+  if (allowedHostIpv4.size === 0) return true
+  const candidate = localCandidate(pair)
+  if (candidate === undefined) return true
+  return shouldUseLocalCandidate(candidate, allowedHostIpv4)
+}
+
+export function shouldAdvertiseCandidate(candidate: RtcIceCandidateInit, allowedHostIpv4: ReadonlySet<string>): boolean {
+  if (allowedHostIpv4.size === 0) return true
+  const parsed = parseIceCandidate(candidate)
+  if (parsed === undefined) return true
+  return shouldUseLocalCandidate(parsed, allowedHostIpv4)
+}
+
+function shouldUseLocalCandidate(candidate: WeriftCandidate, allowedHostIpv4: ReadonlySet<string>): boolean {
+  if (candidate.type === 'host') return candidate.host !== undefined && allowedHostIpv4.has(candidate.host)
+  if (candidate.type === 'srflx' && candidate.relatedAddress !== undefined) {
+    return allowedHostIpv4.has(candidate.relatedAddress)
+  }
+  return true
+}
+
+function localCandidate(pair: WeriftCandidatePair): WeriftCandidate | undefined {
+  try {
+    return pair.localCandidate
+  } catch {
+    return undefined
+  }
+}
+
+function summarizeWeriftCandidate(candidate: WeriftCandidate | undefined): RtcCandidateSummary | undefined {
+  if (candidate === undefined) return undefined
+  const address = summarizeAddress(candidate.host)
+  const related = summarizeAddress(candidate.relatedAddress)
+  return {
+    candidateType: candidate.type === 'host' || candidate.type === 'srflx' || candidate.type === 'prflx' || candidate.type === 'relay'
+      ? candidate.type
+      : 'unknown',
+    ...address,
+    ...(candidate.relatedAddress === undefined
+      ? {}
+      : { relatedAddressFamily: related.addressFamily, relatedAddressScope: related.addressScope }),
+  }
+}
+
+export function orderIceServersForWerift(iceServers: readonly RtcIceServer[]): RtcIceServer[] {
+  return iceServers.map(server => {
+    const urls = Array.isArray(server.urls) ? [...server.urls] : [server.urls]
+    urls.sort((left, right) => iceUrlScore(left) - iceUrlScore(right))
+    return { ...server, urls: Array.isArray(server.urls) ? urls : urls[0] ?? server.urls }
+  })
+}
+
+function iceUrlScore(url: string): number {
+  const value = url.trim().toLowerCase()
+  if (value.startsWith('stun:') || value.startsWith('stuns:')) return 0
+  if (value.startsWith('turn:') && value.includes('transport=tcp')) return 10
+  if (value.startsWith('turns:') && value.includes('transport=tcp')) return 20
+  if (value.startsWith('turn:') && value.includes('transport=udp')) return 30
+  if (value.startsWith('turns:')) return 40
+  if (value.startsWith('turn:')) return 50
+  return 100
+}
+
+interface ParsedRouteTarget {
+  host: string
+  port: number
+}
+
+function parseRouteTarget(value: string): ParsedRouteTarget | undefined {
+  try {
+    const url = new URL(value)
+    const port = Number(url.port || (url.protocol === 'http:' ? '80' : '443'))
+    if (!Number.isSafeInteger(port) || port <= 0 || port > 65_535 || url.hostname.length === 0) return undefined
+    return { host: url.hostname, port }
+  } catch {
+    return undefined
+  }
+}
+
+async function detectRouteHostIpv4(target: ParsedRouteTarget, timeoutMs: number): Promise<string | undefined> {
+  const socket = createSocket('udp4')
+  try {
+    return await new Promise<string | undefined>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        cleanup()
+        resolve(undefined)
+      }, timeoutMs)
+      const cleanup = () => {
+        clearTimeout(timer)
+        socket.off('error', onError)
+      }
+      const onError = (error: Error) => {
+        cleanup()
+        reject(error)
+      }
+      socket.once('error', onError)
+      socket.connect(target.port, target.host, () => {
+        cleanup()
+        const address = socket.address()
+        resolve(typeof address === 'string' ? undefined : address.address)
+      })
+    })
+  } finally {
+    socket.close()
+  }
+}
+
+function isCacheableFactoryOptions(options: WeriftFactoryOptions): boolean {
+  return options.interfaces === undefined
+    && options.preferredHostIpv4Candidates === undefined
+    && options.routeTargets === undefined
+}
+
+function parseIceCandidate(candidate: RtcIceCandidateInit): WeriftCandidate | undefined {
+  const value = candidate.candidate?.trim()
+  if (value === undefined || value.length === 0) return undefined
+  const parts = value.replace(/^candidate:/, '').split(/\s+/)
+  const typeIndex = parts.indexOf('typ')
+  if (typeIndex < 0) return undefined
+  const host = parts[4]
+  const type = parts[typeIndex + 1]
+  const relatedAddressIndex = parts.indexOf('raddr')
+  return {
+    ...(host === undefined ? {} : { host }),
+    ...(type === undefined ? {} : { type }),
+    ...(relatedAddressIndex < 0 || parts[relatedAddressIndex + 1] === undefined
+      ? {}
+      : { relatedAddress: parts[relatedAddressIndex + 1] }),
+  }
+}
+
+function physicalInterfaceScore(name: string): number | undefined {
+  const value = name.toLowerCase()
+  if (/^(utun|tun|tap|ppp|bridge|awdl|llw|gif|stf|anpi|ap\d|vmnet|veth|docker|br-|vboxnet|lo)/.test(value)) {
+    return undefined
+  }
+  if (/^(eth|eno|ens|enp)/.test(value)) return 500
+  if (/^(en|wlan|wl|wifi|wi-fi)/.test(value)) return 450
+  return 300
+}
+
+function isIpv4Family(family: string | number): boolean {
+  return family === 'IPv4' || family === 4
+}
+
+function isUsableIpv4(ip: string): boolean {
+  const parts = ip.split('.').map(Number)
+  if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) return false
+  if (parts[0] === 0 || parts[0] === 127 || parts[0] >= 224) return false
+  if (parts[0] === 169 && parts[1] === 254) return false
+  return !isCgnat(ip)
 }
 
 function isCgnat(ip: string): boolean {

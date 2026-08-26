@@ -20,6 +20,28 @@ export interface RtcIceCandidateInit {
   usernameFragment?: string | null
 }
 
+export type RtcCandidateType = 'host' | 'srflx' | 'prflx' | 'relay' | 'unknown'
+export type RtcAddressFamily = 'ipv4' | 'ipv6' | 'unknown'
+export type RtcAddressScope = 'private' | 'public' | 'loopback' | 'link-local' | 'cgnat' | 'reserved' | 'unknown'
+
+export interface RtcCandidateSummary {
+  candidateType: RtcCandidateType
+  protocol?: string
+  addressFamily: RtcAddressFamily
+  addressScope: RtcAddressScope
+  relatedAddressFamily?: RtcAddressFamily
+  relatedAddressScope?: RtcAddressScope
+}
+
+export type RtcPeerConnectionDiagnosticEvent =
+  | { type: 'local-candidate-filtered'; candidate: RtcCandidateSummary; reason: string }
+  | { type: 'candidate-pair-filtered'; localCandidate?: RtcCandidateSummary; reason: string }
+
+export interface RtcPeerConnectionConfiguration {
+  iceServers?: RtcIceServer[]
+  onDiagnostic?: (event: RtcPeerConnectionDiagnosticEvent) => void
+}
+
 export interface RtcSessionDescriptionInit {
   type: 'offer' | 'answer'
   sdp?: string
@@ -73,7 +95,7 @@ export interface RtcStatsEntry {
 export type RtcStats = Iterable<readonly [string, RtcStatsEntry]>
 
 export interface RtcPeerConnectionFactory {
-  create(configuration: { iceServers?: RtcIceServer[] }): RtcPeerConnection
+  create(configuration: RtcPeerConnectionConfiguration): RtcPeerConnection
 }
 
 export const RTC_DATA_CHANNEL_LABEL = 'dsh'
@@ -89,7 +111,7 @@ export function browserRtcFactory(): RtcPeerConnectionFactory {
     create(configuration) {
       // `any` keeps the DOM handler `this`/event typing out of the adapter.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const raw = new RTCPeerConnection(configuration) as any
+      const raw = new RTCPeerConnection({ iceServers: configuration.iceServers }) as any
       return {
         get connectionState(): string { return raw.connectionState as string },
         get iceConnectionState(): string { return raw.iceConnectionState as string },
@@ -116,6 +138,75 @@ export function browserRtcFactory(): RtcPeerConnectionFactory {
       }
     },
   }
+}
+
+export function summarizeIceCandidate(candidate: RtcIceCandidateInit | undefined): RtcCandidateSummary {
+  const value = candidate?.candidate?.trim()
+  if (value === undefined || value.length === 0) return emptyCandidateSummary()
+  const parts = value.replace(/^candidate:/, '').split(/\s+/)
+  const typeIndex = parts.indexOf('typ')
+  const relatedAddressIndex = parts.indexOf('raddr')
+  return {
+    candidateType: parseCandidateType(parts[typeIndex + 1]),
+    protocol: normalizeProtocol(parts[2]),
+    ...summarizeAddress(parts[4]),
+    ...(relatedAddressIndex < 0
+      ? {}
+      : relatedAddressSummary(parts[relatedAddressIndex + 1])),
+  }
+}
+
+export function summarizeAddress(address: string | undefined): { addressFamily: RtcAddressFamily; addressScope: RtcAddressScope } {
+  if (address === undefined || address.length === 0) return { addressFamily: 'unknown', addressScope: 'unknown' }
+  if (address.includes(':')) return { addressFamily: 'ipv6', addressScope: summarizeIpv6Scope(address) }
+  const parts = address.split('.').map(Number)
+  if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return { addressFamily: 'unknown', addressScope: 'unknown' }
+  }
+  return { addressFamily: 'ipv4', addressScope: summarizeIpv4Scope(parts) }
+}
+
+function emptyCandidateSummary(): RtcCandidateSummary {
+  return { candidateType: 'unknown', addressFamily: 'unknown', addressScope: 'unknown' }
+}
+
+function parseCandidateType(value: string | undefined): RtcCandidateType {
+  if (value === 'host' || value === 'srflx' || value === 'prflx' || value === 'relay') return value
+  return 'unknown'
+}
+
+function normalizeProtocol(value: string | undefined): string | undefined {
+  if (value === undefined || value.length === 0) return undefined
+  return value.toLowerCase()
+}
+
+function relatedAddressSummary(address: string | undefined): Pick<RtcCandidateSummary, 'relatedAddressFamily' | 'relatedAddressScope'> {
+  const summary = summarizeAddress(address)
+  return {
+    relatedAddressFamily: summary.addressFamily,
+    relatedAddressScope: summary.addressScope,
+  }
+}
+
+function summarizeIpv4Scope(parts: number[]): RtcAddressScope {
+  if (parts[0] === 0 || parts[0] >= 240) return 'reserved'
+  if (parts[0] === 127) return 'loopback'
+  if (parts[0] === 169 && parts[1] === 254) return 'link-local'
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return 'cgnat'
+  if (parts[0] >= 224) return 'reserved'
+  if (parts[0] === 10) return 'private'
+  if (parts[0] === 192 && parts[1] === 168) return 'private'
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return 'private'
+  return 'public'
+}
+
+function summarizeIpv6Scope(address: string): RtcAddressScope {
+  const value = address.toLowerCase()
+  if (value === '::1') return 'loopback'
+  if (value.startsWith('fe80:')) return 'link-local'
+  if (value.startsWith('fc') || value.startsWith('fd')) return 'private'
+  if (value.startsWith('ff')) return 'reserved'
+  return 'public'
 }
 
 function adaptDataChannel(raw: RTCDataChannel): RtcDataChannel {

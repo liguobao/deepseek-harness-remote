@@ -10,9 +10,11 @@ import type {
 import {
   detectSelectedPath,
   detectSelectedTransport,
+  inspectCandidatePairs,
   inspectSelectedPath,
   RtcConnectError,
   RtcDataChannelTransport,
+  type RtcDiagnosticEvent,
 } from '../src/rtc-data-channel.js'
 
 const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0))
@@ -121,6 +123,14 @@ describe('detectSelectedTransport', () => {
       bytesSent: 2_048,
       bytesReceived: 4_096,
     })
+    expect(inspectCandidatePairs(asStats(lanStats()))).toMatchObject({
+      total: 1,
+      byState: { succeeded: 1 },
+      byLocalType: { host: 1 },
+      byRemoteType: { host: 1 },
+      byLocalScope: { private: 1 },
+      byRemoteScope: { private: 1 },
+    })
   })
 
   it('detects p2p from a selected host/srflx candidate pair', () => {
@@ -170,10 +180,12 @@ describe('RtcDataChannelTransport initiator', () => {
     const pc = new FakePeerConnection()
     pc.stats = p2pStats()
     const signals: unknown[] = []
+    const diagnostics: RtcDiagnosticEvent[] = []
     const transport = new RtcDataChannelTransport({
       role: 'initiator',
       factory: factoryFor(pc),
       onSignal: signal => signals.push(signal),
+      onDiagnostic: event => diagnostics.push(event),
     })
     let connected = false
     const connecting = transport.connect().then(() => { connected = true })
@@ -182,6 +194,19 @@ describe('RtcDataChannelTransport initiator', () => {
     expect(pc.channels).toHaveLength(1)
     expect(pc.localDescription?.type).toBe('offer')
     expect(signals).toEqual([{ type: 'offer', sdp: 'v=0 offer' }])
+
+    const hostCandidate = { candidate: 'candidate:1 1 udp 2130706431 192.168.1.20 5000 typ host generation 0' }
+    pc.emitIceCandidate(hostCandidate)
+    expect(signals.at(-1)).toEqual({ type: 'ice', candidate: hostCandidate })
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      type: 'local-candidate',
+      candidate: expect.objectContaining({
+        candidateType: 'host',
+        protocol: 'udp',
+        addressFamily: 'ipv4',
+        addressScope: 'private',
+      }),
+    }))
 
     transport.handleSignal({ type: 'answer', sdp: 'v=0 answer' })
     await flush()
@@ -192,6 +217,11 @@ describe('RtcDataChannelTransport initiator', () => {
     expect(connected).toBe(true)
     expect(transport.selectedTransport()).toBe('p2p')
     expect(transport.getStats()).toMatchObject({ mode: 'P2P', connected: true })
+    expect(transport.diagnostics()).toMatchObject({
+      localCandidates: { total: 1, byType: { host: 1 }, byFamily: { ipv4: 1 }, byScope: { private: 1 } },
+      candidatePairs: { total: 1, selected: 1, byState: { selected: 1 } },
+      selectedPath: { transport: 'p2p', mode: 'P2P' },
+    })
 
     await transport.send(new Uint8Array([1, 2, 3]))
     expect(pc.channels[0]!.sent).toHaveLength(1)
@@ -343,20 +373,41 @@ describe('RtcDataChannelTransport responder', () => {
 
   it('buffers trickle ICE until the offer is processed', async () => {
     const pc = new FakePeerConnection()
+    const diagnostics: RtcDiagnosticEvent[] = []
     const transport = new RtcDataChannelTransport({
       role: 'responder',
       factory: factoryFor(pc),
       onSignal: () => undefined,
+      onDiagnostic: event => diagnostics.push(event),
     })
     void transport.connect()
-    const early: RtcIceCandidateInit = { candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 }
+    const early: RtcIceCandidateInit = {
+      candidate: 'candidate:1 1 udp 1694498815 203.0.113.8 5002 typ srflx raddr 192.168.1.20 rport 5000',
+      sdpMid: '0',
+      sdpMLineIndex: 0,
+    }
     transport.handleSignal({ type: 'ice', candidate: early })
     await flush()
     expect(pc.candidates).toHaveLength(0) // buffered, remote description not set yet
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      type: 'remote-candidate',
+      action: 'buffered',
+      candidate: expect.objectContaining({
+        candidateType: 'srflx',
+        addressFamily: 'ipv4',
+        addressScope: 'public',
+        relatedAddressScope: 'private',
+      }),
+    }))
 
     transport.handleSignal({ type: 'offer', sdp: 'v=0 offer' })
     await flush()
     expect(pc.candidates).toHaveLength(1)
+    expect(transport.diagnostics().remoteCandidates).toMatchObject({
+      total: 1,
+      byType: { srflx: 1 },
+      byScope: { public: 1 },
+    })
     await transport.close()
   })
 
