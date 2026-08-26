@@ -32,6 +32,7 @@ import {
 } from './harness-version.js'
 import type { SafeLogger } from './logging.js'
 import { RpcError } from './rpc-router.js'
+import { safeErrorCode } from './safe-error.js'
 import { listRemoteDirectory } from './remote-directory-browser.js'
 
 type HarnessStream = AsyncIterable<RpcRequest<MuxFrame | HostFrame>>
@@ -345,11 +346,7 @@ export class HarnessApiBridge {
         method: params.method,
         durationMs,
         timedOut: signal.aborted,
-        code: error instanceof RpcError
-          ? error.code
-          : error instanceof z.ZodError
-            ? 'INVALID_MESSAGE'
-            : 'INTERNAL_ERROR',
+        code: safeErrorCode(error),
       })
       throw error
     }
