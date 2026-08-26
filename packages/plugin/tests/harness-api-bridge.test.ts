@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { HARNESS_API_TRANSFER_CHUNK_BYTES } from '@dsh-remote/protocol'
 import { HarnessApiBridge } from '../src/harness-api-bridge.js'
+import type { SafeLogger } from '../src/logging.js'
 import { RpcError } from '../src/rpc-router.js'
 
 describe('HarnessApiBridge', () => {
@@ -624,6 +625,33 @@ describe('HarnessApiBridge remote settings scope', () => {
       .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
     await expect(bridge.call({ method: 'settings.mutate2', rpcId: 'unknown', payload: {} }))
       .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
+  })
+
+  it('does not log native Harness error messages', async () => {
+    const secret = 'prompt=/home/user/private.ts token=sk-secret'
+    const failure = new Error(secret)
+    const list = vi.fn(async () => { throw failure })
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    } as unknown as SafeLogger
+    const bridge = new HarnessApiBridge(
+      api({ sessions: { list } }),
+      vi.fn(async () => undefined),
+      8,
+      logger,
+    )
+
+    await expect(bridge.call({ method: 'session.list', rpcId: 'native-secret', payload: {} }))
+      .rejects.toBe(failure)
+    expect(logger.warn).toHaveBeenCalledWith('harness api call failed', expect.objectContaining({
+      method: 'session.list',
+      timedOut: false,
+      code: 'INTERNAL_ERROR',
+    }))
+    expect(JSON.stringify(vi.mocked(logger.warn).mock.calls)).not.toContain(secret)
   })
 })
 

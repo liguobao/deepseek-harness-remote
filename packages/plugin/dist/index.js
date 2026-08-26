@@ -15830,8 +15830,7 @@ var RpcRouter = class {
         method: request.payload.method,
         durationMs: Math.round(performance.now() - startedAt),
         code: response.payload.code,
-        retryable: response.payload.retryable,
-        reason: diagnosticReason3(error)
+        retryable: response.payload.retryable
       });
       return response;
     } finally {
@@ -15881,10 +15880,6 @@ function errorResponse(requestId, error) {
   if (error instanceof RpcError) return createRpcError(requestId, error.code, error.message, error.details, error.retryable);
   if (error instanceof external_exports.ZodError) return createRpcError(requestId, "INVALID_MESSAGE", "The RPC parameters are invalid.");
   return createRpcError(requestId, "INTERNAL_ERROR", "The Host could not complete the request.");
-}
-function diagnosticReason3(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/[\r\n]+/g, " ").slice(0, 160) || "Unknown Host request failure.";
 }
 
 // src/file-viewer-contract.ts
@@ -16171,7 +16166,7 @@ var HostServerConnection = class {
           this.terminalError = code;
           this.logger.error("server control frame failed", {
             code,
-            reason: diagnosticReason4(error)
+            reason: diagnosticReason3(error)
           });
           socket.close(4008, "invalid control frame");
         });
@@ -16456,7 +16451,7 @@ var HostServerConnection = class {
     if (tunnel.transport === "p2p" || tunnel.transport === "turn") {
       this.logger.warn("webrtc data channel failed; disconnecting peer", {
         connectionId: shortId3(tunnel.connectionId),
-        reason: diagnosticReason4(error),
+        reason: diagnosticReason3(error),
         ...webrtcDiagnosticsLogFields2(rtcDiagnostics(rtc))
       });
       await this.dropTunnel(tunnel.connectionId, "CONNECTION_FAILED");
@@ -16467,7 +16462,7 @@ var HostServerConnection = class {
     await rtc.close();
     this.logger.warn("webrtc negotiation failed; falling back to relay", {
       connectionId: shortId3(tunnel.connectionId),
-      reason: diagnosticReason4(error),
+      reason: diagnosticReason3(error),
       ...webrtcDiagnosticsLogFields2(rtcDiagnostics(rtc))
     });
   }
@@ -16512,7 +16507,7 @@ var HostServerConnection = class {
     } catch (error) {
       this.logger.warn("remote connection RTC cleanup failed", {
         connectionId: shortId3(connectionId),
-        reason: diagnosticReason4(error)
+        reason: diagnosticReason3(error)
       });
     }
     if (tunnel.channel !== void 0) {
@@ -16523,7 +16518,7 @@ var HostServerConnection = class {
         await tunnel.channel.close(code).catch(() => void 0);
         this.logger.warn("remote connection channel cleanup failed", {
           connectionId: shortId3(connectionId),
-          reason: diagnosticReason4(error)
+          reason: diagnosticReason3(error)
         });
       }
     } else {
@@ -16691,7 +16686,7 @@ function shortId3(value) {
 function asError2(error) {
   return error instanceof Error ? error : new Error("Unknown Server connection error.");
 }
-function diagnosticReason4(error) {
+function diagnosticReason3(error) {
   const message = asError2(error).message.replace(/[\r\n]+/g, " ").slice(0, 160);
   return message || "Unknown Server connection error.";
 }
@@ -16990,7 +16985,7 @@ var HarnessApiBridge = class {
         method: params.method,
         durationMs,
         timedOut: signal.aborted,
-        reason: diagnosticReason5(error)
+        code: error instanceof RpcError ? error.code : error instanceof external_exports.ZodError ? "INVALID_MESSAGE" : "INTERNAL_ERROR"
       });
       throw error;
     }
@@ -17438,10 +17433,6 @@ function deniedSettingsNamespace(ns) {
 }
 function deniedMethod(method) {
   return new RpcError("METHOD_NOT_ALLOWED", `Harness API method ${JSON.stringify(method)} is not available in remote mode.`);
-}
-function diagnosticReason5(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/[\r\n]+/g, " ").slice(0, 160) || "Unknown Harness API failure.";
 }
 function frameSessionId(frame) {
   const payload = frame.payload;

@@ -345,7 +345,11 @@ export class HarnessApiBridge {
         method: params.method,
         durationMs,
         timedOut: signal.aborted,
-        reason: diagnosticReason(error),
+        code: error instanceof RpcError
+          ? error.code
+          : error instanceof z.ZodError
+            ? 'INVALID_MESSAGE'
+            : 'INTERNAL_ERROR',
       })
       throw error
     }
@@ -862,11 +866,6 @@ function deniedSettingsNamespace(ns: string): RpcError {
 
 function deniedMethod(method: string): RpcError {
   return new RpcError('METHOD_NOT_ALLOWED', `Harness API method ${JSON.stringify(method)} is not available in remote mode.`)
-}
-
-function diagnosticReason(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  return message.replace(/[\r\n]+/g, ' ').slice(0, 160) || 'Unknown Harness API failure.'
 }
 
 /** Session id of a mux frame, or undefined for frames without one (e.g. stream/error). */
