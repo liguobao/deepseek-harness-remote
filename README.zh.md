@@ -9,6 +9,8 @@
   &nbsp;·&nbsp;
   <a href="docs/README.md">文档</a>
   &nbsp;·&nbsp;
+  <a href="https://dshfind.com/zh/plugins/liguobao/deepseek-harness-remote?ref=badge"><img src="https://dshfind.com/api/badge/liguobao/deepseek-harness-remote?metric=downloads&amp;lang=zh" alt="dshfind 下载量"></a>
+  &nbsp;·&nbsp;
   <strong>下载：</strong>
   <a href="https://github.com/liguobao/dsh-desktop/releases/latest">Windows</a>
   &nbsp;·&nbsp;
