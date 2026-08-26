@@ -9,8 +9,15 @@ import {
   type LanguagePreference,
 } from '../locales/i18n'
 import { friendlyError, isRpcTimeoutError } from '../lib/errors'
-import { normalizeServerUrl } from '../lib/server-url'
-import { RemoteServerApi } from '../services/api'
+import {
+  loginFlow,
+  oauthLoginChannel,
+  passwordLoginChannel,
+  redirectLoginChannelFor,
+  githubOAuthLoginChannel,
+  type LoginOutcome,
+} from '../services/login'
+import type { RedirectLoginMethod } from '../types'
 import { createNativeRpcId } from '../services/api-proxy'
 import { AndroidRemoteConnection } from '../services/connection'
 import { reconcileTrustedDevices } from '../services/device-directory'
@@ -79,6 +86,7 @@ interface AppState {
   languagePreference: LanguagePreference
   language: AppLanguage
   pendingOAuthBaseUrl?: string
+  pendingOAuthLoginMethod?: RedirectLoginMethod
   authPhase: AuthPhase
   refreshing: boolean
   busyAction?: string
@@ -87,8 +95,8 @@ interface AppState {
   bootstrap(): Promise<void>
   configureServer(input: string, email: string, password: string): Promise<boolean>
   startOAuth(input: string): Promise<string | undefined>
+  startGithubOAuth(input: string): Promise<string | undefined>
   completeOAuth(token: string): Promise<boolean>
-  configureServerWithOAuthToken(input: string, webToken: string): Promise<boolean>
   refreshDevices(): Promise<void>
   refreshWorkspaces(): Promise<void>
   trustDevice(device: RemoteDevice): Promise<boolean>
@@ -165,83 +173,67 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async configureServer(input, email, password) {
-    set({ busyAction: 'server', error: undefined })
+    set({ busyAction: passwordLoginChannel.busyAction, error: undefined })
     try {
-      const baseUrl = normalizeServerUrl(input)
       const identity = get().identity
       if (identity === undefined) throw new Error(zhCN.runtime.identityNotReady)
-      const publicApi = new RemoteServerApi(baseUrl)
-      await publicApi.health()
-      const { credentials } = await serverSession.authenticateWithAccount(baseUrl, identity, email, password)
-      const config = { baseUrl, account: credentials.account, loginMethod: 'password' as const }
-      await saveServerConfig(config)
-      set({
-        config,
-        account: credentials.account,
-        busyAction: undefined,
-        devices: [],
-        authPhase: 'complete',
-      })
-      await get().refreshDevices()
-      return true
+      const context = await loginFlow.createContext(input, identity)
+      const outcome = await loginFlow.signInWith(passwordLoginChannel, context, { email, password })
+      return await finalizeLogin(get, set, context.baseUrl, outcome)
     } catch (error) {
       set({ busyAction: undefined, error: friendlyError(error) })
       return false
     }
   },
 
-  /**
-   * Start Zhihu OAuth: validate the server, check OAuth is configured, and
-   * return the browser URL the UI should open. The server is remembered so
-   * the deep-link callback can finish device registration.
-   */
   async startOAuth(input) {
-    set({ busyAction: 'oauth', error: undefined })
+    set({ busyAction: oauthLoginChannel.prepareBusyAction, error: undefined })
     try {
-      const baseUrl = normalizeServerUrl(input)
-      const publicApi = new RemoteServerApi(baseUrl)
-      await publicApi.health()
-      const { configured } = await publicApi.oauthStatus()
-      if (!configured) throw new Error(zhCN.runtime.zhihuUnsupported)
-      set({ pendingOAuthBaseUrl: baseUrl, busyAction: undefined })
-      return `${baseUrl}/api/v1/auth/oauth/start?return_to=${encodeURIComponent('dshremote://oauth')}`
+      const identity = get().identity
+      if (identity === undefined) throw new Error(zhCN.runtime.identityNotReady)
+      const context = await loginFlow.createContext(input, identity)
+      set({ pendingOAuthBaseUrl: context.baseUrl, pendingOAuthLoginMethod: 'oauth', busyAction: undefined })
+      return await loginFlow.prepareRedirect(oauthLoginChannel, context)
     } catch (error) {
       set({ busyAction: undefined, error: friendlyError(error) })
       return undefined
     }
   },
 
-  /** Finish OAuth from the dshremote://oauth deep link with the web token. */
-  async completeOAuth(token) {
-    const baseUrl = get().pendingOAuthBaseUrl
-    if (baseUrl === undefined || token.length < 16) {
-      set({ pendingOAuthBaseUrl: undefined })
-      return false
-    }
-    set({ pendingOAuthBaseUrl: undefined })
-    return get().configureServerWithOAuthToken(baseUrl, token)
-  },
-
-  async configureServerWithOAuthToken(input, webToken) {
-    set({ busyAction: 'server', error: undefined })
+  async startGithubOAuth(input) {
+    set({ busyAction: githubOAuthLoginChannel.prepareBusyAction, error: undefined })
     try {
-      const baseUrl = normalizeServerUrl(input)
       const identity = get().identity
       if (identity === undefined) throw new Error(zhCN.runtime.identityNotReady)
-      const publicApi = new RemoteServerApi(baseUrl)
-      await publicApi.health()
-      const { credentials } = await serverSession.authenticateWithOAuthToken(baseUrl, identity, webToken)
-      const config = { baseUrl, account: credentials.account, loginMethod: 'oauth' as const }
-      await saveServerConfig(config)
+      const context = await loginFlow.createContext(input, identity)
       set({
-        config,
-        account: credentials.account,
+        pendingOAuthBaseUrl: context.baseUrl,
+        pendingOAuthLoginMethod: 'github-oauth',
         busyAction: undefined,
-        devices: [],
-        authPhase: 'complete',
       })
-      await get().refreshDevices()
-      return true
+      return await loginFlow.prepareRedirect(githubOAuthLoginChannel, context)
+    } catch (error) {
+      set({ busyAction: undefined, error: friendlyError(error) })
+      return undefined
+    }
+  },
+
+  async completeOAuth(token) {
+    const baseUrl = get().pendingOAuthBaseUrl
+    const loginMethod = get().pendingOAuthLoginMethod
+    const channel = redirectLoginChannelFor(loginMethod)
+    if (baseUrl === undefined || token.length < 16) {
+      set({ pendingOAuthBaseUrl: undefined, pendingOAuthLoginMethod: undefined })
+      return false
+    }
+    set({ pendingOAuthBaseUrl: undefined, pendingOAuthLoginMethod: undefined })
+    set({ busyAction: channel.completeBusyAction, error: undefined })
+    try {
+      const identity = get().identity
+      if (identity === undefined) throw new Error(zhCN.runtime.identityNotReady)
+      const context = await loginFlow.createContext(baseUrl, identity)
+      const outcome = await loginFlow.completeRedirect(channel, context, token)
+      return await finalizeLogin(get, set, context.baseUrl, outcome)
     } catch (error) {
       set({ busyAction: undefined, error: friendlyError(error) })
       return false
@@ -871,6 +863,29 @@ async function refreshSessionModels(sessionId: string): Promise<void> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+async function finalizeLogin(
+  get: () => AppState,
+  set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void,
+  baseUrl: string,
+  outcome: LoginOutcome,
+): Promise<boolean> {
+  const config: ServerConfig = {
+    baseUrl,
+    account: outcome.account,
+    loginMethod: outcome.loginMethod,
+  }
+  await saveServerConfig(config)
+  set({
+    config,
+    account: outcome.account,
+    busyAction: undefined,
+    devices: [],
+    authPhase: 'complete',
+  })
+  await get().refreshDevices()
+  return true
 }
 
 function initialData(): Pick<AppState,

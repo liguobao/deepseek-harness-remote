@@ -17,10 +17,14 @@ export type ConnectionStage =
 
 export type ConnectionProbeTransport = 'lan' | 'p2p' | 'turn' | 'relay'
 
+export type LoginMethod = 'oauth' | 'github-oauth' | 'password'
+
+export type RedirectLoginMethod = Extract<LoginMethod, 'oauth' | 'github-oauth'>
+
 export interface ServerConfig {
   baseUrl: string
   account?: string
-  loginMethod?: 'oauth' | 'password'
+  loginMethod?: LoginMethod
 }
 
 export interface DeviceIdentity {

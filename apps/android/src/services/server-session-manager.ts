@@ -46,6 +46,32 @@ export class ServerSessionManager {
   }
 
   /**
+   * Register this Android device under a short-lived account token. The account
+   * token is used only for HTTPS registration and never persisted.
+   */
+  async registerWithAccountToken(
+    baseUrl: string,
+    identity: DeviceIdentity,
+    accountToken: string,
+    account: string,
+  ): Promise<AuthenticatedServer> {
+    const publicApi = this.apiFactory(baseUrl)
+    const tokens = await publicApi.registerDevice(identity, accountToken)
+    const credentials: DeviceCredentials = {
+      serverUrl: baseUrl,
+      deviceId: identity.deviceId,
+      authorizationMethod: 'account',
+      account,
+      ...tokens,
+    }
+    await this.persistence.save(credentials)
+    return {
+      api: this.apiFactory(baseUrl, credentials.accessToken),
+      credentials,
+    }
+  }
+
+  /**
    * Register this Android device under an account web session token delivered
    * by Zhihu OAuth (dshremote://oauth?token=...). The web token is used only
    * for the device registration and never persisted.
@@ -57,19 +83,7 @@ export class ServerSessionManager {
   ): Promise<AuthenticatedServer> {
     const publicApi = this.apiFactory(baseUrl)
     const profile = await publicApi.accountMe(webToken)
-    const tokens = await publicApi.registerDevice(identity, webToken)
-    const credentials: DeviceCredentials = {
-      serverUrl: baseUrl,
-      deviceId: identity.deviceId,
-      authorizationMethod: 'account',
-      account: profile.account,
-      ...tokens,
-    }
-    await this.persistence.save(credentials)
-    return {
-      api: this.apiFactory(baseUrl, credentials.accessToken),
-      credentials,
-    }
+    return this.registerWithAccountToken(baseUrl, identity, webToken, profile.account)
   }
 
   authenticate(baseUrl: string, identity: DeviceIdentity): Promise<AuthenticatedServer> {
@@ -92,19 +106,7 @@ export class ServerSessionManager {
   ): Promise<AuthenticatedServer> {
     const publicApi = this.apiFactory(baseUrl)
     const login = await publicApi.loginAccount(email, password)
-    const tokens = await publicApi.registerDevice(identity, login.token)
-    const credentials: DeviceCredentials = {
-      serverUrl: baseUrl,
-      deviceId: identity.deviceId,
-      authorizationMethod: 'account',
-      account: login.account,
-      ...tokens,
-    }
-    await this.persistence.save(credentials)
-    return {
-      api: this.apiFactory(baseUrl, credentials.accessToken),
-      credentials,
-    }
+    return this.registerWithAccountToken(baseUrl, identity, login.token, login.account)
   }
 
   private async authenticateOnce(baseUrl: string, identity: DeviceIdentity): Promise<AuthenticatedServer> {

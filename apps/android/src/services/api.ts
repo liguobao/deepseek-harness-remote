@@ -72,6 +72,13 @@ export class RemoteServerApi {
     return { configured: body.configured }
   }
 
+  /** Whether the server has GitHub OAuth configured for account sign-in. */
+  async oauthGithubStatus(): Promise<{ configured: boolean }> {
+    const body = await this.request<unknown>('/api/v1/auth/oauth/github/status', {}, false)
+    if (!isRecord(body) || typeof body.configured !== 'boolean') invalidResponse('GitHub oauth status')
+    return { configured: body.configured }
+  }
+
   async accountMe(accountToken: string): Promise<{ account: string }> {
     const body = await this.request<unknown>('/api/v1/auth/me', {}, false, accountToken)
     if (!isRecord(body) || typeof body.account !== 'string' || body.account.length === 0) invalidResponse('account profile')
