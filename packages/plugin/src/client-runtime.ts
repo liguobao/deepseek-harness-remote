@@ -19,7 +19,7 @@ import {
 } from './server-api.js'
 import { TypertGatewaySwitch } from './typert-gateway-switch.js'
 import type { RemoteFileViewerEndpoint } from './file-viewer-contract.js'
-import { loadWeriftFactory, type WeriftFactoryOptions } from './werift-rtc.js'
+import { loadNodeRtcFactory, type WeriftFactoryOptions } from './werift-rtc.js'
 
 interface ConnectedRemote {
   client: RemoteClientCore
@@ -117,7 +117,7 @@ export class ClientModeRuntime {
     typertGateway: TypertGatewayLike,
     private readonly logger: SafeLogger,
     private readonly host?: HostAuthorizationControl,
-    private readonly rtcFactoryProvider: (options?: WeriftFactoryOptions) => Promise<RtcPeerConnectionFactory | undefined> = loadWeriftFactory,
+    private readonly rtcFactoryProvider: (options?: WeriftFactoryOptions) => Promise<RtcPeerConnectionFactory | undefined> = loadNodeRtcFactory,
   ) {
     this.proxySwitch = new ApiProxySwitch(apiProxy)
     this.gatewaySwitch = new TypertGatewaySwitch(typertGateway)

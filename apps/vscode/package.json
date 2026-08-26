@@ -93,6 +93,9 @@
     "werift": "0.24.4",
     "ws": "^8.18.0"
   },
+  "optionalDependencies": {
+    "@roamhq/wrtc": "0.10.0"
+  },
   "devDependencies": {
     "@types/node": "^22.10.7",
     "@types/qrcode": "^1.5.5",

@@ -1,11 +1,10 @@
 /**
- * werift-backed Node RTC factory (webrtc-implementation-plan.md §6.2).
+ * Node RTC factory (webrtc-implementation-plan.md §6.2).
  *
- * werift is a pure-TypeScript WebRTC implementation with no native addons, so
- * it installs and runs on Linux x64/ARM64 without toolchains. The factory is
- * loaded lazily: `loadWeriftFactory` dynamically imports werift on first use,
- * keeping DSH startup time and memory unaffected for hosts that never receive
- * a WebRTC offer (or run with `forceRelay`).
+ * Native libwebrtc is preferred when present because its ICE behavior matches
+ * browser Remote Web. werift remains the pure-TypeScript fallback for systems
+ * without a loadable native addon. Both backends are loaded lazily so DSH
+ * startup remains unaffected when WebRTC is unused or `forceRelay` is enabled.
  */
 
 import { createSocket } from 'node:dgram'
@@ -13,10 +12,12 @@ import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
 import type {
   RtcCandidateSummary,
   RtcDataChannel,
+  RtcDataChannelInit,
   RtcIceCandidateInit,
   RtcIceServer,
   RtcPeerConnection,
   RtcPeerConnectionFactory,
+  RtcSessionDescriptionInit,
   RtcStats,
 } from '@dsh-remote/webrtc'
 import { summarizeAddress, summarizeIceCandidate } from '@dsh-remote/webrtc'
@@ -80,6 +81,62 @@ interface WeriftDataChannel {
 
 let cachedFactory: RtcPeerConnectionFactory | undefined
 let cachedWerift: WeriftModule | undefined
+let cachedNativeFactory: RtcPeerConnectionFactory | undefined
+
+interface NativeRtcModule {
+  RTCPeerConnection?: new (config?: { iceServers?: RtcIceServer[] }) => NativePeerConnection
+  default?: {
+    RTCPeerConnection?: new (config?: { iceServers?: RtcIceServer[] }) => NativePeerConnection
+  }
+}
+
+interface NativePeerConnection {
+  connectionState: string
+  iceConnectionState: string
+  iceGatheringState: string
+  signalingState: string
+  onconnectionstatechange: (() => void) | null
+  oniceconnectionstatechange: (() => void) | null
+  onicegatheringstatechange: (() => void) | null
+  onicecandidate: ((event: { candidate: NativeIceCandidate | null }) => void) | null
+  ondatachannel: ((event: { channel: NativeDataChannel }) => void) | null
+  createDataChannel(label: string, options?: RtcDataChannelInit): NativeDataChannel
+  createOffer(): Promise<RtcSessionDescriptionInit>
+  createAnswer(): Promise<RtcSessionDescriptionInit>
+  setLocalDescription(description?: RtcSessionDescriptionInit): Promise<void>
+  setRemoteDescription(description: RtcSessionDescriptionInit): Promise<void>
+  addIceCandidate(candidate?: RtcIceCandidateInit | null): Promise<void>
+  getStats(): Promise<RtcStats>
+  close(): void
+}
+
+interface NativeIceCandidate extends RtcIceCandidateInit {
+  toJSON?: () => RtcIceCandidateInit
+}
+
+interface NativeDataChannel {
+  readonly label: string
+  readonly ordered: boolean
+  readyState: string
+  bufferedAmount: number
+  binaryType: string
+  onopen: (() => void) | null
+  onclose: (() => void) | null
+  onerror: (() => void) | null
+  onmessage: ((event: { data: unknown }) => void) | null
+  onbufferedamountlow: (() => void) | null
+  send(data: Buffer | ArrayBuffer | string): void
+  close(): void
+}
+
+/**
+ * Node RTC factory used by the Plugin/VS Code clients and Host. Native
+ * libwebrtc is preferred because its ICE behavior matches browser Remote Web;
+ * werift remains the no-native fallback for environments that cannot load it.
+ */
+export async function loadNodeRtcFactory(options: WeriftFactoryOptions = {}): Promise<RtcPeerConnectionFactory | undefined> {
+  return await loadNativeRtcFactory().catch(() => undefined) ?? await loadWeriftFactory(options)
+}
 
 /** Load (once) a werift-backed factory, or `undefined` when it cannot be loaded. */
 export async function loadWeriftFactory(options: WeriftFactoryOptions = {}): Promise<RtcPeerConnectionFactory | undefined> {
@@ -95,6 +152,59 @@ export async function loadWeriftFactory(options: WeriftFactoryOptions = {}): Pro
     return factory
   } catch {
     return undefined
+  }
+}
+
+async function loadNativeRtcFactory(): Promise<RtcPeerConnectionFactory | undefined> {
+  if (cachedNativeFactory !== undefined) return cachedNativeFactory
+  try {
+    const wrtc = (await import('@roamhq/wrtc')) as unknown as NativeRtcModule
+    const RTCPeerConnection = wrtc.RTCPeerConnection ?? wrtc.default?.RTCPeerConnection
+    if (RTCPeerConnection === undefined) return undefined
+    cachedNativeFactory = buildNativeRtcFactory(RTCPeerConnection)
+    return cachedNativeFactory
+  } catch {
+    return undefined
+  }
+}
+
+function buildNativeRtcFactory(
+  RTCPeerConnection: new (config?: { iceServers?: RtcIceServer[] }) => NativePeerConnection,
+): RtcPeerConnectionFactory {
+  return {
+    create(configuration) {
+      const raw = new RTCPeerConnection({ iceServers: configuration.iceServers })
+      return {
+        get connectionState(): string { return raw.connectionState },
+        get iceConnectionState(): string { return raw.iceConnectionState },
+        get iceGatheringState(): string { return raw.iceGatheringState },
+        get signalingState(): string { return raw.signalingState },
+        set onconnectionstatechange(value) { raw.onconnectionstatechange = value },
+        get onconnectionstatechange() { return raw.onconnectionstatechange },
+        set oniceconnectionstatechange(value) { raw.oniceconnectionstatechange = value },
+        get oniceconnectionstatechange() { return raw.oniceconnectionstatechange },
+        set onicegatheringstatechange(value) { raw.onicegatheringstatechange = value },
+        get onicegatheringstatechange() { return raw.onicegatheringstatechange },
+        set onicecandidate(value) {
+          raw.onicecandidate = value === null ? null : event => value({
+            candidate: event.candidate === null ? null : normalizeNativeCandidate(event.candidate),
+          })
+        },
+        get onicecandidate() { return raw.onicecandidate as ((event: { candidate: RtcIceCandidateInit | null }) => void) | null },
+        set ondatachannel(value) {
+          raw.ondatachannel = value === null ? null : event => value({ channel: adaptNativeDataChannel(event.channel) })
+        },
+        get ondatachannel() { return raw.ondatachannel as ((event: { channel: RtcDataChannel }) => void) | null },
+        createDataChannel(label, options) { return adaptNativeDataChannel(raw.createDataChannel(label, options)) },
+        createOffer() { return raw.createOffer() },
+        createAnswer() { return raw.createAnswer() },
+        setLocalDescription(description) { return raw.setLocalDescription(description) },
+        setRemoteDescription(description) { return raw.setRemoteDescription(description) },
+        addIceCandidate(candidate) { return raw.addIceCandidate(candidate) },
+        getStats() { return raw.getStats() },
+        close() { raw.close() },
+      }
+    },
   }
 }
 
@@ -219,12 +329,60 @@ function adaptDataChannel(raw: WeriftDataChannel): RtcDataChannel {
   }
 }
 
+function adaptNativeDataChannel(raw: NativeDataChannel): RtcDataChannel {
+  let onmessage: ((event: { data: ArrayBuffer | string }) => void) | null = null
+  return {
+    get label(): string { return raw.label },
+    get ordered(): boolean { return raw.ordered },
+    get readyState() { return raw.readyState as RtcDataChannel['readyState'] },
+    get bufferedAmount(): number { return raw.bufferedAmount },
+    get binaryType(): string { return raw.binaryType },
+    set binaryType(value: string) { raw.binaryType = value },
+    set onopen(value: (() => void) | null) { raw.onopen = value },
+    get onopen(): (() => void) | null { return raw.onopen },
+    set onmessage(value: ((event: { data: ArrayBuffer | string }) => void) | null) {
+      onmessage = value
+      raw.onmessage = value === null ? null : event => value({ data: normalizeNativeMessageData(event.data) })
+    },
+    get onmessage(): ((event: { data: ArrayBuffer | string }) => void) | null { return onmessage },
+    set onclose(value: (() => void) | null) { raw.onclose = value },
+    get onclose(): (() => void) | null { return raw.onclose },
+    set onerror(value: (() => void) | null) { raw.onerror = value },
+    get onerror(): (() => void) | null { return raw.onerror },
+    set onbufferedamountlow(value: (() => void) | null) { raw.onbufferedamountlow = value },
+    get onbufferedamountlow(): (() => void) | null { return raw.onbufferedamountlow },
+    send(data: ArrayBuffer | string) {
+      raw.send(typeof data === 'string' ? data : Buffer.from(data))
+    },
+    close() { raw.close() },
+  }
+}
+
 function toArrayBuffer(data: string | Uint8Array): ArrayBuffer | string {
   if (typeof data === 'string') return data
   // `Buffer.prototype.slice()` (unlike `Uint8Array.prototype.slice()`) returns a
   // *view* over the pooled 8 KiB receive buffer, so slicing the underlying
   // ArrayBuffer by byte offset/length is required to extract just the message.
   return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+}
+
+function normalizeNativeCandidate(candidate: NativeIceCandidate): RtcIceCandidateInit {
+  if (typeof candidate.toJSON === 'function') return candidate.toJSON()
+  return {
+    candidate: candidate.candidate,
+    sdpMid: candidate.sdpMid,
+    sdpMLineIndex: candidate.sdpMLineIndex,
+    usernameFragment: candidate.usernameFragment,
+  }
+}
+
+function normalizeNativeMessageData(data: unknown): ArrayBuffer | string {
+  if (typeof data === 'string') return data
+  if (data instanceof ArrayBuffer) return data
+  if (ArrayBuffer.isView(data)) {
+    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+  }
+  return new Uint8Array().buffer
 }
 
 /**

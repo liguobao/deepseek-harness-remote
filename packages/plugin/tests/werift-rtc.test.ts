@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildWeriftFactory,
   detectHostIpv4Candidates,
+  loadNodeRtcFactory,
   loadWeriftFactory,
   orderIceServersForWerift,
   shouldAdvertiseCandidate,
@@ -208,6 +209,36 @@ describe('werift RTC backend', () => {
     await responder.close()
     expect(initiator.getStats().connected).toBe(false)
     expect(responder.getStats().connected).toBe(false)
+  }, 20_000)
+
+  it('loads the default Node RTC backend and establishes an ordered DataChannel', async () => {
+    const factory = await loadNodeRtcFactory()
+    expect(factory).toBeDefined()
+
+    const received: Uint8Array[] = []
+    const initiator = new RtcDataChannelTransport({
+      role: 'initiator',
+      factory: factory!,
+      onSignal: signal => responder.handleSignal(signal),
+      negotiateTimeoutMs: 8_000,
+    })
+    const responder = new RtcDataChannelTransport({
+      role: 'responder',
+      factory: factory!,
+      onSignal: signal => initiator.handleSignal(signal),
+      negotiateTimeoutMs: 8_000,
+    })
+    responder.onMessage(data => received.push(data))
+
+    await Promise.all([initiator.connect(), responder.connect()])
+    await initiator.send(new TextEncoder().encode('hello-from-node-default'))
+    await waitFor(() => received.length === 1, 'node default receive')
+
+    expect(new TextDecoder().decode(received[0]!)).toBe('hello-from-node-default')
+    expect(initiator.selectedTransport() ?? responder.selectedTransport()).toBe('p2p')
+
+    await initiator.close()
+    await responder.close()
   }, 20_000)
 
   it('delivers many concurrent ordered frames without loss or reordering', async () => {

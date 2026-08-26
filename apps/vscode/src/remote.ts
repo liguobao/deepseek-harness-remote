@@ -4,7 +4,7 @@ import { SecureMessageCodec, type HarnessApiCallParams } from '@dsh-remote/proto
 import { AdaptiveTransport, type RemoteTransport, type SecureHandshakeTransport } from '@dsh-remote/webrtc'
 import { ServerApi } from './server-api.js'
 import type { ChatMessage, DeviceIdentity, DirectoryListing, HistoryEntry, HostDescriptor, ModelSelection, MuxFrame, RemoteHost, RemoteSession, RemoteWorkspace, SessionModels } from './types.js'
-import { loadWeriftFactory } from './werift-rtc.js'
+import { loadNodeRtcFactory } from './werift-rtc.js'
 
 type NativeResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 interface NativeResponse<T> { rpcId: string; result: NativeResult<T> }
@@ -22,7 +22,7 @@ export class RemoteConnection {
     await this.close()
     const wsUrl = new URL('/ws/v1/connect', serverUrl)
     wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:'
-    const rtcFactory = forceRelay ? undefined : await loadWeriftFactory({ routeTargets: [serverUrl] })
+    const rtcFactory = forceRelay ? undefined : await loadNodeRtcFactory({ routeTargets: [serverUrl] })
     const server = new ServerApi(serverUrl, accessToken)
     let webRtcFallback = false
     const createCore = (relayOnly: boolean): RemoteClientCore => {

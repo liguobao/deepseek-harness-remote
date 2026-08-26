@@ -16,7 +16,7 @@ import { HostServerApi, ServerApiError, type DeviceAuthorization } from './serve
 import { HostServerConnection } from './server-connection.js'
 import { ServerCredentialStore } from './server-credentials.js'
 import { HarnessApiBridge, type TypertGatewayLike } from './harness-api-bridge.js'
-import { loadWeriftFactory } from './werift-rtc.js'
+import { loadNodeRtcFactory } from './werift-rtc.js'
 import type { AuthenticatedPeerChannel } from './types.js'
 
 export interface HostRemoteStatus {
@@ -211,7 +211,7 @@ export class HostPluginRuntime {
       undefined,
       this.config.forceRelay
         ? undefined
-        : () => loadWeriftFactory({ routeTargets: this.config.serverUrl === undefined ? [] : [this.config.serverUrl] }),
+        : () => loadNodeRtcFactory({ routeTargets: this.config.serverUrl === undefined ? [] : [this.config.serverUrl] }),
       () => this.fileViewerHost?.() === undefined
         ? ['harness.api.v1']
         : ['harness.api.v1', 'fileviewer.read.v1'],

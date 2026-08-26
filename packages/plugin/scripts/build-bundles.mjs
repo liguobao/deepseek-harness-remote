@@ -11,7 +11,7 @@ await build({
   format: 'esm',
   sourcemap: true,
   outfile: join(root, 'dist/index.js'),
-  external: ['@deepseek-ai/*', 'werift'],
+  external: ['@deepseek-ai/*', '@roamhq/wrtc', 'werift'],
 })
 
 for (const [moduleId, outfile] of [

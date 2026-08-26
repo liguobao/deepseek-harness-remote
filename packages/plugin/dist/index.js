@@ -13955,6 +13955,10 @@ import { createSocket } from "node:dgram";
 import { networkInterfaces } from "node:os";
 var cachedFactory;
 var cachedWerift;
+var cachedNativeFactory;
+async function loadNodeRtcFactory(options = {}) {
+  return await loadNativeRtcFactory().catch(() => void 0) ?? await loadWeriftFactory(options);
+}
 async function loadWeriftFactory(options = {}) {
   const cacheable = isCacheableFactoryOptions(options);
   if (cacheable && cachedFactory !== void 0) return cachedFactory;
@@ -13968,6 +13972,95 @@ async function loadWeriftFactory(options = {}) {
   } catch {
     return void 0;
   }
+}
+async function loadNativeRtcFactory() {
+  if (cachedNativeFactory !== void 0) return cachedNativeFactory;
+  try {
+    const wrtc = await import("@roamhq/wrtc");
+    const RTCPeerConnection2 = wrtc.RTCPeerConnection ?? wrtc.default?.RTCPeerConnection;
+    if (RTCPeerConnection2 === void 0) return void 0;
+    cachedNativeFactory = buildNativeRtcFactory(RTCPeerConnection2);
+    return cachedNativeFactory;
+  } catch {
+    return void 0;
+  }
+}
+function buildNativeRtcFactory(RTCPeerConnection2) {
+  return {
+    create(configuration) {
+      const raw = new RTCPeerConnection2({ iceServers: configuration.iceServers });
+      return {
+        get connectionState() {
+          return raw.connectionState;
+        },
+        get iceConnectionState() {
+          return raw.iceConnectionState;
+        },
+        get iceGatheringState() {
+          return raw.iceGatheringState;
+        },
+        get signalingState() {
+          return raw.signalingState;
+        },
+        set onconnectionstatechange(value) {
+          raw.onconnectionstatechange = value;
+        },
+        get onconnectionstatechange() {
+          return raw.onconnectionstatechange;
+        },
+        set oniceconnectionstatechange(value) {
+          raw.oniceconnectionstatechange = value;
+        },
+        get oniceconnectionstatechange() {
+          return raw.oniceconnectionstatechange;
+        },
+        set onicegatheringstatechange(value) {
+          raw.onicegatheringstatechange = value;
+        },
+        get onicegatheringstatechange() {
+          return raw.onicegatheringstatechange;
+        },
+        set onicecandidate(value) {
+          raw.onicecandidate = value === null ? null : (event) => value({
+            candidate: event.candidate === null ? null : normalizeNativeCandidate(event.candidate)
+          });
+        },
+        get onicecandidate() {
+          return raw.onicecandidate;
+        },
+        set ondatachannel(value) {
+          raw.ondatachannel = value === null ? null : (event) => value({ channel: adaptNativeDataChannel(event.channel) });
+        },
+        get ondatachannel() {
+          return raw.ondatachannel;
+        },
+        createDataChannel(label, options) {
+          return adaptNativeDataChannel(raw.createDataChannel(label, options));
+        },
+        createOffer() {
+          return raw.createOffer();
+        },
+        createAnswer() {
+          return raw.createAnswer();
+        },
+        setLocalDescription(description) {
+          return raw.setLocalDescription(description);
+        },
+        setRemoteDescription(description) {
+          return raw.setRemoteDescription(description);
+        },
+        addIceCandidate(candidate) {
+          return raw.addIceCandidate(candidate);
+        },
+        getStats() {
+          return raw.getStats();
+        },
+        close() {
+          raw.close();
+        }
+      };
+    }
+  };
 }
 function buildWeriftFactory(werift, options = {}) {
   return {
@@ -14142,9 +14235,86 @@ function adaptDataChannel2(raw) {
     }
   };
 }
+function adaptNativeDataChannel(raw) {
+  let onmessage = null;
+  return {
+    get label() {
+      return raw.label;
+    },
+    get ordered() {
+      return raw.ordered;
+    },
+    get readyState() {
+      return raw.readyState;
+    },
+    get bufferedAmount() {
+      return raw.bufferedAmount;
+    },
+    get binaryType() {
+      return raw.binaryType;
+    },
+    set binaryType(value) {
+      raw.binaryType = value;
+    },
+    set onopen(value) {
+      raw.onopen = value;
+    },
+    get onopen() {
+      return raw.onopen;
+    },
+    set onmessage(value) {
+      onmessage = value;
+      raw.onmessage = value === null ? null : (event) => value({ data: normalizeNativeMessageData(event.data) });
+    },
+    get onmessage() {
+      return onmessage;
+    },
+    set onclose(value) {
+      raw.onclose = value;
+    },
+    get onclose() {
+      return raw.onclose;
+    },
+    set onerror(value) {
+      raw.onerror = value;
+    },
+    get onerror() {
+      return raw.onerror;
+    },
+    set onbufferedamountlow(value) {
+      raw.onbufferedamountlow = value;
+    },
+    get onbufferedamountlow() {
+      return raw.onbufferedamountlow;
+    },
+    send(data) {
+      raw.send(typeof data === "string" ? data : Buffer.from(data));
+    },
+    close() {
+      raw.close();
+    }
+  };
+}
 function toArrayBuffer2(data) {
   if (typeof data === "string") return data;
   return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+}
+function normalizeNativeCandidate(candidate) {
+  if (typeof candidate.toJSON === "function") return candidate.toJSON();
+  return {
+    candidate: candidate.candidate,
+    sdpMid: candidate.sdpMid,
+    sdpMLineIndex: candidate.sdpMLineIndex,
+    usernameFragment: candidate.usernameFragment
+  };
+}
+function normalizeNativeMessageData(data) {
+  if (typeof data === "string") return data;
+  if (data instanceof ArrayBuffer) return data;
+  if (ArrayBuffer.isView(data)) {
+    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  }
+  return new Uint8Array().buffer;
 }
 function detectHostIpv4Candidates(interfaces, preferredHostIpv4Candidates = []) {
   const candidates = [];
@@ -14321,7 +14491,7 @@ function isPrivate(ip) {
 var REMOTE_COMMAND_LIST_MIN_VERSION = [0, 3, 16];
 var REMOTE_FILE_VIEWER_MIN_VERSION = [0, 3, 17];
 var ClientModeRuntime = class {
-  constructor(config, identities, server, apiProxy, typertGateway, logger, host, rtcFactoryProvider = loadWeriftFactory) {
+  constructor(config, identities, server, apiProxy, typertGateway, logger, host, rtcFactoryProvider = loadNodeRtcFactory) {
     this.config = config;
     this.identities = identities;
     this.server = server;
@@ -17480,7 +17650,7 @@ var HostPluginRuntime = class {
       this.connections,
       this.logger,
       void 0,
-      this.config.forceRelay ? void 0 : () => loadWeriftFactory({ routeTargets: this.config.serverUrl === void 0 ? [] : [this.config.serverUrl] }),
+      this.config.forceRelay ? void 0 : () => loadNodeRtcFactory({ routeTargets: this.config.serverUrl === void 0 ? [] : [this.config.serverUrl] }),
       () => this.fileViewerHost?.() === void 0 ? ["harness.api.v1"] : ["harness.api.v1", "fileviewer.read.v1"],
       this.harnessVersion
     );

@@ -60,7 +60,7 @@ vi.mock('@dsh-remote/webrtc', () => ({ AdaptiveTransport: class {} }))
 vi.mock('../src/server-api.js', () => ({
   ServerApi: class { async turnCredentials(): Promise<never[]> { return [] } },
 }))
-vi.mock('../src/werift-rtc.js', () => ({ loadWeriftFactory: async () => undefined }))
+vi.mock('../src/werift-rtc.js', () => ({ loadNodeRtcFactory: async () => undefined }))
 
 import { RemoteConnection } from '../src/remote.js'
 
