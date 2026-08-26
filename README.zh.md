@@ -9,8 +9,6 @@
   &nbsp;·&nbsp;
   <a href="docs/README.md">文档</a>
   &nbsp;·&nbsp;
-  <a href="https://dshfind.com/zh/plugins/liguobao/deepseek-harness-remote?ref=badge"><img src="https://dshfind.com/api/badge/liguobao/deepseek-harness-remote?metric=downloads&amp;lang=zh" alt="dshfind 下载量"></a>
-  &nbsp;·&nbsp;
   <strong>下载：</strong>
   <a href="https://github.com/liguobao/dsh-desktop/releases/latest">Windows</a>
   &nbsp;·&nbsp;
@@ -21,6 +19,14 @@
   <a href="https://dsh.r2049.cn/app">Web</a>
   &nbsp;·&nbsp;
   <a href="https://github.com/liguobao/deepseek-harness-remote/releases/latest">Android</a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/ds-harness-remote">npm</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/liguobao/deepseek-harness-remote">GitHub</a>
+  &nbsp;·&nbsp;
+  <a href="https://dshfind.com/zh/plugins/liguobao/deepseek-harness-remote?ref=badge"><img src="https://dshfind.com/api/badge/liguobao/deepseek-harness-remote?metric=downloads&amp;lang=zh" alt="dshfind 下载量" width="137" height="20" align="absmiddle"></a>
 </p>
 
 ## 一次连接，随时可用。
@@ -53,8 +59,6 @@ DSH Desktop 已默认集成并启用 Remote，无需另行安装插件。
 ```sh
 dsh plugin --profile web add ds-harness-remote@0.3.33
 ```
-
-项目地址：[npm](https://www.npmjs.com/package/ds-harness-remote) · [GitHub](https://github.com/liguobao/deepseek-harness-remote)
 
 安装后请重启 Harness。
 
