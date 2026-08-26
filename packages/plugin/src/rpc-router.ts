@@ -9,6 +9,9 @@ import { z } from 'zod'
 import type { RemoteFileViewerBridge } from './file-viewer-bridge.js'
 import type { HarnessApiBridge } from './harness-api-bridge.js'
 import type { SafeLogger } from './logging.js'
+import { RpcError, safeErrorCode } from './safe-error.js'
+
+export { RpcError } from './safe-error.js'
 
 const wireRequestSchema = z.object({ method: z.string().min(1), params: z.unknown() }).strict()
 const apiMethods = new Set([
@@ -96,12 +99,12 @@ export class RpcRouter {
   }
 }
 
-export class RpcError extends Error {
-  constructor(readonly code: string, message: string, readonly details?: unknown, readonly retryable = false) { super(message) }
-}
-
 function errorResponse(requestId: string, error: unknown): RemoteMessage<RpcErrorPayload> {
-  if (error instanceof RpcError) return createRpcError(requestId, error.code, error.message, error.details, error.retryable)
-  if (error instanceof z.ZodError) return createRpcError(requestId, 'INVALID_MESSAGE', 'The RPC parameters are invalid.')
-  return createRpcError(requestId, 'INTERNAL_ERROR', 'The Host could not complete the request.')
+  const code = safeErrorCode(error)
+  if (error instanceof RpcError) return createRpcError(requestId, code, error.message, error.details, error.retryable)
+  return createRpcError(
+    requestId,
+    code,
+    code === 'INVALID_MESSAGE' ? 'The RPC parameters are invalid.' : 'The Host could not complete the request.',
+  )
 }

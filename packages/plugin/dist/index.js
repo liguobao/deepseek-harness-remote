@@ -16279,6 +16279,21 @@ async function readHarnessDistributionVersion(entrypoint = process.argv[1]) {
   return void 0;
 }
 
+// src/safe-error.ts
+var RpcError = class extends Error {
+  constructor(code, message, details, retryable = false) {
+    super(message);
+    this.code = code;
+    this.details = details;
+    this.retryable = retryable;
+  }
+};
+function safeErrorCode(error) {
+  if (error instanceof RpcError) return error.code;
+  if (error instanceof external_exports.ZodError) return "INVALID_MESSAGE";
+  return "INTERNAL_ERROR";
+}
+
 // src/rpc-router.ts
 var wireRequestSchema = external_exports.object({ method: external_exports.string().min(1), params: external_exports.unknown() }).strict();
 var apiMethods = /* @__PURE__ */ new Set([
@@ -16371,18 +16386,14 @@ var RpcRouter = class {
     }
   }
 };
-var RpcError = class extends Error {
-  constructor(code, message, details, retryable = false) {
-    super(message);
-    this.code = code;
-    this.details = details;
-    this.retryable = retryable;
-  }
-};
 function errorResponse(requestId, error) {
-  if (error instanceof RpcError) return createRpcError(requestId, error.code, error.message, error.details, error.retryable);
-  if (error instanceof external_exports.ZodError) return createRpcError(requestId, "INVALID_MESSAGE", "The RPC parameters are invalid.");
-  return createRpcError(requestId, "INTERNAL_ERROR", "The Host could not complete the request.");
+  const code = safeErrorCode(error);
+  if (error instanceof RpcError) return createRpcError(requestId, code, error.message, error.details, error.retryable);
+  return createRpcError(
+    requestId,
+    code,
+    code === "INVALID_MESSAGE" ? "The RPC parameters are invalid." : "The Host could not complete the request."
+  );
 }
 
 // src/file-viewer-contract.ts
@@ -17488,7 +17499,7 @@ var HarnessApiBridge = class {
         method: params.method,
         durationMs,
         timedOut: signal.aborted,
-        code: error instanceof RpcError ? error.code : error instanceof external_exports.ZodError ? "INVALID_MESSAGE" : "INTERNAL_ERROR"
+        code: safeErrorCode(error)
       });
       throw error;
     }
