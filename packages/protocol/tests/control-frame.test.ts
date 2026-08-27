@@ -227,6 +227,14 @@ describe('signal.ice payload validation', () => {
     const withNull = { ...valid, candidate: { ...valid.candidate, sdpMid: null } }
     expect(parseControlFrame(makeFrame('signal.ice', withNull))).toBeDefined()
   })
+
+  it('normalizes invalid native sdpMLineIndex values to null', () => {
+    const parsed = parseControlFrame(makeFrame('signal.ice', {
+      ...valid,
+      candidate: { ...valid.candidate, sdpMLineIndex: 1.167066568144e-312 },
+    }))
+    expect(parsed.payload.candidate.sdpMLineIndex).toBeNull()
+  })
 })
 
 // ────────────────────────────────────────────────────────────────────────────

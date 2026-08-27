@@ -14,6 +14,7 @@ import type {
   RtcStats,
   RtcStatsEntry,
 } from '@dsh-remote/webrtc'
+import { normalizeSdpMLineIndex } from '@dsh-remote/protocol'
 
 interface HelperResponse {
   id: number
@@ -443,14 +444,26 @@ function emitState() {
   send(state())
 }
 
+function normalizeHelperSdpMLineIndex(value) {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return null
+  return value
+}
+
 function normalizeCandidate(candidate) {
   if (candidate === null || candidate === undefined) return null
-  if (typeof candidate.toJSON === 'function') return candidate.toJSON()
+  const json = typeof candidate.toJSON === 'function'
+    ? candidate.toJSON()
+    : {
+        candidate: candidate.candidate,
+        sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex,
+        usernameFragment: candidate.usernameFragment,
+      }
   return {
-    candidate: candidate.candidate,
-    sdpMid: candidate.sdpMid,
-    sdpMLineIndex: candidate.sdpMLineIndex,
-    usernameFragment: candidate.usernameFragment,
+    ...json,
+    sdpMLineIndex: normalizeHelperSdpMLineIndex(json.sdpMLineIndex),
   }
 }
 

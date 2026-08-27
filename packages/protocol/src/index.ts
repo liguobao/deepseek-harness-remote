@@ -171,6 +171,13 @@ export interface SignalIcePayload {
   candidate: IceCandidatePayload
 }
 
+export function normalizeSdpMLineIndex(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return null
+  return value
+}
+
 export interface TransportSelectedPayload {
   connectionId: string
   targetDeviceId: string
@@ -433,7 +440,7 @@ export const signalIcePayloadSchema = z.object({
   candidate: z.object({
     candidate: z.string().optional(),
     sdpMid: z.string().nullable().optional(),
-    sdpMLineIndex: z.number().int().nullable().optional(),
+    sdpMLineIndex: z.preprocess(normalizeSdpMLineIndex, z.number().int().nonnegative().nullable().optional()),
     usernameFragment: z.string().nullable().optional(),
   }),
 })

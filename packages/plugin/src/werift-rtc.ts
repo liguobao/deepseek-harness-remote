@@ -21,6 +21,7 @@ import type {
   RtcStats,
 } from '@dsh-remote/webrtc'
 import { summarizeAddress, summarizeIceCandidate } from '@dsh-remote/webrtc'
+import { normalizeSdpMLineIndex } from '@dsh-remote/protocol'
 import { loadExternalNativeRtcFactory } from './native-rtc-helper.js'
 
 interface WeriftModule {
@@ -376,12 +377,17 @@ function toArrayBuffer(data: string | Uint8Array): ArrayBuffer | string {
 }
 
 function normalizeNativeCandidate(candidate: NativeIceCandidate): RtcIceCandidateInit {
-  if (typeof candidate.toJSON === 'function') return candidate.toJSON()
+  const json = typeof candidate.toJSON === 'function'
+    ? candidate.toJSON()
+    : {
+        candidate: candidate.candidate,
+        sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex,
+        usernameFragment: candidate.usernameFragment,
+      }
   return {
-    candidate: candidate.candidate,
-    sdpMid: candidate.sdpMid,
-    sdpMLineIndex: candidate.sdpMLineIndex,
-    usernameFragment: candidate.usernameFragment,
+    ...json,
+    sdpMLineIndex: normalizeSdpMLineIndex(json.sdpMLineIndex),
   }
 }
 

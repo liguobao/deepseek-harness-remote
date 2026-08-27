@@ -4093,6 +4093,15 @@ var rpcMethods = [
   "harness.api.stream.close",
   "fileviewer.call"
 ];
+function normalizeSdpMLineIndex(value) {
+  if (value === void 0)
+    return void 0;
+  if (value === null)
+    return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0)
+    return null;
+  return value;
+}
 var rpcMethodSchema = external_exports.enum(rpcMethods);
 var messageTypeSchema = external_exports.enum(messageTypes);
 var controlFrameTypeSchema = external_exports.enum(controlFrameTypes);
@@ -4173,7 +4182,7 @@ var signalIcePayloadSchema = external_exports.object({
   candidate: external_exports.object({
     candidate: external_exports.string().optional(),
     sdpMid: external_exports.string().nullable().optional(),
-    sdpMLineIndex: external_exports.number().int().nullable().optional(),
+    sdpMLineIndex: external_exports.preprocess(normalizeSdpMLineIndex, external_exports.number().int().nonnegative().nullable().optional()),
     usernameFragment: external_exports.string().nullable().optional()
   })
 });
@@ -14327,14 +14336,26 @@ function emitState() {
   send(state())
 }
 
+function normalizeHelperSdpMLineIndex(value) {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return null
+  return value
+}
+
 function normalizeCandidate(candidate) {
   if (candidate === null || candidate === undefined) return null
-  if (typeof candidate.toJSON === 'function') return candidate.toJSON()
+  const json = typeof candidate.toJSON === 'function'
+    ? candidate.toJSON()
+    : {
+        candidate: candidate.candidate,
+        sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex,
+        usernameFragment: candidate.usernameFragment,
+      }
   return {
-    candidate: candidate.candidate,
-    sdpMid: candidate.sdpMid,
-    sdpMLineIndex: candidate.sdpMLineIndex,
-    usernameFragment: candidate.usernameFragment,
+    ...json,
+    sdpMLineIndex: normalizeHelperSdpMLineIndex(json.sdpMLineIndex),
   }
 }
 
@@ -14825,12 +14846,15 @@ function toArrayBuffer2(data) {
   return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
 }
 function normalizeNativeCandidate(candidate) {
-  if (typeof candidate.toJSON === "function") return candidate.toJSON();
-  return {
+  const json = typeof candidate.toJSON === "function" ? candidate.toJSON() : {
     candidate: candidate.candidate,
     sdpMid: candidate.sdpMid,
     sdpMLineIndex: candidate.sdpMLineIndex,
     usernameFragment: candidate.usernameFragment
+  };
+  return {
+    ...json,
+    sdpMLineIndex: normalizeSdpMLineIndex(json.sdpMLineIndex)
   };
 }
 function normalizeNativeMessageData(data) {
