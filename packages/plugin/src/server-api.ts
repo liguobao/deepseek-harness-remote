@@ -148,7 +148,12 @@ export class HostServerApi {
     return { qrId: value.qrId, scanUrl: value.scanUrl, expiresIn: value.expiresIn as number }
   }
 
-  async pollOAuthQrLogin(identity: HostIdentity, qrId: string): Promise<OAuthQrPollResult> {
+  async pollOAuthQrLogin(
+    identity: HostIdentity,
+    qrId: string,
+    recoverIdentity?: () => Promise<HostIdentity>,
+  ): Promise<OAuthQrPollResult> {
+    this.bindIdentity(identity)
     const value = requireRecord(await this.publicRequest<unknown>(
       `/api/v1/auth/oauth/qr/${encodeURIComponent(qrId)}`,
       { method: 'GET' },
@@ -165,11 +170,19 @@ export class HostServerApi {
     if (typeof account.account !== 'string' || account.account.length === 0 || typeof account.isAdmin !== 'boolean') {
       throw new ServerApiError('INVALID_MESSAGE', 'The Server returned an invalid account profile.', false)
     }
-    await this.register(identity, {
+    const authorization = {
       accountToken: value.token,
       account: account.account,
-      authorizationMethod: 'account',
-    })
+      authorizationMethod: 'account' as const,
+    }
+    try {
+      await this.register(identity, authorization)
+    } catch (error) {
+      if (!(error instanceof ServerApiError) || error.code !== 'DEVICE_REVOKED' || recoverIdentity === undefined) throw error
+      const nextIdentity = await recoverIdentity()
+      this.bindIdentity(nextIdentity)
+      await this.register(nextIdentity, authorization)
+    }
     return {
       status: 'complete',
       authorization: { method: 'account', account: account.account, isAdmin: account.isAdmin },

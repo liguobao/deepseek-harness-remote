@@ -2454,7 +2454,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
         );
       }
       function RemoteWorkspaceAction(props) {
-        let { t } = props, [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [selectedHost, setSelectedHost] = React.useState(void 0), [workspaces, setWorkspaces] = React.useState([]), [directory, setDirectory] = React.useState(void 0), [path, setPath] = React.useState(""), [addingWorkspace, setAddingWorkspace] = React.useState(!1), [busy, setBusy] = React.useState(!1), [needsAuthorization, setNeedsAuthorization] = React.useState(!1), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [loginMethod, setLoginMethod] = React.useState(props.preferredQrProvider), [loginMethodManuallySelected, setLoginMethodManuallySelected] = React.useState(!1), [qrSession, setQrSession] = React.useState(void 0), [qrImage, setQrImage] = React.useState(void 0), [qrExpired, setQrExpired] = React.useState(!1), [progress, setProgress] = React.useState(void 0), progressRun = React.useRef(0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0);
+        let { t } = props, [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [selectedHost, setSelectedHost] = React.useState(void 0), [workspaces, setWorkspaces] = React.useState([]), [directory, setDirectory] = React.useState(void 0), [path, setPath] = React.useState(""), [addingWorkspace, setAddingWorkspace] = React.useState(!1), [busy, setBusy] = React.useState(!1), [needsAuthorization, setNeedsAuthorization] = React.useState(!1), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [loginMethod, setLoginMethod] = React.useState(props.preferredQrProvider), [loginMethodManuallySelected, setLoginMethodManuallySelected] = React.useState(!1), [qrSession, setQrSession] = React.useState(void 0), [qrImage, setQrImage] = React.useState(void 0), [qrExpired, setQrExpired] = React.useState(!1), [progress, setProgress] = React.useState(void 0), progressRun = React.useRef(0), qrFlowRun = React.useRef(0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0);
         React.useEffect(() => {
           if (!open) return;
           let closeOnEscape = (event) => {
@@ -2471,6 +2471,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           };
         }, [status?.mode]);
         let startQrLogin = async (provider) => {
+          let run = ++qrFlowRun.current;
           setBusy(!0), setError(void 0), setQrExpired(!1);
           try {
             let session = await props.control("client.account.qr.start", { provider }), image = await import_qrcode.default.toDataURL(session.scanUrl, {
@@ -2478,34 +2479,49 @@ Minimum version required to store current data is: ` + bestVersion + `.
               margin: 1,
               errorCorrectionLevel: "L"
             });
+            if (run !== qrFlowRun.current) return;
             setQrSession(session), setQrImage(image);
           } catch (reason) {
-            setError(messageOf(reason));
+            run === qrFlowRun.current && setError(messageOf(reason));
           } finally {
-            setBusy(!1);
+            run === qrFlowRun.current && setBusy(!1);
           }
         };
         React.useEffect(() => {
           !open || !needsAuthorization || loginMethod === "password" || qrSession !== void 0 || qrExpired || startQrLogin(loginMethod);
         }, [open, needsAuthorization, loginMethod, qrSession, qrExpired]), React.useEffect(() => {
           if (!open || loginMethod === "password" || qrSession === void 0) return;
-          let active = !0, poll = () => {
-            props.control("client.account.qr.poll", { qrId: qrSession.qrId }).then(async (result) => {
-              active && (result.status === "complete" ? (setDevices(await props.control("devices")), setStatus(await props.control("status")), setNeedsAuthorization(!1), setQrSession(void 0), setQrImage(void 0)) : result.status === "expired" && (setQrExpired(!0), setQrSession(void 0), setQrImage(void 0)));
+          let active = !0, polling = !1, settled = !1, run = qrFlowRun.current, timer, poll = () => {
+            polling || settled || (polling = !0, props.control("client.account.qr.poll", { qrId: qrSession.qrId }).then(async (result) => {
+              if (!(!active || settled || run !== qrFlowRun.current))
+                if (result.status === "complete") {
+                  settled = !0, timer !== void 0 && window.clearInterval(timer), setBusy(!0), setError(void 0), setQrExpired(!1), setNeedsAuthorization(!1);
+                  try {
+                    let [nextDevices, nextStatus] = await Promise.all([
+                      props.control("devices"),
+                      props.control("status")
+                    ]);
+                    active && run === qrFlowRun.current && (setDevices(nextDevices), setStatus(nextStatus));
+                  } catch (reason) {
+                    active && run === qrFlowRun.current && setError(messageOf(reason));
+                  } finally {
+                    run === qrFlowRun.current && (setQrSession(void 0), setQrImage(void 0), setBusy(!1));
+                  }
+                } else result.status === "expired" && (settled = !0, timer !== void 0 && window.clearInterval(timer), setQrExpired(!0), setQrSession(void 0), setQrImage(void 0));
             }).catch((reason) => {
-              active && setError(messageOf(reason));
-            });
+              active && !settled && run === qrFlowRun.current && setError(messageOf(reason));
+            }).finally(() => {
+              polling = !1;
+            }));
           };
-          poll();
-          let timer = window.setInterval(poll, 1500);
-          return () => {
-            active = !1, window.clearInterval(timer);
+          return poll(), timer = window.setInterval(poll, 1500), () => {
+            active = !1, timer !== void 0 && window.clearInterval(timer);
           };
         }, [open, loginMethod, qrSession]), React.useEffect(() => {
-          loginMethodManuallySelected || loginMethod === props.preferredQrProvider || (setLoginMethod(props.preferredQrProvider), setQrSession(void 0), setQrImage(void 0), setQrExpired(!1), setError(void 0));
+          loginMethodManuallySelected || loginMethod === props.preferredQrProvider || (qrFlowRun.current += 1, setLoginMethod(props.preferredQrProvider), setQrSession(void 0), setQrImage(void 0), setQrExpired(!1), setError(void 0));
         }, [props.preferredQrProvider, loginMethodManuallySelected]);
         let selectLoginMethod = (method) => {
-          setLoginMethodManuallySelected(!0), method !== loginMethod && (setLoginMethod(method), setQrSession(void 0), setQrImage(void 0), setQrExpired(!1), setError(void 0));
+          setLoginMethodManuallySelected(!0), method !== loginMethod && (qrFlowRun.current += 1, setLoginMethod(method), setQrSession(void 0), setQrImage(void 0), setQrExpired(!1), setError(void 0));
         }, orderedQrProviders = props.preferredQrProvider === "zhihu" ? ["zhihu", "github"] : ["github", "zhihu"], qrLoginTab = (provider) => React.createElement("button", {
           key: provider,
           type: "button",

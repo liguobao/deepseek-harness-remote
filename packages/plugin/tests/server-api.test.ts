@@ -38,6 +38,62 @@ describe('HostServerApi', () => {
     )
   })
 
+  it('retries a completed QR login with a recovered device identity', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-server-qr-revoked-'))
+    directories.push(directory)
+    const qrId = 'qr-complete-session-1234567890'
+    const identity = hostIdentity()
+    const recoveredIdentity: HostIdentity = {
+      ...identity,
+      deviceId: '0198a2d0-0000-7000-8000-000000000002',
+      fingerprint: '1111 1111 1111',
+      ...generateKeyPair(new Uint8Array(32).fill(8)),
+    }
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    let registerCalls = 0
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      calls.push({ url, init })
+      if (url.endsWith(`/auth/oauth/qr/${qrId}`)) return json({
+        status: 'complete',
+        token: 'web-account-token-value',
+      })
+      if (url.endsWith('/auth/me')) return json({
+        account: 'client@example.com',
+        isAdmin: false,
+      })
+      if (url.endsWith('/devices/register')) {
+        registerCalls += 1
+        if (registerCalls === 1) return errorJson('DEVICE_REVOKED', 'device was revoked', 403)
+        return json(tokens({ accessToken: 'client-access-token-value', refreshToken: 'client-refresh-token-value' }))
+      }
+      throw new Error(`unexpected request: ${url}`)
+    }) as unknown as typeof fetch
+    const store = new ServerCredentialStore(directory)
+    const api = new ClientServerApi('https://dsh.r2049.cn', store, fetchMock)
+    const recoverIdentity = vi.fn(async () => recoveredIdentity)
+
+    await expect(api.pollOAuthQrLogin(identity, qrId, recoverIdentity)).resolves.toEqual({
+      status: 'complete',
+      authorization: { method: 'account', account: 'client@example.com', isAdmin: false },
+    })
+
+    expect(recoverIdentity).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(String(calls[2]?.init?.body))).toMatchObject({
+      device: { deviceId: identity.deviceId, role: 'client', identityKey: identity.publicKey },
+    })
+    expect(JSON.parse(String(calls[3]?.init?.body))).toMatchObject({
+      device: { deviceId: recoveredIdentity.deviceId, role: 'client', identityKey: recoveredIdentity.publicKey },
+    })
+    expect(calls[2]?.init?.headers).toMatchObject({ Authorization: 'Bearer web-account-token-value' })
+    expect(calls[3]?.init?.headers).toMatchObject({ Authorization: 'Bearer web-account-token-value' })
+    await expect(store.load('https://dsh.r2049.cn', recoveredIdentity.deviceId)).resolves.toMatchObject({
+      authorizationMethod: 'account',
+      account: 'client@example.com',
+      accessToken: 'client-access-token-value',
+    })
+  })
+
   it('logs in, authorizes Host registration, persists device credentials, and authenticates peer lookup', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-server-api-'))
     directories.push(directory)
@@ -271,4 +327,10 @@ function tokens(overrides: Partial<TestTokens> = {}): TestTokens {
 
 function json(value: unknown): Response {
   return new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } })
+}
+
+function errorJson(code: string, message: string, status: number): Response {
+  return new Response(JSON.stringify({
+    error: { code, message, retryable: false },
+  }), { status, headers: { 'content-type': 'application/json' } })
 }

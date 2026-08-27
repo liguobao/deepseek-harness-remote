@@ -1090,6 +1090,7 @@ window.__ModuleLoader__.load({
       const [qrExpired, setQrExpired] = React.useState(false)
       const [progress, setProgress] = React.useState<RemoteConnectionProgress | undefined>(undefined)
       const progressRun = React.useRef(0)
+      const qrFlowRun = React.useRef(0)
       const [notice, setNotice] = React.useState<string | undefined>(undefined)
       const [error, setError] = React.useState<string | undefined>(undefined)
 
@@ -1115,6 +1116,7 @@ window.__ModuleLoader__.load({
       }, [status?.mode])
 
       const startQrLogin = async (provider: OAuthProvider): Promise<void> => {
+        const run = ++qrFlowRun.current
         setBusy(true)
         setError(undefined)
         setQrExpired(false)
@@ -1125,12 +1127,13 @@ window.__ModuleLoader__.load({
             margin: 1,
             errorCorrectionLevel: 'L',
           })
+          if (run !== qrFlowRun.current) return
           setQrSession(session)
           setQrImage(image)
         } catch (reason) {
-          setError(messageOf(reason))
+          if (run === qrFlowRun.current) setError(messageOf(reason))
         } finally {
-          setBusy(false)
+          if (run === qrFlowRun.current) setBusy(false)
         }
       }
 
@@ -1142,34 +1145,64 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (!open || loginMethod === 'password' || qrSession === undefined) return
         let active = true
+        let polling = false
+        let settled = false
+        const run = qrFlowRun.current
+        let timer: number | undefined
         const poll = (): void => {
+          if (polling || settled) return
+          polling = true
           void props.control<OAuthQrPollResult>('client.account.qr.poll', { qrId: qrSession.qrId }).then(async result => {
-            if (!active) return
+            if (!active || settled || run !== qrFlowRun.current) return
             if (result.status === 'complete') {
-              setDevices(await props.control<RemoteDevice[]>('devices'))
-              setStatus(await props.control<RemoteStatus>('status'))
+              settled = true
+              if (timer !== undefined) window.clearInterval(timer)
+              setBusy(true)
+              setError(undefined)
+              setQrExpired(false)
               setNeedsAuthorization(false)
-              setQrSession(undefined)
-              setQrImage(undefined)
+              try {
+                const [nextDevices, nextStatus] = await Promise.all([
+                  props.control<RemoteDevice[]>('devices'),
+                  props.control<RemoteStatus>('status'),
+                ])
+                if (active && run === qrFlowRun.current) {
+                  setDevices(nextDevices)
+                  setStatus(nextStatus)
+                }
+              } catch (reason) {
+                if (active && run === qrFlowRun.current) setError(messageOf(reason))
+              } finally {
+                if (run === qrFlowRun.current) {
+                  setQrSession(undefined)
+                  setQrImage(undefined)
+                  setBusy(false)
+                }
+              }
             } else if (result.status === 'expired') {
+              settled = true
+              if (timer !== undefined) window.clearInterval(timer)
               setQrExpired(true)
               setQrSession(undefined)
               setQrImage(undefined)
             }
           }).catch(reason => {
-            if (active) setError(messageOf(reason))
+            if (active && !settled && run === qrFlowRun.current) setError(messageOf(reason))
+          }).finally(() => {
+            polling = false
           })
         }
         poll()
-        const timer = window.setInterval(poll, 1_500)
+        timer = window.setInterval(poll, 1_500)
         return () => {
           active = false
-          window.clearInterval(timer)
+          if (timer !== undefined) window.clearInterval(timer)
         }
       }, [open, loginMethod, qrSession])
 
       React.useEffect(() => {
         if (loginMethodManuallySelected || loginMethod === props.preferredQrProvider) return
+        qrFlowRun.current += 1
         setLoginMethod(props.preferredQrProvider)
         setQrSession(undefined)
         setQrImage(undefined)
@@ -1180,6 +1213,7 @@ window.__ModuleLoader__.load({
       const selectLoginMethod = (method: LoginMethod): void => {
         setLoginMethodManuallySelected(true)
         if (method === loginMethod) return
+        qrFlowRun.current += 1
         setLoginMethod(method)
         setQrSession(undefined)
         setQrImage(undefined)

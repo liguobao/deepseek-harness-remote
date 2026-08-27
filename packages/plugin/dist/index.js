@@ -13620,7 +13620,8 @@ var HostServerApi = class {
     }
     return { qrId: value.qrId, scanUrl: value.scanUrl, expiresIn: value.expiresIn };
   }
-  async pollOAuthQrLogin(identity, qrId) {
+  async pollOAuthQrLogin(identity, qrId, recoverIdentity) {
+    this.bindIdentity(identity);
     const value = requireRecord(await this.publicRequest(
       `/api/v1/auth/oauth/qr/${encodeURIComponent(qrId)}`,
       { method: "GET" }
@@ -13637,11 +13638,19 @@ var HostServerApi = class {
     if (typeof account.account !== "string" || account.account.length === 0 || typeof account.isAdmin !== "boolean") {
       throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid account profile.", false);
     }
-    await this.register(identity, {
+    const authorization = {
       accountToken: value.token,
       account: account.account,
       authorizationMethod: "account"
-    });
+    };
+    try {
+      await this.register(identity, authorization);
+    } catch (error) {
+      if (!(error instanceof ServerApiError) || error.code !== "DEVICE_REVOKED" || recoverIdentity === void 0) throw error;
+      const nextIdentity = await recoverIdentity();
+      this.bindIdentity(nextIdentity);
+      await this.register(nextIdentity, authorization);
+    }
     return {
       status: "complete",
       authorization: { method: "account", account: account.account, isAdmin: account.isAdmin }
@@ -15139,17 +15148,14 @@ var ClientModeRuntime = class {
     return this.server.startOAuthQrLogin(provider);
   }
   async pollClientOAuthQrLogin(qrId) {
-    try {
-      const result = await this.server.pollOAuthQrLogin(this.requireIdentity(), qrId);
-      if (result.status === "complete") this.logger.info("Client account authorized with QR login");
-      return result;
-    } catch (error) {
-      if (!(error instanceof ServerApiError) || error.code !== "DEVICE_REVOKED") throw error;
+    const result = await this.server.pollOAuthQrLogin(this.requireIdentity(), qrId, async () => {
       this.identity = await this.identities.reset(this.config.deviceName);
       this.server.bindIdentity(this.identity);
-      this.logger.info("Rotated revoked Client identity before QR retry");
-      return { status: "expired" };
-    }
+      this.logger.info("Rotated revoked Client identity before QR authorization retry");
+      return this.identity;
+    });
+    if (result.status === "complete") this.logger.info("Client account authorized with QR login");
+    return result;
   }
   async clearClientAuthorization() {
     const previous = this.connected;

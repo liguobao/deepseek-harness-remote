@@ -223,17 +223,14 @@ export class ClientModeRuntime {
   }
 
   async pollClientOAuthQrLogin(qrId: string): Promise<unknown> {
-    try {
-      const result = await this.server.pollOAuthQrLogin(this.requireIdentity(), qrId)
-      if (result.status === 'complete') this.logger.info('Client account authorized with QR login')
-      return result
-    } catch (error) {
-      if (!(error instanceof ServerApiError) || error.code !== 'DEVICE_REVOKED') throw error
+    const result = await this.server.pollOAuthQrLogin(this.requireIdentity(), qrId, async () => {
       this.identity = await this.identities.reset(this.config.deviceName)
       this.server.bindIdentity(this.identity)
-      this.logger.info('Rotated revoked Client identity before QR retry')
-      return { status: 'expired' }
-    }
+      this.logger.info('Rotated revoked Client identity before QR authorization retry')
+      return this.identity
+    })
+    if (result.status === 'complete') this.logger.info('Client account authorized with QR login')
+    return result
   }
 
   async clearClientAuthorization(): Promise<void> {
