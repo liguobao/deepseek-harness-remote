@@ -33,3 +33,11 @@ export function automaticPreferredTransports(route: NetworkRoute): PreferredTran
   if (route === 'remote') return ['p2p', 'turn', 'relay']
   return ['lan', 'p2p', 'turn', 'relay']
 }
+
+export function initialProbeTransports(preferredTransports: readonly PreferredTransport[]): PreferredTransport[] {
+  if (preferredTransports.length === 1) return [...preferredTransports]
+  const directTransports = preferredTransports.filter(transport => transport === 'lan' || transport === 'p2p')
+  if (directTransports.length > 0) return directTransports
+  if (preferredTransports.includes('turn')) return ['turn']
+  return ['relay']
+}

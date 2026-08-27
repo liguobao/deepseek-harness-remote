@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.35
+
+- Fixes desktop Remote connection progress so it only shows the first active
+  probe group. Automatic connections now show `LAN -> P2P` while probing direct
+  paths and finish with the actual selected transport, such as `Using P2P`,
+  instead of advancing to TURN on a timer.
+- Applies the same progress-route fix to the Android connection screen while
+  keeping the full transport preference order for real negotiation and Host
+  control-plane metadata.
+- Advances the Plugin and Android app to `0.3.35` (`versionCode 18`).
+
 ## 0.3.34
 
 - Fixes DSH Desktop startup after upgrading from legacy `dsh-remote` installs

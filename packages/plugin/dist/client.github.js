@@ -2085,6 +2085,12 @@ Minimum version required to store current data is: ` + bestVersion + `.
   function normalizedPreferredTransports(value) {
     return value === void 0 || value.length === 0 ? [...defaultPreferredTransports] : [...value];
   }
+  function initialProbeTransports(value) {
+    let transports = normalizedPreferredTransports(value);
+    if (transports.length === 1) return transports;
+    let directTransports = transports.filter((transport) => transport === "lan" || transport === "p2p");
+    return directTransports.length > 0 ? directTransports : transports.includes("turn") ? ["turn"] : ["relay"];
+  }
   function formatLocalTime(value) {
     let date = new Date(value);
     return Number.isNaN(date.getTime()) ? "\u2014" : date.toLocaleString();
@@ -2115,7 +2121,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
     return value === "lan" ? { label: "remoteProgressProbeLan", detail: "remoteProgressProbeLanDetail" } : value === "p2p" ? { label: "remoteProgressProbeP2p", detail: "remoteProgressProbeP2pDetail" } : value === "turn" ? { label: "remoteProgressProbeTurn", detail: "remoteProgressProbeTurnDetail" } : { label: "remoteProgressProbeRelay", detail: "remoteProgressProbeRelayDetail" };
   }
   function connectHostProgressSteps(preferredTransports) {
-    let transports = normalizedPreferredTransports(preferredTransports), probeTransports = transports.filter((transport) => transport !== "relay" || transports.length === 1);
+    let transports = normalizedPreferredTransports(preferredTransports), probeTransports = initialProbeTransports(preferredTransports);
     return [
       { label: "remoteProgressCheckingHost", detail: "remoteProgressCheckingHostDetail", percent: 12 },
       { label: "remoteProgressAuthorizingPeer", detail: "remoteProgressAuthorizingPeerDetail", percent: 30, delayMs: 280 },

@@ -9,6 +9,7 @@ import {
   type LanguagePreference,
 } from '../locales/i18n'
 import { friendlyError, isRpcTimeoutError } from '../lib/errors'
+import { initialProbeTransports } from '../lib/network-route'
 import {
   loginFlow,
   oauthLoginChannel,
@@ -308,7 +309,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         : preference === 'turn'
           ? ['turn', 'relay'] as const
           : await resolveAutomaticPreferredTransports()
-      set({ connectionStage: 'transport', connectionProbeOrder: [...preferredTransports] })
+      set({ connectionStage: 'transport', connectionProbeOrder: initialProbeTransports(preferredTransports) })
       await connection.connect(
         config.baseUrl,
         identity,

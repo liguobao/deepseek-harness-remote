@@ -606,6 +606,15 @@ function normalizedPreferredTransports(value: readonly RemoteTransportPreference
   return value === undefined || value.length === 0 ? [...defaultPreferredTransports] : [...value]
 }
 
+function initialProbeTransports(value: readonly RemoteTransportPreference[] | undefined): RemoteTransportPreference[] {
+  const transports = normalizedPreferredTransports(value)
+  if (transports.length === 1) return transports
+  const directTransports = transports.filter(transport => transport === 'lan' || transport === 'p2p')
+  if (directTransports.length > 0) return directTransports
+  if (transports.includes('turn')) return ['turn']
+  return ['relay']
+}
+
 function formatLocalTime(value: number): string {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
@@ -670,7 +679,7 @@ function transportProgressCopy(value: RemoteTransportPreference): { label: Local
 
 function connectHostProgressSteps(preferredTransports: readonly RemoteTransportPreference[] | undefined): RemoteConnectionProgressStep[] {
   const transports = normalizedPreferredTransports(preferredTransports)
-  const probeTransports = transports.filter(transport => transport !== 'relay' || transports.length === 1)
+  const probeTransports = initialProbeTransports(preferredTransports)
   return [
     { label: 'remoteProgressCheckingHost', detail: 'remoteProgressCheckingHostDetail', percent: 12 },
     { label: 'remoteProgressAuthorizingPeer', detail: 'remoteProgressAuthorizingPeerDetail', percent: 30, delayMs: 280 },

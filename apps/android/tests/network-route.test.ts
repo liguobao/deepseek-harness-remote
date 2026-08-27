@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   automaticPreferredTransports,
+  initialProbeTransports,
   networkRouteForNativeType,
   shouldReconnectForNetworkRoute,
 } from '../src/lib/network-route'
@@ -13,6 +14,13 @@ describe('automatic transport routing', () => {
 
   it('keeps P2P, TURN, and Relay available off the local network', () => {
     expect(automaticPreferredTransports('remote')).toEqual(['p2p', 'turn', 'relay'])
+  })
+
+  it('shows only the first active probe group in connection progress', () => {
+    expect(initialProbeTransports(['lan', 'p2p', 'turn', 'relay'])).toEqual(['lan', 'p2p'])
+    expect(initialProbeTransports(['p2p', 'turn', 'relay'])).toEqual(['p2p'])
+    expect(initialProbeTransports(['turn', 'relay'])).toEqual(['turn'])
+    expect(initialProbeTransports(['relay'])).toEqual(['relay'])
   })
 
   it('classifies Wi-Fi and Ethernet as local routes', () => {

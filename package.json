@@ -1,6 +1,6 @@
 {
   "name": "ds-harness-remote",
-  "version": "0.3.34",
+  "version": "0.3.35",
   "description": "DeepSeek 远程连接",
   "license": "MIT",
   "private": true,
