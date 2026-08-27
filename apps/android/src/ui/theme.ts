@@ -1,4 +1,34 @@
-export const colors = {
+export type ColorScheme = 'light' | 'dark'
+
+export interface ThemeColors {
+  background: string
+  surface: string
+  surfaceStrong: string
+  ink: string
+  muted: string
+  subtle: string
+  primary: string
+  primaryPressed: string
+  primarySoft: string
+  accent: string
+  accentSoft: string
+  success: string
+  successSoft: string
+  warning: string
+  warningSoft: string
+  danger: string
+  dangerSoft: string
+  border: string
+  separator: string
+  disabled: string
+  white: string
+  scrim: string
+  modalBackdrop: string
+  menuDismiss: string
+  shadow: string
+}
+
+export const lightColors: ThemeColors = {
   background: '#F5F5F7',
   surface: '#FFFFFF',
   surfaceStrong: '#F0F2F5',
@@ -21,7 +51,42 @@ export const colors = {
   disabled: '#A7ABB3',
   white: '#FFFFFF',
   scrim: 'rgba(23, 24, 29, 0.42)',
-} as const
+  modalBackdrop: 'rgba(0, 0, 0, 0.45)',
+  menuDismiss: 'rgba(23, 24, 29, 0.16)',
+  shadow: '#000000',
+}
+
+export const darkColors: ThemeColors = {
+  background: '#0F1114',
+  surface: '#1A1D23',
+  surfaceStrong: '#252932',
+  ink: '#F2F3F5',
+  muted: '#9AA0A6',
+  subtle: '#7C828A',
+  primary: '#4096FF',
+  primaryPressed: '#1668DC',
+  primarySoft: '#111A2C',
+  accent: '#4096FF',
+  accentSoft: '#111A2C',
+  success: '#49AA6E',
+  successSoft: '#162312',
+  warning: '#D89614',
+  warningSoft: '#2B2111',
+  danger: '#E86E6B',
+  dangerSoft: '#2A1215',
+  border: '#3A4048',
+  separator: '#2E343C',
+  disabled: '#5F636B',
+  white: '#FFFFFF',
+  scrim: 'rgba(0, 0, 0, 0.55)',
+  modalBackdrop: 'rgba(0, 0, 0, 0.6)',
+  menuDismiss: 'rgba(0, 0, 0, 0.45)',
+  shadow: '#000000',
+}
+
+export function colorsForScheme(scheme: ColorScheme): ThemeColors {
+  return scheme === 'dark' ? darkColors : lightColors
+}
 
 export const spacing = {
   xxs: 4,

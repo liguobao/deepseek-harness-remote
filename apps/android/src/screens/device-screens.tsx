@@ -16,7 +16,9 @@ import {
   StatusBadge,
   TopBar,
 } from '../ui/components'
-import { colors, radius, spacing, type } from '../ui/theme'
+import { radius, spacing, type } from '../ui/theme'
+import { useTheme, type ThemeColors } from '../ui/theme-context'
+import { useThemedStyles } from '../ui/use-themed-styles'
 import { strings as zhCN } from '../locales/i18n'
 import { resolveSessionDisplayTitle } from './session-title'
 
@@ -27,6 +29,8 @@ export function DevicesScreen({ onDevice, onMore }: {
   const devices = useAppStore(state => state.devices)
   const refreshing = useAppStore(state => state.refreshing)
   const refresh = useAppStore(state => state.refreshDevices)
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   return (
     <View style={styles.flex}>
@@ -85,6 +89,9 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
   const leaving = useRef(false)
   const onConnectedRef = useRef(onConnected)
   onConnectedRef.current = onConnected
+
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   useEffect(() => {
     if (launchedAttempt.current === attempt) return
@@ -230,6 +237,8 @@ export function DeviceDetailScreen({ device, onBack, onConnect, onWorkspaces }: 
   const trustAndContinue = async () => {
     if (await trust(device) && device.online) onConnect()
   }
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   return (
     <View style={styles.flex}>
@@ -314,6 +323,8 @@ export function SessionsScreen({ onBack, onSession }: { onBack: () => void; onSe
   const active = sessions.filter(session => !archivedSet.has(session.sessionId))
   const archived = sessions.filter(session => archivedSet.has(session.sessionId))
   const creating = busy === 'create-session'
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   return (
     <View style={styles.flex}>
@@ -460,7 +471,8 @@ function connectionBadgeStatus(
   return 'online'
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
   pageHeading: { paddingTop: spacing.xxl, paddingBottom: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { ...type.title, color: colors.ink },
@@ -517,4 +529,5 @@ const styles = StyleSheet.create({
   archivedHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.sm },
   archivedTitle: { ...type.smallStrong, color: colors.muted, flex: 1 },
   connectionDetails: { marginTop: spacing.lg },
-})
+  })
+}

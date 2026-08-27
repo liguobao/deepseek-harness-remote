@@ -4,7 +4,9 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CirclePlus, Eye, EyeOff,
 import { useAppStore } from '../state/store'
 import type { DirectoryListing, RemoteSession, WorkspaceView } from '../types'
 import { Button, EmptyState, IconButton, Screen, TopBar } from '../ui/components'
-import { colors, radius, spacing, type } from '../ui/theme'
+import { radius, spacing, type } from '../ui/theme'
+import { useTheme, type ThemeColors } from '../ui/theme-context'
+import { useThemedStyles } from '../ui/use-themed-styles'
 import { strings as zhCN } from '../locales/i18n'
 import { loadCollapsedWorkspaceIds, saveCollapsedWorkspaceIds } from '../services/storage'
 import { resolveSessionDisplayTitle } from './session-title'
@@ -30,6 +32,8 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
   const [renameTarget, setRenameTarget] = useState<WorkspaceView | undefined>(undefined)
   const [actionsTarget, setActionsTarget] = useState<WorkspaceView | undefined>(undefined)
   const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = useState<ReadonlySet<string>>(() => new Set())
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   useEffect(() => {
     const deviceId = selectedDevice?.deviceId
@@ -225,6 +229,8 @@ function WorkspaceActionsModal({ target, canMoveUp, canMoveDown, busy, onClose, 
   onMoveDown: () => void
   onDelete: () => void
 }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   return (
     <Modal visible={target !== undefined} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
@@ -283,6 +289,8 @@ function CreateWorkspaceModal({ visible, busy, onClose, onCreate }: {
 }) {
   const [path, setPath] = useState('')
   const [browseOpen, setBrowseOpen] = useState(false)
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   const create = async () => {
     const trimmed = path.trim()
@@ -337,6 +345,8 @@ function RenameWorkspaceModal({ target, busy, onClose, onRename }: {
   onRename: (workspaceId: string, title: string) => Promise<boolean>
 }) {
   const [title, setTitle] = useState('')
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   useEffect(() => {
     if (target !== undefined) setTitle(target.title)
@@ -382,6 +392,8 @@ function DirectoryBrowserModal({ visible, onClose, onChoose }: {
   const [showHidden, setShowHidden] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   useEffect(() => {
     if (!visible) return
@@ -465,7 +477,8 @@ function DirectoryBrowserModal({ visible, onClose, onChoose }: {
   )
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
   pageHeading: { paddingTop: spacing.xxl, paddingBottom: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   pageHeadingCopy: { flex: 1 },
@@ -488,7 +501,7 @@ const styles = StyleSheet.create({
   noSessions: { minHeight: 48, marginLeft: 50, justifyContent: 'center', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },
   noSessionsText: { ...type.small, color: colors.primary },
   primaryArea: { marginTop: spacing.xxl },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: colors.modalBackdrop, justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
   browserSheet: { height: '75%', backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, paddingBottom: spacing.lg },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -515,4 +528,5 @@ const styles = StyleSheet.create({
   emptyText: { ...type.small, color: colors.muted, textAlign: 'center', marginTop: spacing.lg },
   errorText: { ...type.small, color: colors.danger },
   browserFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginTop: spacing.md },
-})
+  })
+}

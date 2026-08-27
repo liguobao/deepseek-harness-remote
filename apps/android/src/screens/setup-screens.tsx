@@ -10,7 +10,9 @@ import { SOURCE_CODE_URL } from '../lib/links'
 import { Button, Field, KeyValue, Screen, TopBar } from '../ui/components'
 import { transportPreferenceOptions } from '../types'
 import type { LoginMethod } from '../types'
-import { colors, radius, spacing, type } from '../ui/theme'
+import { radius, spacing, type } from '../ui/theme'
+import { useTheme, type ThemeColors } from '../ui/theme-context'
+import { useThemedStyles } from '../ui/use-themed-styles'
 import { strings as zhCN, type LanguagePreference } from '../locales/i18n'
 
 /** Default DSH Remote Server; a build can override it via EXPO_PUBLIC_DSH_REMOTE_SERVER. */
@@ -39,6 +41,8 @@ export function ServerSetupScreen({ onComplete, onBack }: { onComplete: () => vo
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loginMethod, setLoginMethod] = useState<SetupLoginMethod>('oauth')
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   const submit = async () => {
     if (await configure(serverUrl, email, password)) onComplete()
@@ -120,6 +124,8 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
   const setLanguagePreference = useAppStore(state => state.setLanguagePreference)
   const reset = useAppStore(state => state.resetLocalData)
   const signOut = useAppStore(state => state.signOut)
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   const confirmReset = () => Alert.alert(
     zhCN.settings.resetTitle,
@@ -222,6 +228,8 @@ export function HomeActionsMenu({ visible, onClose, onSettings, onAbout }: {
   onSettings: () => void
   onAbout: () => void
 }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   const { phase, progress, checkForUpdates } = useUpdateCheck()
 
   if (!visible) return null
@@ -350,6 +358,8 @@ function HomeMenuRow({ icon: Icon, label, subtitle, onPress, disabled = false, l
   disabled?: boolean
   last?: boolean
 }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   return (
     <Pressable
       accessibilityRole="button"
@@ -393,6 +403,8 @@ function isNewerVersion(latest: string, current: string): boolean {
 }
 
 export function AboutScreen({ onBack }: { onBack: () => void }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   const appVersion = Application.nativeApplicationVersion ?? zhCN.common.unavailable
   const buildVersion = Application.nativeBuildVersion
   const versionLabel = buildVersion === null ? appVersion : `${appVersion} (${buildVersion})`
@@ -418,6 +430,8 @@ export function AboutScreen({ onBack }: { onBack: () => void }) {
 }
 
 function SettingsLink({ label, url, value }: { label: string; url: string; value?: string }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   const open = async () => {
     try {
       await Linking.openURL(url)
@@ -460,7 +474,8 @@ function languageOptions(): Array<{ value: LanguagePreference; name: string }> {
   ]
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
   productName: { ...type.smallStrong, color: colors.primary, marginTop: spacing.xxl, marginBottom: spacing.md },
   title: { ...type.hero, color: colors.ink, maxWidth: 340 },
@@ -500,8 +515,8 @@ const styles = StyleSheet.create({
   settingsLinkLabel: { ...type.smallStrong, color: colors.ink },
   settingsLinkUrl: { ...type.caption, color: colors.primary },
   homeMenuLayer: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, elevation: 20 },
-  homeMenuDismiss: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(23, 24, 29, 0.16)' },
-  homeMenuCard: { position: 'absolute', top: 56, right: spacing.sm, width: 236, paddingHorizontal: spacing.xs, borderRadius: radius.lg, backgroundColor: colors.surface, elevation: 8, shadowColor: '#000000', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.14, shadowRadius: 14 },
+  homeMenuDismiss: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.menuDismiss },
+  homeMenuCard: { position: 'absolute', top: 56, right: spacing.sm, width: 236, paddingHorizontal: spacing.xs, borderRadius: radius.lg, backgroundColor: colors.surface, elevation: 8, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.14, shadowRadius: 14 },
   homeMenuRow: { minHeight: 56, paddingHorizontal: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   homeMenuRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
   homeMenuRowPressed: { opacity: 0.68 },
@@ -516,4 +531,5 @@ const styles = StyleSheet.create({
   aboutVersion: { ...type.small, color: colors.muted, textAlign: 'center' },
   resetArea: { marginTop: spacing.xxxl },
   resetGap: { height: spacing.sm },
-})
+  })
+}

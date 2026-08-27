@@ -20,7 +20,9 @@ import { hasVisibleMessageText } from '../state/event-reducer'
 import type { ApprovalActivity, ChatItem, ChatMessage, ImageAttachmentLimits, ImageMediaType, ModelCatalogModel, ModelProviderGroup, PermissionSelect, PromptImage, QuestionActivity, RemoteSession, ToolActivity, ToolDisplayDetail } from '../types'
 import { Button, IconButton, TopBar } from '../ui/components'
 import { NativeMarkdown } from '../ui/markdown'
-import { colors, radius, spacing, type } from '../ui/theme'
+import { radius, spacing, type } from '../ui/theme'
+import { useTheme, type ThemeColors } from '../ui/theme-context'
+import { useThemedStyles } from '../ui/use-themed-styles'
 import { strings as zhCN } from '../locales/i18n'
 import { resolveSessionDisplayTitle } from './session-title'
 
@@ -62,6 +64,9 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const lastContentVersion = lastItem?.kind === 'message'
     ? `${lastItem.id}:${lastItem.text.length}:${lastItem.reasoning?.length ?? 0}`
     : undefined
+
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   // Scroll smoothly only when a brand-new item is appended. Streaming deltas
   // keep the same item id, so this fires once per assistant step instead of
@@ -317,6 +322,8 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
 }
 
 function ChatKeyboardInset({ children }: { children: ReactNode }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   // Edge-to-edge Android windows do not consistently resize around the IME,
   // even when the Activity requests adjustResize. KeyboardAvoidingView measures
   // the actual overlap, so it is a no-op when the window already resized and
@@ -331,6 +338,8 @@ function PermissionPicker({ visible, permissions, onClose, onPick }: {
   onClose: () => void
   onPick: (preset: string) => void
 }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   if (permissions === undefined) return null
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -459,6 +468,8 @@ function ModelPicker({ visible, models, onClose, onPick }: {
   onClose: () => void
   onPick: (group: ModelProviderGroup, model: ModelCatalogModel) => void
 }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   if (models === undefined) return null
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -520,6 +531,8 @@ const ChatItemView = memo(function ChatItemView({ item, busyAction, onApproval, 
 })
 
 function MessageBubble({ item }: { item: ChatMessage }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   const user = item.role === 'user'
   const remote = item.role === 'assistant'
   return (
@@ -561,6 +574,8 @@ function MessageBubble({ item }: { item: ChatMessage }) {
 }
 
 function ReasoningDisclosure({ item, embedded = false }: { item: ChatMessage; embedded?: boolean }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   const [expanded, setExpanded] = useState(false)
   const active = item.streamingPhase === 'reasoning'
   const label = active ? zhCN.chat.reasoningActive : zhCN.chat.reasoning
@@ -589,6 +604,8 @@ function ReasoningDisclosure({ item, embedded = false }: { item: ChatMessage; em
 }
 
 function ToolRow({ item }: { item: ToolActivity }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   const [expanded, setExpanded] = useState(false)
   const stateText = item.state === 'running' ? zhCN.status.running : item.state === 'failed' ? zhCN.chat.failed : zhCN.chat.completed
   const detail = compactActivityText(item.summary ?? item.arguments)
@@ -625,6 +642,8 @@ function ToolRow({ item }: { item: ToolActivity }) {
 }
 
 function ToolDetailView({ label, detail }: { label: string; detail: ToolDisplayDetail }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   return (
     <View style={styles.toolDetailBlock}>
       <Text style={styles.toolDetailLabel}>{label}</Text>
@@ -647,6 +666,8 @@ function ApprovalCard({ item, busy, onRespond }: {
   busy: boolean
   onRespond: (itemId: string, outcome: 'allowed-once' | 'rejected') => Promise<void>
 }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   if (item.outcome !== undefined) {
     const denied = item.outcome === 'rejected' || item.outcome === 'cancelled' || item.outcome === 'unavailable'
     return (
@@ -684,6 +705,8 @@ function QuestionCard({ item, busy, onRespond }: {
   busy: boolean
   onRespond: (itemId: string, selected: Record<string, string[]>) => Promise<void>
 }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   const [selected, setSelected] = useState<Record<string, string[]>>({})
 
   if (item.outcome !== undefined) {
@@ -743,6 +766,8 @@ function QuestionCard({ item, busy, onRespond }: {
 }
 
 function WelcomeMessage() {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   return (
     <View style={styles.welcome}>
       <View style={styles.welcomeIcon}><Bot size={25} color={colors.primary} /></View>
@@ -752,7 +777,8 @@ function WelcomeMessage() {
   )
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
   sessionControls: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
   modelChip: { minWidth: 0, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: 8, borderRadius: radius.sm, backgroundColor: colors.surfaceStrong },
@@ -760,7 +786,7 @@ const styles = StyleSheet.create({
   modelChipText: { ...type.smallStrong, color: colors.ink, flexShrink: 1 },
   olderButton: { alignSelf: 'center', paddingVertical: spacing.xs, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
   olderText: { ...type.smallStrong, color: colors.primary },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  modalBackdrop: { flex: 1, backgroundColor: colors.modalBackdrop, justifyContent: 'flex-end' },
   modalSheet: { maxHeight: '70%', backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, paddingBottom: spacing.xxl },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   modalTitle: { ...type.heading, color: colors.ink },
@@ -860,4 +886,5 @@ const styles = StyleSheet.create({
   stopPressed: { opacity: 0.78 },
   sendDisabled: { backgroundColor: colors.disabled },
   composerHint: { ...type.caption, color: colors.muted, textAlign: 'center', marginTop: 5 },
-})
+  })
+}

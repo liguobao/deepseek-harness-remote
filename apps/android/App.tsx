@@ -15,7 +15,9 @@ import {
   type NetworkRoute,
 } from './src/lib/network-route'
 import { Button, ErrorBanner } from './src/ui/components'
-import { colors, radius, spacing, type } from './src/ui/theme'
+import { radius, spacing, type } from './src/ui/theme'
+import { ThemeProvider, useTheme, type ThemeColors } from './src/ui/theme-context'
+import { useThemedStyles } from './src/ui/use-themed-styles'
 import { strings as zhCN } from './src/locales/i18n'
 
 type Route =
@@ -40,13 +42,30 @@ export default function App() {
   }, [localeKey, syncSystemLocales])
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="dark" />
+    <ThemeProvider>
+      <SafeAreaProvider>
+        <AppShell />
+      </SafeAreaProvider>
+    </ThemeProvider>
+  )
+}
+
+function AppShell() {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
+  return (
+    <>
+      <ThemedStatusBar />
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
         <AppNavigator />
       </SafeAreaView>
-    </SafeAreaProvider>
+    </>
   )
+}
+
+function ThemedStatusBar() {
+  const { scheme } = useTheme()
+  return <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
 }
 
 function AppNavigator() {
@@ -64,6 +83,8 @@ function AppNavigator() {
   const didChooseInitialRoute = useRef(false)
   const networkRoute = useRef<NetworkRoute | undefined>(undefined)
   const route = routes[routes.length - 1]!
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
 
   const push = (next: Route) => setRoutes(current => [...current, next])
   const replace = (next: Route) => setRoutes(current => [...current.slice(0, -1), next])
@@ -213,6 +234,8 @@ function AppNavigator() {
 }
 
 function LoadingScreen() {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   return (
     <View style={styles.loadingScreen}>
       <View style={styles.loadingBrand}>
@@ -236,6 +259,8 @@ function LoadingScreen() {
 }
 
 function BootError({ message, onRetry }: { message?: string; onRetry: () => void }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   return (
     <View style={styles.center}>
       <Text style={styles.loadingTitle}>{zhCN.app.bootFailed}</Text>
@@ -246,6 +271,8 @@ function BootError({ message, onRetry }: { message?: string; onRetry: () => void
 }
 
 function MissingRoute({ onBack }: { onBack: () => void }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
   return (
     <View style={styles.center}>
       <Text style={styles.loadingTitle}>{zhCN.app.deviceUnavailable}</Text>
@@ -255,7 +282,8 @@ function MissingRoute({ onBack }: { onBack: () => void }) {
   )
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl, backgroundColor: colors.background },
@@ -270,4 +298,5 @@ const styles = StyleSheet.create({
   loadingStatusText: { ...type.small, color: colors.muted },
   loadingBody: { ...type.body, color: colors.muted, textAlign: 'center', marginTop: spacing.xs },
   retry: { alignSelf: 'stretch', marginTop: spacing.xl },
-})
+  })
+}
