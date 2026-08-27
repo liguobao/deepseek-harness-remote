@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { colorsForScheme, darkColors, lightColors } from '../src/ui/theme'
+import { colorsForScheme, darkColors, lightColors, resolveColorScheme } from '../src/ui/theme'
 
 describe('theme colors', () => {
   it('returns light and dark palettes for each scheme', () => {
@@ -13,5 +13,13 @@ describe('theme colors', () => {
       expect(palette.menuDismiss).toMatch(/^rgba?\(/)
       expect(palette.shadow.length).toBeGreaterThan(0)
     }
+  })
+
+  it('resolves explicit and system theme preferences', () => {
+    expect(resolveColorScheme('light', 'dark')).toBe('light')
+    expect(resolveColorScheme('dark', 'light')).toBe('dark')
+    expect(resolveColorScheme('system', 'dark')).toBe('dark')
+    expect(resolveColorScheme('system', 'light')).toBe('light')
+    expect(resolveColorScheme('system', null)).toBe('light')
   })
 })

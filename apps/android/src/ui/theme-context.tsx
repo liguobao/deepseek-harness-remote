@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useColorScheme } from 'react-native'
-import { colorsForScheme, type ColorScheme, type ThemeColors } from './theme'
+import { useAppStore } from '../state/store'
+import { colorsForScheme, resolveColorScheme, type ColorScheme, type ThemeColors } from './theme'
 
 export interface Theme {
   colors: ThemeColors
@@ -13,8 +14,9 @@ const ThemeContext = createContext<Theme>({
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  const themePreference = useAppStore(state => state.themePreference)
   const systemScheme = useColorScheme()
-  const scheme: ColorScheme = systemScheme === 'dark' ? 'dark' : 'light'
+  const scheme = resolveColorScheme(themePreference, systemScheme === 'dark' ? 'dark' : systemScheme === 'light' ? 'light' : undefined)
   const value = useMemo<Theme>(() => ({
     colors: colorsForScheme(scheme),
     scheme,
