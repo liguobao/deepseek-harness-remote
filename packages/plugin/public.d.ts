@@ -14,6 +14,6 @@ export interface Config {
   }
 }
 
-export declare const name: 'dsh-remote'
+export declare const name: 'ds-harness-remote'
 export declare const Config: unknown
 export declare function apply(ctx: Context, config?: Config): void

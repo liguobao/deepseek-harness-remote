@@ -1691,7 +1691,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
   var CONTROL_RPC_PREFIX = "/ds-harness-remote";
 
   // src/client.ts
-  var clientModuleId = "ds-harness-remote", localeNamespace = "dsh-remote", en = {
+  var clientModuleId = "ds-harness-remote", localeNamespace = "ds-harness-remote", en = {
     pluginTitle: "DeepSeek Remote",
     pluginDescription: "Connect once. Available anytime.",
     expandSettings: "Show settings: {name}",
@@ -3311,6 +3311,10 @@ Minimum version required to store current data is: ` + bestVersion + `.
         ].join(""), document.head.append(style), () => style.remove();
       }
       function apply(ctx) {
+        if (window.__DS_HARNESS_REMOTE_CLIENT_ACTIVE__) return;
+        window.__DS_HARNESS_REMOTE_CLIENT_ACTIVE__ = !0, ctx.effect(() => () => {
+          window.__DS_HARNESS_REMOTE_CLIENT_ACTIVE__ = !1;
+        }, "ds-harness-remote: client singleton");
         let t = ctx.locale.bind(localeNamespace), control = async (endpoint, payload = {}) => {
           let result;
           for (let attempt = 0; ; attempt += 1)
@@ -3341,7 +3345,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           }), () => {
             disposed = !0, unsubscribe?.();
           };
-        }, "dsh-remote: resume selected workspace"), ctx.inject(["fileViewer"], (fileViewerContext) => {
+        }, "ds-harness-remote: resume selected workspace"), ctx.inject(["fileViewer"], (fileViewerContext) => {
           let viewer = fileViewerContext.get("fileViewer");
           viewer !== void 0 && fileViewerContext.effect(() => {
             let active = !0, unregister, latestSaveAsAllowed = !1, sync = async () => {
@@ -3363,16 +3367,16 @@ Minimum version required to store current data is: ` + bestVersion + `.
             return () => {
               active = !1, window.clearInterval(timer), unregister?.();
             };
-          }, "dsh-remote: remote file viewer provider");
-        }), ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), "dsh-remote: dictionaries"), ctx.effect(installStyle, "dsh-remote: client styles"), ctx.slots.inject("shell.overlay", () => ctx.slots.register({
+          }, "ds-harness-remote: remote file viewer provider");
+        }), ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), "ds-harness-remote: dictionaries"), ctx.effect(installStyle, "ds-harness-remote: client styles"), ctx.slots.inject("shell.overlay", () => ctx.slots.register({
           name: "shell.overlay",
-          id: "dsh-remote-global-context",
+          id: "ds-harness-remote-global-context",
           order: 20,
           locale: localeNamespace,
           inject: () => ({ control })
         }, RemoteSessionHeaderAction)), ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
           name: "sidebar.footer.action",
-          id: "dsh-remote-workspace",
+          id: "ds-harness-remote-workspace",
           order: -20,
           locale: localeNamespace,
           inject: () => ({

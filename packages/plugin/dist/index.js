@@ -13543,7 +13543,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.33";
+var PLUGIN_VERSION = "0.3.34";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -18323,6 +18323,7 @@ function decodeBase64(value) {
 
 // src/index.ts
 var name = "ds-harness-remote";
+var legacyLoaderModuleNames = /* @__PURE__ */ new Set(["dsh-remote", "@dsh-remote/plugin"]);
 function apply(ctx, input = {}) {
   ctx.inject(["settings", "apiProxy", "connection", "typertGateway"], (runtimeContext) => activate(runtimeContext, input));
 }
@@ -18355,6 +18356,7 @@ async function activate(ctx, input) {
       console.error(message);
     }
   }, config.logLevel);
+  await disableLegacyLoaderEntries(ctx, logger);
   const defaultIdentityDirectory = new IdentityStore().directory;
   const hostIdentities = new IdentityStore({
     directory: config.serverUrl === void 0 ? defaultIdentityDirectory : serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, "host")
@@ -18415,6 +18417,29 @@ async function activate(ctx, input) {
       await runtime.close();
     };
   }, "dsh-remote lifecycle");
+}
+async function disableLegacyLoaderEntries(ctx, logger) {
+  const loader = ctx.get("loader");
+  if (!isLoaderLike(loader)) return;
+  const currentEntryId = loader.locate?.(ctx.fiber);
+  for (const entry of loader.entries()) {
+    const moduleName = entry.options.name;
+    if (moduleName === void 0 || !legacyLoaderModuleNames.has(moduleName)) continue;
+    if (entry.id === currentEntryId || entry.options.disabled === true) continue;
+    try {
+      await loader.update(entry.id, { disabled: true });
+      logger.warn("disabled legacy loader entry", { entryId: entry.id, moduleName });
+    } catch {
+      logger.warn("failed to disable legacy loader entry", {
+        entryId: entry.id,
+        moduleName,
+        code: "LOADER_UPDATE_FAILED"
+      });
+    }
+  }
+}
+function isLoaderLike(value) {
+  return typeof value === "object" && value !== null && typeof value.entries === "function" && typeof value.update === "function";
 }
 export {
   ApiProxySwitch,

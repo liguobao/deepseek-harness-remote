@@ -24,6 +24,22 @@ declare module '@deepseek-ai/cordis' {
 export const name = 'ds-harness-remote'
 export { Config }
 
+const legacyLoaderModuleNames = new Set(['dsh-remote', '@dsh-remote/plugin'])
+
+interface LoaderEntryLike {
+  id: string
+  options: {
+    name?: string
+    disabled?: boolean | null
+  }
+}
+
+interface LoaderLike {
+  entries(): Iterable<LoaderEntryLike>
+  locate?(fiber?: unknown): string | undefined
+  update(id: string, options: { disabled?: boolean | null }): unknown
+}
+
 export function apply(ctx: Context, input: ConfigInput = {}): void {
   ctx.inject(['settings', 'apiProxy', 'connection', 'typertGateway'], runtimeContext => activate(runtimeContext, input))
 }
@@ -46,6 +62,7 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
     warn: message => { ctx.logger.warn(message); console.warn(message) },
     error: message => { ctx.logger.error(message); console.error(message) },
   }, config.logLevel)
+  await disableLegacyLoaderEntries(ctx, logger)
   const defaultIdentityDirectory = new IdentityStore().directory
   const hostIdentities = new IdentityStore({
     directory: config.serverUrl === undefined
@@ -116,6 +133,35 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
       await runtime.close()
     }
   }, 'dsh-remote lifecycle')
+}
+
+async function disableLegacyLoaderEntries(ctx: Context, logger: SafeLogger): Promise<void> {
+  const loader = ctx.get('loader') as LoaderLike | undefined
+  if (!isLoaderLike(loader)) return
+
+  const currentEntryId = loader.locate?.(ctx.fiber)
+  for (const entry of loader.entries()) {
+    const moduleName = entry.options.name
+    if (moduleName === undefined || !legacyLoaderModuleNames.has(moduleName)) continue
+    if (entry.id === currentEntryId || entry.options.disabled === true) continue
+
+    try {
+      await loader.update(entry.id, { disabled: true })
+      logger.warn('disabled legacy loader entry', { entryId: entry.id, moduleName })
+    } catch {
+      logger.warn('failed to disable legacy loader entry', {
+        entryId: entry.id,
+        moduleName,
+        code: 'LOADER_UPDATE_FAILED',
+      })
+    }
+  }
+}
+
+function isLoaderLike(value: unknown): value is LoaderLike {
+  return typeof value === 'object' && value !== null
+    && typeof (value as { entries?: unknown }).entries === 'function'
+    && typeof (value as { update?: unknown }).update === 'function'
 }
 
 export type { ResolvedConfig } from './config.js'

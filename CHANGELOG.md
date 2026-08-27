@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.34
+
+- Fixes DSH Desktop startup after upgrading from legacy `dsh-remote` installs
+  by moving the browser locale namespace to the canonical
+  `ds-harness-remote` id.
+- Adds startup migration for legacy loader entries named `dsh-remote` or
+  `@dsh-remote/plugin`, disabling them once the canonical plugin is running.
+- Adds a client singleton guard so duplicate loader entries cannot register
+  duplicate browser contributions in one window.
+- Advances the Plugin and Android app to `0.3.34` (`versionCode 17`).
+
 ## 0.3.33
 
 - Uses an isolated native WebRTC helper under Electron so DSH Desktop can use

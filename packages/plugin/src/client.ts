@@ -13,6 +13,7 @@ declare global {
     __ModuleLoader__: {
       load(input: { id: string; factory: (require: (id: string) => unknown) => unknown }): void
     }
+    __DS_HARNESS_REMOTE_CLIENT_ACTIVE__?: boolean
   }
 }
 
@@ -183,7 +184,7 @@ interface PluginConfigureResult {
   settings: PluginSettingsView
 }
 
-const localeNamespace = 'dsh-remote'
+const localeNamespace = 'ds-harness-remote'
 
 const en = {
   pluginTitle: 'DeepSeek Remote',
@@ -2011,6 +2012,10 @@ window.__ModuleLoader__.load({
         register(options: Record<string, unknown>, component: unknown): unknown
       }
     }): void {
+      if (window.__DS_HARNESS_REMOTE_CLIENT_ACTIVE__) return
+      window.__DS_HARNESS_REMOTE_CLIENT_ACTIVE__ = true
+      ctx.effect(() => () => { window.__DS_HARNESS_REMOTE_CLIENT_ACTIVE__ = false }, 'ds-harness-remote: client singleton')
+
       const t = ctx.locale.bind(localeNamespace)
       const control = async <T,>(endpoint: string, payload: unknown = {}): Promise<T> => {
         let result: ControlResult
@@ -2066,7 +2071,7 @@ window.__ModuleLoader__.load({
           disposed = true
           unsubscribe?.()
         }
-      }, 'dsh-remote: resume selected workspace')
+      }, 'ds-harness-remote: resume selected workspace')
       ctx.inject(['fileViewer'], fileViewerContext => {
         const viewer = fileViewerContext.get<FileViewerClientServiceLike>('fileViewer')
         if (viewer === undefined) return
@@ -2103,20 +2108,20 @@ window.__ModuleLoader__.load({
             window.clearInterval(timer)
             unregister?.()
           }
-        }, 'dsh-remote: remote file viewer provider')
+        }, 'ds-harness-remote: remote file viewer provider')
       })
-      ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), 'dsh-remote: dictionaries')
-      ctx.effect(installStyle, 'dsh-remote: client styles')
+      ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), 'ds-harness-remote: dictionaries')
+      ctx.effect(installStyle, 'ds-harness-remote: client styles')
       ctx.slots.inject('shell.overlay', () => ctx.slots.register({
         name: 'shell.overlay',
-        id: 'dsh-remote-global-context',
+        id: 'ds-harness-remote-global-context',
         order: 20,
         locale: localeNamespace,
         inject: () => ({ control }),
       }, RemoteSessionHeaderAction))
       ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
         name: 'sidebar.footer.action',
-        id: 'dsh-remote-workspace',
+        id: 'ds-harness-remote-workspace',
         order: -20,
         locale: localeNamespace,
         inject: () => ({

@@ -98,6 +98,44 @@ describe('Cordis plugin lifecycle', () => {
     await fiber.dispose()
     await ctx.fiber.dispose()
   })
+
+  it('disables legacy loader entries during startup', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-remote-legacy-loader-'))
+    directories.push(dshHome)
+    vi.stubEnv('DSH_HOME', dshHome)
+
+    const entries = [
+      { id: 'legacy-package', options: { name: 'dsh-remote' } },
+      { id: 'legacy-workspace', options: { name: '@dsh-remote/plugin' } },
+      { id: 'current', options: { name: 'ds-harness-remote' } },
+    ]
+    const loader = {
+      entries: () => entries.values(),
+      locate: () => 'current',
+      update: vi.fn(async (id: string, options: { disabled?: boolean | null }) => {
+        const entry = entries.find(item => item.id === id)
+        if (entry !== undefined) Object.assign(entry.options, options)
+      }),
+    }
+    const ctx = new Context()
+    ctx.provide('loader', loader)
+    ctx.provide('settings', settings({ deviceName: 'Cordis migration host' }))
+    ctx.provide('apiProxy', apiProxy())
+    ctx.provide('typertGateway', typertGateway())
+    ctx.provide('connection', connection())
+
+    const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis migration host' })
+
+    await vi.waitFor(() => {
+      expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis migration host' })
+    })
+    expect(loader.update).toHaveBeenCalledWith('legacy-package', { disabled: true })
+    expect(loader.update).toHaveBeenCalledWith('legacy-workspace', { disabled: true })
+    expect(loader.update).not.toHaveBeenCalledWith('current', expect.anything())
+
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
 })
 
 function settings(value: Record<string, unknown>) {
