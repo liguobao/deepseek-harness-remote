@@ -14,6 +14,7 @@ import { radius, spacing, type } from '../ui/theme'
 import { useTheme, type ThemeColors } from '../ui/theme-context'
 import { useThemedStyles } from '../ui/use-themed-styles'
 import { strings as zhCN, type LanguagePreference } from '../locales/i18n'
+import type { ThemePreference } from '../ui/theme'
 
 /** Default DSH Remote Server; a build can override it via EXPO_PUBLIC_DSH_REMOTE_SERVER. */
 const defaultServerUrl = 'https://dsh.r2049.cn'
@@ -122,6 +123,8 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
   const setPreference = useAppStore(state => state.setTransportPreference)
   const languagePreference = useAppStore(state => state.languagePreference)
   const setLanguagePreference = useAppStore(state => state.setLanguagePreference)
+  const themePreference = useAppStore(state => state.themePreference)
+  const setThemePreference = useAppStore(state => state.setThemePreference)
   const reset = useAppStore(state => state.resetLocalData)
   const signOut = useAppStore(state => state.signOut)
   const { colors } = useTheme()
@@ -172,6 +175,26 @@ export function SettingsScreen({ onBack, onReset }: { onBack: () => void; onRese
             )
           })}
           <Text style={styles.preferenceNote}>{zhCN.settings.languageNote}</Text>
+        </View>
+
+        <Text style={styles.groupLabel}>{zhCN.settings.theme}</Text>
+        <View style={styles.segmentRow} accessibilityRole="tablist">
+          {themeOptions().map(option => {
+            const chosen = option.value === themePreference
+            return (
+              <Pressable
+                key={option.value}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: chosen }}
+                onPress={() => void setThemePreference(option.value)}
+                style={[styles.segmentButton, chosen && styles.segmentButtonActive]}
+              >
+                <Text style={[styles.segmentButtonText, chosen && styles.segmentButtonTextActive]} numberOfLines={1}>
+                  {option.name}
+                </Text>
+              </Pressable>
+            )
+          })}
         </View>
 
         <Text style={styles.groupLabel}>{zhCN.settings.connection}</Text>
@@ -474,6 +497,14 @@ function languageOptions(): Array<{ value: LanguagePreference; name: string }> {
   ]
 }
 
+function themeOptions(): Array<{ value: ThemePreference; name: string }> {
+  return [
+    { value: 'light', name: zhCN.settings.themeLight },
+    { value: 'dark', name: zhCN.settings.themeDark },
+    { value: 'system', name: zhCN.settings.themeSystem },
+  ]
+}
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
@@ -507,6 +538,11 @@ function createStyles(colors: ThemeColors) {
   languageName: { flex: 1 },
   preferenceDescription: { ...type.caption, color: colors.muted, marginTop: 2 },
   preferenceNote: { ...type.caption, color: colors.muted, marginTop: spacing.xs },
+  segmentRow: { flexDirection: 'row', padding: 4, borderRadius: radius.md, backgroundColor: colors.surfaceStrong },
+  segmentButton: { flex: 1, minHeight: 42, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, paddingHorizontal: spacing.xs },
+  segmentButtonActive: { backgroundColor: colors.surface },
+  segmentButtonText: { ...type.smallStrong, color: colors.muted, textAlign: 'center' },
+  segmentButtonTextActive: { color: colors.primary },
   keyNote: { flexDirection: 'row', gap: spacing.xs, paddingVertical: spacing.md },
   keyNoteText: { ...type.small, color: colors.muted, flex: 1 },
   settingsLink: { minHeight: 68, paddingVertical: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },

@@ -1,5 +1,19 @@
 export type ColorScheme = 'light' | 'dark'
 
+export type ThemePreference = 'system' | ColorScheme
+
+export function isThemePreference(value: unknown): value is ThemePreference {
+  return value === 'system' || value === 'light' || value === 'dark'
+}
+
+export function resolveColorScheme(
+  preference: ThemePreference,
+  systemScheme: ColorScheme | null | undefined,
+): ColorScheme {
+  if (preference === 'light' || preference === 'dark') return preference
+  return systemScheme === 'dark' ? 'dark' : 'light'
+}
+
 export interface ThemeColors {
   background: string
   surface: string

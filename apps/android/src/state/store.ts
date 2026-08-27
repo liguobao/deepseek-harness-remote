@@ -30,13 +30,16 @@ import {
   loadOrCreateIdentity,
   loadLanguagePreference,
   loadServerConfig,
+  loadThemePreference,
   loadTransportPreference,
   loadTrustedHosts,
   saveLanguagePreference,
   saveServerConfig,
+  saveThemePreference,
   saveTransportPreference,
   trustHost,
 } from '../services/storage'
+import type { ThemePreference } from '../ui/theme'
 import type {
   ChatItem,
   ConnectionProbeTransport,
@@ -86,6 +89,7 @@ interface AppState {
   transportPreference: TransportPreference
   languagePreference: LanguagePreference
   language: AppLanguage
+  themePreference: ThemePreference
   pendingOAuthBaseUrl?: string
   pendingOAuthLoginMethod?: RedirectLoginMethod
   authPhase: AuthPhase
@@ -122,6 +126,7 @@ interface AppState {
   hostListDirectory(path?: string): Promise<import('../types').DirectoryListing | undefined>
   setTransportPreference(preference: TransportPreference): Promise<void>
   setLanguagePreference(preference: LanguagePreference): Promise<void>
+  setThemePreference(preference: ThemePreference): Promise<void>
   syncSystemLocales(localeTags: readonly string[]): void
   resetLocalData(): Promise<void>
   signOut(): Promise<void>
@@ -153,20 +158,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   transportPreference: 'auto',
   languagePreference: 'system',
   language: getActiveLanguage(),
+  themePreference: 'system',
   authPhase: 'idle',
   refreshing: false,
 
   async bootstrap() {
     set({ bootPhase: 'loading', error: undefined })
     try {
-      const [config, identity, transportPreference, languagePreference] = await Promise.all([
+      const [config, identity, transportPreference, languagePreference, themePreference] = await Promise.all([
         loadServerConfig(),
         loadOrCreateIdentity(),
         loadTransportPreference(),
         loadLanguagePreference(),
+        loadThemePreference(),
       ])
       const language = applyLanguagePreference(languagePreference)
-      set({ config, identity, account: config?.account, transportPreference, languagePreference, language, bootPhase: 'ready' })
+      set({ config, identity, account: config?.account, transportPreference, languagePreference, language, themePreference, bootPhase: 'ready' })
       if (config !== undefined) await get().refreshDevices()
     } catch (error) {
       set({ bootPhase: 'error', error: friendlyError(error) })
@@ -730,11 +737,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     await clearLocalData()
     const identity = await loadOrCreateIdentity()
     const language = applyLanguagePreference('system')
-    set({ ...initialData(), identity, languagePreference: 'system', language, bootPhase: 'ready' })
+    set({ ...initialData(), identity, languagePreference: 'system', language, themePreference: 'system', bootPhase: 'ready' })
   },
 
   async signOut() {
-    const { config, identity, languagePreference } = get()
+    const { config, identity, languagePreference, themePreference } = get()
     await get().disconnect()
     if (config !== undefined && identity !== undefined) {
       try {
@@ -746,6 +753,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     await clearLocalData()
     await saveLanguagePreference(languagePreference)
+    await saveThemePreference(themePreference)
     const nextIdentity = await loadOrCreateIdentity()
     set({ ...initialData(), identity: nextIdentity, bootPhase: 'ready' })
   },
@@ -761,6 +769,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     await saveLanguagePreference(languagePreference)
     const language = applyLanguagePreference(languagePreference)
     set({ languagePreference, language })
+  },
+
+  async setThemePreference(themePreference) {
+    await saveThemePreference(themePreference)
+    set({ themePreference })
   },
 
   syncSystemLocales(localeTags) {

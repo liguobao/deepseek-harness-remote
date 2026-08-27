@@ -4,6 +4,7 @@ import * as Crypto from 'expo-crypto'
 import * as Device from 'expo-device'
 import * as SecureStore from 'expo-secure-store'
 import { isLanguagePreference, type LanguagePreference } from '../locales/i18n'
+import { isThemePreference, type ThemePreference } from '../ui/theme'
 import type { DeviceCredentials, DeviceIdentity, RemoteDevice, ServerConfig } from '../types'
 
 const KEYS = {
@@ -13,6 +14,7 @@ const KEYS = {
   trustedHosts: 'dshremote.trusted-hosts.v1',
   transportPreference: 'dshremote.transport-preference.v1',
   languagePreference: 'dshremote.language-preference.v1',
+  themePreference: 'dshremote.theme-preference.v1',
   collapsedWorkspaces: 'dshremote.collapsed-workspaces.v1',
 } as const
 
@@ -94,6 +96,15 @@ export async function loadLanguagePreference(): Promise<LanguagePreference> {
 
 export async function saveLanguagePreference(value: LanguagePreference): Promise<void> {
   await writeJson(KEYS.languagePreference, { value })
+}
+
+export async function loadThemePreference(): Promise<ThemePreference> {
+  const stored = await readJson<{ value: unknown }>(KEYS.themePreference)
+  return isThemePreference(stored?.value) ? stored.value : 'system'
+}
+
+export async function saveThemePreference(value: ThemePreference): Promise<void> {
+  await writeJson(KEYS.themePreference, { value })
 }
 
 export async function loadCollapsedWorkspaceIds(deviceId: string): Promise<string[]> {
