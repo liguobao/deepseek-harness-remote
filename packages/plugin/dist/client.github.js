@@ -1626,9 +1626,12 @@ Minimum version required to store current data is: ` + bestVersion + `.
   function shouldUseRemoteFileViewer(status) {
     return status.mode === "remote" && status.remoteFeatures?.fileViewer === !0;
   }
-  var REMOTE_FILE_SAVE_AS_MAX_BYTES = 100 * 1024 * 1024;
+  var REMOTE_FILE_SAVE_AS_MAX_BYTES = 100 * 1024 * 1024, REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES = 1024 * 1024 * 1024;
   function shouldAllowRemoteFileSaveAs(status) {
     return shouldUseRemoteFileViewer(status) && (status.transport === "LAN" || status.transport === "P2P" || status.transport === "TURN");
+  }
+  function remoteFileSaveAsMaxBytes(status) {
+    return status.transport === "LAN" || status.transport === "P2P" ? REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES : REMOTE_FILE_SAVE_AS_MAX_BYTES;
   }
   function createRemoteFileContentProvider(call, options = {}) {
     return {
@@ -1637,7 +1640,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
       supports: () => !0,
       saveAsAllowed: () => ({
         allowed: currentSaveAsAllowed(options.saveAsAllowed),
-        maxBytes: options.saveAsMaxBytes ?? REMOTE_FILE_SAVE_AS_MAX_BYTES
+        maxBytes: currentSaveAsMaxBytes(options.saveAsMaxBytes)
       }),
       async stat(locator, signal) {
         let value = await call("fileviewer.stat", { path: locator }, signal);
@@ -1680,6 +1683,9 @@ Minimum version required to store current data is: ` + bestVersion + `.
   }
   function currentSaveAsAllowed(value) {
     return typeof value == "function" ? value() : value === !0;
+  }
+  function currentSaveAsMaxBytes(value) {
+    return typeof value == "function" ? value() : value ?? REMOTE_FILE_SAVE_AS_MAX_BYTES;
   }
   function decodeBase64(value) {
     let binary = atob(value), bytes = new Uint8Array(binary.length);
@@ -1737,6 +1743,8 @@ Minimum version required to store current data is: ` + bestVersion + `.
     switchTarget: "Switch Local / Remote Harness target",
     harnessTarget: "Harness target",
     close: "Close",
+    refreshRemote: "Refresh remote hosts",
+    refreshRemoteShort: "Refresh",
     local: "Local",
     remoteTarget: "Remote \xB7 {name}",
     thisMachineLocal: "This machine (Local)",
@@ -1932,6 +1940,8 @@ Minimum version required to store current data is: ` + bestVersion + `.
     switchTarget: "\u5207\u6362\u672C\u5730\u6216\u8FDC\u7A0B Harness",
     harnessTarget: "Harness \u76EE\u6807",
     close: "\u5173\u95ED",
+    refreshRemote: "\u5237\u65B0\u8FDC\u7A0B\u4E3B\u673A",
+    refreshRemoteShort: "\u5237\u65B0",
     local: "\u672C\u5730",
     remoteTarget: "\u8FDC\u7A0B \xB7 {name}",
     thisMachineLocal: "\u6B64\u8BBE\u5907\uFF08\u672C\u5730\uFF09",
@@ -2070,7 +2080,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
     signInClientDescription: "\u4E00\u6B21\u8FDE\u63A5\uFF0C\u968F\u65F6\u53EF\u7528\u3002",
     startSignIn: "\u5F00\u59CB\u767B\u5F55",
     allowControlCurrentDevice: "\u5141\u8BB8\u63A7\u5236\u5F53\u524D\u8BBE\u5907",
-    exitRemoteAccount: "\u9000\u51FA",
+    exitRemoteAccount: "\u9000\u51FA\u8D26\u53F7",
     githubLogin: "GitHub \u626B\u7801",
     zhihuLogin: "\u77E5\u4E4E\u626B\u7801",
     scanWithGitHub: "\u4F7F\u7528 GitHub \u626B\u7801\u767B\u5F55",
@@ -2567,21 +2577,30 @@ Minimum version required to store current data is: ` + bestVersion + `.
               setBusy(!1);
             }
           }
-        }, show = async () => {
-          setOpen(!0), setBusy(!0), setNotice(void 0), setError(void 0);
+        }, refreshRemote = async () => {
+          setBusy(!0), setNotice(void 0), setError(void 0);
           try {
             let nextStatus = await props.control("status");
-            if (setStatus(nextStatus), nextStatus.available)
-              try {
-                setDevices(await props.control("devices")), setNeedsAuthorization(!1);
-              } catch {
-                setNeedsAuthorization(!0);
+            if (setStatus(nextStatus), !nextStatus.available) {
+              setDevices([]), setNeedsAuthorization(!1), setSelectedHost(void 0), setWorkspaces([]), setPath(""), setAddingWorkspace(!1), setDirectory(void 0);
+              return;
+            }
+            try {
+              let nextDevices = await props.control("devices");
+              if (setDevices(nextDevices), setNeedsAuthorization(!1), selectedHost !== void 0) {
+                let nextSelectedHost = nextDevices.find((device) => device.deviceId === selectedHost.deviceId);
+                nextSelectedHost === void 0 ? (setSelectedHost(void 0), setWorkspaces([]), setPath(""), setAddingWorkspace(!1), setDirectory(void 0)) : setSelectedHost(nextSelectedHost);
               }
+            } catch {
+              setDevices([]), setNeedsAuthorization(!0), setSelectedHost(void 0), setWorkspaces([]), setPath(""), setAddingWorkspace(!1), setDirectory(void 0);
+            }
           } catch (reason) {
             setError(messageOf(reason));
           } finally {
             setBusy(!1);
           }
+        }, show = async () => {
+          setOpen(!0), await refreshRemote();
         }, signInClient = async () => {
           if (!(email.trim() === "" || password === "")) {
             setBusy(!0), setError(void 0);
@@ -2689,7 +2708,19 @@ Minimum version required to store current data is: ` + bestVersion + `.
                 React.createElement("strong", null, t("remoteTitle")),
                 React.createElement("p", null, t("remoteDescription"))
               ),
-              React.createElement("button", { type: "button", onClick: () => setOpen(!1), "aria-label": t("close") }, "\xD7")
+              React.createElement(
+                "div",
+                { className: "dshRemotePageActions" },
+                React.createElement("button", {
+                  type: "button",
+                  className: "dshRemotePageRefresh",
+                  disabled: busy,
+                  title: t("refreshRemote"),
+                  "aria-label": t("refreshRemote"),
+                  onClick: () => void refreshRemote()
+                }, t("refreshRemoteShort")),
+                React.createElement("button", { type: "button", onClick: () => setOpen(!1), "aria-label": t("close") }, "\xD7")
+              )
             ),
             React.createElement(
               "main",
@@ -3289,7 +3320,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           ".dshRemoteSessionHeader{left:auto;right:148px;transform:none;max-width:calc(100vw - 420px)}@media(max-width:760px){.dshRemoteSessionHeader{left:auto;right:104px;transform:none;max-width:calc(100vw - 124px)}}",
           ".dshRemoteModeButton:focus-visible,.dshRemotePage button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}",
           ".dshRemotePage{width:min(720px,100%);max-height:min(760px,calc(100vh - 40px));display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:14px;overflow:hidden;animation:dshRemotePageIn .18s cubic-bezier(.25,1,.5,1)}",
-          ".dshRemotePageHeader{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshRemotePageIntro{min-width:0;flex:1}.dshRemotePageHeader strong{display:block;font-size:18px;line-height:1.4}.dshRemotePageHeader p{min-width:0;max-width:70ch;margin:3px 0 0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5}.dshRemotePageHeader>button{width:40px;height:40px;flex:0 0 auto;border:0;border-radius:8px;background:transparent;color:inherit;font-size:24px;cursor:pointer}.dshRemotePageHeader>button:hover{background:var(--dsw-alias-interactive-bg-hover)}",
+          ".dshRemotePageHeader{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshRemotePageIntro{min-width:0;flex:1}.dshRemotePageHeader strong{display:block;font-size:18px;line-height:1.4}.dshRemotePageHeader p{min-width:0;max-width:70ch;margin:3px 0 0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5}.dshRemotePageActions{flex:0 0 auto;display:flex;align-items:center;gap:4px}.dshRemotePageActions>button{height:40px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;border:0;border-radius:8px;background:transparent;color:inherit;line-height:1;cursor:pointer}.dshRemotePageActions>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemotePageActions>button:disabled{opacity:.45;cursor:default}.dshRemotePageRefresh{min-width:48px;padding:0 10px;font:inherit;font-size:13px}.dshRemotePageActions>button:not(.dshRemotePageRefresh){width:40px;padding:0;font-size:24px}",
           ".dshRemotePageBody{padding:24px;overflow:auto;display:flex;flex-direction:column;gap:24px}.dshRemotePageBody button{font:inherit;color:inherit}",
           ".dshRemoteSectionHeading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.dshRemoteSectionTitle{min-width:0;display:flex;align-items:center;gap:10px}.dshRemoteSectionTitle>strong{font-size:14px}.dshRemoteSectionActions{display:flex;align-items:center;gap:14px}.dshRemoteSectionActions>button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:5px 0;font-size:12px}.dshRemoteSectionActions>button:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}",
           ".dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
@@ -3370,15 +3401,15 @@ Minimum version required to store current data is: ` + bestVersion + `.
         }, "ds-harness-remote: resume selected workspace"), ctx.inject(["fileViewer"], (fileViewerContext) => {
           let viewer = fileViewerContext.get("fileViewer");
           viewer !== void 0 && fileViewerContext.effect(() => {
-            let active = !0, unregister, latestSaveAsAllowed = !1, sync = async () => {
+            let active = !0, unregister, latestSaveAsAllowed = !1, latestSaveAsMaxBytes = REMOTE_FILE_SAVE_AS_MAX_BYTES, sync = async () => {
               try {
                 let status = await control("status");
                 if (!active) return;
                 let supported = shouldUseRemoteFileViewer(status);
-                latestSaveAsAllowed = shouldAllowRemoteFileSaveAs(status), supported && unregister === void 0 ? unregister = viewer.registerContentProvider(createRemoteFileContentProvider(
+                latestSaveAsAllowed = shouldAllowRemoteFileSaveAs(status), latestSaveAsMaxBytes = remoteFileSaveAsMaxBytes(status), supported && unregister === void 0 ? unregister = viewer.registerContentProvider(createRemoteFileContentProvider(
                   (endpoint, payload) => control(endpoint, payload),
-                  { saveAsAllowed: () => latestSaveAsAllowed, saveAsMaxBytes: REMOTE_FILE_SAVE_AS_MAX_BYTES }
-                )) : !supported && unregister !== void 0 && (unregister(), unregister = void 0, latestSaveAsAllowed = !1);
+                  { saveAsAllowed: () => latestSaveAsAllowed, saveAsMaxBytes: () => latestSaveAsMaxBytes }
+                )) : !supported && unregister !== void 0 && (unregister(), unregister = void 0, latestSaveAsAllowed = !1, latestSaveAsMaxBytes = REMOTE_FILE_SAVE_AS_MAX_BYTES);
               } catch {
               }
             };

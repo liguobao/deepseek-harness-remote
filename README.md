@@ -57,7 +57,7 @@ Linux. Remote is included and enabled by default, so no separate plugin installa
 Install the exact npm version for the `web` profile:
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.3.35
+dsh plugin --profile web add ds-harness-remote@0.3.36
 ```
 
 Restart Harness after installation.

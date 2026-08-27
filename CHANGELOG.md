@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.36
+
+- Replaces `v0.3.35`; the previous Release and tag were withdrawn so recent
+  connection-progress, login, Android, and remote File Viewer updates ship
+  together.
+- Fixes desktop and Android Remote connection progress so direct-path probing
+  shows `LAN -> P2P` and finishes with the actual selected transport.
+- Fixes the plugin QR login completion race and adds a refresh action for
+  desktop Remote Hosts.
+- Raises remote File Viewer Save As to 1 GiB on LAN/P2P while keeping TURN,
+  Relay, disconnected, and unknown routes at 100 MiB.
+- Refreshes Android connection transport labels and advances the Plugin and
+  Android app to `0.3.36` (`versionCode 19`).
+
 ## 0.3.35
 
 - Fixes desktop Remote connection progress so it only shows the first active

@@ -30,10 +30,16 @@ const enUS = {
     connectionInterrupted: 'Connection interrupted', trustExplanation: 'After confirmation, this phone remembers the device’s secure identity. If that identity changes, the connection stops to protect your data.', trust: 'Trust and continue', connectReady: 'Connect to view and continue conversations on your computer.', offlineHelp: 'This device is offline. Make sure the DSH Remote plugin is running on your computer.', secureConnect: 'Connect securely',
     connectingTitle: 'Connect device', connecting: 'Connecting', connectionReady: 'Ready', retryConnection: 'Connect again', cancelConnection: 'Cancel connection', openInfo: 'View device and connection information',
     connectionProbeLabels: {
-      lan: 'Probing LAN',
-      p2p: 'Probing P2P',
-      turn: 'Probing TURN',
-      relay: 'Preparing Relay',
+      lan: 'Probing local direct path',
+      p2p: 'Probing peer-to-peer path',
+      turn: 'Probing TURN relay',
+      relay: 'Preparing server relay',
+    },
+    connectionProbeDetails: {
+      lan: 'Local direct',
+      p2p: 'Peer-to-peer',
+      turn: 'TURN relay',
+      relay: 'Server relay',
     },
     connectionSteps: {
       authenticating: { title: 'Verify device', body: 'Confirm account and device access' },

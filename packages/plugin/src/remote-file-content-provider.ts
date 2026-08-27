@@ -47,9 +47,16 @@ export function shouldUseRemoteFileViewer(status: RemoteFileViewerStatus): boole
 }
 
 export const REMOTE_FILE_SAVE_AS_MAX_BYTES = 100 * 1024 * 1024
+export const REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES = 1024 * 1024 * 1024
 
 export function shouldAllowRemoteFileSaveAs(status: RemoteFileViewerStatus): boolean {
   return shouldUseRemoteFileViewer(status) && (status.transport === 'LAN' || status.transport === 'P2P' || status.transport === 'TURN')
+}
+
+export function remoteFileSaveAsMaxBytes(status: RemoteFileViewerStatus): number {
+  return status.transport === 'LAN' || status.transport === 'P2P'
+    ? REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES
+    : REMOTE_FILE_SAVE_AS_MAX_BYTES
 }
 
 interface RemoteStatWire {
@@ -82,14 +89,14 @@ interface RemoteListWire {
 }
 
 /** Browser-side provider registered into dsh-file-viewer's `fileViewer` service. */
-export function createRemoteFileContentProvider(call: RemoteFileControlCall, options: { saveAsAllowed?: boolean | (() => boolean); saveAsMaxBytes?: number } = {}): RemoteFileContentProvider {
+export function createRemoteFileContentProvider(call: RemoteFileControlCall, options: { saveAsAllowed?: boolean | (() => boolean); saveAsMaxBytes?: number | (() => number) } = {}): RemoteFileContentProvider {
   return {
     id: 'dsh-remote-files',
     priority: 10_000,
     supports: () => true,
     saveAsAllowed: () => ({
       allowed: currentSaveAsAllowed(options.saveAsAllowed),
-      maxBytes: options.saveAsMaxBytes ?? REMOTE_FILE_SAVE_AS_MAX_BYTES,
+      maxBytes: currentSaveAsMaxBytes(options.saveAsMaxBytes),
     }),
     async stat(locator, signal) {
       const value = await call<RemoteStatWire>('fileviewer.stat', { path: locator }, signal)
@@ -142,6 +149,10 @@ export function createRemoteFileContentProvider(call: RemoteFileControlCall, opt
 
 function currentSaveAsAllowed(value: boolean | (() => boolean) | undefined): boolean {
   return typeof value === 'function' ? value() : value === true
+}
+
+function currentSaveAsMaxBytes(value: number | (() => number) | undefined): number {
+  return typeof value === 'function' ? value() : value ?? REMOTE_FILE_SAVE_AS_MAX_BYTES
 }
 
 function decodeBase64(value: string): Uint8Array {

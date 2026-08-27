@@ -57,7 +57,7 @@ DSH Desktop 已默认集成并启用 Remote，无需另行安装插件。
 为 `web` profile 安装确切的 npm 版本：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.3.35
+dsh plugin --profile web add ds-harness-remote@0.3.36
 ```
 
 安装后请重启 Harness。

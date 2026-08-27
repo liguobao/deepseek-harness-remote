@@ -449,10 +449,7 @@ function probeTransportLabel(transport: ConnectionProbeTransport): string {
 }
 
 function probeTransportDiagnosticLabel(transport: ConnectionProbeTransport): string {
-  if (transport === 'lan') return 'LAN'
-  if (transport === 'p2p') return 'P2P'
-  if (transport === 'turn') return 'TURN'
-  return 'Relay'
+  return zhCN.devices.connectionProbeDetails[transport]
 }
 
 function connectionBadgeStatus(

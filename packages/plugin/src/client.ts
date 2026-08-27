@@ -2,6 +2,7 @@ import QRCode from 'qrcode'
 import {
   REMOTE_FILE_SAVE_AS_MAX_BYTES,
   createRemoteFileContentProvider,
+  remoteFileSaveAsMaxBytes,
   shouldAllowRemoteFileSaveAs,
   shouldUseRemoteFileViewer,
   type RemoteFileContentProvider,
@@ -232,6 +233,8 @@ const en = {
   switchTarget: 'Switch Local / Remote Harness target',
   harnessTarget: 'Harness target',
   close: 'Close',
+  refreshRemote: 'Refresh remote hosts',
+  refreshRemoteShort: 'Refresh',
   local: 'Local',
   remoteTarget: 'Remote · {name}',
   thisMachineLocal: 'This machine (Local)',
@@ -429,6 +432,8 @@ const zh: Record<keyof typeof en, string> = {
   switchTarget: '切换本地或远程 Harness',
   harnessTarget: 'Harness 目标',
   close: '关闭',
+  refreshRemote: '刷新远程主机',
+  refreshRemoteShort: '刷新',
   local: '本地',
   remoteTarget: '远程 · {name}',
   thisMachineLocal: '此设备（本地）',
@@ -567,7 +572,7 @@ const zh: Record<keyof typeof en, string> = {
   signInClientDescription: '一次连接，随时可用。',
   startSignIn: '开始登录',
   allowControlCurrentDevice: '允许控制当前设备',
-  exitRemoteAccount: '退出',
+  exitRemoteAccount: '退出账号',
   githubLogin: 'GitHub 扫码',
   zhihuLogin: '知乎扫码',
   scanWithGitHub: '使用 GitHub 扫码登录',
@@ -1278,27 +1283,58 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const show = async (): Promise<void> => {
-        setOpen(true)
+      const refreshRemote = async (): Promise<void> => {
         setBusy(true)
         setNotice(undefined)
         setError(undefined)
         try {
           const nextStatus = await props.control<RemoteStatus>('status')
           setStatus(nextStatus)
-          if (nextStatus.available) {
-            try {
-              setDevices(await props.control<RemoteDevice[]>('devices'))
-              setNeedsAuthorization(false)
-            } catch {
-              setNeedsAuthorization(true)
+          if (!nextStatus.available) {
+            setDevices([])
+            setNeedsAuthorization(false)
+            setSelectedHost(undefined)
+            setWorkspaces([])
+            setPath('')
+            setAddingWorkspace(false)
+            setDirectory(undefined)
+            return
+          }
+          try {
+            const nextDevices = await props.control<RemoteDevice[]>('devices')
+            setDevices(nextDevices)
+            setNeedsAuthorization(false)
+            if (selectedHost !== undefined) {
+              const nextSelectedHost = nextDevices.find(device => device.deviceId === selectedHost.deviceId)
+              if (nextSelectedHost === undefined) {
+                setSelectedHost(undefined)
+                setWorkspaces([])
+                setPath('')
+                setAddingWorkspace(false)
+                setDirectory(undefined)
+              } else {
+                setSelectedHost(nextSelectedHost)
+              }
             }
+          } catch {
+            setDevices([])
+            setNeedsAuthorization(true)
+            setSelectedHost(undefined)
+            setWorkspaces([])
+            setPath('')
+            setAddingWorkspace(false)
+            setDirectory(undefined)
           }
         } catch (reason) {
           setError(messageOf(reason))
         } finally {
           setBusy(false)
         }
+      }
+
+      const show = async (): Promise<void> => {
+        setOpen(true)
+        await refreshRemote()
       }
 
       const signInClient = async (): Promise<void> => {
@@ -1423,7 +1459,16 @@ window.__ModuleLoader__.load({
             React.createElement('div', { className: 'dshRemotePageIntro' },
               React.createElement('strong', null, t('remoteTitle')),
               React.createElement('p', null, t('remoteDescription'))),
-            React.createElement('button', { type: 'button', onClick: () => setOpen(false), 'aria-label': t('close') }, '×')),
+            React.createElement('div', { className: 'dshRemotePageActions' },
+              React.createElement('button', {
+                type: 'button',
+                className: 'dshRemotePageRefresh',
+                disabled: busy,
+                title: t('refreshRemote'),
+                'aria-label': t('refreshRemote'),
+                onClick: () => void refreshRemote(),
+              }, t('refreshRemoteShort')),
+              React.createElement('button', { type: 'button', onClick: () => setOpen(false), 'aria-label': t('close') }, '×'))),
           React.createElement('main', { className: 'dshRemotePageBody' },
             status?.mode === 'remote' ? React.createElement('button', {
               type: 'button',
@@ -1989,7 +2034,7 @@ window.__ModuleLoader__.load({
         '.dshRemoteSessionHeader{left:auto;right:148px;transform:none;max-width:calc(100vw - 420px)}@media(max-width:760px){.dshRemoteSessionHeader{left:auto;right:104px;transform:none;max-width:calc(100vw - 124px)}}',
         '.dshRemoteModeButton:focus-visible,.dshRemotePage button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
         '.dshRemotePage{width:min(720px,100%);max-height:min(760px,calc(100vh - 40px));display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:14px;overflow:hidden;animation:dshRemotePageIn .18s cubic-bezier(.25,1,.5,1)}',
-        '.dshRemotePageHeader{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshRemotePageIntro{min-width:0;flex:1}.dshRemotePageHeader strong{display:block;font-size:18px;line-height:1.4}.dshRemotePageHeader p{min-width:0;max-width:70ch;margin:3px 0 0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5}.dshRemotePageHeader>button{width:40px;height:40px;flex:0 0 auto;border:0;border-radius:8px;background:transparent;color:inherit;font-size:24px;cursor:pointer}.dshRemotePageHeader>button:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+        '.dshRemotePageHeader{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshRemotePageIntro{min-width:0;flex:1}.dshRemotePageHeader strong{display:block;font-size:18px;line-height:1.4}.dshRemotePageHeader p{min-width:0;max-width:70ch;margin:3px 0 0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5}.dshRemotePageActions{flex:0 0 auto;display:flex;align-items:center;gap:4px}.dshRemotePageActions>button{height:40px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;border:0;border-radius:8px;background:transparent;color:inherit;line-height:1;cursor:pointer}.dshRemotePageActions>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemotePageActions>button:disabled{opacity:.45;cursor:default}.dshRemotePageRefresh{min-width:48px;padding:0 10px;font:inherit;font-size:13px}.dshRemotePageActions>button:not(.dshRemotePageRefresh){width:40px;padding:0;font-size:24px}',
         '.dshRemotePageBody{padding:24px;overflow:auto;display:flex;flex-direction:column;gap:24px}.dshRemotePageBody button{font:inherit;color:inherit}',
         '.dshRemoteSectionHeading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.dshRemoteSectionTitle{min-width:0;display:flex;align-items:center;gap:10px}.dshRemoteSectionTitle>strong{font-size:14px}.dshRemoteSectionActions{display:flex;align-items:center;gap:14px}.dshRemoteSectionActions>button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:5px 0;font-size:12px}.dshRemoteSectionActions>button:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}',
         '.dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}',
@@ -2122,21 +2167,24 @@ window.__ModuleLoader__.load({
           let active = true
           let unregister: (() => void) | undefined
           let latestSaveAsAllowed = false
+          let latestSaveAsMaxBytes = REMOTE_FILE_SAVE_AS_MAX_BYTES
           const sync = async (): Promise<void> => {
             try {
               const status = await control<RemoteStatus>('status')
               if (!active) return
               const supported = shouldUseRemoteFileViewer(status)
               latestSaveAsAllowed = shouldAllowRemoteFileSaveAs(status)
+              latestSaveAsMaxBytes = remoteFileSaveAsMaxBytes(status)
               if (supported && unregister === undefined) {
                 unregister = viewer.registerContentProvider(createRemoteFileContentProvider(
                   (endpoint, payload) => control(endpoint, payload),
-                  { saveAsAllowed: () => latestSaveAsAllowed, saveAsMaxBytes: REMOTE_FILE_SAVE_AS_MAX_BYTES },
+                  { saveAsAllowed: () => latestSaveAsAllowed, saveAsMaxBytes: () => latestSaveAsMaxBytes },
                 ))
               } else if (!supported && unregister !== undefined) {
                 unregister()
                 unregister = undefined
                 latestSaveAsAllowed = false
+                latestSaveAsMaxBytes = REMOTE_FILE_SAVE_AS_MAX_BYTES
               }
             } catch {
               // Keep the last known registration while the loopback control

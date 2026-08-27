@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { REMOTE_FILE_CHUNK_BYTES } from '../src/file-viewer-bridge.js'
 import {
+  REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES,
+  REMOTE_FILE_SAVE_AS_MAX_BYTES,
   createRemoteFileContentProvider,
+  remoteFileSaveAsMaxBytes,
+  shouldAllowRemoteFileSaveAs,
   shouldUseRemoteFileViewer,
   type RemoteFileControlCall,
 } from '../src/remote-file-content-provider.js'
@@ -12,6 +16,36 @@ describe('remote File Viewer content provider', () => {
     expect(shouldUseRemoteFileViewer({ mode: 'remote' })).toBe(false)
     expect(shouldUseRemoteFileViewer({ mode: 'remote', remoteFeatures: { fileViewer: false } })).toBe(false)
     expect(shouldUseRemoteFileViewer({ mode: 'remote', remoteFeatures: { fileViewer: true } })).toBe(true)
+  })
+
+  it('raises Save As size only on LAN and P2P transports', () => {
+    expect(shouldAllowRemoteFileSaveAs({ mode: 'remote', transport: 'LAN', remoteFeatures: { fileViewer: true } })).toBe(true)
+    expect(shouldAllowRemoteFileSaveAs({ mode: 'remote', transport: 'P2P', remoteFeatures: { fileViewer: true } })).toBe(true)
+    expect(shouldAllowRemoteFileSaveAs({ mode: 'remote', transport: 'TURN', remoteFeatures: { fileViewer: true } })).toBe(true)
+
+    expect(remoteFileSaveAsMaxBytes({ mode: 'remote', transport: 'LAN', remoteFeatures: { fileViewer: true } })).toBe(REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES)
+    expect(remoteFileSaveAsMaxBytes({ mode: 'remote', transport: 'P2P', remoteFeatures: { fileViewer: true } })).toBe(REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES)
+    expect(remoteFileSaveAsMaxBytes({ mode: 'remote', transport: 'TURN', remoteFeatures: { fileViewer: true } })).toBe(REMOTE_FILE_SAVE_AS_MAX_BYTES)
+    expect(remoteFileSaveAsMaxBytes({ mode: 'remote', transport: 'Relay', remoteFeatures: { fileViewer: true } })).toBe(REMOTE_FILE_SAVE_AS_MAX_BYTES)
+    expect(remoteFileSaveAsMaxBytes({ mode: 'remote', remoteFeatures: { fileViewer: true } })).toBe(REMOTE_FILE_SAVE_AS_MAX_BYTES)
+  })
+
+  it('reads the Save As size limit dynamically', () => {
+    let maxBytes = REMOTE_FILE_SAVE_AS_MAX_BYTES
+    const provider = createRemoteFileContentProvider(vi.fn(), {
+      saveAsAllowed: true,
+      saveAsMaxBytes: () => maxBytes,
+    })
+
+    expect(provider.saveAsAllowed?.('/workspace/big.bin')).toEqual({
+      allowed: true,
+      maxBytes: REMOTE_FILE_SAVE_AS_MAX_BYTES,
+    })
+    maxBytes = REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES
+    expect(provider.saveAsAllowed?.('/workspace/big.bin')).toEqual({
+      allowed: true,
+      maxBytes: REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES,
+    })
   })
 
   it('maps remote metadata and directory entries to the File Viewer contract', async () => {

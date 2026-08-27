@@ -13543,7 +13543,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.35";
+var PLUGIN_VERSION = "0.3.36";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -18260,6 +18260,7 @@ function shortId5(value) {
 
 // src/remote-file-content-provider.ts
 var REMOTE_FILE_SAVE_AS_MAX_BYTES = 100 * 1024 * 1024;
+var REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES = 1024 * 1024 * 1024;
 function createRemoteFileContentProvider(call, options = {}) {
   return {
     id: "dsh-remote-files",
@@ -18267,7 +18268,7 @@ function createRemoteFileContentProvider(call, options = {}) {
     supports: () => true,
     saveAsAllowed: () => ({
       allowed: currentSaveAsAllowed(options.saveAsAllowed),
-      maxBytes: options.saveAsMaxBytes ?? REMOTE_FILE_SAVE_AS_MAX_BYTES
+      maxBytes: currentSaveAsMaxBytes(options.saveAsMaxBytes)
     }),
     async stat(locator, signal) {
       const value = await call("fileviewer.stat", { path: locator }, signal);
@@ -18319,6 +18320,9 @@ function createRemoteFileContentProvider(call, options = {}) {
 }
 function currentSaveAsAllowed(value) {
   return typeof value === "function" ? value() : value === true;
+}
+function currentSaveAsMaxBytes(value) {
+  return typeof value === "function" ? value() : value ?? REMOTE_FILE_SAVE_AS_MAX_BYTES;
 }
 function decodeBase64(value) {
   const binary = atob(value);
