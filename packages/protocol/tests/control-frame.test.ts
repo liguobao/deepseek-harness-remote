@@ -150,6 +150,14 @@ describe('hello payload validation', () => {
     expect(frame.payload).toMatchObject({ harnessVersion: '0.1.0-rc.8' })
   })
 
+  it('accepts protocol versions at both safe integer boundaries', () => {
+    expect(parseControlFrame(makeFrame('hello', { ...valid, protocols: [0] }))).toBeDefined()
+    expect(parseControlFrame(makeFrame('hello', {
+      ...valid,
+      protocols: [Number.MAX_SAFE_INTEGER],
+    }))).toBeDefined()
+  })
+
   it('returns parsed payload with stripped unknown fields', () => {
     const withExtra = { ...valid, unknownField: 'should-be-stripped' }
     const result = parseControlFrame(makeFrame('hello', withExtra))
@@ -205,6 +213,13 @@ describe('relay payload validation', () => {
 
   it('accepts relay with counter = 0', () => {
     expect(parseControlFrame(makeFrame('relay', { ...valid, counter: 0 }))).toBeDefined()
+  })
+
+  it('accepts relay with counter = Number.MAX_SAFE_INTEGER', () => {
+    expect(parseControlFrame(makeFrame('relay', {
+      ...valid,
+      counter: Number.MAX_SAFE_INTEGER,
+    }))).toBeDefined()
   })
 })
 
