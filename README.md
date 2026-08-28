@@ -139,6 +139,12 @@ API. Credential values remain write-only, and Host-local document/open actions a
 
 ## Compatibility
 
+**Breaking change notice:** Plugin `0.4.0` removes the earlier experimental
+Remote business RPC surface (`sessions.*`, `session.*`, `permissions.respond`,
+`sync.from`). Harness session traffic now only uses the official rc.2
+`ApiProxy` or alpha.1 Typert Remote Gateway, and this plugin does not provide
+an adapter or wire-format translation for the old RPC surface.
+
 Plugin `0.4.0` supports DeepSeek Harness `dsh-v0.1.1-rc.2` through the legacy
 official `ApiProxy` and `dsh-v0.1.2-alpha.1` through the official Typert Remote
 Gateway. A `0.4.0` Client running rc.2 remains compatible with older rc.2 Hosts

@@ -133,6 +133,11 @@ Remote 通过双向端到端加密链路通信。它将客户端切换到所选 
 
 ## 版本兼容
 
+**破坏性更新声明：** Plugin `0.4.0` 已移除早期实验性的 Remote 业务 RPC
+（`sessions.*`、`session.*`、`permissions.respond`、`sync.from`）。Harness
+会话流量现在只通过官方 rc.2 `ApiProxy` 或 alpha.1 Typert Remote Gateway 承载；
+本插件不提供旧 RPC 的适配层或 wire format 翻译。
+
 Plugin `0.4.0` 同时兼容 DeepSeek Harness `dsh-v0.1.1-rc.2` 与
 `dsh-v0.1.2-alpha.1`：rc.2 继续使用官方 legacy `ApiProxy`，alpha.1 使用官方 Typert Remote
 Gateway。运行 rc.2 的 `0.4.0` Client 仍可通过 legacy capability 降级连接旧 rc.2 Host。
