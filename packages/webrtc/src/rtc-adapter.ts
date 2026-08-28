@@ -220,6 +220,10 @@ function summarizeIpv6Scope(address: string): RtcAddressScope {
   const value = address.toLowerCase()
   if (value === '::1') return 'loopback'
   if (value.startsWith('fe80:')) return 'link-local'
+  // Tailscale assigns overlay addresses from fd7a:115c:a1e0::/48. They are
+  // ULA-shaped, but a selected pair using them is not evidence of a physical
+  // LAN path. Reuse the non-LAN cgnat scope used for Tailscale's IPv4 range.
+  if (value.startsWith('fd7a:115c:a1e0:')) return 'cgnat'
   if (value.startsWith('fc') || value.startsWith('fd')) return 'private'
   if (value.startsWith('ff')) return 'reserved'
   return 'public'

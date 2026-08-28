@@ -125,6 +125,14 @@ function hiddenPeerReflexiveLanStats(): RtcStatsEntry[] {
   ]
 }
 
+function tailscaleP2pStats(localType: 'host' | 'prflx' = 'prflx'): RtcStatsEntry[] {
+  return [
+    { type: 'local-candidate', candidateType: localType, id: 'lc' },
+    { type: 'remote-candidate', candidateType: 'host', address: 'fd7a:115c:a1e0::c', id: 'rc' },
+    { type: 'candidate-pair', selected: true, nominated: true, localCandidateId: 'lc', remoteCandidateId: 'rc' },
+  ]
+}
+
 function turnStats(): RtcStatsEntry[] {
   return [
     { type: 'local-candidate', candidateType: 'relay', id: 'lc' },
@@ -185,6 +193,21 @@ describe('detectSelectedTransport', () => {
       { type: 'remote-candidate', candidateType: 'host', address: '127.0.0.1', id: 'rc' },
       { type: 'candidate-pair', selected: true, nominated: true, localCandidateId: 'lc', remoteCandidateId: 'rc' },
     ]))).toEqual({ transport: 'lan', mode: 'LAN' })
+  })
+
+  it('classifies a Tailscale IPv6 overlay pair as P2P', () => {
+    expect(detectSelectedPath(asStats(tailscaleP2pStats())))
+      .toEqual({ transport: 'p2p', mode: 'P2P' })
+    expect(inspectSelectedPath(asStats(tailscaleP2pStats()))).toMatchObject({
+      localCandidateType: 'prflx',
+      remoteCandidateType: 'host',
+      remoteAddressScope: 'cgnat',
+    })
+  })
+
+  it('does not treat host-to-host Tailscale overlay candidates as LAN', () => {
+    expect(detectSelectedPath(asStats(tailscaleP2pStats('host'))))
+      .toEqual({ transport: 'p2p', mode: 'P2P' })
   })
 
   it('detects p2p from a selected host/srflx candidate pair', () => {

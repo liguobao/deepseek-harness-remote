@@ -822,7 +822,11 @@ function isLanCandidatePair(
   localScope: RtcAddressScope,
   remoteScope: RtcAddressScope,
 ): boolean {
-  if (localType === 'host' && remoteType === 'host') return true
+  if (localType === 'host' && remoteType === 'host') {
+    // Keep address-hidden/mDNS host pairs compatible, but do not label an
+    // explicitly identified overlay or public host pair as physical LAN.
+    return !isExplicitlyNonLanScope(localScope) && !isExplicitlyNonLanScope(remoteScope)
+  }
   const directTypes = new Set(['host', 'prflx'])
   if (!directTypes.has(String(localType)) || !directTypes.has(String(remoteType))) return false
   if (isLocalNetworkScope(localScope) && isLocalNetworkScope(remoteScope)) return true
@@ -838,6 +842,10 @@ function isLanCandidatePair(
 
 function isLocalNetworkScope(scope: RtcAddressScope): boolean {
   return scope === 'private' || scope === 'link-local' || scope === 'loopback'
+}
+
+function isExplicitlyNonLanScope(scope: RtcAddressScope): boolean {
+  return scope === 'public' || scope === 'cgnat' || scope === 'reserved'
 }
 
 function increment(map: Record<string, number>, key: string): void {

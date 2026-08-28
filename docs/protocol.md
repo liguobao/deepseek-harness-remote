@@ -595,7 +595,10 @@ Server 禁止解密、解析、缓存到数据库或记录 `ciphertext`。
 
 DataChannel 名称：`dsh`，`ordered: true`。即使 WebRTC 已加密，Remote message 仍通过 Noise secure channel，保持 Relay/P2P 相同的应用安全边界。
 
-连接降级顺序：LAN（后续）-> P2P -> TURN -> Relay。切换 transport 不改变 secure channel peer identity；必要时重建 Noise connection 并执行 event resync。
+连接降级顺序：LAN -> P2P -> TURN -> Relay。WebRTC 候选使用 RFC 1918、链路本地或回环地址时
+可记录为 LAN；Tailscale `fd7a:115c:a1e0::/48`、`100.64.0.0/10` 等 overlay/CGNAT 地址即使
+以 `host` candidate 出现也必须记录为 P2P。切换 transport 不改变 secure channel peer
+identity；必要时重建 Noise connection 并执行 event resync。
 
 ## 15. Remote Message Envelope
 

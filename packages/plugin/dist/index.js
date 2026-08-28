@@ -4767,6 +4767,8 @@ function summarizeIpv6Scope(address) {
     return "loopback";
   if (value.startsWith("fe80:"))
     return "link-local";
+  if (value.startsWith("fd7a:115c:a1e0:"))
+    return "cgnat";
   if (value.startsWith("fc") || value.startsWith("fd"))
     return "private";
   if (value.startsWith("ff"))
@@ -5583,8 +5585,9 @@ function candidateAddressValue(candidate) {
   return stringStat(candidate, "address") ?? stringStat(candidate, "ip");
 }
 function isLanCandidatePair(localType, remoteType, localScope, remoteScope) {
-  if (localType === "host" && remoteType === "host")
-    return true;
+  if (localType === "host" && remoteType === "host") {
+    return !isExplicitlyNonLanScope(localScope) && !isExplicitlyNonLanScope(remoteScope);
+  }
   const directTypes = /* @__PURE__ */ new Set(["host", "prflx"]);
   if (!directTypes.has(String(localType)) || !directTypes.has(String(remoteType)))
     return false;
@@ -5594,6 +5597,9 @@ function isLanCandidatePair(localType, remoteType, localScope, remoteScope) {
 }
 function isLocalNetworkScope(scope) {
   return scope === "private" || scope === "link-local" || scope === "loopback";
+}
+function isExplicitlyNonLanScope(scope) {
+  return scope === "public" || scope === "cgnat" || scope === "reserved";
 }
 function increment(map, key) {
   map[key] = (map[key] ?? 0) + 1;
