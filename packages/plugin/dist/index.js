@@ -5840,8 +5840,18 @@ var AdaptiveTransport = class extends BaseTransport {
     if (wantWebRtc) {
       try {
         const rtcSelected = await this.tryWebRtc();
-        this.dataMode = "webrtc";
-        selected = rtcSelected;
+        if (!preferred.includes(rtcSelected)) {
+          await this.rtc?.close();
+          this.rtc = void 0;
+          if (!preferred.includes("relay")) {
+            throw new Error(`WebRTC selected unnegotiated transport: ${rtcSelected}`);
+          }
+          this.dataMode = "relay";
+          selected = "relay";
+        } else {
+          this.dataMode = "webrtc";
+          selected = rtcSelected;
+        }
       } catch (error) {
         const reason = error instanceof Error ? error : new Error("WebRTC negotiation failed.");
         try {
@@ -5856,6 +5866,8 @@ var AdaptiveTransport = class extends BaseTransport {
         selected = "relay";
       }
     } else {
+      if (!preferred.includes("relay"))
+        throw new Error("No negotiated transport is available");
       this.dataMode = "relay";
       selected = "relay";
     }
@@ -17488,6 +17500,20 @@ var HostServerConnection = class {
   }
   handleRtcOpened(tunnel, selected) {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc === void 0) return;
+    const requiredCapability = selected === "turn" ? "transport.turn" : "transport.p2p";
+    if (!this.negotiatedCapabilities.includes(requiredCapability)) {
+      const error = new Error(`WebRTC selected unnegotiated transport: ${selected}`);
+      if (!this.negotiatedCapabilities.includes("transport.relay")) {
+        void this.dropTunnel(tunnel.connectionId, "CONNECTION_FAILED");
+        return;
+      }
+      void this.handleRtcFailed(
+        tunnel,
+        tunnel.rtc,
+        error
+      );
+      return;
+    }
     tunnel.transport = selected;
     tunnel.transportMode = tunnel.rtc.selectedPathMode();
     this.sendTransportSelected(tunnel, selected);

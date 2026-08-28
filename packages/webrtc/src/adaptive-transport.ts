@@ -304,8 +304,18 @@ export class AdaptiveTransport extends BaseTransport {
     if (wantWebRtc) {
       try {
         const rtcSelected = await this.tryWebRtc()
-        this.dataMode = 'webrtc'
-        selected = rtcSelected
+        if (!preferred.includes(rtcSelected)) {
+          await this.rtc?.close()
+          this.rtc = undefined
+          if (!preferred.includes('relay')) {
+            throw new Error(`WebRTC selected unnegotiated transport: ${rtcSelected}`)
+          }
+          this.dataMode = 'relay'
+          selected = 'relay'
+        } else {
+          this.dataMode = 'webrtc'
+          selected = rtcSelected
+        }
       } catch (error) {
         const reason = error instanceof Error ? error : new Error('WebRTC negotiation failed.')
         try { this.options.onWebRtcFallback?.(reason, this.lastRtcDiagnostics) } catch { /* diagnostics must not block fallback */ }
@@ -316,6 +326,7 @@ export class AdaptiveTransport extends BaseTransport {
         selected = 'relay'
       }
     } else {
+      if (!preferred.includes('relay')) throw new Error('No negotiated transport is available')
       this.dataMode = 'relay'
       selected = 'relay'
     }

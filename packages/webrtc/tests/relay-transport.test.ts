@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createControlFrame } from '@dsh-remote/protocol'
-import { AdaptiveTransport, RelayTransport } from '../src/index.js'
+import {
+  AdaptiveTransport,
+  RelayTransport,
+  RtcDataChannelTransport,
+  type RtcPeerConnectionFactory,
+} from '../src/index.js'
 
 class FakeWebSocket {
   static readonly OPEN = 1
@@ -36,6 +41,7 @@ class FakeWebSocket {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   FakeWebSocket.latest = undefined
 })
@@ -156,4 +162,80 @@ describe('AdaptiveTransport capability negotiation', () => {
     socket.receive(createControlFrame('connect.accepted', { connectionId: 'connection-1' }))
     await connecting
   })
+
+  it.each([
+    {
+      name: 'falls back when TURN-only negotiation selects P2P',
+      capabilities: ['transport.turn', 'transport.relay'],
+      selected: 'p2p' as const,
+      expected: 'relay',
+    },
+    {
+      name: 'rejects when P2P-only negotiation selects TURN',
+      capabilities: ['transport.p2p'],
+      selected: 'turn' as const,
+      expected: 'reject',
+    },
+  ])('$name', async ({ capabilities, selected, expected }) => {
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    vi.spyOn(RtcDataChannelTransport.prototype, 'connect').mockResolvedValue()
+    vi.spyOn(RtcDataChannelTransport.prototype, 'selectedTransport').mockReturnValue(selected)
+    vi.spyOn(RtcDataChannelTransport.prototype, 'diagnostics').mockReturnValue({} as never)
+    vi.spyOn(RtcDataChannelTransport.prototype, 'close').mockResolvedValue()
+    const transport = createAdaptiveTransport()
+    const connecting = transport.connect()
+    const socket = FakeWebSocket.latest!
+    socket.open()
+    socket.receive(helloAck({ capabilities }))
+    await Promise.resolve()
+    socket.receive(createControlFrame('connect.accepted', { connectionId: 'connection-1' }))
+    if (expected === 'reject') {
+      await expect(connecting).rejects.toThrow(`WebRTC selected unnegotiated transport: ${selected}`)
+    } else {
+      await connecting
+      expect(lastSentPayload(socket, 'transport.selected')).toMatchObject({ transport: expected })
+    }
+  })
+
+  it('rejects P2P-only negotiation when WebRTC is disabled', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const transport = createAdaptiveTransport()
+    const connecting = transport.connect()
+    const socket = FakeWebSocket.latest!
+    socket.open()
+    socket.receive(helloAck({ capabilities: ['transport.p2p'], webrtcEnabled: false }))
+    await Promise.resolve()
+    socket.receive(createControlFrame('connect.accepted', { connectionId: 'connection-1' }))
+    await expect(connecting).rejects.toThrow('No negotiated transport is available')
+  })
 })
+
+function createAdaptiveTransport(): AdaptiveTransport {
+  return new AdaptiveTransport('wss://remote.example/ws/v1/connect', {
+    role: 'client',
+    deviceId: 'client-1',
+    accessToken: 'access-token',
+    targetDeviceId: 'host-1',
+    rtcFactory: { create: vi.fn(() => ({})) } as unknown as RtcPeerConnectionFactory,
+  })
+}
+
+function helloAck(overrides: { capabilities: string[]; webrtcEnabled?: boolean }): unknown {
+  return createControlFrame('hello.ack', {
+    protocol: 1,
+    serverVersion: '0.1.0',
+    connectionSessionId: 'control-1',
+    heartbeatIntervalMs: 25_000,
+    maxControlFrameBytes: 65_536,
+    maxRelayFrameBytes: 1_048_576,
+    ...overrides,
+  })
+}
+
+function lastSentPayload(socket: FakeWebSocket, type: string): Record<string, unknown> {
+  const frame = socket.sent
+    .map(value => JSON.parse(value) as { type?: string; payload?: Record<string, unknown> })
+    .findLast(value => value.type === type)
+  if (frame?.payload === undefined) throw new Error(`Missing ${type} frame`)
+  return frame.payload
+}

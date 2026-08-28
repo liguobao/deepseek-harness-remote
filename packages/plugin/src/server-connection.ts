@@ -548,6 +548,20 @@ export class HostServerConnection {
 
   private handleRtcOpened(tunnel: PendingTunnel, selected: RtcSelectedTransport): void {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc === undefined) return
+    const requiredCapability = selected === 'turn' ? 'transport.turn' : 'transport.p2p'
+    if (!this.negotiatedCapabilities.includes(requiredCapability)) {
+      const error = new Error(`WebRTC selected unnegotiated transport: ${selected}`)
+      if (!this.negotiatedCapabilities.includes('transport.relay')) {
+        void this.dropTunnel(tunnel.connectionId, 'CONNECTION_FAILED')
+        return
+      }
+      void this.handleRtcFailed(
+        tunnel,
+        tunnel.rtc,
+        error,
+      )
+      return
+    }
     tunnel.transport = selected
     tunnel.transportMode = tunnel.rtc.selectedPathMode()
     this.sendTransportSelected(tunnel, selected)

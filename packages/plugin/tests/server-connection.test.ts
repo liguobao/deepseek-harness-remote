@@ -341,6 +341,49 @@ describe('HostServerConnection', () => {
     expect(internals.tunnels.get(tunnel.connectionId)).toBe(tunnel)
     expect(tunnel.channel).toEqual({})
   })
+
+  it.each([
+    { negotiated: 'transport.turn', selected: 'p2p' as const, relay: true },
+    { negotiated: 'transport.p2p', selected: 'turn' as const, relay: false },
+  ])('rejects $selected when only $negotiated was negotiated', async ({ negotiated, selected, relay }) => {
+    const server = new HostServerConnection(
+      config(),
+      {} as HostIdentity,
+      {} as IdentityStore,
+      {} as HostServerApi,
+      {} as ConnectionController,
+      logger(),
+    )
+    const rtc = {
+      close: vi.fn(async () => undefined),
+      diagnostics: vi.fn(() => undefined),
+    }
+    const tunnel = {
+      connectionId: 'connection-1',
+      peer: { deviceId: 'client-1' },
+      noise: { destroy: vi.fn() },
+      rtc,
+      transport: 'negotiating',
+    }
+    const internals = server as unknown as {
+      negotiatedCapabilities: string[]
+      tunnels: Map<string, unknown>
+      handleRtcOpened(value: unknown, transport: 'p2p' | 'turn'): void
+    }
+    internals.negotiatedCapabilities = relay ? [negotiated, 'transport.relay'] : [negotiated]
+    internals.tunnels.set(tunnel.connectionId, tunnel)
+
+    internals.handleRtcOpened(tunnel, selected)
+    await flush()
+
+    expect(rtc.close).toHaveBeenCalledOnce()
+    if (relay) {
+      expect(tunnel).toMatchObject({ transport: 'relay', rtc: undefined })
+    } else {
+      expect(internals.tunnels.has(tunnel.connectionId)).toBe(false)
+      expect(tunnel.noise.destroy).toHaveBeenCalledOnce()
+    }
+  })
 })
 
 function helloAck(connectionSessionId: string) {
