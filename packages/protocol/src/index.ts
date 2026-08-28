@@ -112,6 +112,7 @@ export interface HelloAckPayload {
   heartbeatIntervalMs: number
   maxControlFrameBytes: number
   maxRelayFrameBytes: number
+  capabilities?: string[]
   webrtcEnabled?: boolean
   webrtcFallbackTimeoutMs?: number
 }
@@ -218,6 +219,17 @@ export function selectCapabilities(
 ): string[] {
   const offeredCapabilities = new Set(offered)
   return [...new Set(supported)].filter(capability => offeredCapabilities.has(capability))
+}
+
+export function acceptNegotiatedCapabilities(
+  offered: readonly string[],
+  negotiated: readonly string[] | undefined,
+): string[] {
+  const accepted = negotiated ?? ['transport.relay']
+  if (selectCapabilities(accepted, offered).length !== accepted.length) {
+    throw new Error('Server selected a capability that the peer did not offer.')
+  }
+  return [...accepted]
 }
 
 export interface RemoteMessage<TPayload = unknown> {
@@ -454,6 +466,7 @@ export const helloAckPayloadSchema = z.object({
   heartbeatIntervalMs: z.number().int().positive(),
   maxControlFrameBytes: z.number().int().positive(),
   maxRelayFrameBytes: z.number().int().positive(),
+  capabilities: z.array(z.string().min(1)).refine(uniqueStrings).optional(),
   webrtcEnabled: z.boolean().optional(),
   webrtcFallbackTimeoutMs: z.number().int().positive().optional(),
 })

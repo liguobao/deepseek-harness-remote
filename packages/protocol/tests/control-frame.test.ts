@@ -187,8 +187,21 @@ describe('hello.ack payload validation', () => {
   })
 
   it('accepts hello.ack with optional webrtc fields', () => {
-    const withWebrtc = { ...valid, webrtcEnabled: true, webrtcFallbackTimeoutMs: 5000 }
+    const withWebrtc = {
+      ...valid,
+      capabilities: ['transport.relay', 'transport.p2p'],
+      webrtcEnabled: true,
+      webrtcFallbackTimeoutMs: 5000,
+    }
     expect(parseControlFrame(makeFrame('hello.ack', withWebrtc))).toBeDefined()
+  })
+
+  it('rejects empty and duplicate negotiated capabilities', () => {
+    expect(() => parseControlFrame(makeFrame('hello.ack', { ...valid, capabilities: [''] }))).toThrow()
+    expect(() => parseControlFrame(makeFrame('hello.ack', {
+      ...valid,
+      capabilities: ['transport.relay', 'transport.relay'],
+    }))).toThrow()
   })
 })
 

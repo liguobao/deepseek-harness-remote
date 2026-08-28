@@ -1,5 +1,6 @@
 import {
   PROTOCOL_VERSION,
+  acceptNegotiatedCapabilities,
   createControlFrame,
   parseControlFrame,
   type ConnectAcceptedPayload,
@@ -142,9 +143,14 @@ export class RelayTransport extends BaseTransport {
       if (frame.type === 'hello.ack') {
         const payload = frame.payload as Partial<HelloAckPayload>
         if (payload.protocol !== PROTOCOL_VERSION) throw new Error('Server selected an unsupported protocol version')
+        const offered = this.options.capabilities ?? ['transport.relay']
+        const negotiated = acceptNegotiatedCapabilities(offered, payload.capabilities)
+        if (!negotiated.includes('transport.relay')) {
+          throw new Error('Server did not negotiate the required Relay capability')
+        }
         this.sendControl('connect.request', {
           hostDeviceId: this.options.targetDeviceId,
-          preferredTransports: this.options.preferredTransports ?? ['relay'],
+          preferredTransports: ['relay'],
         })
         return
       }

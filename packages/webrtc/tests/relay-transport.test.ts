@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createControlFrame } from '@dsh-remote/protocol'
-import { RelayTransport } from '../src/index.js'
+import { AdaptiveTransport, RelayTransport } from '../src/index.js'
 
 class FakeWebSocket {
   static readonly OPEN = 1
@@ -68,6 +68,7 @@ describe('RelayTransport control handshake', () => {
       heartbeatIntervalMs: 25_000,
       maxControlFrameBytes: 65_536,
       maxRelayFrameBytes: 1_048_576,
+      capabilities: ['transport.relay'],
     }))
     await Promise.resolve()
     expect(JSON.parse(socket.sent[1]!)).toMatchObject({
@@ -100,5 +101,59 @@ describe('RelayTransport control handshake', () => {
       payload: { connectionId: 'connection-1', targetDeviceId: 'host-1', counter: 0 },
     })
     expect(relay.payload.ciphertext).not.toContain('encrypted-frame')
+  })
+
+  it('rejects a capability that the Client did not offer', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const transport = new RelayTransport('wss://remote.example/ws/v1/connect', {
+      role: 'client',
+      deviceId: 'client-1',
+      accessToken: 'access-token',
+      targetDeviceId: 'host-1',
+    })
+    const connecting = transport.connect()
+    const socket = FakeWebSocket.latest!
+    socket.open()
+    socket.receive(createControlFrame('hello.ack', {
+      protocol: 1,
+      serverVersion: '0.1.0',
+      connectionSessionId: 'control-1',
+      heartbeatIntervalMs: 25_000,
+      maxControlFrameBytes: 65_536,
+      maxRelayFrameBytes: 1_048_576,
+      capabilities: ['transport.p2p'],
+    }))
+    await expect(connecting).rejects.toThrow('did not offer')
+  })
+})
+
+describe('AdaptiveTransport capability negotiation', () => {
+  it('requests only transports present in hello.ack capabilities', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const transport = new AdaptiveTransport('wss://remote.example/ws/v1/connect', {
+      role: 'client',
+      deviceId: 'client-1',
+      accessToken: 'access-token',
+      targetDeviceId: 'host-1',
+    })
+    const connecting = transport.connect()
+    const socket = FakeWebSocket.latest!
+    socket.open()
+    socket.receive(createControlFrame('hello.ack', {
+      protocol: 1,
+      serverVersion: '0.1.0',
+      connectionSessionId: 'control-1',
+      heartbeatIntervalMs: 25_000,
+      maxControlFrameBytes: 65_536,
+      maxRelayFrameBytes: 1_048_576,
+      capabilities: ['transport.relay'],
+    }))
+    await Promise.resolve()
+    expect(JSON.parse(socket.sent[1]!)).toMatchObject({
+      type: 'connect.request',
+      payload: { preferredTransports: ['relay'] },
+    })
+    socket.receive(createControlFrame('connect.accepted', { connectionId: 'connection-1' }))
+    await connecting
   })
 })

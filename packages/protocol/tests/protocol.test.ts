@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  acceptNegotiatedCapabilities,
   SECURE_FRAGMENT_CHUNK_BYTES,
   SecureMessageCodec,
   controlFrameTypes,
@@ -52,6 +53,18 @@ describe('protocol envelope', () => {
       ['example.future.v1', 'transport.relay', 'transport.p2p'],
       ['transport.p2p', 'transport.turn', 'transport.relay'],
     )).toEqual(['transport.p2p', 'transport.relay'])
+  })
+
+  it('accepts negotiated capabilities and uses a Relay-only legacy fallback', () => {
+    expect(acceptNegotiatedCapabilities(
+      ['transport.p2p', 'transport.relay'],
+      ['transport.p2p'],
+    )).toEqual(['transport.p2p'])
+    expect(acceptNegotiatedCapabilities(['transport.relay'], undefined)).toEqual(['transport.relay'])
+    expect(() => acceptNegotiatedCapabilities(
+      ['transport.relay'],
+      ['transport.p2p'],
+    )).toThrow('did not offer')
   })
 
   it('carries event metadata and retryable RPC errors', () => {

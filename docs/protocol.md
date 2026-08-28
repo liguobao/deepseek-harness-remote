@@ -397,12 +397,17 @@ ack：
     "connectionSessionId": "01KWS...",
     "heartbeatIntervalMs": 25000,
     "maxControlFrameBytes": 65536,
-    "maxRelayFrameBytes": 1048576
+    "maxRelayFrameBytes": 1048576,
+    "capabilities": ["transport.relay", "transport.p2p"]
   }
 }
 ```
 
 WebSocket 关闭后 access token 不能通过 URL/query 泄露。Server 日志必须过滤 hello payload 中的 token。
+
+`hello.ack.capabilities` 是 Client hello 与 Server 支持能力的交集，不是 Server 的完整能力列表。
+Server 不能返回 Client 未宣告的 capability。Client 后续只能使用该集合中的能力。
+该字段对旧 Server 兼容为 optional。字段缺失时，Client 只能使用 `transport.relay`。
 
 ## 11. 建立 Host/Client Connection
 

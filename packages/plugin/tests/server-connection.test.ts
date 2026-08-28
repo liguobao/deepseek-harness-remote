@@ -116,6 +116,7 @@ describe('HostServerConnection', () => {
       heartbeatIntervalMs: 25_000,
       maxControlFrameBytes: 65_536,
       maxRelayFrameBytes: 1_048_576,
+      capabilities: ['transport.relay', 'harness.api.v1', 'fileviewer.read.v1'],
     }))
     socket.receive(createControlFrame('connect.incoming', {
       connectionId: 'connection-1',

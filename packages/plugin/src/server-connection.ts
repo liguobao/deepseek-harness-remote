@@ -7,6 +7,7 @@ import {
 import {
   PROTOCOL_VERSION,
   SecureMessageCodec,
+  acceptNegotiatedCapabilities,
   createControlFrame,
   decodeMessage,
   encodeMessage,
@@ -78,6 +79,7 @@ export class HostServerConnection {
   private reconnectRequested = false
   private resumeQueued = false
   private rtcFactory?: RtcPeerConnectionFactory
+  private negotiatedCapabilities: string[] = ['transport.relay']
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -180,6 +182,9 @@ export class HostServerConnection {
   private async connectOnce(): Promise<void> {
     const credentials = await this.api.authenticate(this.identity)
     if (this.stopped) return
+    const offeredCapabilities = this.rtcFactoryProvider === undefined || this.config.forceRelay
+      ? ['transport.relay', ...this.hostCapabilities()]
+      : ['transport.p2p', 'transport.turn', 'transport.relay', ...this.hostCapabilities()]
     const socket = this.createWebSocket(websocketUrl(this.api.baseUrl))
     this.socket = socket
     let acknowledged = false
@@ -203,9 +208,7 @@ export class HostServerConnection {
           protocols: [PROTOCOL_VERSION],
           clientVersion: PLUGIN_VERSION,
           ...(this.harnessVersion === undefined ? {} : { harnessVersion: this.harnessVersion }),
-          capabilities: this.rtcFactoryProvider === undefined || this.config.forceRelay
-            ? ['transport.relay', ...this.hostCapabilities()]
-            : ['transport.p2p', 'transport.turn', 'transport.relay', ...this.hostCapabilities()],
+          capabilities: offeredCapabilities,
         })
       }
       socket.onmessage = event => {
@@ -214,6 +217,13 @@ export class HostServerConnection {
           this.lastActiveAt = Date.now()
           if (frame.type === 'hello.ack') {
             const payload = requireHelloAck(frame.payload)
+            this.negotiatedCapabilities = acceptNegotiatedCapabilities(offeredCapabilities, payload.capabilities)
+            if (!this.negotiatedCapabilities.some(capability =>
+              capability === 'transport.relay'
+              || capability === 'transport.p2p'
+              || capability === 'transport.turn')) {
+              throw new ControlConnectionError('INVALID_MESSAGE', 'Server did not negotiate a transport capability.')
+            }
             acknowledged = true
             clearTimeout(helloTimer)
             this.online = true
@@ -416,6 +426,9 @@ export class HostServerConnection {
   }
 
   private async handleRelay(payload: RelayPayload): Promise<void> {
+    if (!this.negotiatedCapabilities.includes('transport.relay')) {
+      throw new ControlConnectionError('INVALID_MESSAGE', 'Server forwarded Relay without negotiating it.')
+    }
     if (payload.targetDeviceId !== this.identity.deviceId) {
       throw new ControlConnectionError('INVALID_MESSAGE', 'Relay frame target does not match this Host.')
     }
@@ -435,6 +448,9 @@ export class HostServerConnection {
   }
 
   private async handleSignalOffer(payload: SignalPayload): Promise<void> {
+    if (!this.canUseWebRtc()) {
+      throw new ControlConnectionError('INVALID_MESSAGE', 'Server forwarded WebRTC signaling without negotiating it.')
+    }
     const tunnel = this.tunnels.get(payload.connectionId)
     if (tunnel === undefined || payload.targetDeviceId !== this.identity.deviceId) {
       this.logger.warn('stale webrtc offer ignored', { connectionId: shortId(payload.connectionId) })
@@ -501,9 +517,17 @@ export class HostServerConnection {
   }
 
   private handleSignalIce(payload: SignalIcePayload): void {
+    if (!this.canUseWebRtc()) {
+      throw new ControlConnectionError('INVALID_MESSAGE', 'Server forwarded WebRTC signaling without negotiating it.')
+    }
     const tunnel = this.tunnels.get(payload.connectionId)
     if (tunnel === undefined || payload.targetDeviceId !== this.identity.deviceId) return
     tunnel.rtc?.handleSignal({ type: 'ice', candidate: payload.candidate })
+  }
+
+  private canUseWebRtc(): boolean {
+    return this.negotiatedCapabilities.includes('transport.p2p')
+      || this.negotiatedCapabilities.includes('transport.turn')
   }
 
   private sendRtcSignal(tunnel: PendingTunnel, signal: RtcSignal): void {

@@ -4111,6 +4111,17 @@ function normalizeSdpMLineIndex(value) {
     return null;
   return value;
 }
+function selectCapabilities(offered, supported) {
+  const offeredCapabilities = new Set(offered);
+  return [...new Set(supported)].filter((capability) => offeredCapabilities.has(capability));
+}
+function acceptNegotiatedCapabilities(offered, negotiated) {
+  const accepted = negotiated ?? ["transport.relay"];
+  if (selectCapabilities(accepted, offered).length !== accepted.length) {
+    throw new Error("Server selected a capability that the peer did not offer.");
+  }
+  return [...accepted];
+}
 var rpcMethodSchema = external_exports.enum(rpcMethods);
 var messageTypeSchema = external_exports.enum(messageTypes);
 var controlFrameTypeSchema = external_exports.enum(controlFrameTypes);
@@ -4148,6 +4159,7 @@ var helloAckPayloadSchema = external_exports.object({
   heartbeatIntervalMs: external_exports.number().int().positive(),
   maxControlFrameBytes: external_exports.number().int().positive(),
   maxRelayFrameBytes: external_exports.number().int().positive(),
+  capabilities: external_exports.array(external_exports.string().min(1)).refine(uniqueStrings).optional(),
   webrtcEnabled: external_exports.boolean().optional(),
   webrtcFallbackTimeoutMs: external_exports.number().int().positive().optional()
 });
@@ -5614,6 +5626,7 @@ var AdaptiveTransport = class extends BaseTransport {
   handshakeTimer;
   webrtcEnabled = true;
   serverNegotiateTimeoutMs;
+  negotiatedCapabilities = ["transport.relay"];
   connectedAt;
   lastRtcDiagnostics;
   constructor(url, options) {
@@ -5738,6 +5751,12 @@ var AdaptiveTransport = class extends BaseTransport {
         const payload = frame.payload;
         if (payload.protocol !== PROTOCOL_VERSION)
           throw new Error("Server selected an unsupported protocol version");
+        const offered = this.options.capabilities ?? DEFAULT_CAPABILITIES;
+        this.negotiatedCapabilities = acceptNegotiatedCapabilities(offered, payload.capabilities);
+        const preferredTransports = this.negotiatedTransports();
+        if (preferredTransports.length === 0) {
+          throw new Error("Server did not negotiate a supported transport capability");
+        }
         if (payload.webrtcEnabled === false)
           this.webrtcEnabled = false;
         if (typeof payload.webrtcFallbackTimeoutMs === "number" && Number.isSafeInteger(payload.webrtcFallbackTimeoutMs) && payload.webrtcFallbackTimeoutMs > 0) {
@@ -5745,7 +5764,7 @@ var AdaptiveTransport = class extends BaseTransport {
         }
         this.sendControl("connect.request", {
           hostDeviceId: this.options.targetDeviceId,
-          preferredTransports: this.options.forceRelay === true ? ["relay"] : this.options.preferredTransports ?? [...DEFAULT_PREFERRED_TRANSPORTS]
+          preferredTransports
         });
         return;
       }
@@ -5755,7 +5774,9 @@ var AdaptiveTransport = class extends BaseTransport {
           throw new Error("connect.accepted did not include a connectionId");
         }
         this.connectionId = payload.connectionId;
-        void this.negotiate();
+        void this.negotiate().catch((error) => {
+          this.failConnection(error instanceof Error ? error : new Error("Adaptive transport negotiation failed"));
+        });
         return;
       }
       if (frame.type === "connect.rejected" || frame.type === "error") {
@@ -5812,7 +5833,7 @@ var AdaptiveTransport = class extends BaseTransport {
   async negotiate() {
     if (this.connectionId === void 0)
       return;
-    const preferred = this.options.preferredTransports ?? [...DEFAULT_PREFERRED_TRANSPORTS];
+    const preferred = this.negotiatedTransports();
     const wantWebRtc = !this.options.forceRelay && this.webrtcEnabled && (preferred.includes("lan") || preferred.includes("p2p") || preferred.includes("turn"));
     let selected = "relay";
     this.lastRtcDiagnostics = void 0;
@@ -5829,6 +5850,8 @@ var AdaptiveTransport = class extends BaseTransport {
         }
         await this.rtc?.close();
         this.rtc = void 0;
+        if (!preferred.includes("relay"))
+          throw reason;
         this.dataMode = "relay";
         selected = "relay";
       }
@@ -5843,6 +5866,14 @@ var AdaptiveTransport = class extends BaseTransport {
       transport: selected
     });
     this.finishConnection();
+  }
+  negotiatedTransports() {
+    const preferred = this.options.forceRelay === true ? ["relay"] : this.options.preferredTransports ?? DEFAULT_PREFERRED_TRANSPORTS;
+    return preferred.filter((transport) => {
+      if (transport === "lan" || transport === "p2p")
+        return this.negotiatedCapabilities.includes("transport.p2p");
+      return this.negotiatedCapabilities.includes(`transport.${transport}`);
+    });
   }
   async tryWebRtc() {
     const connectionId = this.connectionId;
@@ -17031,6 +17062,7 @@ var HostServerConnection = class {
   reconnectRequested = false;
   resumeQueued = false;
   rtcFactory;
+  negotiatedCapabilities = ["transport.relay"];
   start() {
     if (this.running !== void 0) return;
     this.stopped = false;
@@ -17120,6 +17152,7 @@ var HostServerConnection = class {
   async connectOnce() {
     const credentials = await this.api.authenticate(this.identity);
     if (this.stopped) return;
+    const offeredCapabilities = this.rtcFactoryProvider === void 0 || this.config.forceRelay ? ["transport.relay", ...this.hostCapabilities()] : ["transport.p2p", "transport.turn", "transport.relay", ...this.hostCapabilities()];
     const socket = this.createWebSocket(websocketUrl2(this.api.baseUrl));
     this.socket = socket;
     let acknowledged = false;
@@ -17143,7 +17176,7 @@ var HostServerConnection = class {
           protocols: [PROTOCOL_VERSION],
           clientVersion: PLUGIN_VERSION,
           ...this.harnessVersion === void 0 ? {} : { harnessVersion: this.harnessVersion },
-          capabilities: this.rtcFactoryProvider === void 0 || this.config.forceRelay ? ["transport.relay", ...this.hostCapabilities()] : ["transport.p2p", "transport.turn", "transport.relay", ...this.hostCapabilities()]
+          capabilities: offeredCapabilities
         });
       };
       socket.onmessage = (event) => {
@@ -17152,6 +17185,10 @@ var HostServerConnection = class {
           this.lastActiveAt = Date.now();
           if (frame.type === "hello.ack") {
             const payload = requireHelloAck(frame.payload);
+            this.negotiatedCapabilities = acceptNegotiatedCapabilities(offeredCapabilities, payload.capabilities);
+            if (!this.negotiatedCapabilities.some((capability) => capability === "transport.relay" || capability === "transport.p2p" || capability === "transport.turn")) {
+              throw new ControlConnectionError("INVALID_MESSAGE", "Server did not negotiate a transport capability.");
+            }
             acknowledged = true;
             clearTimeout(helloTimer);
             this.online = true;
@@ -17339,6 +17376,9 @@ var HostServerConnection = class {
     });
   }
   async handleRelay(payload) {
+    if (!this.negotiatedCapabilities.includes("transport.relay")) {
+      throw new ControlConnectionError("INVALID_MESSAGE", "Server forwarded Relay without negotiating it.");
+    }
     if (payload.targetDeviceId !== this.identity.deviceId) {
       throw new ControlConnectionError("INVALID_MESSAGE", "Relay frame target does not match this Host.");
     }
@@ -17357,6 +17397,9 @@ var HostServerConnection = class {
     }
   }
   async handleSignalOffer(payload) {
+    if (!this.canUseWebRtc()) {
+      throw new ControlConnectionError("INVALID_MESSAGE", "Server forwarded WebRTC signaling without negotiating it.");
+    }
     const tunnel = this.tunnels.get(payload.connectionId);
     if (tunnel === void 0 || payload.targetDeviceId !== this.identity.deviceId) {
       this.logger.warn("stale webrtc offer ignored", { connectionId: shortId3(payload.connectionId) });
@@ -17418,9 +17461,15 @@ var HostServerConnection = class {
     rtc.handleSignal({ type: "offer", sdp: payload.sdp });
   }
   handleSignalIce(payload) {
+    if (!this.canUseWebRtc()) {
+      throw new ControlConnectionError("INVALID_MESSAGE", "Server forwarded WebRTC signaling without negotiating it.");
+    }
     const tunnel = this.tunnels.get(payload.connectionId);
     if (tunnel === void 0 || payload.targetDeviceId !== this.identity.deviceId) return;
     tunnel.rtc?.handleSignal({ type: "ice", candidate: payload.candidate });
+  }
+  canUseWebRtc() {
+    return this.negotiatedCapabilities.includes("transport.p2p") || this.negotiatedCapabilities.includes("transport.turn");
   }
   sendRtcSignal(tunnel, signal) {
     if (signal.type === "answer") {
