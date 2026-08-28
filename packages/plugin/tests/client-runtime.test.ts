@@ -30,7 +30,7 @@ describe('ClientModeRuntime Host account control', () => {
     expect(remoteHostFeatures('0.3.15')).toEqual({ commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false })
     expect(remoteHostFeatures('0.3.16')).toEqual({ commandList: true, fileViewer: false, apiProxy: true, remoteGateway: false })
     expect(remoteHostFeatures('v0.3.17')).toEqual({ commandList: true, fileViewer: true, apiProxy: true, remoteGateway: false })
-    expect(remoteHostFeatures('0.4.0-beta.1')).toEqual({ commandList: true, fileViewer: true, apiProxy: true, remoteGateway: false })
+    expect(remoteHostFeatures('0.3.99-beta.1')).toEqual({ commandList: true, fileViewer: true, apiProxy: true, remoteGateway: false })
   })
 
   it('prefers encrypted Host capability discovery while retaining the legacy fallback', async () => {

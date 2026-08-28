@@ -2,6 +2,16 @@
 
 ## 0.4.1
 
+- Replaces the withdrawn `v0.4.0` Release and tag so the alpha.1 Remote Client,
+  Host support, and follow-up transport fixes ship as one supported version.
+- Adds DeepSeek Harness `dsh-v0.1.2-alpha.1` Desktop support through the
+  official Typert Remote Gateway carrier while retaining the
+  `dsh-v0.1.1-rc.2` ApiProxy path.
+- Adds encrypted Host capability discovery, alpha unary/stream/event routing,
+  bounded large-envelope transfers, and a fixed fail-closed endpoint allowlist.
+- Keeps an rc.2 Client compatible with older rc.2 Hosts through the legacy
+  capability fallback, while rejecting mixed alpha.1/rc.2 Desktop generations
+  before native UI switching or Workspace mutation.
 - Fixes Host transport selection ordering so `transport.selected` cannot race
   the Noise handshake and bind the two peers to different WebRTC/Relay paths.
 - Restores native `@roamhq/wrtc` loading from pnpm-linked DSH profiles on
@@ -13,20 +23,6 @@
 - Refreshes Android connection progress, selected-route highlighting, compiled
   workspace verification, and client version metadata.
 - Advances the Plugin and Android app to `0.4.1` (`versionCode 21`).
-
-## 0.4.0
-
-- Adds DeepSeek Harness `dsh-v0.1.2-alpha.1` Desktop support through the
-  official Typert Remote Gateway carrier while retaining the
-  `dsh-v0.1.1-rc.2` ApiProxy path.
-- Adds encrypted Host capability discovery, alpha unary/stream/event routing,
-  bounded large-envelope transfers, and a fixed fail-closed endpoint allowlist.
-- Keeps a `0.4.0` Client running rc.2 compatible with older rc.2 Hosts through
-  the legacy capability fallback.
-- Does not translate Harness generations: alpha.1 and rc.2 Desktop endpoints
-  cannot open one another and are rejected before native UI switching or
-  Workspace mutation.
-- Advances the Plugin and Android app to `0.4.0` (`versionCode 20`).
 
 ## 0.3.36
 

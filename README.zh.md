@@ -133,7 +133,7 @@ Remote 通过双向端到端加密链路通信。它将客户端切换到所选 
 
 ## 版本兼容
 
-**破坏性更新声明：** Plugin `0.4.0` 已移除早期实验性的 Remote 业务 RPC
+**破坏性更新声明：** Plugin `0.4.1` 已移除早期实验性的 Remote 业务 RPC
 （`sessions.*`、`session.*`、`permissions.respond`、`sync.from`）。Harness
 会话流量现在只通过官方 rc.2 `ApiProxy` 或 alpha.1 Typert Remote Gateway 承载；
 本插件不提供旧 RPC 的适配层或 wire format 翻译。

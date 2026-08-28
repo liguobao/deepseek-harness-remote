@@ -139,7 +139,7 @@ API. Credential values remain write-only, and Host-local document/open actions a
 
 ## Compatibility
 
-**Breaking change notice:** Plugin `0.4.0` removes the earlier experimental
+**Breaking change notice:** Plugin `0.4.1` removes the earlier experimental
 Remote business RPC surface (`sessions.*`, `session.*`, `permissions.respond`,
 `sync.from`). Harness session traffic now only uses the official rc.2
 `ApiProxy` or alpha.1 Typert Remote Gateway, and this plugin does not provide
