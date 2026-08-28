@@ -336,7 +336,8 @@ descriptor 和首次 `hello` 中作为 `harnessVersion` 上报。两种读取都
     "connectionSessionId": "0198...",
     "heartbeatIntervalMs": 25000,
     "maxControlFrameBytes": 65536,
-    "maxRelayFrameBytes": 1048576
+    "maxRelayFrameBytes": 1048576,
+    "capabilities": ["transport.relay"]
   }
 }
 ```

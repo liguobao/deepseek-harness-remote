@@ -112,6 +112,7 @@ export interface HelloAckPayload {
   heartbeatIntervalMs: number
   maxControlFrameBytes: number
   maxRelayFrameBytes: number
+  capabilities?: string[]
   webrtcEnabled?: boolean
   webrtcFallbackTimeoutMs?: number
 }
@@ -201,6 +202,35 @@ export const transportCapabilities = [
   'transport.turn',
   'transport.relay',
 ] as const
+
+export function selectProtocolVersion(
+  offered: readonly number[],
+  supported: readonly number[] = [PROTOCOL_VERSION],
+): number | undefined {
+  const supportedVersions = new Set(supported)
+  return [...offered]
+    .filter(version => supportedVersions.has(version))
+    .sort((left, right) => right - left)[0]
+}
+
+export function selectCapabilities(
+  offered: readonly string[],
+  supported: readonly string[],
+): string[] {
+  const offeredCapabilities = new Set(offered)
+  return [...new Set(supported)].filter(capability => offeredCapabilities.has(capability))
+}
+
+export function acceptNegotiatedCapabilities(
+  offered: readonly string[],
+  negotiated: readonly string[] | undefined,
+): string[] {
+  const accepted = negotiated ?? ['transport.relay']
+  if (selectCapabilities(accepted, offered).length !== accepted.length) {
+    throw new Error('Server selected a capability that the peer did not offer.')
+  }
+  return [...accepted]
+}
 
 export interface RemoteMessage<TPayload = unknown> {
   v: typeof PROTOCOL_VERSION
@@ -393,6 +423,8 @@ export interface HarnessTransportDescription {
 const rpcMethodSchema = z.enum(rpcMethods)
 const messageTypeSchema = z.enum(messageTypes)
 const controlFrameTypeSchema = z.enum(controlFrameTypes)
+const uniqueStrings = (values: string[]): boolean => new Set(values).size === values.length
+const uniqueNumbers = (values: number[]): boolean => new Set(values).size === values.length
 
 export const remoteMessageSchema = z.object({
   v: z.literal(PROTOCOL_VERSION),
@@ -421,8 +453,8 @@ export const helloPayloadSchema = z.object({
   role: z.enum(['host', 'client']),
   deviceId: z.string().min(1),
   accessToken: z.string().min(1),
-  protocols: z.array(z.number().int()).min(1),
-  capabilities: z.array(z.string()),
+  protocols: z.array(z.number().int().nonnegative().safe()).min(1).refine(uniqueNumbers),
+  capabilities: z.array(z.string().min(1)).refine(uniqueStrings),
   clientVersion: z.string().optional(),
   harnessVersion: z.string().optional(),
 })
@@ -434,6 +466,7 @@ export const helloAckPayloadSchema = z.object({
   heartbeatIntervalMs: z.number().int().positive(),
   maxControlFrameBytes: z.number().int().positive(),
   maxRelayFrameBytes: z.number().int().positive(),
+  capabilities: z.array(z.string().min(1)).refine(uniqueStrings).optional(),
   webrtcEnabled: z.boolean().optional(),
   webrtcFallbackTimeoutMs: z.number().int().positive().optional(),
 })
@@ -471,7 +504,7 @@ export const secureHandshakePayloadSchema = z.object({
 export const relayPayloadSchema = z.object({
   connectionId: z.string().min(1),
   targetDeviceId: z.string().min(1),
-  counter: z.number().int().nonnegative(),
+  counter: z.number().int().nonnegative().safe(),
   ciphertext: z.string().min(1),
 })
 

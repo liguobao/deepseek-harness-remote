@@ -150,6 +150,21 @@ describe('hello payload validation', () => {
     expect(frame.payload).toMatchObject({ harnessVersion: '0.1.0-rc.8' })
   })
 
+  it('accepts protocol versions at both safe integer boundaries', () => {
+    expect(parseControlFrame(makeFrame('hello', { ...valid, protocols: [0] }))).toBeDefined()
+    expect(parseControlFrame(makeFrame('hello', {
+      ...valid,
+      protocols: [Number.MAX_SAFE_INTEGER],
+    }))).toBeDefined()
+  })
+
+  it('accepts unknown capabilities for additive negotiation', () => {
+    expect(parseControlFrame(makeFrame('hello', {
+      ...valid,
+      capabilities: ['transport.relay', 'example.future.v1'],
+    }))).toBeDefined()
+  })
+
   it('returns parsed payload with stripped unknown fields', () => {
     const withExtra = { ...valid, unknownField: 'should-be-stripped' }
     const result = parseControlFrame(makeFrame('hello', withExtra))
@@ -172,8 +187,21 @@ describe('hello.ack payload validation', () => {
   })
 
   it('accepts hello.ack with optional webrtc fields', () => {
-    const withWebrtc = { ...valid, webrtcEnabled: true, webrtcFallbackTimeoutMs: 5000 }
+    const withWebrtc = {
+      ...valid,
+      capabilities: ['transport.relay', 'transport.p2p'],
+      webrtcEnabled: true,
+      webrtcFallbackTimeoutMs: 5000,
+    }
     expect(parseControlFrame(makeFrame('hello.ack', withWebrtc))).toBeDefined()
+  })
+
+  it('rejects empty and duplicate negotiated capabilities', () => {
+    expect(() => parseControlFrame(makeFrame('hello.ack', { ...valid, capabilities: [''] }))).toThrow()
+    expect(() => parseControlFrame(makeFrame('hello.ack', {
+      ...valid,
+      capabilities: ['transport.relay', 'transport.relay'],
+    }))).toThrow()
   })
 })
 
@@ -205,6 +233,13 @@ describe('relay payload validation', () => {
 
   it('accepts relay with counter = 0', () => {
     expect(parseControlFrame(makeFrame('relay', { ...valid, counter: 0 }))).toBeDefined()
+  })
+
+  it('accepts relay with counter = Number.MAX_SAFE_INTEGER', () => {
+    expect(parseControlFrame(makeFrame('relay', {
+      ...valid,
+      counter: Number.MAX_SAFE_INTEGER,
+    }))).toBeDefined()
   })
 })
 
@@ -282,6 +317,35 @@ describe('hello payload rejection', () => {
     expect(() => parseControlFrame(makeFrame('hello', {
       ...validPayloads['hello'] as HelloPayload,
       protocols: [],
+    }))).toThrow()
+  })
+
+  it('rejects protocol versions outside the safe integer range', () => {
+    expect(() => parseControlFrame(makeFrame('hello', {
+      ...validPayloads['hello'] as HelloPayload,
+      protocols: [-1],
+    }))).toThrow()
+    expect(() => parseControlFrame(makeFrame('hello', {
+      ...validPayloads['hello'] as HelloPayload,
+      protocols: [Number.MAX_SAFE_INTEGER + 1],
+    }))).toThrow()
+  })
+
+  it('rejects duplicate protocol versions', () => {
+    expect(() => parseControlFrame(makeFrame('hello', {
+      ...validPayloads['hello'] as HelloPayload,
+      protocols: [1, 1],
+    }))).toThrow()
+  })
+
+  it('rejects empty and duplicate capabilities', () => {
+    expect(() => parseControlFrame(makeFrame('hello', {
+      ...validPayloads['hello'] as HelloPayload,
+      capabilities: [''],
+    }))).toThrow()
+    expect(() => parseControlFrame(makeFrame('hello', {
+      ...validPayloads['hello'] as HelloPayload,
+      capabilities: ['transport.relay', 'transport.relay'],
     }))).toThrow()
   })
 
@@ -416,6 +480,13 @@ describe('relay payload rejection', () => {
     expect(() => parseControlFrame(makeFrame('relay', {
       ...valid,
       counter: -1,
+    }))).toThrow()
+  })
+
+  it('rejects counters outside the safe integer range', () => {
+    expect(() => parseControlFrame(makeFrame('relay', {
+      ...valid,
+      counter: Number.MAX_SAFE_INTEGER + 1,
     }))).toThrow()
   })
 

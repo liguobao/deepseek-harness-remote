@@ -121,6 +121,8 @@ REST/Control JSON 中的 key、nonce、handshake 和 ciphertext 使用无 paddin
 - v1 可以新增 optional 字段和 capability；不能改变现有字段语义或 enum 含义。
 - 新增 RPC/Event 必须由 capability 宣告。
 - 未协商的 method/event 不能发送。
+- hello 的 `protocols` 是无重复版本集合。Server 选择双方支持的最高版本。
+- 没有共同版本时，Server 返回 `UNSUPPORTED_VERSION` 并关闭连接。
 
 ## 6. REST 通用格式
 
@@ -372,6 +374,10 @@ Control frame 是 Server 可读 JSON，不得放置 Remote 业务明文。
 Server 展示设备版本和诊断；与 `hello.ack` 的 `serverVersion` 对称。插件建立连接时必须上报自己的
 版本；对 Server 而言这是 v1 新增的 optional 字段，不能因为缺失或未知版本而拒绝连接。
 
+`protocols` 必须包含至少一个非负安全整数，且不能有重复值。当前实现只支持 v1。
+`capabilities` 必须是无重复的非空字符串集合。接收端必须忽略未知 capability。
+发送端只能使用双方都支持的 capability。
+
 Host 的 `harnessVersion` 优先来自本机 Harness `host.describe.version`；旧 Harness 返回已知
 占位值或不提供该方法时，从当前 `@deepseek-ai/dsh` 运行包读取版本。Host 注册 descriptor
 在可用时携带该值，首次 `hello` 也会再次上报以刷新设备记录。字段同样可选：插件不发送时
@@ -391,12 +397,17 @@ ack：
     "connectionSessionId": "01KWS...",
     "heartbeatIntervalMs": 25000,
     "maxControlFrameBytes": 65536,
-    "maxRelayFrameBytes": 1048576
+    "maxRelayFrameBytes": 1048576,
+    "capabilities": ["transport.relay", "transport.p2p"]
   }
 }
 ```
 
 WebSocket 关闭后 access token 不能通过 URL/query 泄露。Server 日志必须过滤 hello payload 中的 token。
+
+`hello.ack.capabilities` 是 Client hello 与 Server 支持能力的交集，不是 Server 的完整能力列表。
+Server 不能返回 Client 未宣告的 capability。Client 后续只能使用该集合中的能力。
+该字段对旧 Server 兼容为 optional。字段缺失时，Client 只能使用 `transport.relay`。
 
 ## 11. 建立 Host/Client Connection
 
@@ -523,7 +534,8 @@ TLS/WSS 保护到 Server 的链路，但不能替代本节 E2EE。
 }
 ```
 
-`counter` 用于 Server 基础限速/排序诊断，不作为解密 nonce 的权威来源。Noise frame 内部状态才是认证依据。
+`counter` 必须是 `0..Number.MAX_SAFE_INTEGER` 范围内的整数。它用于 Server 基础限速和排序诊断，
+不作为解密 nonce 的权威来源。Noise frame 内部状态才是认证依据。
 
 Server 禁止解密、解析、缓存到数据库或记录 `ciphertext`。
 

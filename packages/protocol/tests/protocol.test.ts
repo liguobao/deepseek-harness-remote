@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  acceptNegotiatedCapabilities,
   SECURE_FRAGMENT_CHUNK_BYTES,
   SecureMessageCodec,
   controlFrameTypes,
@@ -13,6 +14,8 @@ import {
   parseRemoteMessage,
   remoteEvents,
   rpcMethods,
+  selectCapabilities,
+  selectProtocolVersion,
 } from '../src/index.js'
 
 describe('protocol envelope', () => {
@@ -37,6 +40,31 @@ describe('protocol envelope', () => {
 
   it('rejects unsupported protocol versions', () => {
     expect(() => parseRemoteMessage({ v: 2, id: 'x', type: 'rpc.request', timestamp: Date.now(), payload: {} })).toThrow()
+  })
+
+  it('selects the highest common hello protocol version', () => {
+    expect(selectProtocolVersion([1])).toBe(1)
+    expect(selectProtocolVersion([1, 3, 2], [1, 2])).toBe(2)
+    expect(selectProtocolVersion([2, 3])).toBeUndefined()
+  })
+
+  it('selects supported capabilities and ignores unknown values', () => {
+    expect(selectCapabilities(
+      ['example.future.v1', 'transport.relay', 'transport.p2p'],
+      ['transport.p2p', 'transport.turn', 'transport.relay'],
+    )).toEqual(['transport.p2p', 'transport.relay'])
+  })
+
+  it('accepts negotiated capabilities and uses a Relay-only legacy fallback', () => {
+    expect(acceptNegotiatedCapabilities(
+      ['transport.p2p', 'transport.relay'],
+      ['transport.p2p'],
+    )).toEqual(['transport.p2p'])
+    expect(acceptNegotiatedCapabilities(['transport.relay'], undefined)).toEqual(['transport.relay'])
+    expect(() => acceptNegotiatedCapabilities(
+      ['transport.relay'],
+      ['transport.p2p'],
+    )).toThrow('did not offer')
   })
 
   it('carries event metadata and retryable RPC errors', () => {

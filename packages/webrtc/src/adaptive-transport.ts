@@ -1,5 +1,6 @@
 import {
   PROTOCOL_VERSION,
+  acceptNegotiatedCapabilities,
   createControlFrame,
   parseControlFrame,
   type ConnectAcceptedPayload,
@@ -76,6 +77,7 @@ export class AdaptiveTransport extends BaseTransport {
   private handshakeTimer?: ReturnType<typeof setTimeout>
   private webrtcEnabled = true
   private serverNegotiateTimeoutMs?: number
+  private negotiatedCapabilities: string[] = ['transport.relay']
   private connectedAt?: number
   private lastRtcDiagnostics?: RtcConnectionDiagnostics
 
@@ -208,6 +210,12 @@ export class AdaptiveTransport extends BaseTransport {
       if (frame.type === 'hello.ack') {
         const payload = frame.payload as Partial<HelloAckPayload>
         if (payload.protocol !== PROTOCOL_VERSION) throw new Error('Server selected an unsupported protocol version')
+        const offered = this.options.capabilities ?? DEFAULT_CAPABILITIES
+        this.negotiatedCapabilities = acceptNegotiatedCapabilities(offered, payload.capabilities)
+        const preferredTransports = this.negotiatedTransports()
+        if (preferredTransports.length === 0) {
+          throw new Error('Server did not negotiate a supported transport capability')
+        }
         if (payload.webrtcEnabled === false) this.webrtcEnabled = false
         if (typeof payload.webrtcFallbackTimeoutMs === 'number'
           && Number.isSafeInteger(payload.webrtcFallbackTimeoutMs)
@@ -216,9 +224,7 @@ export class AdaptiveTransport extends BaseTransport {
         }
         this.sendControl('connect.request', {
           hostDeviceId: this.options.targetDeviceId,
-          preferredTransports: this.options.forceRelay === true
-            ? ['relay']
-            : this.options.preferredTransports ?? [...DEFAULT_PREFERRED_TRANSPORTS],
+          preferredTransports,
         })
         return
       }
@@ -228,7 +234,9 @@ export class AdaptiveTransport extends BaseTransport {
           throw new Error('connect.accepted did not include a connectionId')
         }
         this.connectionId = payload.connectionId
-        void this.negotiate()
+        void this.negotiate().catch(error => {
+          this.failConnection(error instanceof Error ? error : new Error('Adaptive transport negotiation failed'))
+        })
         return
       }
       if (frame.type === 'connect.rejected' || frame.type === 'error') {
@@ -288,7 +296,7 @@ export class AdaptiveTransport extends BaseTransport {
 
   private async negotiate(): Promise<void> {
     if (this.connectionId === undefined) return
-    const preferred = this.options.preferredTransports ?? [...DEFAULT_PREFERRED_TRANSPORTS]
+    const preferred = this.negotiatedTransports()
     const wantWebRtc = !this.options.forceRelay && this.webrtcEnabled
       && (preferred.includes('lan') || preferred.includes('p2p') || preferred.includes('turn'))
     let selected: SelectedTransport = 'relay'
@@ -296,17 +304,29 @@ export class AdaptiveTransport extends BaseTransport {
     if (wantWebRtc) {
       try {
         const rtcSelected = await this.tryWebRtc()
-        this.dataMode = 'webrtc'
-        selected = rtcSelected
+        if (!preferred.includes(rtcSelected)) {
+          await this.rtc?.close()
+          this.rtc = undefined
+          if (!preferred.includes('relay')) {
+            throw new Error(`WebRTC selected unnegotiated transport: ${rtcSelected}`)
+          }
+          this.dataMode = 'relay'
+          selected = 'relay'
+        } else {
+          this.dataMode = 'webrtc'
+          selected = rtcSelected
+        }
       } catch (error) {
         const reason = error instanceof Error ? error : new Error('WebRTC negotiation failed.')
         try { this.options.onWebRtcFallback?.(reason, this.lastRtcDiagnostics) } catch { /* diagnostics must not block fallback */ }
         await this.rtc?.close()
         this.rtc = undefined
+        if (!preferred.includes('relay')) throw reason
         this.dataMode = 'relay'
         selected = 'relay'
       }
     } else {
+      if (!preferred.includes('relay')) throw new Error('No negotiated transport is available')
       this.dataMode = 'relay'
       selected = 'relay'
     }
@@ -317,6 +337,16 @@ export class AdaptiveTransport extends BaseTransport {
       transport: selected,
     } satisfies TransportSelectedPayload)
     this.finishConnection()
+  }
+
+  private negotiatedTransports(): Array<'lan' | 'p2p' | 'turn' | 'relay'> {
+    const preferred = this.options.forceRelay === true
+      ? ['relay'] as const
+      : this.options.preferredTransports ?? DEFAULT_PREFERRED_TRANSPORTS
+    return preferred.filter(transport => {
+      if (transport === 'lan' || transport === 'p2p') return this.negotiatedCapabilities.includes('transport.p2p')
+      return this.negotiatedCapabilities.includes(`transport.${transport}`)
+    })
   }
 
   private async tryWebRtc(): Promise<RtcSelectedTransport> {
