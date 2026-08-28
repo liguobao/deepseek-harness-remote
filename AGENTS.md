@@ -54,8 +54,8 @@ docs/
 
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
-| Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 ApiProxy allowlist bridge 已实现；无自定义 Harness 业务适配层 | 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
-| Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；Remote 模态框支持 GitHub/知乎扫码与账号密码登录、本机过滤、主机/版本信息、已有 Workspace、远端目录浏览、Harness rc.2 图片 Prompt/回显，以及配合 dsh-file-viewer 的受限只读文件预览，随后复用原生 Harness UI | 真实 dsh-desktop 跨机 E2E、断线重连、页面级导航接口 |
+| Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 rc.2 ApiProxy / alpha.1 Typert Remote allowlist bridge 已实现；无自定义 Harness 业务适配层 | rc.2 与 alpha.1 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
+| Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；Remote 模态框支持 GitHub/知乎扫码与账号密码登录、本机过滤、主机/版本信息、已有 Workspace、远端目录浏览、rc.2/alpha.1 图片 Prompt/回显，以及配合 dsh-file-viewer 的受限只读文件预览，随后复用原生 Harness UI；加密通道 capability 探测保留 legacy Host 降级并拒绝 rc.2/alpha.1 混连 | 真实 dsh-desktop 跨机 E2E、断线重连、页面级导航接口 |
 | Android | 已迁移到 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、harness.api tunnel、mux frame 聊天与图片 Prompt（Host limits 预检 + transfer 分块）、跟随系统/英文/简体中文界面 | 真机 E2E 与 Server 联调、图片选择/大图传输真机验证、重连后 mux 重开与 history baseline、WebRTC 走通验证 |
 | VS Code | Extension 基础已实现：SecretStorage 身份/凭证、账号/扫码登录、Host 指纹固定、Adaptive transport + Noise、Host→Workspace→Session 导航与编辑区会话面板 | Extension Host 跨机 E2E、实时流式更新、approval/question 与重连恢复 |
 | Browser | Chrome/Edge MV3 轻量入口已实现：临时读取已登录 Web 的授权并换取隔离的 device credential，popup 展示在线 Host，点击后直接打开同源 Remote Web；不承载账号登录、Remote transport、ApiProxy 或会话 UI | 与独立 Server 联调，并加载 unpacked 验证 |
@@ -98,10 +98,10 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 
 ## Validation Baseline
 
-截至 2026-08-22：
+截至 2026-08-28：
 
 - workspace check 与 DSH bundle 校验通过
-- Plugin test 通过：19 个测试文件、81 个测试；完整 workspace 数量以当前 CI 输出为准
+- Plugin test 通过：22 个测试文件、116 个测试；完整 workspace 数量以当前 CI 输出为准
 - workspace build 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 
@@ -116,7 +116,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 5. v1 permission decision 只允许 `allow_once | deny`，禁止恢复 `allow_session`。
 6. 不提供 Shell、PTY、目录写入、远程桌面或通用 Harness tool RPC；Remote picker 仅可返回受限的只读目录元数据。文件内容只能通过 dsh-file-viewer provider 授权后的 `fileviewer.read.v1` 只读分块桥访问，禁止 openExternal、写入、上传和执行。
 7. Token、私钥、主机匹配码、prompt、源码和工具输出不得写日志。
-8. Harness 业务层只使用官方 `ApiProxy`；可选文件预览只使用 dsh-file-viewer 的 provider 授权服务。禁止恢复 session/agent/workspace/permission adapter、另一套 Harness wire format 或通用文件系统协议。
+8. Harness rc.2 业务层只使用官方 `ApiProxy`，alpha.1 业务层只使用官方 `TypertGateway` Remote carrier；可选文件预览只使用 dsh-file-viewer 的 provider 授权服务。禁止恢复 session/agent/workspace/permission adapter、另一套 Harness wire format 或通用文件系统协议。
 9. 不修改用户已有变更，不提交 `node_modules`、Expo cache、Android build 产物或个人 Agent 配置；唯一允许提交的 `dist` 是根 DSH GitHub Bundle 所需的 `packages/plugin/dist/index.js` 与 `client.github.js`，另需保留根 Host 入口 `index.js`。
 
 ## Test Policy
@@ -126,7 +126,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 - Protocol 编解码、版本和 schema
 - 身份、加密、篡改和重放
 - Account authorization、Host registration code、Control handshake、Relay authorization
-- RPC correlation、权限 fail-closed、事件顺序和恢复
+- RPC correlation、权限 fail-closed、ApiProxy/Typert Remote endpoint allowlist、事件顺序和恢复
 - Transport fallback/reconnect 等核心状态机
 
 纯展示 UI、普通文案、静态说明、非关键脚本和样式调整不单独增加测试。

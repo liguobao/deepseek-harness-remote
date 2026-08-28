@@ -1,14 +1,14 @@
 # TODO
 
-本清单按 2026-08-16 的 ApiProxy-only Desktop Plugin 方向维护。Android 产品线已恢复开发，
-与 Plugin 共享同一 Control/Relay 与 ApiProxy contract；Server、Remote Web 和 Admin 只在独立
+本清单按 2026-08-28 的双版本 Desktop Plugin 方向维护：Harness rc.2 使用官方 ApiProxy，
+alpha.1 使用官方 Typert Remote Gateway。Android 产品线继续使用 ApiProxy 数据面；Server、Remote Web 和 Admin 只在独立
 Server 仓库实现。
 
 Desktop 已使用独立 Remote 工作区入口：本地选择账号下的 Host 与远端 Workspace，或通过
 只读目录浏览添加 Workspace，随后复用原生 Harness UI。当前实现需要真实 Desktop E2E 验证
 后才能作为稳定能力发布。
 
-测试预算只用于协议、安全、账号授权、认证连接、ApiProxy allowlist/stream 生命周期和核心
+测试预算只用于协议、安全、账号授权、认证连接、ApiProxy/Typert Remote allowlist/stream 生命周期和核心
 transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 
 ## 已完成基线
@@ -19,6 +19,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [x] Relay control、标准 Noise IK、counter/replay 拒绝与 opaque ciphertext
 - [x] Desktop Plugin Host runtime、Settings 配置和 GitHub/npm Bundle 入口
 - [x] Host ApiProxy allowlist bridge、mux/host stream 与后台 Local/Remote ApiProxy switch
+- [x] Harness alpha.1 Typert Remote unary/stream/event carrier、固定 endpoint allowlist、加密 capability 探测与 rc.2 激活兼容
 - [x] Remote 模态框、主机自过滤、OS/Harness/Plugin 版本展示、远端 Workspace 与目录选择
 - [x] Remote Header、LAN/P2P/TURN/Relay 链路、端到端加密状态与退出入口
 - [x] 配合 dsh-file-viewer 的远端只读文件 stat/list/分块预览桥与 Client provider
@@ -28,6 +29,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 ## P0：Plugin 可用链路
 
 - [ ] 在真实 dsh-desktop 中验证 GitHub 安装、重启、Host/Client 配置和 Bundle 入口
+- [ ] 分别用 `dsh-v0.1.1-rc.2` 与 `dsh-v0.1.2-alpha.1` 跑通双机 Workspace/Session/Prompt/approval E2E，并验证混合代际在 mutation 前拒绝
 - [ ] 用两台真实 Harness + 外部 Server 跑通同账号授权、选择 Remote、创建/继续会话
 - [ ] 验证原生 mux/host stream、approval/question respond 与断线关闭行为
 - [ ] 用手机 Web 与电脑 Web 同时连接一个真实 Host，验证并发操作、同设备重连和流隔离

@@ -46,7 +46,59 @@ describe('TypertGatewaySwitch', () => {
     target.restore()
     expect(gateway.invoke).toBe(invoke)
   })
+
+  it('switches alpha unary, stream, and internal carrier calls together', async () => {
+    const localInvoke = vi.fn(async (_request: Parameters<TypertGatewayLike['invoke']>[0]) => 'local-invoke')
+    const localStream = vi.fn(async (_request: Parameters<TypertGatewayLike['invoke']>[0]) => (
+      async function* () { yield 'local-stream' }
+    )())
+    const localDispatch = vi.fn(async (_endpoint: string, _payload: unknown, _signal: AbortSignal) => (
+      { ok: true as const, value: 'local-dispatch' }
+    ))
+    const localOpen = vi.fn(async (_endpoint: string, _payload: unknown, _signal: AbortSignal) => (
+      async function* () { yield 'local-open' }
+    )())
+    const gateway = {
+      invoke: localInvoke,
+      stream: localStream,
+      dispatchRpc: localDispatch,
+      openWireStream: localOpen,
+      wireStream: {
+        open: localOpen,
+        failure: () => ({ code: 'internal', message: 'failed', details: {} }),
+      },
+    }
+    const remote = {
+      invoke: vi.fn(async () => 'remote-invoke'),
+      dispatch: vi.fn(async () => ({ ok: true as const, value: 'remote-dispatch' })),
+      open: vi.fn(async () => (async function* () { yield 'remote-open' })()),
+    }
+    const target = new TypertGatewaySwitch(gateway)
+    const alwaysLocal = target.local()
+
+    target.install()
+    target.selectRemote(remote)
+
+    await expect(gateway.invoke({ namespace: 'session', method: 'list', args: {} })).resolves.toBe('remote-invoke')
+    await expect(gateway.dispatchRpc('session/list', { args: {} }, new AbortController().signal))
+      .resolves.toEqual({ ok: true, value: 'remote-dispatch' })
+    await expect(values(await gateway.openWireStream('$events', { args: {} }, new AbortController().signal)))
+      .resolves.toEqual(['remote-open'])
+    await expect(alwaysLocal.dispatch('session/list', { args: {} }, new AbortController().signal))
+      .resolves.toEqual({ ok: true, value: 'local-dispatch' })
+
+    target.selectLocal()
+    await expect(gateway.invoke({ namespace: 'session', method: 'list', args: {} })).resolves.toBe('local-invoke')
+    await expect(values(await gateway.openWireStream('session/follow', { args: {} }, new AbortController().signal)))
+      .resolves.toEqual(['local-open'])
+  })
 })
+
+async function values(source: AsyncIterable<unknown>): Promise<unknown[]> {
+  const result: unknown[] = []
+  for await (const value of source) result.push(value)
+  return result
+}
 
 function command(): Parameters<TypertGatewayLike['invoke']>[0] {
   return { namespace: 'commands', method: 'execute', args: { agentId: 's1', line: '/permission danger-full-access', images: [] } }

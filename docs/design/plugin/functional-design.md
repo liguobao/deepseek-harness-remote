@@ -5,23 +5,25 @@
 
 ## 1. 受控业务接入面
 
-Harness 会话业务只使用官方 `@deepseek-ai/dsh-host-apiproxy/api`；可选文件预览只使用
+Harness rc.2 会话业务只使用官方 `@deepseek-ai/dsh-host-apiproxy/api`；alpha.1 会话业务只
+使用官方 `TypertGateway` Remote carrier；可选文件预览只使用
 `dsh-file-viewer` 暴露的 `fileViewerHost` 只读服务。Plugin 不读取或解释
 `SessionStore`、`AgentRegistry`、Workspace 或 Approval 内部对象，也不把 Harness
 事件重新投影成另一套 Remote Session/Message/Tool/Permission 模型。
 
 ```text
 本地 Harness UI
-  -> ApiProxySwitch
-  -> RemoteHarnessApiProxy
+  -> ApiProxySwitch (rc.2) / TypertGatewaySwitch (alpha.1)
+  -> RemoteHarnessApiProxy / RemoteTypertGateway
   -> authenticated Remote channel
-  -> HarnessApiBridge allowlist
-  -> Host ApiProxy
+  -> HarnessApiBridge / HarnessRemoteBridge allowlist
+  -> Host ApiProxy / TypertGateway
   -> 远端 Harness
 ```
 
-远端调用仍使用 Harness 原生 `RpcRequest`、`RpcResponse`、`MuxFrame`、`HostFrame`
-和 `ClientResponse`。Plugin 只负责传输、关联、流生命周期与安全检查。
+rc.2 远端调用仍使用 Harness 原生 `RpcRequest`、`RpcResponse`、`MuxFrame`、`HostFrame`
+和 `ClientResponse`；alpha.1 保持 Gateway 的 `{ endpoint, payload }`、RPC result、stream item
+与 `$events` 语义。Plugin 只负责传输、关联、流生命周期与安全检查。
 
 ## 2. 模块结构
 
@@ -35,13 +37,16 @@ packages/plugin/src/
   server-api.ts               Server REST client
   server-connection.ts        Host control/relay/Noise 连接
   connection-controller.ts    单一认证 peer 与业务通道
-  rpc-router.ts               仅接受 ApiProxy tunnel RPC
+  rpc-router.ts               仅接受 capability 对应的 Harness tunnel RPC
   harness-api-bridge.ts       Host ApiProxy allowlist 与原生流
+  harness-remote-bridge.ts    Host alpha.1 Typert Remote allowlist 与 stream
   file-viewer-bridge.ts       File Viewer 只读方法白名单与传输限制
   remote-file-content-provider.ts Client 侧远端内容 provider
   remote-directory-browser.ts native picker 场景的只读目录元数据兜底
   remote-api-proxy.ts         Client 侧 ApiProxy 实现
+  remote-typert-gateway.ts    Client 侧 alpha.1 Gateway carrier
   api-proxy-switch.ts         Local/Remote 目标切换
+  typert-gateway-switch.ts    alpha.1 Gateway unary/stream/event 目标切换
   client-runtime.ts           Desktop Client runtime
   control-runtime.ts          loopback-only 设置与账号授权控制面
   client-secure-transport.ts  Client Noise IK
@@ -58,23 +63,28 @@ replay buffer 或自定义 pending approval 状态机。
 export const name = 'ds-harness-remote'
 
 export function apply(ctx, config) {
-  ctx.inject(['settings', 'apiProxy', 'connection'], runtimeCtx => activate(runtimeCtx, config))
+  ctx.inject(['settings', 'connection', 'typertGateway'], runtimeCtx => {
+    if (runtimeCtx.typertGateway supports alpha carrier) activate(runtimeCtx, config)
+    else runtimeCtx.inject(['apiProxy'], legacyCtx => activate(legacyCtx, config))
+  })
 }
 ```
 
 `apply(ctx, config)`：
 
 1. 顶层 Bundle entry 立即完成激活，不把远端插件依赖变成 Harness 主服务的启动条件。
-2. 在隔离的依赖 scope 中等待 `settings`、`apiProxy` 和 `connection`；缺失时仅停用远端功能。
+2. 在隔离的依赖 scope 中等待 `settings`、`connection` 和 `typertGateway`；alpha carrier
+   可用时直接激活，否则继续等待 rc.2 `apiProxy`，避免依赖 bundle 行顺序。
 3. 校验配置并按规范化 Server origin 选择隔离的身份目录。
-4. 读取 Host `apiProxy`，为每条认证 Client connection 创建隔离的 allowlist bridge。
-5. 创建常驻 Host runtime；Server、ApiProxy 和 Web connection 可用时同时创建后台 Remote runtime。
+4. 捕获不会经过 Local/Remote switch 的 Host `ApiProxy` 或 Typert Gateway dispatcher，为每条认证 Client connection 创建隔离的 allowlist bridge。
+5. 创建常驻 Host runtime；Server、对应 Harness carrier 和 Web connection 可用时同时创建后台 Remote runtime。
 6. 在 `ctx.effect()` 中启动出站 Server 连接，退出时关闭原生流、secure channel 和控制连接。
 
 Plugin 不订阅 `session/created`、`session/event`、`agent/status` 或
-`approval/request`。这些语义由 ApiProxy 的 mux/host stream 和 `respond()` 原样承担。
+`approval/request`。这些语义由 rc.2 ApiProxy mux/host + `respond()` 或 alpha.1 官方 `$events`
+与 `$events/result` 原样承担。
 
-## 4. Host ApiProxy bridge
+## 4. Host Harness bridges
 
 Remote 业务 RPC 只有：
 
@@ -83,6 +93,11 @@ Remote 业务 RPC 只有：
 - `harness.api.respond`
 - `harness.api.stream.open`
 - `harness.api.stream.close`
+- `harness.remote.call`
+- `harness.remote.transfer.open/chunk/commit/read/close`（仅在 `harness.remote.transfer.v1` capability 下）
+- `harness.remote.stream.open`
+- `harness.remote.stream.close`
+- `harness.transport.describe`
 - `fileviewer.call`（仅在 `fileviewer.read.v1` capability 下）
 
 `harness.api.call` 的 `method` 必须命中代码内固定 allowlist。当前允许会话、子 Agent、
@@ -90,6 +105,12 @@ Workspace、Skill、Agent Preset、Goal、Host 描述和只读 LLM 目录等原�
 `commands.list` 与 `commands.execute` 经官方 Typert gateway 分发，以覆盖原生 UI 的
 "+" 命令菜单。Remote 使用 Host 对当前 Agent 解析出的有效命令目录和 handler，因而与
 本地 Harness UI 保持一致；它只能执行 Host 已注册的命令，不构成任意方法调用入口。
+
+alpha.1 `harness.remote.call` 与 stream 只转发官方 Gateway carrier envelope，endpoint 必须
+命中代码内固定 allowlist。`$events` / `$events/result` 保持官方双向事件关联；
+`directoryPicker/pick/createDirectory`、native open、动态 Cordis runtime/source 与未知
+endpoint 均拒绝。alpha stream 上限为每连接 16 条，并用显式 `hasValue` 保留
+`undefined` stream item。
 
 `host.listDirectory` 是 Workspace picker 的唯一文件系统相关能力。优先转发 Harness browse
 capability；若桌面 Harness 只提供 native picker，则 bridge 以只读实现返回同形状的单层目录
@@ -100,6 +121,8 @@ Harness `dsh-v0.1.1-rc.2` 图片仍使用官方 ApiProxy：Client 将图片内�
 file id 复用；Client 通过只读 `session.attachment` 回读已被该 session 日志引用的图片以显示。
 超过单条 secure message 限制的原生 request/response 走 `harness.api.transfer.v1`，每块 512 KiB，
 严格有序、按连接隔离并设置总量/并发/空闲期限，不扩大 4 MiB secure message 上限。
+alpha.1 保持同一官方 `session/prompt` 与 `session/attachment` 业务语义，并通过
+`harness.remote.transfer.v1` 分块承载超限 Gateway envelope。
 
 安装 `dsh-file-viewer` 后，`fileviewer.call` 复用它的 `fileViewerHost` 服务，只允许
 `stat | readRange | list`。单次传输读取最多 512 KiB，目录最多 1000 项；Host 返回值再次做
@@ -119,7 +142,7 @@ Host 可同时服务来自不同 `clientDeviceId` 的连接；RPC pending、stre
 它自己的旧连接；连接替换、撤销或断开时，只 abort 该连接的 mux/host iterator。Plugin
 卸载时才关闭全部连接和流。
 
-## 5. Client ApiProxy
+## 5. Client Harness transport
 
 `RemoteHarnessApiProxy` 实现与本机相同形状的 `ApiProxy`：
 
@@ -131,6 +154,16 @@ Host 可同时服务来自不同 `clientDeviceId` 的连接；RPC pending、stre
 
 `ApiProxySwitch` 向官方 Web UI 暴露稳定对象。选择 Remote 后所有新调用解析到远端
 proxy；连接意外关闭时立即回落 Local 并结束旧流。
+
+alpha.1 的 `RemoteTypertGateway` 对等承载 unary、stream 与 `$events/result`；
+`TypertGatewaySwitch` 同时切换 Gateway 的公开 invoke/stream 和 Connection/WebSocket mux
+实际调用的 carrier methods。Host bridge 始终使用安装 switch 前捕获的本地 dispatcher，
+避免 Remote 目标递归调用自身。
+
+Noise channel 建立后 Client 调用 `harness.transport.describe`。旧 Host 返回
+`METHOD_NOT_FOUND` 时按 rc.2 `clientVersion` 降级；新 Host 明确返回 ApiProxy/Remote Gateway
+能力。两端 carrier 代际不同则在 Workspace create 或 UI target switch 前返回
+`HARNESS_VERSION_INCOMPATIBLE`，当前不翻译 rc.2 与 alpha.1 的完整业务模型。
 
 Desktop UI 不提供 Client 模式切换。侧边栏始终只有一个 Remote 工作区入口：
 
@@ -152,19 +185,21 @@ Server 只看到控制元数据和 ciphertext。Host 不监听公网端口。
 
 ## 7. 权限语义
 
-Approval 和 Question 使用 ApiProxy 原生 mux `ServerRequest`，Client 通过原生
-`ClientResponse` 回答。Plugin 不创造第二套 permission id、decision enum 或超时状态机。
+Approval 和 Question 在 rc.2 使用 ApiProxy 原生 mux `ServerRequest` / `ClientResponse`，
+在 alpha.1 使用官方 `$events` waterfall / `$events/result`。Plugin 不创造第二套 permission id、
+decision enum 或超时状态机。
 
-Host ApiProxy/Harness 仍是唯一权限裁决者。Plugin 只允许回答当前原生流实际发出的
-rpcId，并按 `connectionId` 分别记录可回答集合；晚到、重复或格式错误的回答由 Host
-ApiProxy 拒绝。连接断开会关闭原生流，
+Host Harness 仍是唯一权限裁决者。rc.2 Plugin 只允许回答当前原生流实际发出的 rpcId；
+alpha.1 的 eventId/clientId 关联由官方 Gateway 验证。状态按 `connectionId` 隔离，晚到、重复
+或格式错误的回答由 Host 官方 carrier 拒绝。连接断开会关闭原生流，
 不能继续提交旧回答。
 
 ## 8. 核心测试
 
 - ApiProxy allowlist 允许预期方法并拒绝敏感方法。
+- Typert Remote endpoint allowlist 拒绝 native open、目录写入、动态 Cordis 与未知 endpoint。
 - unary response 保留内层 rpcId。
-- mux/host frame 转发与 close reason 正确。
+- mux/host 与 alpha stream frame 转发、显式 `undefined` item 和 close reason 正确。
 - 未认证、错误 identity/membership、篡改和重放 fail closed。
 - peer 替换或断开时关闭全部原生流。
 - Local/Remote switch 可逆，远端断开回落 Local。

@@ -1,7 +1,7 @@
 # DSH Remote Protocol v1
 
 状态：Draft v0.2（首版发布前，不保留旧业务 RPC 兼容）
-日期：2026-08-23
+日期：2026-08-28
 协议版本：`1`
 实现状态：**当前仓库必须实现 Client/Plugin 侧协议；Server 侧由独立项目实现**
 
@@ -12,7 +12,7 @@
 当前仓库负责：
 
 - `packages/protocol` 的类型、schema、编解码和版本校验
-- Plugin 的 ApiProxy tunnel、加密、重连和 capability 行为
+- Plugin 的 rc.2 ApiProxy tunnel、alpha.1 Typert Remote tunnel、加密、重连和 capability 行为
 - Mock Host/Client 与协议 conformance fixtures
 
 当前仓库不负责实现 Server REST API、WebSocket Hub、数据库、Admin 或部署。本文出现的 Server endpoint 和行为用于约束独立 Server 项目，不表示应在当前仓库创建 Server 代码。
@@ -31,7 +31,8 @@ DSH Remote Protocol 定义 Host Plugin、DSH Remote Server 和 Remote Client 之
 - WebSocket authentication
 - WebRTC signaling 与 Relay routing
 - Host/Client 端到端安全通道
-- ApiProxy tunnel 的 unary、respond 与 mux/host streaming
+- rc.2 ApiProxy tunnel 的 unary、respond 与 mux/host streaming
+- alpha.1 Typert Remote 的 unary、stream 与 `$events` 双向事件 carrier
 - reconnect 与原生 stream 重建
 - capability 与版本协商
 - 错误码、限制和安全不变量
@@ -68,8 +69,9 @@ Secure Channel
 Remote Protocol
   RPC request / response / error / event
 
-Harness ApiProxy Tunnel
-  call / respond / mux stream / host stream
+Harness Business Tunnel
+  rc.2 ApiProxy call / respond / mux / host
+  alpha.1 Typert Remote call / stream / events
 ```
 
 业务层禁止直接调用 WebSocket、RTCPeerConnection 或 Server REST；必须通过 `RemoteTransport` 与 client/plugin core。
@@ -92,7 +94,7 @@ REST、Control frame 和解密后的 Remote message 使用 UTF-8 JSON。发送�
 - `deviceId`, `membershipId`, `connectionId`, `message.id`：UUIDv7 或 ULID 字符串。
 - `sessionId`：Harness 原生 SessionId，不由 Server 改写。
 - `requestId`：引用发起 RPC 的 Remote message `id`。
-- 内层 `rpcId`：Harness ApiProxy 原生 request/response correlation id，Plugin 不改写。
+- 内层 `rpcId`：Harness rc.2 ApiProxy 原生 request/response correlation id，Plugin 不改写；alpha.1 的关联由官方 Gateway carrier 负责。
 
 ID 只能用于定位，不能单独作为授权凭据。
 
@@ -598,9 +600,15 @@ Control-only 类型（hello, signaling, relay）禁止出现在 secure channel �
 
 ## 16. RPC
 
-Plugin Host 的业务路由只接受 ApiProxy tunnel：`harness.api.call`、
-`harness.api.transfer.open/chunk/commit/read/close`、`harness.api.respond`、
-`harness.api.stream.open`、`harness.api.stream.close`，以及在
+Plugin Host 的业务路由只接受 capability 对应的官方 Harness tunnel。rc.2 使用：`harness.api.call`、
+`harness.api.transfer.open`、`harness.api.transfer.chunk`、`harness.api.transfer.commit`、
+`harness.api.transfer.read`、`harness.api.transfer.close`、`harness.api.respond`、
+`harness.api.stream.open`、`harness.api.stream.close`。alpha.1 使用：
+`harness.remote.call`、`harness.remote.transfer.open`、`harness.remote.transfer.chunk`、
+`harness.remote.transfer.commit`、`harness.remote.transfer.read`、`harness.remote.transfer.close`、
+`harness.remote.stream.open`、`harness.remote.stream.close`。所有新旧 Host 都可接受只读的
+`harness.transport.describe` capability 探测；旧 Host 对此返回 `METHOD_NOT_FOUND`。
+此外只允许在
 `fileviewer.read.v1` capability 下的 `fileviewer.call`。
 旧 `system.info`、`workspace.get`、`sessions.*`、`session.*`、
 `permissions.respond`、`connection.ping` 与 `sync.from` 已退出 Plugin 协议，Host 必须返回
@@ -660,8 +668,9 @@ Plugin Host 的业务路由只接受 ApiProxy tunnel：`harness.api.call`、
 
 每个 request 必须恰好产生一个 response 或 error。事件不是 RPC 完成信号。调用端必须按 requestId 关联并在超时后丢弃晚到 response。
 
-调用端在结果未知时不得盲目重发原生 ApiProxy mutation。内层 `rpcId` 保持 Harness 的
-原生关联语义；外层 request id 只关联隧道 response/error。
+调用端在结果未知时不得盲目重发官方 Harness mutation。rc.2 内层 `rpcId` 保持 Harness 的
+原生关联语义；alpha.1 保持官方 Gateway 的 `{ ok, value|error }` envelope；外层 request id
+只关联隧道 response/error。
 
 ## 17. Capability
 
@@ -672,22 +681,30 @@ Host handshake 的 capability 例子：
   "transport.relay",
   "harness.api.v1",
   "harness.api.transfer.v1",
+  "harness.remote.v1",
+  "harness.remote.transfer.v1",
   "fileviewer.read.v1"
 ]
 ```
 
-ApiProxy contract 仍随 Desktop Plugin 发布物升级，但新增的可选业务能力必须保持加法兼容。
-在 Server 设备列表尚未暴露细粒度 capability 前，Desktop Client 使用 Host
-`clientVersion` 做保守降级：无法识别版本时不得调用新增 endpoint。
+建立 Noise channel 后，Desktop Client 必须先调用 `harness.transport.describe`，Params 为
+空对象，Result 为 `{ "capabilities": string[] }`。当前 Host 按实际注入服务动态返回
+`harness.api.v1` 或 `harness.remote.v1`，不得宣告不存在的 carrier。旧 Host 返回
+`METHOD_NOT_FOUND` 时，Client 才使用 `clientVersion` 做 rc.2 保守降级。
+
+ApiProxy 与 Typert Remote contract 仍随 Desktop Plugin 发布物升级，但新增的可选业务能力
+必须保持加法兼容。当前实现不翻译 rc.2 与 alpha.1 的完整 Harness 业务模型：本地与远端
+carrier 代际不一致时，Desktop Client 必须在选择目标、创建 Workspace 或其它 mutation 前
+返回 `HARNESS_VERSION_INCOMPATIBLE`。
 
 当前最低兼容矩阵：
 
-| Host Plugin | Remote Workspace / Session | `commands.list` | `fileviewer.read.v1` | rc.2 图片传输 |
+| Host Plugin / Harness | 业务 carrier | Remote Workspace / Session | File Viewer | 图片分块 |
 | --- | --- | --- | --- | --- |
-| `0.3.15` | 支持 | Client 返回空兼容目录 | 不支持，provider 不注册 | 不支持 |
-| `0.3.16` | 支持 | 支持 | 不支持，provider 不注册 | 不支持 |
-| `0.3.17–0.3.23` | 支持 | 支持 | Host 同时提供 dsh-file-viewer 服务时支持 | 不支持 |
-| `0.3.24+` | 支持 | 支持 | Host 同时提供 dsh-file-viewer 服务时支持 | 支持 `harness.api.transfer.v1` |
+| `0.3.15–0.3.23` / rc.2 | `harness.api.v1`（旧 Host 由版本降级识别） | 支持 | `0.3.17+` 且 provider 存在时支持 | 不支持 |
+| `0.3.24–0.3.36` / rc.2 | `harness.api.v1` | 支持 | provider 存在时支持 | `harness.api.transfer.v1` |
+| `0.4.0` / rc.2 | capability 探测返回 `harness.api.v1` | 支持 | provider 存在时支持 | `harness.api.transfer.v1` |
+| `0.4.0` / alpha.1 | capability 探测返回 `harness.remote.v1` | 支持 | provider 存在时支持 | `harness.remote.transfer.v1` |
 
 未知版本按 `0.3.15` 之前的能力处理。未来 Server 暴露 Host capability 后，应优先使用
 capability，`clientVersion` 仅保留为旧 Server 的兼容路径。
@@ -695,7 +712,7 @@ capability，`clientVersion` 仅保留为旧 Server 的兼容路径。
 ## 18. 数据结构
 
 本节 18.1–18.6 是冻结 Android 原型的旧投影，仅作历史记录，不是 Plugin Host 可接受或
-发出的结构。Desktop Plugin 的业务结构以对应版本官方 ApiProxy contract 为准。
+发出的结构。Desktop Plugin 的业务结构以 rc.2 官方 ApiProxy 或 alpha.1 官方 Typert Remote contract 为准。
 
 ### 18.1 SystemInfo
 
@@ -1000,6 +1017,66 @@ Open Params：
 
 `stream` 仅允许 `mux | host`，每条 peer connection 最多同时打开三个原生流：常驻的 host/mux 各一条，加一条 mux 切换缓冲。mux 流的 `payload` 可携带可选 `sessionId`（focus）：提供后 Host 只转发该 session 的 mux 帧（`session/event`、approval、question 等），其余 session 的流量不进入 tunnel；省略时转发全部。Remote Web 每次只关注一个 session，用 focus 避免把其他活跃 session 的大事件流（可能达数 MB）推过 WebRTC/relay 数据面。切换 session 时 Client 先打开新 mux，成功后立即关闭旧 mux；新流失败时保留旧流。Close Params：`{ "streamId": "client-stream-id" }`。`streamId` namespace、三条流上限和生命周期都属于发起它的 `connectionId`；不同 Client 可使用相同 `streamId`，不得互相关闭或接收对方的 tunnel event。连接替换、撤销或断开时 Host 只取消该 connection 的全部流。
 
+### Harness alpha.1 Typert Remote bridge
+
+`harness.remote.v1` 只承载 `dsh-v0.1.2-alpha.1` 官方 `TypertGateway` 已编码的 carrier
+envelope。Plugin 不解析或重建 Session、Workspace、Approval、Question 等业务模型，也不
+注册第二套 Remote namespace。
+
+#### `harness.remote.call`
+
+Params：
+
+```json
+{
+  "endpoint": "workspace/create",
+  "payload": { "args": { "request": { "path": "/workspace/project" } } }
+}
+```
+
+Result 必须保持官方 Connection RPC 结果：`{ "ok": true, "value"?: ... }` 或
+`{ "ok": false, "error": { "code", "message", "details" } }`。Host 通过启动时捕获的本地
+Gateway dispatcher 调用，禁止回到已切换的 Client facade 形成递归。
+
+固定 allowlist 包括原生 UI 所需的 Session、Workspace、Commands、Goals、Settings、
+Credentials、LLM、Skills、Subagents、Message Feedback、Plugin Inventory、File References、
+Session Reference 与只读 `directoryPicker/list` endpoints，以及 Gateway 内部的 `$events` 和
+`$events/result`。明确禁止 `directoryPicker/pick`、`directoryPicker/createDirectory`、
+`session/openWorkspacePath`、Settings/native open、动态 Cordis package/source/runtime 操作、
+Agent Preset copy/delete 和任何未列出的 endpoint。endpoint 必须命中代码内固定集合，不能
+根据 Typert registry 动态扩张。
+
+#### `harness.remote.stream.open` / `harness.remote.stream.close`
+
+Open Params：`{ "streamId", "endpoint", "payload" }`；Close Params：`{ "streamId" }`。
+`endpoint` 可为 allowlisted stream Remote（例如 `workspace/follow`、`session/follow`、
+`session/control`）或 `$events`。每个 authenticated connection 最多 16 条 alpha stream；
+stream id、取消和断开清理均按 `connectionId` 隔离。
+
+Host 对每个 item 发送 `harness.remote.frame`：
+
+```json
+{ "streamId": "...", "hasValue": true, "value": {} }
+```
+
+`value` 可省略，此时 `hasValue: true` 表示官方 stream 实际产生了一个 `undefined` item，
+不能把它解释成流结束。终止通过 `harness.remote.stream.closed` 单独发送，reason 为
+`cancelled|completed|failed|peer-disconnected`；`failed` 可携带 Gateway 归一化后的
+`failure: { code, message, details }`。
+
+`$events` 是官方 alpha Gateway 的 Host-to-Client Cordis event stream。Client 对 waterfall
+事件的结果必须经 allowlisted `$events/result` unary endpoint 返回原 Host；Plugin 不创造
+permission id、decision enum 或额外响应状态机。
+
+#### `harness.remote.transfer.*`
+
+`harness.remote.transfer.v1` 是 `harness.remote.call` 的有界分块封装。操作、512 KiB chunk、
+288 MiB 总大小、严格有序/恰好一次、canonical base64、每连接输入/输出各两个 transfer 和
+2 分钟 idle 规则与 `harness.api.transfer.v1` 相同。重组后的 JSON 必须仍是
+`{ endpoint, payload }`，并再次经过同一固定 endpoint allowlist；它不能绕过 Gateway 或
+扩展可调用业务面。直接调用若收到 `RESPONSE_TOO_LARGE`，Client 必须以相同请求自动重试一次
+该分块路径；其他错误不得触发隐式重试。
+
 ### File Viewer read bridge
 
 `fileviewer.read.v1` 仅用于把已安装 `dsh-file-viewer` 的现有只读能力带到 Remote UI，
@@ -1032,8 +1109,9 @@ Host 必须调用 `fileViewerHost` 服务，让被选中的 File Viewer provider
 
 ## 20. Events
 
-Plugin 当前只发送 `harness.api.frame` 与 `harness.api.stream.closed`。本节其余 Remote
-Event 名称属于冻结 Android 原型，不得据此恢复 Host 事件投影层。
+Plugin 按 Harness 代际发送 `harness.api.frame` / `harness.api.stream.closed`，或
+`harness.remote.frame` / `harness.remote.stream.closed`。本节其余 Remote Event 名称属于
+冻结 Android 原型，不得据此恢复 Host 事件投影层。
 
 Event envelope：
 
@@ -1127,6 +1205,16 @@ data：`{ "streamId": "...", "frame": RpcRequest<MuxFrame | HostFrame> }`。该 
 ### `harness.api.stream.closed`
 
 data：`{ "streamId": "...", "reason": "cancelled|completed|failed|peer-disconnected" }`。Client 收到后必须结束对应 iterator；transport 意外关闭时本地模式切换器必须 fail closed，不得继续向旧 Host 提交请求。
+
+### `harness.remote.frame`
+
+data：`{ "streamId": "...", "hasValue": true, "value"?: unknown }`。`hasValue` 区分显式
+`undefined` item 与无数据；该 event 不进入通用 seq replay buffer。
+
+### `harness.remote.stream.closed`
+
+data：`{ "streamId": "...", "reason": "cancelled|completed|failed|peer-disconnected", "failure"?: { "code", "message", "details" } }`。
+Client 收到后结束对应 iterator；`failed` 必须以 Gateway 归一化 failure 拒绝 iterator。
 
 ## 21. Event Replay 与重连
 
@@ -1253,8 +1341,8 @@ pong 回显 nonce。Heartbeat 不能携带业务数据。
 | Control JSON frame | 64 KiB |
 | Relay ciphertext frame | 1 MiB |
 | Reassembled secure message | 4 MiB |
-| Harness ApiProxy transfer chunk（解码后） | 512 KiB |
-| Harness ApiProxy transfer | 288 MiB；每连接输入/输出各 2 个；2 min idle |
+| Harness business transfer chunk（解码后） | 512 KiB |
+| Harness ApiProxy / Typert Remote transfer | 288 MiB；每连接输入/输出各 2 个；2 min idle |
 | File Viewer range / RPC | 512 KiB |
 | File Viewer directory entries / RPC | 1,000 |
 | RPC text input | 64 KiB |
@@ -1277,7 +1365,7 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 4. TLS/WSS 不能替代 Noise secure channel。
 5. Client 不能请求通用 shell/filesystem RPC 绕过 Harness。
 6. Permission 只能映射 Harness 当前 request，默认 fail closed。
-7. `harness.api.call.method` 必须命中编译期固定 allowlist；禁止通过对象反射、Cordis service 名或任意 endpoint 扩权。
+7. `harness.api.call.method` 与 `harness.remote.call.endpoint` 必须命中各自编译期固定 allowlist；禁止通过对象反射、Typert/Cordis registry、service 名或任意 endpoint 扩权。
 8. 当前 Harness v1 只允许 Remote `allow_once`/`deny`，不得伪造 session grant。
 9. Device revoke 使 token、membership 和现有 connection 失效。
 10. 重放/乱序/身份不匹配的 secure frame 必须拒绝。

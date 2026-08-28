@@ -5,33 +5,33 @@
 ## 1. 目的
 
 统一 Desktop 双角色 Plugin 与外部 Server 的身份、加密、连接和传输边界。Harness 业务层以
-官方 `ApiProxy` 为唯一事实来源；可选文件预览以 `dsh-file-viewer` provider 为唯一授权来源，
+rc.2 官方 `ApiProxy` 或 alpha.1 官方 Typert Remote Gateway 为唯一事实来源；可选文件预览以 `dsh-file-viewer` provider 为唯一授权来源，
 不再维护平行的 Remote Session/Event 或文件系统协议。
-Android 源码暂时保留，但在迁移到 ApiProxy 前不属于当前可用链路。
+Android 继续使用 ApiProxy-only 数据面，与 Desktop alpha.1 Gateway 适配相互独立。
 
 ## 2. 包边界
 
 | 包 | 职责 | 不负责 |
 | --- | --- | --- |
-| `@dsh-remote/protocol` | Control/Relay envelope 与 ApiProxy 隧道 envelope | Harness 业务模型、UI |
+| `@dsh-remote/protocol` | Control/Relay envelope 与 ApiProxy/Typert Remote 隧道 envelope | Harness 业务模型、UI |
 | `@dsh-remote/crypto` | 设备密钥、Noise IK、AEAD counter | 设备授权、传输选择 |
 | `@dsh-remote/webrtc` | Relay、LAN、WebRTC/TURN transport 抽象 | ApiProxy、会话状态 |
 | `@dsh-remote/client-core` | 隧道 RPC 关联和事件分发 | Harness 业务 reducer、UI |
-| `@dsh-remote/plugin` | 账号设备接入、peer pinning、secure channel、ApiProxy allowlist、File Viewer 只读桥和 Local/Remote switch | Server runtime、Harness 业务重建、通用文件系统访问 |
+| `@dsh-remote/plugin` | 账号设备接入、peer pinning、secure channel、ApiProxy/Typert Remote allowlist、File Viewer 只读桥和 Local/Remote switch | Server runtime、Harness 业务重建、通用文件系统访问 |
 
 ## 3. 端到端边界
 
 ```text
 Harness Web UI
-  -> Client Plugin ApiProxySwitch
-  -> RemoteHarnessApiProxy
+  -> ApiProxySwitch (rc.2) / TypertGatewaySwitch (alpha.1)
+  -> RemoteHarnessApiProxy / RemoteTypertGateway
   -> Noise secure channel
   -> opaque Server relay
-  -> Host Plugin HarnessApiBridge
-  -> official Host ApiProxy
+  -> Host Plugin HarnessApiBridge / HarnessRemoteBridge
+  -> official Host ApiProxy / TypertGateway
 ```
 
-Server 可以读取路由和连接元数据，但不能解密 ApiProxy payload。
+Server 可以读取路由和连接元数据，但不能解密 Harness business payload。
 
 ## 4. 身份与账号授权
 
@@ -53,20 +53,25 @@ Secure channel 中只接受：
 - `harness.api.respond`
 - `harness.api.stream.open`
 - `harness.api.stream.close`
+- `harness.remote.call`
+- `harness.remote.stream.open`
+- `harness.remote.stream.close`
+- `harness.transport.describe`
 - `fileviewer.call`（Host 宣告 `fileviewer.read.v1` 时，仅 stat/readRange/list）
-- 对应 response/error 与 `harness.api.frame`、`harness.api.stream.closed`
+- 对应 response/error 与 `harness.api.*`、`harness.remote.*` stream events
 
 Session、Message、Tool、Approval、Question、Workspace 和 Goal 的结构全部沿用对应版本
-的官方 ApiProxy contract。Plugin 不复制其 schema，也不提供旧 `sessions.*`、
+的官方 ApiProxy 或 Typert Remote contract。Plugin 不复制其 schema，也不提供旧 `sessions.*`、
 `session.send`、`permissions.respond` 或 `sync.from`。
 
 `fileviewer.call` 不承载 Harness 业务对象，只把 File Viewer provider 已授权的只读内容以
 不超过 512 KiB 的分块传输；禁止 openExternal、文件修改与任意 endpoint。
 
 Client 与 Host Plugin 推荐安装同一发布物。对已经发布的 Host，新增业务 endpoint 必须
-保留加法兼容：Client 先依据 Host capability（旧 Server 暂用 `clientVersion`）判断，旧版
-不支持时回退已有本地行为或禁用可选能力，不能让 Workspace/Session 基线失效。ApiProxy
-本身的破坏性 schema 变化仍需要提升协议版本，不能只依赖 Plugin 版本字符串。
+保留加法兼容：Client 先在 Noise channel 内调用 `harness.transport.describe`；旧 Host 返回
+`METHOD_NOT_FOUND` 时才使用 `clientVersion` 作为 rc.2 降级。rc.2 与 alpha.1 carrier 不一致
+时在 mutation 前明确拒绝。官方 carrier 本身的破坏性 schema 变化仍需要提升协议版本，
+不能只依赖 Plugin 版本字符串。
 
 ## 6. 传输与恢复
 
@@ -77,7 +82,7 @@ Client 与 Host Plugin 推荐安装同一发布物。对已经发布的 Host，�
 
 1. pending tunnel RPC 失败；
 2. 原生 mux/host stream 结束；
-3. Desktop `ApiProxySwitch` 立即回落 Local；
+3. Desktop `ApiProxySwitch` 或 `TypertGatewaySwitch` 立即回落 Local；
 4. 再次选择 Remote 时重新建 Noise channel，并由官方 UI 重新打开 stream、读取 history baseline。
 
 Plugin 不维护第二套 seq replay buffer 或 full-resync 机制。
@@ -86,7 +91,7 @@ Plugin 不维护第二套 seq replay buffer 或 full-resync 机制。
 
 - Plugin 只建立出站连接，不监听公网端口。
 - 业务 payload 只能进入完成 Noise IK 和 membership/trust 校验的 channel。
-- Host 以固定 allowlist 代理 ApiProxy；已认证 Remote peer 可通过官方 seam 管理 Host 实时注册的 settings 命名空间和全局 credential 引用，credential 值只写且 payload 有界。File Viewer 使用独立的 stat/readRange/list allowlist。禁止 `settings.openDocument`、任意目录访问、native open、attachment upload、下载和文件写入。
+- Host 以固定 allowlist 代理 ApiProxy 或 Typert Remote endpoint；已认证 Remote peer 可通过官方 seam 管理 Host 实时注册的 settings 命名空间和全局 credential 引用，credential 值只写且 payload 有界。File Viewer 使用独立的 stat/readRange/list allowlist。禁止 `settings.openDocument`、任意目录访问、native open、attachment upload、下载和文件写入。
 - 未知 method、错误 target、重放、counter gap、identity mismatch 全部 fail closed。
 - token、私钥、主机匹配码、prompt、源码、工具输出和 ciphertext 不写日志。
 
@@ -95,5 +100,5 @@ Plugin 不维护第二套 seq replay buffer 或 full-resync 机制。
 - Control/Relay 编解码、版本和 frame limits。
 - Noise transcript、identity binding、篡改和重放拒绝。
 - 主机匹配码单次消费、同账号 membership 与 local pinned trust 双重授权。
-- ApiProxy allowlist、RPC 关联、stream open/close、断线清理。
+- ApiProxy/Typert Remote allowlist、RPC 关联、stream open/close、断线清理。
 - transport fallback/reconnect 状态机。

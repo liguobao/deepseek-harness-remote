@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0
+
+- Adds DeepSeek Harness `dsh-v0.1.2-alpha.1` Desktop support through the
+  official Typert Remote Gateway carrier while retaining the
+  `dsh-v0.1.1-rc.2` ApiProxy path.
+- Adds encrypted Host capability discovery, alpha unary/stream/event routing,
+  bounded large-envelope transfers, and a fixed fail-closed endpoint allowlist.
+- Keeps a `0.4.0` Client running rc.2 compatible with older rc.2 Hosts through
+  the legacy capability fallback.
+- Does not translate Harness generations: alpha.1 and rc.2 Desktop endpoints
+  cannot open one another and are rejected before native UI switching or
+  Workspace mutation.
+- Advances the Plugin and Android app to `0.4.0` (`versionCode 20`).
+
 ## 0.3.36
 
 - Replaces `v0.3.35`; the previous Release and tag were withdrawn so recent

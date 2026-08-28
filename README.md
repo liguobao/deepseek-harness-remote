@@ -38,7 +38,7 @@ Return to the same Harness session from whichever device is with you. Harness ke
 ## Features
 
 - Continue active sessions and review their latest progress from another device
-- Send new instructions, change direction, and use image prompts with Harness `dsh-v0.1.1-rc.2`
+- Send new instructions, change direction, and use image prompts with Harness `dsh-v0.1.1-rc.2` or `dsh-v0.1.2-alpha.1`
 - Answer questions and permission requests from clients with live conversation controls
 - Open workspaces from another authorized computer on the same account
 - Reuse the native Harness interface instead of maintaining a separate desktop conversation UI
@@ -57,7 +57,7 @@ Linux. Remote is included and enabled by default, so no separate plugin installa
 Install the exact npm version for the `web` profile:
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.3.36
+dsh plugin --profile web add ds-harness-remote@0.4.0
 ```
 
 Restart Harness after installation.
@@ -139,7 +139,15 @@ API. Credential values remain write-only, and Host-local document/open actions a
 
 ## Compatibility
 
-Compatible with DeepSeek Harness `dsh-v0.1.1-rc.2`.
+Plugin `0.4.0` supports DeepSeek Harness `dsh-v0.1.1-rc.2` through the legacy
+official `ApiProxy` and `dsh-v0.1.2-alpha.1` through the official Typert Remote
+Gateway. A `0.4.0` Client running rc.2 remains compatible with older rc.2 Hosts
+through the legacy capability fallback.
+
+Both Desktop endpoints must use the same Harness transport generation. Plugin
+`0.4.0` does not translate rc.2 and alpha.1 business models: an alpha.1 Client
+cannot open an rc.2 Host, and an rc.2 Client cannot open an alpha.1 Host. Mixed
+connections are rejected before switching the native UI or mutating a Workspace.
 
 ## Documentation
 

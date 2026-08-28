@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { RpcId, type ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { createEvent } from '@dsh-remote/protocol'
 import { ConnectionController } from './connection-controller.js'
 import type { ResolvedConfig } from './config.js'
@@ -16,6 +16,8 @@ import { HostServerApi, ServerApiError, type DeviceAuthorization } from './serve
 import { HostServerConnection } from './server-connection.js'
 import { ServerCredentialStore } from './server-credentials.js'
 import { HarnessApiBridge, type TypertGatewayLike } from './harness-api-bridge.js'
+import { HarnessRemoteBridge } from './harness-remote-bridge.js'
+import type { LocalTypertGateway } from './typert-gateway-contract.js'
 import { loadNodeRtcFactory } from './werift-rtc.js'
 import type { AuthenticatedPeerChannel } from './types.js'
 
@@ -42,25 +44,34 @@ export class HostPluginRuntime {
   constructor(
     private readonly config: ResolvedConfig,
     private readonly identities: IdentityStore,
-    private readonly apiProxy: ApiProxy,
+    private readonly apiProxy: ApiProxy | undefined,
     private readonly logger: SafeLogger,
-    typertGateway?: () => TypertGatewayLike | undefined,
+    private readonly localGateway?: LocalTypertGateway,
     private readonly fileViewerHost?: () => FileViewerHostServiceLike | undefined,
   ) {
     this.connections = new ConnectionController(this.identities, (_context, send) => {
-      const harnessApi = new HarnessApiBridge(
-        this.apiProxy,
-        (event, data) => send(createEvent(event, data)),
-        undefined,
-        this.logger,
-        typertGateway?.(),
-        this.harnessVersion,
-      )
+      const harnessApi = this.apiProxy === undefined
+        ? undefined
+        : new HarnessApiBridge(
+            this.apiProxy,
+            (event, data) => send(createEvent(event, data)),
+            undefined,
+            this.logger,
+            this.localGateway as TypertGatewayLike | undefined,
+            this.harnessVersion,
+          )
+      const harnessRemote = this.localGateway?.supportsCarrier === true
+        ? new HarnessRemoteBridge(
+            this.localGateway,
+            (event, data) => send(createEvent(event, data)),
+            this.logger,
+          )
+        : undefined
       const fileViewer = new RemoteFileViewerBridge(
         () => this.fileViewerHost?.(),
         this.logger,
       )
-      return new RpcRouter(harnessApi, undefined, this.logger, fileViewer)
+      return new RpcRouter(harnessApi, undefined, this.logger, fileViewer, harnessRemote, () => this.hostCapabilities())
     }, this.logger)
     if (config.serverUrl !== undefined) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory))
@@ -212,9 +223,7 @@ export class HostPluginRuntime {
       this.config.forceRelay
         ? undefined
         : () => loadNodeRtcFactory({ routeTargets: this.config.serverUrl === undefined ? [] : [this.config.serverUrl] }),
-      () => this.fileViewerHost?.() === undefined
-        ? ['harness.api.v1']
-        : ['harness.api.v1', 'fileviewer.read.v1'],
+      () => this.hostCapabilities(),
       this.harnessVersion,
     )
   }
@@ -223,7 +232,8 @@ export class HostPluginRuntime {
     let reportedVersion: string | undefined
     let errorCode: string | undefined
     try {
-      const response = await this.apiProxy.host.describe({ rpcId: RpcId(randomUUID()), payload: {} })
+      const response = await this.apiProxy?.host.describe({ rpcId: randomUUID() as never, payload: {} })
+      if (response === undefined) throw new Error('ApiProxy is unavailable')
       if (!response.result.ok) {
         errorCode = response.result.error.code
       } else {
@@ -239,6 +249,16 @@ export class HostPluginRuntime {
     if (version !== undefined) return version
     this.logger.warn('Harness version is unavailable', errorCode === undefined ? undefined : { code: errorCode })
     return undefined
+  }
+
+  private hostCapabilities(): string[] {
+    const capabilities: string[] = []
+    if (this.apiProxy !== undefined) capabilities.push('harness.api.v1', 'harness.api.transfer.v1')
+    if (this.localGateway?.supportsCarrier === true) {
+      capabilities.push('harness.remote.v1', 'harness.remote.transfer.v1')
+    }
+    if (this.fileViewerHost?.() !== undefined) capabilities.push('fileviewer.read.v1')
+    return capabilities
   }
 }
 

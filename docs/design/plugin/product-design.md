@@ -6,8 +6,8 @@
 ## 1. 产品定位
 
 Remote Plugin 同时承担 Host 和 Desktop Client 两个角色。Host 把官方 Harness
-`ApiProxy` 的安全子集接入端到端加密通道；Remote runtime 让官方 Harness UI 使用同账号
-Host 上的工作区。产品不呈现 Client 模式开关。
+rc.2 `ApiProxy` 或 alpha.1 Typert Remote Gateway 的安全子集接入端到端加密通道；Remote
+runtime 让官方 Harness UI 使用同账号 Host 上的工作区。产品不呈现 Client 模式开关。
 
 Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新实现 Harness 会话协议。
 
@@ -17,7 +17,7 @@ Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新�
 2. 本地 Harness 的 Remote 身份使用相同 Server 和账号自动注册或完成一次账号授权。
 3. Server 建立同账号 membership，双端从受保护设备详情固定对端公钥。
 4. 用户从侧边栏 Remote 入口选择 Host，再选择已有工作区或浏览远端目录添加工作区。
-5. 本地官方 Harness UI 通过远端 ApiProxy 工作；退出或断线时回到本机 ApiProxy。
+5. 本地官方 Harness UI 通过与本机同代的远端 ApiProxy 或 Typert Gateway 工作；退出或断线时回到对应本地 carrier。
 
 ## 3. MVP 范围
 
@@ -26,8 +26,9 @@ Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新�
 - 按 Server origin 与 Host/Client 角色隔离身份和 credential。
 - 同账号 membership、双端 pinned peer 与设备撤销。
 - Host 主动建立 WSS，Relay 上运行 Noise IK。
-- ApiProxy 固定 allowlist、unary call、respond、mux/host stream。
-- 后台 Local/Remote ApiProxy switch 和断线回落，不暴露模式开关。
+- rc.2 ApiProxy 与 alpha.1 Typert Remote endpoint 固定 allowlist、unary、stream 和 approval/question response。
+- 后台 Local/Remote ApiProxy 或 Gateway switch 和断线回落，不暴露模式开关。
+- 加密 capability 探测、legacy Host 降级与 rc.2/alpha.1 混连 fail-closed。
 - Settings 插件卡片、Remote 模态框、远程状态 Header 和脱敏诊断。
 - 主机列表过滤本机，并显示 OS、Harness 版本、Plugin 版本与在线状态。
 - 已有 Workspace 选择与只读远端目录浏览。
@@ -45,9 +46,9 @@ Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新�
 
 ## 5. 权限体验
 
-远端 UI 看到并回答的是 Harness ApiProxy mux 原生 approval/question frame。Plugin 不翻译
-permission 数据，也不新增授权范围。最终裁决、过期、重复响应和取消均由 Host Harness
-的官方 ApiProxy/approval 实现负责。
+远端 UI 看到并回答的是 rc.2 ApiProxy mux 或 alpha.1 `$events` 的原生
+approval/question frame。Plugin 不翻译 permission 数据，也不新增授权范围。最终裁决、过期、
+重复响应和取消均由 Host Harness 的官方业务层实现负责。
 
 ## 6. 安全承诺
 
@@ -65,6 +66,6 @@ permission 数据，也不新增授权范围。最终裁决、过期、重复响
 3. Host 完成账号授权注册后只使用 device credential 常驻。
 4. Host/Client 同账号注册后自动获得 membership，并固定对端 identity key。
 5. 本地 Harness 可选择同账号 Host 和工作区，通过官方 UI 创建和继续远端会话。
-6. Remote unary、mux/host stream 与 approval response 全部经过 ApiProxy allowlist。
+6. Remote unary、stream 与 approval response 全部经过当前 Harness 代际的固定 allowlist。
 7. 远端连接关闭后 Client 结束旧流并回落 Local。
 8. Relay capture 无法解密 payload；篡改、重放和 identity mismatch 被拒绝。

@@ -57,6 +57,58 @@ describe('Cordis plugin lifecycle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('loads against the alpha Remote Gateway when ApiProxy is absent', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-remote-alpha-cordis-'))
+    directories.push(dshHome)
+    vi.stubEnv('DSH_HOME', dshHome)
+
+    const ctx = new Context()
+    ctx.provide('settings', settings({ deviceName: 'Cordis alpha host' }))
+    ctx.provide('typertGateway', {
+      invoke: vi.fn(async () => undefined),
+      dispatchRpc: vi.fn(async () => ({ ok: true, value: undefined })),
+      openWireStream: vi.fn(async () => (async function* () { return })()),
+      wireStream: {
+        open: vi.fn(async () => (async function* () { return })()),
+        failure: vi.fn(() => ({ code: 'internal', message: 'failed', details: {} })),
+      },
+    } as never)
+    ctx.provide('connection', connection())
+
+    const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis alpha host' })
+
+    await vi.waitFor(() => {
+      expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis alpha host' })
+      expect(ctx.dshRemote.diagnostics()).toMatchObject({ loaded: true })
+    })
+
+    await fiber.dispose()
+    expect(ctx.get('dshRemote')).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('waits for a late legacy ApiProxy instead of activating rc.2 without it', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-remote-late-apiproxy-'))
+    directories.push(dshHome)
+    vi.stubEnv('DSH_HOME', dshHome)
+
+    const ctx = new Context()
+    ctx.provide('settings', settings({ deviceName: 'Cordis delayed rc.2 host' }))
+    ctx.provide('typertGateway', typertGateway())
+    ctx.provide('connection', connection())
+    const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis delayed rc.2 host' })
+
+    expect(ctx.get('dshRemote')).toBeUndefined()
+    ctx.provide('apiProxy', apiProxy())
+    await vi.waitFor(() => {
+      expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis delayed rc.2 host' })
+    })
+
+    await fiber.dispose()
+    expect(ctx.get('dshRemote')).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('starts the retained Client runtime for a saved Client configuration', async () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-remote-host-only-'))
     directories.push(dshHome)

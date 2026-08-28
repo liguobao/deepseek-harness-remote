@@ -12,10 +12,11 @@ import { ClientSecureTransport } from './client-secure-transport.js'
 import type { ResolvedConfig } from './config.js'
 import { CONTROL_RPC_PREFIX } from './control-route.js'
 import type { HostIdentity, IdentityStore, TrustedPeer } from './identity-store.js'
-import type { TypertGatewayLike } from './harness-api-bridge.js'
+import type { TypertGatewayLike } from './typert-gateway-contract.js'
 import { uuidV7 } from './ids.js'
 import type { SafeLogger } from './logging.js'
 import { RemoteHarnessApiProxy } from './remote-api-proxy.js'
+import { RemoteTypertGateway } from './remote-typert-gateway.js'
 import {
   ClientServerApi,
   ServerApiError,
@@ -37,6 +38,8 @@ interface ConnectedRemote {
 export interface RemoteHostFeatures {
   commandList: boolean
   fileViewer: boolean
+  apiProxy: boolean
+  remoteGateway: boolean
 }
 
 const REMOTE_COMMAND_LIST_MIN_VERSION = [0, 3, 16] as const
@@ -114,7 +117,7 @@ export class ClientModeRuntime {
   private identity?: HostIdentity
   private connected?: ConnectedRemote
   private pendingWorkspaceSelection?: RemoteWorkspaceSelection
-  private readonly proxySwitch: ApiProxySwitch
+  private readonly proxySwitch?: ApiProxySwitch
   private readonly gatewaySwitch: TypertGatewaySwitch
   private closed = false
 
@@ -122,13 +125,13 @@ export class ClientModeRuntime {
     private readonly config: ResolvedConfig,
     private readonly identities: IdentityStore,
     private readonly server: ClientServerApi,
-    apiProxy: ApiProxy,
+    apiProxy: ApiProxy | undefined,
     typertGateway: TypertGatewayLike,
     private readonly logger: SafeLogger,
     private readonly host?: HostAuthorizationControl,
     private readonly rtcFactoryProvider: (options?: WeriftFactoryOptions) => Promise<RtcPeerConnectionFactory | undefined> = loadNodeRtcFactory,
   ) {
-    this.proxySwitch = new ApiProxySwitch(apiProxy)
+    this.proxySwitch = apiProxy === undefined ? undefined : new ApiProxySwitch(apiProxy)
     this.gatewaySwitch = new TypertGatewaySwitch(typertGateway)
   }
 
@@ -136,7 +139,7 @@ export class ClientModeRuntime {
     if (this.closed) throw new Error('client remote-mode runtime is closed')
     this.identity = await this.identities.loadOrCreate(this.config.deviceName)
     this.server.bindIdentity(this.identity)
-    this.proxySwitch.install()
+    this.proxySwitch?.install()
     this.gatewaySwitch.install()
     this.logger.info('client remote-mode identity ready', {
       deviceId: shortId(this.identity.deviceId),
@@ -151,13 +154,16 @@ export class ClientModeRuntime {
   }
 
   status(): Record<string, unknown> {
+    const targetStatus = this.gatewaySwitch.supportsCarrier()
+      ? this.gatewaySwitch.status()
+      : this.proxySwitch?.status() ?? this.gatewaySwitch.status()
     return {
       available: this.config.serverUrl !== undefined,
       identityReady: this.identity !== undefined,
       deviceId: this.identity?.deviceId,
       deviceName: this.identity?.name,
       serverUrl: this.config.serverUrl,
-      ...this.proxySwitch.status(),
+      ...targetStatus,
       connected: this.connected !== undefined,
       transport: this.connected?.client.getStats().mode ?? 'Disconnected',
       preferredTransports: this.config.forceRelay ? ['relay'] : ['lan', 'p2p', 'turn', 'relay'],
@@ -237,7 +243,7 @@ export class ClientModeRuntime {
     const previous = this.connected
     this.connected = undefined
     this.pendingWorkspaceSelection = undefined
-    this.proxySwitch.selectLocal()
+    this.proxySwitch?.selectLocal()
     this.gatewaySwitch.selectLocal()
     await previous?.client.close().catch(() => undefined)
     await this.server.revokeCurrentDevice()
@@ -258,7 +264,7 @@ export class ClientModeRuntime {
 
   async setMode(mode: HarnessMode, targetDeviceId?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     if (mode === 'local') {
-      this.proxySwitch.selectLocal()
+      this.proxySwitch?.selectLocal()
       this.gatewaySwitch.selectLocal()
       const previous = this.connected
       this.connected = undefined
@@ -271,12 +277,16 @@ export class ClientModeRuntime {
       throw new ClientModeError('INVALID_MESSAGE', 'A targetDeviceId is required for remote mode.')
     }
     const next = await this.connect(targetDeviceId, signal)
+    try {
+      this.assertRemoteCompatible(next)
+    } catch (error) {
+      await next.client.close().catch(() => undefined)
+      throw error
+    }
     const previous = this.connected
     this.connected = next
     this.pendingWorkspaceSelection = undefined
-    const remoteApi = new RemoteHarnessApiProxy(next.client).api
-    this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name })
-    this.selectRemoteCommands(next)
+    this.selectRemoteTarget(next)
     await previous?.client.close().catch(() => undefined)
     this.logger.info('Harness target switched', { mode: 'remote', targetDeviceId: shortId(next.target.deviceId) })
     return this.status()
@@ -284,6 +294,15 @@ export class ClientModeRuntime {
 
   async listRemoteDirectory(targetDeviceId: string, path?: string, signal?: AbortSignal): Promise<RemoteDirectoryListing> {
     const remote = await this.ensureConnected(targetDeviceId, signal)
+    if (remote.features.remoteGateway) {
+      const value = await new RemoteTypertGateway(remote.client).invoke({
+        namespace: 'directoryPicker',
+        method: 'list',
+        args: path === undefined ? {} : { path },
+        ...(signal === undefined ? {} : { signal }),
+      })
+      return value as RemoteDirectoryListing
+    }
     const api = new RemoteHarnessApiProxy(remote.client).api
     const response = await api.host.listDirectory({
       rpcId: `remote-directory-${Date.now()}` as never,
@@ -294,6 +313,9 @@ export class ClientModeRuntime {
 
   async listRemoteWorkspaces(targetDeviceId: string, signal?: AbortSignal): Promise<RemoteWorkspaceView[]> {
     const remote = await this.ensureConnected(targetDeviceId, signal)
+    if (remote.features.remoteGateway) {
+      return readRemoteWorkspaceBaseline(new RemoteTypertGateway(remote.client), signal)
+    }
     const api = new RemoteHarnessApiProxy(remote.client).api
     const response = await api.workspace.list({
       rpcId: `remote-workspaces-${Date.now()}` as never,
@@ -306,14 +328,24 @@ export class ClientModeRuntime {
   async openRemoteWorkspace(targetDeviceId: string, path: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     if (path.trim() === '') throw new ClientModeError('INVALID_MESSAGE', 'A remote working directory is required.')
     const remote = await this.ensureConnected(targetDeviceId, signal)
-    const api = new RemoteHarnessApiProxy(remote.client).api
-    const response = await api.workspace.create({
-      rpcId: `remote-workspace-${Date.now()}` as never,
-      payload: { path },
-    })
-    const workspace = unwrapNativeResult<{ workspace: unknown; created: boolean }>(response)
-    this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name })
-    this.selectRemoteCommands(remote)
+    this.assertRemoteCompatible(remote)
+    let workspace: { workspace: unknown; created: boolean }
+    if (remote.features.remoteGateway) {
+      workspace = await new RemoteTypertGateway(remote.client).invoke({
+        namespace: 'workspace',
+        method: 'create',
+        args: { request: { path } },
+        ...(signal === undefined ? {} : { signal }),
+      }) as { workspace: unknown; created: boolean }
+    } else {
+      const api = new RemoteHarnessApiProxy(remote.client).api
+      const response = await api.workspace.create({
+        rpcId: `remote-workspace-${Date.now()}` as never,
+        payload: { path },
+      })
+      workspace = unwrapNativeResult<{ workspace: unknown; created: boolean }>(response)
+    }
+    this.selectRemoteTarget(remote)
     const workspaceId = workspaceRecordId(workspace.workspace)
     this.pendingWorkspaceSelection = { targetDeviceId: remote.target.deviceId, workspaceId }
     this.logger.info('Remote workspace opened', { targetDeviceId: shortId(remote.target.deviceId) })
@@ -331,12 +363,12 @@ export class ClientModeRuntime {
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
-    this.proxySwitch.selectLocal()
+    this.proxySwitch?.selectLocal()
     this.gatewaySwitch.selectLocal()
     this.pendingWorkspaceSelection = undefined
     await this.connected?.client.close().catch(() => undefined)
     this.connected = undefined
-    this.proxySwitch.restore()
+    this.proxySwitch?.restore()
     this.gatewaySwitch.restore()
   }
 
@@ -346,7 +378,7 @@ export class ClientModeRuntime {
     signal?: AbortSignal,
   ): Promise<unknown> {
     const remote = this.connected
-    if (remote === undefined || this.proxySwitch.status().mode !== 'remote') {
+    if (remote === undefined || this.status().mode !== 'remote') {
       throw new ClientModeError('REMOTE_NOT_CONNECTED', 'No Remote Host is selected.', true)
     }
     if (!remote.features.fileViewer) {
@@ -355,11 +387,29 @@ export class ClientModeRuntime {
     return remote.client.rpc('fileviewer.call', { endpoint, payload }, signal)
   }
 
-  private selectRemoteCommands(remote: ConnectedRemote): void {
+  private selectRemoteTarget(remote: ConnectedRemote): void {
+    const target = { deviceId: remote.target.deviceId, name: remote.target.name }
+    if (this.gatewaySwitch.supportsCarrier()) {
+      this.gatewaySwitch.selectRemote(new RemoteTypertGateway(remote.client), undefined, target)
+      return
+    }
+    this.proxySwitch!.selectRemote(new RemoteHarnessApiProxy(remote.client).api, target)
     this.gatewaySwitch.selectRemote(request => invokeRemoteCommand(remote.client, request), {
       execute: true,
       list: remote.features.commandList,
-    })
+    }, target)
+  }
+
+  private assertRemoteCompatible(remote: ConnectedRemote): void {
+    const localRemoteGateway = this.gatewaySwitch.supportsCarrier()
+    if ((localRemoteGateway && remote.features.remoteGateway)
+      || (!localRemoteGateway && this.proxySwitch !== undefined && remote.features.apiProxy)) return
+    throw new ClientModeError(
+      'HARNESS_VERSION_INCOMPATIBLE',
+      localRemoteGateway
+        ? 'The selected Host does not provide the Harness alpha Remote Gateway transport.'
+        : 'The selected Host does not provide the legacy Harness ApiProxy transport.',
+    )
   }
 
   private async connect(targetDeviceId: string, signal?: AbortSignal): Promise<ConnectedRemote> {
@@ -433,7 +483,7 @@ export class ClientModeRuntime {
         if (this.connected?.client !== connectedClient) return
         this.connected = undefined
         this.pendingWorkspaceSelection = undefined
-        this.proxySwitch.selectLocal()
+        this.proxySwitch?.selectLocal()
         this.gatewaySwitch.selectLocal()
         void connectedClient.close().catch(() => undefined)
         this.logger.warn('remote Harness transport closed; falling back to local mode', {
@@ -446,7 +496,8 @@ export class ClientModeRuntime {
         transport: connectedClient.getStats().mode,
         ...webrtcDiagnosticsLogFields(connectionDetails?.webRtc?.diagnostics),
       })
-      return { client: connectedClient, target, transport: connectedTransport, features: remoteHostFeatures(serverDevice.clientVersion) }
+      const features = await probeRemoteHostFeatures(connectedClient, serverDevice.clientVersion)
+      return { client: connectedClient, target, transport: connectedTransport, features }
     } catch (error) {
       await client?.close().catch(() => undefined)
       throw error
@@ -627,6 +678,10 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 function ok(value: unknown): RpcResult<unknown> { return { ok: true, value } }
 
 async function invokeRemoteCommand(
@@ -643,6 +698,35 @@ async function invokeRemoteCommand(
     throw new ClientModeError('INVALID_MESSAGE', 'The remote Host returned an invalid command response.')
   }
   return unwrapNativeResult(response)
+}
+
+async function readRemoteWorkspaceBaseline(
+  gateway: RemoteTypertGateway,
+  signal?: AbortSignal,
+): Promise<RemoteWorkspaceView[]> {
+  const lifetime = new AbortController()
+  const activeSignal = signal === undefined
+    ? lifetime.signal
+    : AbortSignal.any([signal, lifetime.signal])
+  const source = await gateway.open('workspace/follow', { args: {} }, activeSignal)
+  const iterator = source[Symbol.asyncIterator]()
+  try {
+    const first = await iterator.next()
+    if (first.done || !isRecord(first.value) || first.value.type !== 'baseline'
+      || !isRecord(first.value.value) || !Array.isArray(first.value.value.items)) {
+      throw new ClientModeError('INVALID_MESSAGE', 'The remote Host returned an invalid Workspace baseline.')
+    }
+    return first.value.value.items.map((item: unknown) => {
+      if (!isRecord(item) || typeof item.workspaceId !== 'string'
+        || typeof item.path !== 'string' || typeof item.title !== 'string') {
+        throw new ClientModeError('INVALID_MESSAGE', 'The remote Host returned an invalid Workspace row.')
+      }
+      return { workspaceId: item.workspaceId, path: item.path, title: item.title }
+    })
+  } finally {
+    lifetime.abort('workspace-baseline-read')
+    await iterator.return?.()
+  }
 }
 
 function unwrapNativeResult<T>(response: { result: unknown }): T {
@@ -693,6 +777,38 @@ export function remoteHostFeatures(clientVersion?: string): RemoteHostFeatures {
   return {
     commandList: isVersionAtLeast(clientVersion, REMOTE_COMMAND_LIST_MIN_VERSION),
     fileViewer: isVersionAtLeast(clientVersion, REMOTE_FILE_VIEWER_MIN_VERSION),
+    apiProxy: true,
+    remoteGateway: false,
+  }
+}
+
+export async function probeRemoteHostFeatures(
+  client: RemoteClientCore,
+  clientVersion?: string,
+): Promise<RemoteHostFeatures> {
+  const fallback = remoteHostFeatures(clientVersion)
+  let value: unknown
+  try {
+    value = await client.rpc('harness.transport.describe', {})
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'METHOD_NOT_FOUND') return fallback
+    throw error
+  }
+  if (!isRecord(value) || !Array.isArray(value.capabilities)
+    || value.capabilities.some(capability => typeof capability !== 'string')) {
+    throw new ClientModeError('INVALID_MESSAGE', 'The remote Host returned invalid transport capabilities.')
+  }
+  const capabilities = new Set(value.capabilities as string[])
+  const apiProxy = capabilities.has('harness.api.v1')
+  const remoteGateway = capabilities.has('harness.remote.v1')
+  if (!apiProxy && !remoteGateway) {
+    throw new ClientModeError('FEATURE_NOT_SUPPORTED', 'The remote Host exposes no supported Harness transport.')
+  }
+  return {
+    commandList: remoteGateway || (apiProxy && fallback.commandList),
+    fileViewer: capabilities.has('fileviewer.read.v1'),
+    apiProxy,
+    remoteGateway,
   }
 }
 

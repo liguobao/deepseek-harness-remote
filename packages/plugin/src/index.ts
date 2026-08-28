@@ -9,7 +9,7 @@ import { SafeLogger } from './logging.js'
 import { HostPluginRuntime } from './service.js'
 import { ClientServerApi } from './server-api.js'
 import { ServerCredentialStore } from './server-credentials.js'
-import type { TypertGatewayLike } from './harness-api-bridge.js'
+import type { TypertGatewayLike } from './typert-gateway-contract.js'
 import { TypertGatewaySwitch } from './typert-gateway-switch.js'
 import type { FileViewerHostServiceLike } from './file-viewer-bridge.js'
 
@@ -41,7 +41,13 @@ interface LoaderLike {
 }
 
 export function apply(ctx: Context, input: ConfigInput = {}): void {
-  ctx.inject(['settings', 'apiProxy', 'connection', 'typertGateway'], runtimeContext => activate(runtimeContext, input))
+  ctx.inject(['settings', 'connection', 'typertGateway'], runtimeContext => {
+    const gateway = runtimeContext.get('typertGateway') as TypertGatewayLike
+    if (runtimeContext.get('apiProxy') !== undefined || new TypertGatewaySwitch(gateway).supportsCarrier()) {
+      return activate(runtimeContext, input)
+    }
+    runtimeContext.inject(['apiProxy'], legacyContext => activate(legacyContext, input))
+  })
 }
 
 async function activate(ctx: Context, input: ConfigInput): Promise<void> {
@@ -69,7 +75,7 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
       ? defaultIdentityDirectory
       : serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, 'host'),
   })
-  const apiProxy = ctx.get('apiProxy') as ApiProxy
+  const apiProxy = ctx.get('apiProxy') as ApiProxy | undefined
   const connection = ctx.get('connection') as HostConnectionHandle | undefined
   // The official Typert gateway (`typertGateway` from dsh-api-gateway) is the
   // dispatch path behind `/api/commands/*` on the host. It is an explicit
@@ -81,13 +87,13 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
     hostIdentities,
     apiProxy,
     logger,
-    () => localTypertGateway,
+    localTypertGateway,
     () => ctx.get('fileViewerHost') as FileViewerHostServiceLike | undefined,
   )
 
   let clientRuntime: ClientModeRuntime | undefined
   const hostControl = runtime
-  if (config.serverUrl !== undefined && apiProxy !== undefined && connection !== undefined) {
+  if (config.serverUrl !== undefined && connection !== undefined) {
     const clientIdentities = new IdentityStore({
       directory: serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, 'client'),
     })
@@ -118,6 +124,7 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
         logger.warn('client remote mode is unavailable', {
           serverConfigured: config.serverUrl !== undefined,
           apiProxyAvailable: apiProxy !== undefined,
+          remoteGatewayAvailable: localTypertGateway.supportsCarrier,
           connectionAvailable: connection !== undefined,
         })
       }
@@ -183,8 +190,18 @@ export { ClientModeError, ClientModeRuntime } from './client-runtime.js'
 export { PluginControlRuntime } from './control-runtime.js'
 export { ClientSecureTransport } from './client-secure-transport.js'
 export { HARNESS_API_ALLOWLIST, HarnessApiBridge } from './harness-api-bridge.js'
+export { HARNESS_REMOTE_ALLOWLIST, HarnessRemoteBridge } from './harness-remote-bridge.js'
 export { RemoteHarnessApiProxy } from './remote-api-proxy.js'
+export { RemoteTypertGateway } from './remote-typert-gateway.js'
 export { RemoteFileViewerBridge } from './file-viewer-bridge.js'
 export { createRemoteFileContentProvider } from './remote-file-content-provider.js'
 export { TypertGatewaySwitch } from './typert-gateway-switch.js'
+export type {
+  LocalTypertGateway,
+  RemoteTypertGatewayTarget,
+  TypertGatewayLike,
+  TypertGatewayRequest,
+  TypertGatewayWireStreamLike,
+  TypertRpcResult,
+} from './typert-gateway-contract.js'
 export type { AuthenticatedPeerChannel } from './types.js'

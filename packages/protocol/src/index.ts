@@ -3,10 +3,10 @@ import { z } from 'zod'
 export const PROTOCOL_VERSION = 1
 export const SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024
 export const MAX_SECURE_MESSAGE_BYTES = 4 * 1024 * 1024
-/** Decoded bytes carried by one authenticated Harness ApiProxy transfer chunk. */
+/** Decoded bytes carried by one authenticated Harness business transfer chunk. */
 export const HARNESS_API_TRANSFER_CHUNK_BYTES = 512 * 1024
 /**
- * Bounded transfer size for rc.2 image prompts. The upstream default admits
+ * Bounded transfer size for Harness image prompts. The upstream default admits
  * up to 200 MiB of source images; their base64 JSON envelope needs roughly
  * 267 MiB, so 288 MiB leaves room for the native request structure.
  */
@@ -43,6 +43,7 @@ export const controlFrameTypes = [
 ] as const
 
 export const rpcMethods = [
+  'harness.transport.describe',
   'harness.api.call',
   'harness.api.transfer.open',
   'harness.api.transfer.chunk',
@@ -52,6 +53,14 @@ export const rpcMethods = [
   'harness.api.respond',
   'harness.api.stream.open',
   'harness.api.stream.close',
+  'harness.remote.call',
+  'harness.remote.transfer.open',
+  'harness.remote.transfer.chunk',
+  'harness.remote.transfer.commit',
+  'harness.remote.transfer.read',
+  'harness.remote.transfer.close',
+  'harness.remote.stream.open',
+  'harness.remote.stream.close',
   'fileviewer.call',
 ] as const
 
@@ -69,6 +78,8 @@ export const remoteEvents = [
   'connection.stats',
   'harness.api.frame',
   'harness.api.stream.closed',
+  'harness.remote.frame',
+  'harness.remote.stream.closed',
 ] as const
 
 export type MessageType = typeof messageTypes[number]
@@ -341,6 +352,42 @@ export interface HarnessApiFrameData {
 export interface HarnessApiStreamClosedData {
   streamId: string
   reason: 'cancelled' | 'completed' | 'failed' | 'peer-disconnected'
+}
+
+/** alpha.1 Typert Remote carrier request after the local Gateway encoded it. */
+export interface HarnessRemoteCallParams {
+  endpoint: string
+  payload: unknown
+}
+
+export interface HarnessRemoteStreamOpenParams {
+  streamId: string
+  endpoint: string
+  payload: unknown
+}
+
+export interface HarnessRemoteStreamCloseParams {
+  streamId: string
+}
+
+export interface HarnessRemoteFrameData {
+  streamId: string
+  hasValue: true
+  value?: unknown
+}
+
+export interface HarnessRemoteStreamClosedData {
+  streamId: string
+  reason: 'cancelled' | 'completed' | 'failed' | 'peer-disconnected'
+  failure?: {
+    code: string
+    message: string
+    details: Record<string, unknown>
+  }
+}
+
+export interface HarnessTransportDescription {
+  capabilities: string[]
 }
 
 const rpcMethodSchema = z.enum(rpcMethods)

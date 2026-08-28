@@ -25,6 +25,20 @@ describe('RpcRouter', () => {
     expect(unknown).toMatchObject({ type: 'rpc.error', payload: { code: 'METHOD_NOT_FOUND' } })
   })
 
+  it('describes only the Host transports available on this encrypted connection', async () => {
+    const capabilities = () => ['transport.relay', 'harness.remote.v1']
+    const router = createRouter({}, undefined, undefined, capabilities)
+
+    const response = await router.handle(createRpcRequest('harness.transport.describe', {}))
+
+    expect(response).toMatchObject({
+      type: 'rpc.response',
+      payload: { result: { capabilities: ['transport.relay', 'harness.remote.v1'] } },
+    })
+    const invalid = await router.handle(createRpcRequest('harness.transport.describe', { extra: true }))
+    expect(invalid).toMatchObject({ type: 'rpc.error', payload: { code: 'INVALID_MESSAGE' } })
+  })
+
   it('closes native streams with the peer connection', async () => {
     const closeAll = vi.fn(async () => undefined)
     const router = createRouter({ closeAll })
@@ -89,6 +103,7 @@ function createRouter(
   overrides: Record<string, unknown> = {},
   fileViewer?: RemoteFileViewerBridge,
   logger?: SafeLogger,
+  capabilities?: () => readonly string[],
 ): RpcRouter {
   return new RpcRouter({
     call: vi.fn(),
@@ -102,5 +117,5 @@ function createRouter(
     closeTransfer: vi.fn(),
     closeAll: vi.fn(async () => undefined),
     ...overrides,
-  } as unknown as HarnessApiBridge, undefined, logger, fileViewer)
+  } as unknown as HarnessApiBridge, undefined, logger, fileViewer, undefined, capabilities)
 }

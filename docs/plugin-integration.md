@@ -317,8 +317,8 @@ wss://dsh.r2049.cn/ws/v1/connect
 }
 ```
 
-Host 在启动时调用本机 `ApiProxy.host.describe` 读取 `version`；旧 Harness 返回已知占位值
-或不提供该方法时，从当前 `@deepseek-ai/dsh` 运行包读取版本。读取成功时，Host 在设备注册
+Host 在启动时优先调用本机 rc.2 `ApiProxy.host.describe` 读取 `version`；alpha.1 不提供
+ApiProxy，或旧 Harness 返回已知占位值/不提供该方法时，从当前 `@deepseek-ai/dsh` 运行包读取版本。读取成功时，Host 在设备注册
 descriptor 和首次 `hello` 中作为 `harnessVersion` 上报。两种读取都失败时省略字段，不能
 阻止控制连接。Server 对缺失字段保留已有值。
 
@@ -371,7 +371,7 @@ Client 发起 `connect.request` 且 Host 在线时，Host WebSocket 收到：
 
 `clientIdentityKey` 是本次端到端安全握手的远端静态公钥。插件必须把它绑定到该 `connectionId`，握手期间或连接建立后都不得被替换。Client 同样通过 `GET /api/v1/devices/{hostDeviceId}` 获取并固定 Host 的 `identityKey`。Server 只路由密文，不能替代端到端密钥校验。
 
-Host 必须按 `connectionId` 同时维护来自不同 `clientDeviceId` 的安全通道和 ApiProxy bridge；
+Host 必须按 `connectionId` 同时维护来自不同 `clientDeviceId` 的安全通道和对应 Harness bridge（rc.2 ApiProxy 或 alpha.1 Typert Remote）；
 手机 Web 与电脑 Web 等不同设备可以同时在线。每个连接独立计算 pending RPC 和 stream 上限，
 其 stream frame 只返回原连接。同一 `clientDeviceId` 重连时只替换该设备的旧连接，不影响其他
 Client。

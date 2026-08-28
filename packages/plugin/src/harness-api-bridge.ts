@@ -34,6 +34,7 @@ import type { SafeLogger } from './logging.js'
 import { RpcError } from './rpc-router.js'
 import { safeErrorCode } from './safe-error.js'
 import { listRemoteDirectory } from './remote-directory-browser.js'
+import type { TypertGatewayLike } from './typert-gateway-contract.js'
 
 type HarnessStream = AsyncIterable<RpcRequest<MuxFrame | HostFrame>>
 type NativeMethod = (request: RpcRequest<unknown>, signal?: AbortSignal) => Promise<RpcResponse<unknown>>
@@ -273,14 +274,7 @@ const SESSION_HISTORY_PAGE_SIZES = [50, 30, 20, 12, 6, 3, 1] as const
  * has no `commands` domain — commands live behind the Typert registry, which
  * is exactly the path the official Web UI exercises via `/api/commands/*`.
  */
-export interface TypertGatewayLike {
-  invoke(request: {
-    namespace: string
-    method: string
-    args: Record<string, unknown>
-    signal?: AbortSignal
-  }): Promise<unknown>
-}
+export type { TypertGatewayLike } from './typert-gateway-contract.js'
 
 export class HarnessApiBridge {
   private readonly methods: ReadonlyMap<string, NativeMethod>

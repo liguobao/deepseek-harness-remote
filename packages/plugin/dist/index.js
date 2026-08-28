@@ -4082,6 +4082,7 @@ var controlFrameTypes = [
   "error"
 ];
 var rpcMethods = [
+  "harness.transport.describe",
   "harness.api.call",
   "harness.api.transfer.open",
   "harness.api.transfer.chunk",
@@ -4091,6 +4092,14 @@ var rpcMethods = [
   "harness.api.respond",
   "harness.api.stream.open",
   "harness.api.stream.close",
+  "harness.remote.call",
+  "harness.remote.transfer.open",
+  "harness.remote.transfer.chunk",
+  "harness.remote.transfer.commit",
+  "harness.remote.transfer.read",
+  "harness.remote.transfer.close",
+  "harness.remote.stream.open",
+  "harness.remote.stream.close",
   "fileviewer.call"
 ];
 function normalizeSdpMLineIndex(value) {
@@ -13460,6 +13469,224 @@ function base64ToBytes(value) {
   return bytes;
 }
 
+// src/remote-typert-gateway.ts
+var DIRECT_REMOTE_CALL_BYTES = 2 * 1024 * 1024;
+var RemoteTypertGateway = class {
+  constructor(client) {
+    this.client = client;
+  }
+  async invoke(request) {
+    const result = await this.dispatch(
+      `${request.namespace}/${request.method}`,
+      { args: request.args },
+      request.signal ?? new AbortController().signal
+    );
+    if (result.ok) return result.value;
+    throw remoteFailure(result.error);
+  }
+  async dispatch(endpoint, payload, signal) {
+    const request = { endpoint, payload };
+    const encoded = new TextEncoder().encode(JSON.stringify(request));
+    let response;
+    if (encoded.byteLength > DIRECT_REMOTE_CALL_BYTES) {
+      response = await this.callTransferred(encoded, signal);
+    } else {
+      try {
+        response = await this.client.rpc("harness.remote.call", request, signal);
+      } catch (error) {
+        if (!hasErrorCode(error, "RESPONSE_TOO_LARGE")) throw error;
+        response = await this.callTransferred(encoded, signal);
+      }
+    }
+    return parseRpcResult(response);
+  }
+  async open(endpoint, payload, signal) {
+    const streamId = uuidV7();
+    const queue = new AsyncValueQueue();
+    const unsubscribe = this.client.onEvent((event) => routeStreamEvent2(event, streamId, queue));
+    const unsubscribeClose = this.client.onClose(() => {
+      queue.fail(new RemoteClientError("TRANSPORT_CLOSED", "The remote Harness stream transport closed."));
+    });
+    const onAbort = () => queue.close();
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      await this.client.rpc("harness.remote.stream.open", { streamId, endpoint, payload }, signal);
+    } catch (error) {
+      signal.removeEventListener("abort", onAbort);
+      unsubscribe();
+      unsubscribeClose();
+      throw error;
+    }
+    return this.iterate(streamId, queue, unsubscribe, unsubscribeClose, signal, onAbort);
+  }
+  async *iterate(streamId, queue, unsubscribe, unsubscribeClose, signal, onAbort) {
+    try {
+      yield* queue;
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+      unsubscribe();
+      unsubscribeClose();
+      queue.close();
+      await this.client.rpc("harness.remote.stream.close", { streamId }).catch(() => void 0);
+    }
+  }
+  async callTransferred(encoded, signal) {
+    if (encoded.byteLength > MAX_HARNESS_API_TRANSFER_BYTES) {
+      throw new Error("The Harness Remote request exceeds the transfer limit.");
+    }
+    const transferId = uuidV7();
+    const totalChunks = Math.ceil(encoded.byteLength / HARNESS_API_TRANSFER_CHUNK_BYTES);
+    let opened = false;
+    try {
+      await this.client.rpc("harness.remote.transfer.open", {
+        transferId,
+        totalBytes: encoded.byteLength,
+        totalChunks
+      }, signal);
+      opened = true;
+      for (let index = 0; index < totalChunks; index += 1) {
+        const start = index * HARNESS_API_TRANSFER_CHUNK_BYTES;
+        const chunk = encoded.subarray(start, Math.min(start + HARNESS_API_TRANSFER_CHUNK_BYTES, encoded.byteLength));
+        await this.client.rpc("harness.remote.transfer.chunk", {
+          transferId,
+          index,
+          data: bytesToBase642(chunk)
+        }, signal);
+      }
+      const committed = await this.client.rpc(
+        "harness.remote.transfer.commit",
+        { transferId },
+        signal
+      );
+      if (committed.kind === "inline") return committed.response;
+      if (committed.transferId !== transferId || committed.totalBytes <= 0 || committed.totalBytes > MAX_HARNESS_API_TRANSFER_BYTES || committed.totalChunks !== Math.ceil(committed.totalBytes / HARNESS_API_TRANSFER_CHUNK_BYTES)) {
+        throw new Error("The remote Host returned an invalid Harness Remote transfer descriptor.");
+      }
+      const responseBytes = new Uint8Array(committed.totalBytes);
+      let offset = 0;
+      for (let index = 0; index < committed.totalChunks; index += 1) {
+        const result = await this.client.rpc(
+          "harness.remote.transfer.read",
+          { transferId, index },
+          signal
+        );
+        if (result.transferId !== transferId || result.index !== index) {
+          throw new Error("The remote Host returned an out-of-order Harness Remote transfer chunk.");
+        }
+        const chunk = base64ToBytes2(result.data);
+        const expectedBytes = Math.min(HARNESS_API_TRANSFER_CHUNK_BYTES, committed.totalBytes - offset);
+        if (chunk.byteLength !== expectedBytes) {
+          throw new Error("The remote Host returned an invalid Harness Remote transfer chunk.");
+        }
+        responseBytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(responseBytes));
+    } finally {
+      if (opened) await this.client.rpc("harness.remote.transfer.close", { transferId }).catch(() => void 0);
+    }
+  }
+};
+var AsyncValueQueue = class {
+  values = [];
+  waiters = [];
+  closed = false;
+  error;
+  push(value) {
+    if (this.closed) return;
+    const waiter = this.waiters.shift();
+    if (waiter === void 0) this.values.push(value);
+    else waiter({ done: false, value });
+  }
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    for (const waiter of this.waiters.splice(0)) waiter({ done: true, value: void 0 });
+  }
+  fail(error) {
+    if (this.closed) return;
+    this.error = error;
+    this.close();
+  }
+  async *[Symbol.asyncIterator]() {
+    while (true) {
+      if (this.values.length > 0) {
+        yield this.values.shift();
+        continue;
+      }
+      if (this.closed) {
+        if (this.error !== void 0) throw this.error;
+        return;
+      }
+      const next = await new Promise((resolve2) => this.waiters.push(resolve2));
+      if (next.done) {
+        if (this.error !== void 0) throw this.error;
+        return;
+      }
+      yield next.value;
+    }
+  }
+};
+function routeStreamEvent2(event, streamId, queue) {
+  if (event.event === "harness.remote.frame") {
+    const data2 = event.data;
+    if (data2.streamId === streamId && data2.hasValue === true) queue.push(data2.value);
+    return;
+  }
+  if (event.event !== "harness.remote.stream.closed") return;
+  const data = event.data;
+  if (data.streamId !== streamId) return;
+  if (data.reason === "failed") {
+    const failure = data.failure;
+    queue.fail(remoteFailure({
+      code: typeof failure?.code === "string" ? failure.code : "internal",
+      message: typeof failure?.message === "string" ? failure.message : "The remote Harness stream failed.",
+      details: isRecord(failure?.details) ? failure.details : {}
+    }));
+  } else {
+    queue.close();
+  }
+}
+function parseRpcResult(value) {
+  if (!isRecord(value)) throw new Error("The remote Host returned an invalid Gateway result.");
+  if (value.ok === true) return Object.hasOwn(value, "value") ? { ok: true, value: value.value } : { ok: true };
+  if (value.ok !== false || !isRecord(value.error) || typeof value.error.code !== "string" || typeof value.error.message !== "string" || !isRecord(value.error.details)) {
+    throw new Error("The remote Host returned an invalid Gateway failure.");
+  }
+  return {
+    ok: false,
+    error: { code: value.error.code, message: value.error.message, details: value.error.details }
+  };
+}
+function remoteFailure(failure) {
+  return Object.assign(new Error(failure.message), { code: failure.code, details: failure.details });
+}
+function bytesToBase642(bytes) {
+  let binary = "";
+  for (let offset = 0; offset < bytes.byteLength; offset += 32768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 32768, bytes.byteLength)));
+  }
+  return btoa(binary);
+}
+function base64ToBytes2(value) {
+  let binary;
+  try {
+    binary = atob(value);
+  } catch {
+    throw new Error("The remote Host returned malformed Harness Remote transfer data.");
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  if (bytesToBase642(bytes) !== value) throw new Error("The remote Host returned non-canonical Harness Remote transfer data.");
+  return bytes;
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function hasErrorCode(error, code) {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
 // src/server-api.ts
 import { platform } from "node:os";
 
@@ -13543,7 +13770,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.3.36";
+var PLUGIN_VERSION = "0.4.0";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -13944,50 +14171,132 @@ function requireRecord(value, name2) {
 var REMOTE_COMMAND_METHODS = ["execute", "list"];
 var ALL_REMOTE_COMMANDS = { execute: true, list: true };
 var TypertGatewaySwitch = class {
-  constructor(gateway) {
-    this.gateway = gateway;
-    this.originalInvoke = gateway.invoke;
-    this.localInvoke = this.originalInvoke.bind(gateway);
-  }
+  runtime;
   originalInvoke;
   localInvoke;
+  originalStream;
+  localStream;
+  originalDispatch;
+  localDispatch;
+  originalOpen;
+  localOpen;
   remoteInvoke;
+  remoteTarget;
   remoteSupport = { execute: false, list: false };
+  target;
   installed = false;
-  /** A facade that always invokes the original local gateway. */
+  constructor(gateway) {
+    this.runtime = gateway;
+    this.originalInvoke = gateway.invoke;
+    this.localInvoke = this.originalInvoke.bind(gateway);
+    this.originalStream = gateway.stream;
+    this.localStream = gateway.stream?.bind(gateway);
+    this.originalDispatch = this.runtime.dispatchRpc;
+    this.localDispatch = this.runtime.dispatchRpc?.bind(gateway);
+    this.originalOpen = this.runtime.openWireStream;
+    this.localOpen = this.runtime.openWireStream?.bind(gateway) ?? gateway.wireStream?.open.bind(gateway.wireStream);
+  }
+  /** Original local dispatcher, used by the Host bridge without switch recursion. */
   local() {
-    return { invoke: this.localInvoke };
+    const dispatch = this.localDispatch ?? (async (endpoint, payload, signal) => {
+      try {
+        const request = requestFromCarrier(endpoint, payload, signal);
+        return { ok: true, value: await this.localInvoke(request) };
+      } catch (error) {
+        return { ok: false, error: this.failure(error) };
+      }
+    });
+    const open = this.localOpen ?? (async (endpoint, payload, signal) => {
+      if (this.localStream === void 0) throw new Error("The local Harness Gateway does not support Remote streams.");
+      return this.localStream(requestFromCarrier(endpoint, payload, signal));
+    });
+    return {
+      invoke: this.localInvoke,
+      ...this.localStream === void 0 ? {} : { stream: this.localStream },
+      dispatch,
+      open,
+      failure: (error) => this.failure(error),
+      supportsCarrier: this.localDispatch !== void 0 && this.localOpen !== void 0
+    };
+  }
+  supportsCarrier() {
+    return this.localDispatch !== void 0 && this.localOpen !== void 0;
+  }
+  status() {
+    return this.remoteInvoke === void 0 ? { mode: "local" } : { mode: "remote", ...this.target === void 0 ? {} : { target: { ...this.target } } };
   }
   install() {
     if (this.installed) return;
-    this.gateway.invoke = (request) => {
-      if (request.namespace !== "commands" || !isRemoteCommandMethod(request.method) || this.remoteInvoke === void 0) {
-        return this.localInvoke(request);
-      }
-      if (this.remoteSupport[request.method]) return this.remoteInvoke(request);
-      if (request.method === "list") return Promise.resolve([]);
-      return this.localInvoke(request);
-    };
+    this.runtime.invoke = (request) => this.selectInvoke(request);
+    if (this.originalStream !== void 0) {
+      this.runtime.stream = (request) => this.remoteTarget === void 0 ? this.localStream(request) : this.remoteTarget.open(endpointOf(request), { args: request.args }, request.signal ?? new AbortController().signal);
+    }
+    if (this.originalDispatch !== void 0) {
+      this.runtime.dispatchRpc = (endpoint, payload, signal) => this.remoteTarget === void 0 ? this.localDispatch(endpoint, payload, signal) : this.remoteTarget.dispatch(endpoint, payload, signal);
+    }
+    if (this.originalOpen !== void 0) {
+      this.runtime.openWireStream = (endpoint, payload, signal) => this.remoteTarget === void 0 ? this.localOpen(endpoint, payload, signal) : this.remoteTarget.open(endpoint, payload, signal);
+    }
     this.installed = true;
   }
-  selectRemote(invoke, support = ALL_REMOTE_COMMANDS) {
+  selectRemote(remote, support = ALL_REMOTE_COMMANDS, target) {
     if (!this.installed) throw new Error("The Typert gateway switch is not installed.");
-    this.remoteInvoke = invoke;
+    this.remoteInvoke = typeof remote === "function" ? remote : (request) => remote.invoke(request);
+    this.remoteTarget = typeof remote === "function" ? void 0 : remote;
     this.remoteSupport = { ...support };
+    this.target = target === void 0 ? void 0 : { ...target };
   }
   selectLocal() {
     this.remoteInvoke = void 0;
+    this.remoteTarget = void 0;
     this.remoteSupport = { execute: false, list: false };
+    this.target = void 0;
   }
   restore() {
     if (!this.installed) return;
     this.selectLocal();
-    this.gateway.invoke = this.originalInvoke;
+    this.runtime.invoke = this.originalInvoke;
+    if (this.originalStream !== void 0) this.runtime.stream = this.originalStream;
+    if (this.originalDispatch !== void 0) this.runtime.dispatchRpc = this.originalDispatch;
+    if (this.originalOpen !== void 0) this.runtime.openWireStream = this.originalOpen;
     this.installed = false;
   }
+  selectInvoke(request) {
+    if (this.remoteTarget !== void 0) return this.remoteTarget.invoke(request);
+    if (request.namespace !== "commands" || !isRemoteCommandMethod(request.method) || this.remoteInvoke === void 0) {
+      return this.localInvoke(request);
+    }
+    if (this.remoteSupport[request.method]) return this.remoteInvoke(request);
+    if (request.method === "list") return Promise.resolve([]);
+    return this.localInvoke(request);
+  }
+  failure(error) {
+    const normalized = this.runtime.wireStream?.failure(error);
+    if (normalized !== void 0) return normalized;
+    const source = error instanceof Error ? error : new Error("The Harness Gateway rejected the request.");
+    const code = "code" in source && typeof source.code === "string" ? source.code : "internal";
+    const details = "details" in source && isRecord2(source.details) ? source.details : {};
+    return { code, message: source.message, details };
+  }
 };
+function requestFromCarrier(endpoint, payload, signal) {
+  const segments = endpoint.split("/");
+  if (segments.length !== 2 || segments.some((segment) => segment.length === 0)) {
+    throw new Error("The Harness Gateway endpoint is invalid.");
+  }
+  if (!isRecord2(payload) || !isRecord2(payload.args)) {
+    throw new Error("The Harness Gateway payload is invalid.");
+  }
+  return { namespace: segments[0], method: segments[1], args: payload.args, signal };
+}
+function endpointOf(request) {
+  return `${request.namespace}/${request.method}`;
+}
 function isRemoteCommandMethod(method) {
   return REMOTE_COMMAND_METHODS.includes(method);
+}
+function isRecord2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // src/werift-rtc.ts
@@ -15057,7 +15366,7 @@ var ClientModeRuntime = class {
     this.logger = logger;
     this.host = host;
     this.rtcFactoryProvider = rtcFactoryProvider;
-    this.proxySwitch = new ApiProxySwitch(apiProxy);
+    this.proxySwitch = apiProxy === void 0 ? void 0 : new ApiProxySwitch(apiProxy);
     this.gatewaySwitch = new TypertGatewaySwitch(typertGateway);
   }
   identity;
@@ -15070,7 +15379,7 @@ var ClientModeRuntime = class {
     if (this.closed) throw new Error("client remote-mode runtime is closed");
     this.identity = await this.identities.loadOrCreate(this.config.deviceName);
     this.server.bindIdentity(this.identity);
-    this.proxySwitch.install();
+    this.proxySwitch?.install();
     this.gatewaySwitch.install();
     this.logger.info("client remote-mode identity ready", {
       deviceId: shortId(this.identity.deviceId),
@@ -15083,13 +15392,14 @@ var ClientModeRuntime = class {
     });
   }
   status() {
+    const targetStatus = this.gatewaySwitch.supportsCarrier() ? this.gatewaySwitch.status() : this.proxySwitch?.status() ?? this.gatewaySwitch.status();
     return {
       available: this.config.serverUrl !== void 0,
       identityReady: this.identity !== void 0,
       deviceId: this.identity?.deviceId,
       deviceName: this.identity?.name,
       serverUrl: this.config.serverUrl,
-      ...this.proxySwitch.status(),
+      ...targetStatus,
       connected: this.connected !== void 0,
       transport: this.connected?.client.getStats().mode ?? "Disconnected",
       preferredTransports: this.config.forceRelay ? ["relay"] : ["lan", "p2p", "turn", "relay"],
@@ -15161,7 +15471,7 @@ var ClientModeRuntime = class {
     const previous = this.connected;
     this.connected = void 0;
     this.pendingWorkspaceSelection = void 0;
-    this.proxySwitch.selectLocal();
+    this.proxySwitch?.selectLocal();
     this.gatewaySwitch.selectLocal();
     await previous?.client.close().catch(() => void 0);
     await this.server.revokeCurrentDevice();
@@ -15180,7 +15490,7 @@ var ClientModeRuntime = class {
   }
   async setMode(mode, targetDeviceId, signal) {
     if (mode === "local") {
-      this.proxySwitch.selectLocal();
+      this.proxySwitch?.selectLocal();
       this.gatewaySwitch.selectLocal();
       const previous2 = this.connected;
       this.connected = void 0;
@@ -15193,18 +15503,31 @@ var ClientModeRuntime = class {
       throw new ClientModeError("INVALID_MESSAGE", "A targetDeviceId is required for remote mode.");
     }
     const next = await this.connect(targetDeviceId, signal);
+    try {
+      this.assertRemoteCompatible(next);
+    } catch (error) {
+      await next.client.close().catch(() => void 0);
+      throw error;
+    }
     const previous = this.connected;
     this.connected = next;
     this.pendingWorkspaceSelection = void 0;
-    const remoteApi = new RemoteHarnessApiProxy(next.client).api;
-    this.proxySwitch.selectRemote(remoteApi, { deviceId: next.target.deviceId, name: next.target.name });
-    this.selectRemoteCommands(next);
+    this.selectRemoteTarget(next);
     await previous?.client.close().catch(() => void 0);
     this.logger.info("Harness target switched", { mode: "remote", targetDeviceId: shortId(next.target.deviceId) });
     return this.status();
   }
   async listRemoteDirectory(targetDeviceId, path, signal) {
     const remote = await this.ensureConnected(targetDeviceId, signal);
+    if (remote.features.remoteGateway) {
+      const value = await new RemoteTypertGateway(remote.client).invoke({
+        namespace: "directoryPicker",
+        method: "list",
+        args: path === void 0 ? {} : { path },
+        ...signal === void 0 ? {} : { signal }
+      });
+      return value;
+    }
     const api = new RemoteHarnessApiProxy(remote.client).api;
     const response = await api.host.listDirectory({
       rpcId: `remote-directory-${Date.now()}`,
@@ -15214,6 +15537,9 @@ var ClientModeRuntime = class {
   }
   async listRemoteWorkspaces(targetDeviceId, signal) {
     const remote = await this.ensureConnected(targetDeviceId, signal);
+    if (remote.features.remoteGateway) {
+      return readRemoteWorkspaceBaseline(new RemoteTypertGateway(remote.client), signal);
+    }
     const api = new RemoteHarnessApiProxy(remote.client).api;
     const response = await api.workspace.list({
       rpcId: `remote-workspaces-${Date.now()}`,
@@ -15225,14 +15551,24 @@ var ClientModeRuntime = class {
   async openRemoteWorkspace(targetDeviceId, path, signal) {
     if (path.trim() === "") throw new ClientModeError("INVALID_MESSAGE", "A remote working directory is required.");
     const remote = await this.ensureConnected(targetDeviceId, signal);
-    const api = new RemoteHarnessApiProxy(remote.client).api;
-    const response = await api.workspace.create({
-      rpcId: `remote-workspace-${Date.now()}`,
-      payload: { path }
-    });
-    const workspace = unwrapNativeResult(response);
-    this.proxySwitch.selectRemote(api, { deviceId: remote.target.deviceId, name: remote.target.name });
-    this.selectRemoteCommands(remote);
+    this.assertRemoteCompatible(remote);
+    let workspace;
+    if (remote.features.remoteGateway) {
+      workspace = await new RemoteTypertGateway(remote.client).invoke({
+        namespace: "workspace",
+        method: "create",
+        args: { request: { path } },
+        ...signal === void 0 ? {} : { signal }
+      });
+    } else {
+      const api = new RemoteHarnessApiProxy(remote.client).api;
+      const response = await api.workspace.create({
+        rpcId: `remote-workspace-${Date.now()}`,
+        payload: { path }
+      });
+      workspace = unwrapNativeResult(response);
+    }
+    this.selectRemoteTarget(remote);
     const workspaceId = workspaceRecordId(workspace.workspace);
     this.pendingWorkspaceSelection = { targetDeviceId: remote.target.deviceId, workspaceId };
     this.logger.info("Remote workspace opened", { targetDeviceId: shortId(remote.target.deviceId) });
@@ -15248,17 +15584,17 @@ var ClientModeRuntime = class {
   async close() {
     if (this.closed) return;
     this.closed = true;
-    this.proxySwitch.selectLocal();
+    this.proxySwitch?.selectLocal();
     this.gatewaySwitch.selectLocal();
     this.pendingWorkspaceSelection = void 0;
     await this.connected?.client.close().catch(() => void 0);
     this.connected = void 0;
-    this.proxySwitch.restore();
+    this.proxySwitch?.restore();
     this.gatewaySwitch.restore();
   }
   async callRemoteFileViewer(endpoint, payload, signal) {
     const remote = this.connected;
-    if (remote === void 0 || this.proxySwitch.status().mode !== "remote") {
+    if (remote === void 0 || this.status().mode !== "remote") {
       throw new ClientModeError("REMOTE_NOT_CONNECTED", "No Remote Host is selected.", true);
     }
     if (!remote.features.fileViewer) {
@@ -15266,11 +15602,25 @@ var ClientModeRuntime = class {
     }
     return remote.client.rpc("fileviewer.call", { endpoint, payload }, signal);
   }
-  selectRemoteCommands(remote) {
+  selectRemoteTarget(remote) {
+    const target = { deviceId: remote.target.deviceId, name: remote.target.name };
+    if (this.gatewaySwitch.supportsCarrier()) {
+      this.gatewaySwitch.selectRemote(new RemoteTypertGateway(remote.client), void 0, target);
+      return;
+    }
+    this.proxySwitch.selectRemote(new RemoteHarnessApiProxy(remote.client).api, target);
     this.gatewaySwitch.selectRemote((request) => invokeRemoteCommand(remote.client, request), {
       execute: true,
       list: remote.features.commandList
-    });
+    }, target);
+  }
+  assertRemoteCompatible(remote) {
+    const localRemoteGateway = this.gatewaySwitch.supportsCarrier();
+    if (localRemoteGateway && remote.features.remoteGateway || !localRemoteGateway && this.proxySwitch !== void 0 && remote.features.apiProxy) return;
+    throw new ClientModeError(
+      "HARNESS_VERSION_INCOMPATIBLE",
+      localRemoteGateway ? "The selected Host does not provide the Harness alpha Remote Gateway transport." : "The selected Host does not provide the legacy Harness ApiProxy transport."
+    );
   }
   async connect(targetDeviceId, signal) {
     signal?.throwIfAborted();
@@ -15337,7 +15687,7 @@ var ClientModeRuntime = class {
         if (this.connected?.client !== connectedClient) return;
         this.connected = void 0;
         this.pendingWorkspaceSelection = void 0;
-        this.proxySwitch.selectLocal();
+        this.proxySwitch?.selectLocal();
         this.gatewaySwitch.selectLocal();
         void connectedClient.close().catch(() => void 0);
         this.logger.warn("remote Harness transport closed; falling back to local mode", {
@@ -15350,7 +15700,8 @@ var ClientModeRuntime = class {
         transport: connectedClient.getStats().mode,
         ...webrtcDiagnosticsLogFields(connectionDetails?.webRtc?.diagnostics)
       });
-      return { client: connectedClient, target, transport: connectedTransport, features: remoteHostFeatures(serverDevice.clientVersion) };
+      const features = await probeRemoteHostFeatures(connectedClient, serverDevice.clientVersion);
+      return { client: connectedClient, target, transport: connectedTransport, features };
     } catch (error) {
       await client?.close().catch(() => void 0);
       throw error;
@@ -15519,6 +15870,9 @@ function record(value) {
   }
   return value;
 }
+function isRecord3(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 function ok(value) {
   return { ok: true, value };
 }
@@ -15533,6 +15887,27 @@ async function invokeRemoteCommand(client, request) {
     throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid command response.");
   }
   return unwrapNativeResult(response);
+}
+async function readRemoteWorkspaceBaseline(gateway, signal) {
+  const lifetime = new AbortController();
+  const activeSignal = signal === void 0 ? lifetime.signal : AbortSignal.any([signal, lifetime.signal]);
+  const source = await gateway.open("workspace/follow", { args: {} }, activeSignal);
+  const iterator = source[Symbol.asyncIterator]();
+  try {
+    const first = await iterator.next();
+    if (first.done || !isRecord3(first.value) || first.value.type !== "baseline" || !isRecord3(first.value.value) || !Array.isArray(first.value.value.items)) {
+      throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid Workspace baseline.");
+    }
+    return first.value.value.items.map((item) => {
+      if (!isRecord3(item) || typeof item.workspaceId !== "string" || typeof item.path !== "string" || typeof item.title !== "string") {
+        throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid Workspace row.");
+      }
+      return { workspaceId: item.workspaceId, path: item.path, title: item.title };
+    });
+  } finally {
+    lifetime.abort("workspace-baseline-read");
+    await iterator.return?.();
+  }
 }
 function unwrapNativeResult(response) {
   const result = response.result;
@@ -15570,7 +15945,34 @@ function shortId(value) {
 function remoteHostFeatures(clientVersion) {
   return {
     commandList: isVersionAtLeast(clientVersion, REMOTE_COMMAND_LIST_MIN_VERSION),
-    fileViewer: isVersionAtLeast(clientVersion, REMOTE_FILE_VIEWER_MIN_VERSION)
+    fileViewer: isVersionAtLeast(clientVersion, REMOTE_FILE_VIEWER_MIN_VERSION),
+    apiProxy: true,
+    remoteGateway: false
+  };
+}
+async function probeRemoteHostFeatures(client, clientVersion) {
+  const fallback = remoteHostFeatures(clientVersion);
+  let value;
+  try {
+    value = await client.rpc("harness.transport.describe", {});
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "METHOD_NOT_FOUND") return fallback;
+    throw error;
+  }
+  if (!isRecord3(value) || !Array.isArray(value.capabilities) || value.capabilities.some((capability) => typeof capability !== "string")) {
+    throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned invalid transport capabilities.");
+  }
+  const capabilities = new Set(value.capabilities);
+  const apiProxy = capabilities.has("harness.api.v1");
+  const remoteGateway = capabilities.has("harness.remote.v1");
+  if (!apiProxy && !remoteGateway) {
+    throw new ClientModeError("FEATURE_NOT_SUPPORTED", "The remote Host exposes no supported Harness transport.");
+  }
+  return {
+    commandList: remoteGateway || apiProxy && fallback.commandList,
+    fileViewer: capabilities.has("fileviewer.read.v1"),
+    apiProxy,
+    remoteGateway
   };
 }
 function isVersionAtLeast(value, minimum) {
@@ -16051,11 +16453,11 @@ function editableConfig(config) {
     } : false
   };
 }
-function isRecord(value) {
+function isRecord4(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function record2(value) {
-  if (!isRecord(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
+  if (!isRecord4(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
   return value;
 }
 function ok2(value) {
@@ -16109,7 +16511,6 @@ function redact(value, key = "") {
 
 // src/service.ts
 import { randomUUID } from "node:crypto";
-import { RpcId } from "@deepseek-ai/dsh-host-apiproxy/api";
 
 // src/connection-controller.ts
 var ConnectionController = class {
@@ -16326,7 +16727,9 @@ function safeErrorCode(error) {
 
 // src/rpc-router.ts
 var wireRequestSchema = external_exports.object({ method: external_exports.string().min(1), params: external_exports.unknown() }).strict();
+var emptyParamsSchema = external_exports.object({}).strict();
 var apiMethods = /* @__PURE__ */ new Set([
+  "harness.transport.describe",
   "harness.api.call",
   "harness.api.transfer.open",
   "harness.api.transfer.chunk",
@@ -16336,19 +16739,38 @@ var apiMethods = /* @__PURE__ */ new Set([
   "harness.api.respond",
   "harness.api.stream.open",
   "harness.api.stream.close",
+  "harness.remote.call",
+  "harness.remote.transfer.open",
+  "harness.remote.transfer.chunk",
+  "harness.remote.transfer.commit",
+  "harness.remote.transfer.read",
+  "harness.remote.transfer.close",
+  "harness.remote.stream.open",
+  "harness.remote.stream.close",
   "fileviewer.call"
 ]);
-var HOST_CAPABILITIES = ["harness.api.v1", "harness.api.transfer.v1", "fileviewer.read.v1"];
+var HOST_CAPABILITIES = [
+  "harness.api.v1",
+  "harness.api.transfer.v1",
+  "harness.remote.v1",
+  "harness.remote.transfer.v1",
+  "fileviewer.read.v1"
+];
 var RpcRouter = class {
-  constructor(harnessApi, maxPending = 128, logger, fileViewer) {
+  constructor(harnessApi, maxPending = 128, logger, fileViewer, harnessRemote, capabilities = () => HOST_CAPABILITIES) {
     this.harnessApi = harnessApi;
     this.maxPending = maxPending;
     this.logger = logger;
     this.fileViewer = fileViewer;
+    this.harnessRemote = harnessRemote;
+    this.capabilities = capabilities;
   }
   active = 0;
-  closePeerStreams() {
-    return this.harnessApi.closeAll();
+  async closePeerStreams() {
+    await Promise.all([
+      this.harnessApi?.closeAll(),
+      this.harnessRemote?.closeAll()
+    ]);
   }
   async handle(message) {
     if (message.type !== "rpc.request") {
@@ -16387,24 +16809,44 @@ var RpcRouter = class {
   }
   invoke(method, params) {
     switch (method) {
+      case "harness.transport.describe": {
+        emptyParamsSchema.parse(params);
+        return { capabilities: [...this.capabilities()] };
+      }
       case "harness.api.call":
-        return this.harnessApi.call(params);
+        return this.requireApiProxy().call(params);
       case "harness.api.transfer.open":
-        return this.harnessApi.openTransfer(params);
+        return this.requireApiProxy().openTransfer(params);
       case "harness.api.transfer.chunk":
-        return this.harnessApi.appendTransfer(params);
+        return this.requireApiProxy().appendTransfer(params);
       case "harness.api.transfer.commit":
-        return this.harnessApi.commitTransfer(params);
+        return this.requireApiProxy().commitTransfer(params);
       case "harness.api.transfer.read":
-        return this.harnessApi.readTransfer(params);
+        return this.requireApiProxy().readTransfer(params);
       case "harness.api.transfer.close":
-        return this.harnessApi.closeTransfer(params);
+        return this.requireApiProxy().closeTransfer(params);
       case "harness.api.respond":
-        return this.harnessApi.respond(params);
+        return this.requireApiProxy().respond(params);
       case "harness.api.stream.open":
-        return this.harnessApi.openStream(params);
+        return this.requireApiProxy().openStream(params);
       case "harness.api.stream.close":
-        return this.harnessApi.closeStream(params);
+        return this.requireApiProxy().closeStream(params);
+      case "harness.remote.call":
+        return this.requireRemoteGateway().call(params);
+      case "harness.remote.transfer.open":
+        return this.requireRemoteGateway().openTransfer(params);
+      case "harness.remote.transfer.chunk":
+        return this.requireRemoteGateway().appendTransfer(params);
+      case "harness.remote.transfer.commit":
+        return this.requireRemoteGateway().commitTransfer(params);
+      case "harness.remote.transfer.read":
+        return this.requireRemoteGateway().readTransfer(params);
+      case "harness.remote.transfer.close":
+        return this.requireRemoteGateway().closeTransfer(params);
+      case "harness.remote.stream.open":
+        return this.requireRemoteGateway().openStream(params);
+      case "harness.remote.stream.close":
+        return this.requireRemoteGateway().closeStream(params);
       case "fileviewer.call": {
         if (this.fileViewer === void 0) {
           throw new RpcError("FILE_VIEWER_UNAVAILABLE", "The Remote Host does not have DSH File Viewer available.");
@@ -16414,6 +16856,18 @@ var RpcRouter = class {
       default:
         throw new RpcError("METHOD_NOT_FOUND", "The requested method does not exist.");
     }
+  }
+  requireApiProxy() {
+    if (this.harnessApi === void 0) {
+      throw new RpcError("FEATURE_NOT_SUPPORTED", "This Harness version does not provide the legacy ApiProxy transport.");
+    }
+    return this.harnessApi;
+  }
+  requireRemoteGateway() {
+    if (this.harnessRemote === void 0) {
+      throw new RpcError("FEATURE_NOT_SUPPORTED", "This Harness version does not provide the Remote Gateway transport.");
+    }
+    return this.harnessRemote;
   }
 };
 function errorResponse(requestId, error) {
@@ -18069,28 +18523,333 @@ function concatChunks(chunks, totalBytes) {
   return result;
 }
 
+// src/harness-remote-bridge.ts
+var endpointSchema = external_exports.string().min(1).max(128).regex(/^(?:\$events(?:\/result)?|[A-Za-z0-9_$.-]+\/[A-Za-z0-9_$.-]+)$/);
+var callSchema3 = external_exports.object({ endpoint: endpointSchema, payload: external_exports.unknown() }).strict();
+var streamOpenSchema2 = external_exports.object({
+  streamId: external_exports.string().min(1).max(128),
+  endpoint: endpointSchema,
+  payload: external_exports.unknown()
+}).strict();
+var streamCloseSchema2 = external_exports.object({ streamId: external_exports.string().min(1).max(128) }).strict();
+var transferOpenSchema2 = external_exports.object({
+  transferId: external_exports.string().uuid(),
+  totalBytes: external_exports.number().int().positive().max(MAX_HARNESS_API_TRANSFER_BYTES),
+  totalChunks: external_exports.number().int().positive()
+}).strict();
+var transferChunkSchema2 = external_exports.object({
+  transferId: external_exports.string().uuid(),
+  index: external_exports.number().int().nonnegative(),
+  data: external_exports.string().min(1)
+}).strict();
+var transferIdSchema2 = external_exports.object({ transferId: external_exports.string().uuid() }).strict();
+var transferReadSchema2 = external_exports.object({
+  transferId: external_exports.string().uuid(),
+  index: external_exports.number().int().nonnegative()
+}).strict();
+var MAX_ACTIVE_STREAMS = 16;
+var MAX_ACTIVE_TRANSFERS = 2;
+var TRANSFER_IDLE_MS = 2 * 6e4;
+var INLINE_TRANSFER_RESPONSE_BYTES2 = 2 * 1024 * 1024;
+var HARNESS_REMOTE_ALLOWLIST = [
+  "$events",
+  "$events/result",
+  "agentPresets/list",
+  "agentPresets/read",
+  "agentPresets/select",
+  "commands/execute",
+  "commands/list",
+  "credentials/describe",
+  "credentials/set",
+  "credentials/unset",
+  "directoryPicker/list",
+  "fileReferences/list",
+  "goals/clear",
+  "goals/complete",
+  "goals/create",
+  "goals/edit",
+  "goals/pause",
+  "goals/resume",
+  "llm/discoverModels",
+  "llm/listConfigurableProviders",
+  "llm/listProviders",
+  "messageFeedback/delete",
+  "messageFeedback/list",
+  "messageFeedback/put",
+  "pluginInventory/list",
+  "session/attachment",
+  "session/cancel",
+  "session/control",
+  "session/create",
+  "session/follow",
+  "session/fork",
+  "session/list",
+  "session/modelCatalog",
+  "session/page",
+  "session/prompt",
+  "session/rename",
+  "session/search",
+  "session/selectModel",
+  "session/updateQueue",
+  "sessionReferenceResolver/candidates",
+  "settings/describe",
+  "settings/mutate",
+  "settings/replace",
+  "settings/update",
+  "skills/list",
+  "subagents/interruptByParent",
+  "subagents/list",
+  "subagents/prompt",
+  "workspace/archiveSession",
+  "workspace/create",
+  "workspace/delete",
+  "workspace/follow",
+  "workspace/insertBefore",
+  "workspace/insertSessionBefore",
+  "workspace/rename"
+];
+var allowedEndpoints = new Set(HARNESS_REMOTE_ALLOWLIST);
+var HarnessRemoteBridge = class {
+  constructor(gateway, publish, logger) {
+    this.gateway = gateway;
+    this.publish = publish;
+    this.logger = logger;
+  }
+  streams = /* @__PURE__ */ new Map();
+  incomingTransfers = /* @__PURE__ */ new Map();
+  outgoingTransfers = /* @__PURE__ */ new Map();
+  async call(input) {
+    const params = callSchema3.parse(input);
+    this.assertAllowed(params.endpoint);
+    const startedAt = performance.now();
+    try {
+      const result = await this.gateway.dispatch(params.endpoint, params.payload, AbortSignal.timeout(6e4));
+      this.logger?.debug("harness remote call ok", {
+        endpoint: params.endpoint,
+        durationMs: Math.round(performance.now() - startedAt)
+      });
+      return result;
+    } catch (error) {
+      this.logger?.warn("harness remote call failed", {
+        endpoint: params.endpoint,
+        durationMs: Math.round(performance.now() - startedAt),
+        code: this.gateway.failure(error).code
+      });
+      throw error;
+    }
+  }
+  openTransfer(input) {
+    this.pruneTransfers();
+    const params = transferOpenSchema2.parse(input);
+    if (params.totalChunks !== Math.ceil(params.totalBytes / HARNESS_API_TRANSFER_CHUNK_BYTES)) {
+      throw new RpcError("INVALID_MESSAGE", "The Harness Remote transfer chunk count is invalid.");
+    }
+    if (this.incomingTransfers.has(params.transferId) || this.outgoingTransfers.has(params.transferId)) {
+      throw new RpcError("REQUEST_CONFLICT", "The Harness Remote transfer id is already active.");
+    }
+    if (this.incomingTransfers.size >= MAX_ACTIVE_TRANSFERS) {
+      throw new RpcError("RATE_LIMITED", "Too many Harness Remote transfers are active.", void 0, true);
+    }
+    this.incomingTransfers.set(params.transferId, {
+      totalBytes: params.totalBytes,
+      totalChunks: params.totalChunks,
+      chunks: [],
+      receivedBytes: 0,
+      touchedAt: Date.now()
+    });
+    return { opened: true, transferId: params.transferId };
+  }
+  appendTransfer(input) {
+    this.pruneTransfers();
+    const params = transferChunkSchema2.parse(input);
+    const transfer = this.incomingTransfers.get(params.transferId);
+    if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness Remote transfer is not active.");
+    if (params.index !== transfer.chunks.length || params.index >= transfer.totalChunks) {
+      this.incomingTransfers.delete(params.transferId);
+      throw new RpcError("INVALID_MESSAGE", "Harness Remote transfer chunks must arrive exactly once and in order.");
+    }
+    const chunk = decodeCanonicalBase642(params.data);
+    const expectedBytes = Math.min(
+      HARNESS_API_TRANSFER_CHUNK_BYTES,
+      transfer.totalBytes - params.index * HARNESS_API_TRANSFER_CHUNK_BYTES
+    );
+    if (chunk.byteLength !== expectedBytes) {
+      this.incomingTransfers.delete(params.transferId);
+      throw new RpcError("INVALID_MESSAGE", "The Harness Remote transfer chunk size is invalid.");
+    }
+    transfer.chunks.push(chunk);
+    transfer.receivedBytes += chunk.byteLength;
+    transfer.touchedAt = Date.now();
+    return { accepted: true, transferId: params.transferId, index: params.index };
+  }
+  async commitTransfer(input) {
+    this.pruneTransfers();
+    const params = transferIdSchema2.parse(input);
+    const transfer = this.incomingTransfers.get(params.transferId);
+    if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness Remote transfer is not active.");
+    this.incomingTransfers.delete(params.transferId);
+    if (transfer.chunks.length !== transfer.totalChunks || transfer.receivedBytes !== transfer.totalBytes) {
+      throw new RpcError("INVALID_MESSAGE", "The Harness Remote transfer is incomplete.");
+    }
+    let request;
+    try {
+      request = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(concatChunks2(transfer.chunks, transfer.totalBytes)));
+    } catch {
+      throw new RpcError("INVALID_MESSAGE", "The Harness Remote transfer does not contain a valid request.");
+    }
+    const response = await this.call(callSchema3.parse(request));
+    const responseBytes = new TextEncoder().encode(JSON.stringify(response));
+    if (responseBytes.byteLength <= INLINE_TRANSFER_RESPONSE_BYTES2) return { kind: "inline", response };
+    if (responseBytes.byteLength > MAX_HARNESS_API_TRANSFER_BYTES) {
+      throw new RpcError("RESPONSE_TOO_LARGE", "The Harness Remote response exceeds the bounded transfer limit.");
+    }
+    if (this.outgoingTransfers.size >= MAX_ACTIVE_TRANSFERS) {
+      throw new RpcError("RATE_LIMITED", "Too many Harness Remote response transfers are active.", void 0, true);
+    }
+    const totalChunks = Math.ceil(responseBytes.byteLength / HARNESS_API_TRANSFER_CHUNK_BYTES);
+    this.outgoingTransfers.set(params.transferId, {
+      bytes: responseBytes,
+      totalChunks,
+      nextIndex: 0,
+      touchedAt: Date.now()
+    });
+    return { kind: "chunked", transferId: params.transferId, totalBytes: responseBytes.byteLength, totalChunks };
+  }
+  readTransfer(input) {
+    this.pruneTransfers();
+    const params = transferReadSchema2.parse(input);
+    const transfer = this.outgoingTransfers.get(params.transferId);
+    if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness Remote response transfer is not active.");
+    if (params.index !== transfer.nextIndex || params.index >= transfer.totalChunks) {
+      this.outgoingTransfers.delete(params.transferId);
+      throw new RpcError("INVALID_MESSAGE", "Harness Remote response chunks must be read exactly once and in order.");
+    }
+    const start = params.index * HARNESS_API_TRANSFER_CHUNK_BYTES;
+    const end = Math.min(start + HARNESS_API_TRANSFER_CHUNK_BYTES, transfer.bytes.byteLength);
+    transfer.nextIndex += 1;
+    transfer.touchedAt = Date.now();
+    return {
+      transferId: params.transferId,
+      index: params.index,
+      data: Buffer.from(transfer.bytes.subarray(start, end)).toString("base64")
+    };
+  }
+  closeTransfer(input) {
+    const params = transferIdSchema2.parse(input);
+    const closed = this.incomingTransfers.delete(params.transferId) || this.outgoingTransfers.delete(params.transferId);
+    return { closed, transferId: params.transferId };
+  }
+  async openStream(input) {
+    const params = streamOpenSchema2.parse(input);
+    this.assertAllowed(params.endpoint);
+    if (this.streams.has(params.streamId)) throw new RpcError("REQUEST_CONFLICT", "The Harness Remote stream is already open.");
+    if (this.streams.size >= MAX_ACTIVE_STREAMS) {
+      throw new RpcError("RATE_LIMITED", "Too many Harness Remote streams are open.", void 0, true);
+    }
+    const controller = new AbortController();
+    const source = await this.gateway.open(params.endpoint, params.payload, controller.signal);
+    this.streams.set(params.streamId, { controller });
+    void this.pump(params.streamId, source, controller.signal);
+    return { opened: true, streamId: params.streamId };
+  }
+  closeStream(input) {
+    const params = streamCloseSchema2.parse(input);
+    const active = this.streams.get(params.streamId);
+    if (active !== void 0) {
+      this.streams.delete(params.streamId);
+      active.controller.abort("client-closed");
+    }
+    return { closed: active !== void 0, streamId: params.streamId };
+  }
+  async closeAll(reason = "peer-disconnected") {
+    const streams = [...this.streams.entries()];
+    this.streams.clear();
+    this.incomingTransfers.clear();
+    this.outgoingTransfers.clear();
+    for (const [, stream] of streams) stream.controller.abort(reason);
+  }
+  assertAllowed(endpoint) {
+    if (!allowedEndpoints.has(endpoint)) {
+      throw new RpcError("METHOD_NOT_ALLOWED", "The requested Harness Remote endpoint is not allowed.");
+    }
+    if (endpoint === "$events" && !this.gateway.supportsCarrier) {
+      throw new RpcError("FEATURE_NOT_SUPPORTED", "This Harness version does not support Remote event transport.");
+    }
+  }
+  async pump(streamId, source, signal) {
+    let reason = "completed";
+    let failure;
+    try {
+      for await (const value of source) {
+        if (signal.aborted) break;
+        await this.publish("harness.remote.frame", {
+          streamId,
+          hasValue: true,
+          ...value === void 0 ? {} : { value }
+        });
+      }
+      if (signal.aborted) reason = "cancelled";
+    } catch (error) {
+      reason = signal.aborted ? "cancelled" : "failed";
+      if (!signal.aborted) failure = this.gateway.failure(error);
+    } finally {
+      this.streams.delete(streamId);
+      await this.publish("harness.remote.stream.closed", {
+        streamId,
+        reason,
+        ...failure === void 0 ? {} : { failure }
+      }).catch(() => void 0);
+    }
+  }
+  pruneTransfers() {
+    const cutoff = Date.now() - TRANSFER_IDLE_MS;
+    for (const [id, transfer] of this.incomingTransfers) if (transfer.touchedAt < cutoff) this.incomingTransfers.delete(id);
+    for (const [id, transfer] of this.outgoingTransfers) if (transfer.touchedAt < cutoff) this.outgoingTransfers.delete(id);
+  }
+};
+function decodeCanonicalBase642(value) {
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.toString("base64") !== value) throw new RpcError("INVALID_MESSAGE", "The Harness Remote transfer chunk is invalid.");
+  return bytes;
+}
+function concatChunks2(chunks, totalBytes) {
+  const result = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+}
+
 // src/service.ts
 var HostPluginRuntime = class {
-  constructor(config, identities, apiProxy, logger, typertGateway, fileViewerHost) {
+  constructor(config, identities, apiProxy, logger, localGateway, fileViewerHost) {
     this.config = config;
     this.identities = identities;
     this.apiProxy = apiProxy;
     this.logger = logger;
+    this.localGateway = localGateway;
     this.fileViewerHost = fileViewerHost;
     this.connections = new ConnectionController(this.identities, (_context, send) => {
-      const harnessApi = new HarnessApiBridge(
+      const harnessApi = this.apiProxy === void 0 ? void 0 : new HarnessApiBridge(
         this.apiProxy,
         (event, data) => send(createEvent(event, data)),
         void 0,
         this.logger,
-        typertGateway?.(),
+        this.localGateway,
         this.harnessVersion
       );
+      const harnessRemote = this.localGateway?.supportsCarrier === true ? new HarnessRemoteBridge(
+        this.localGateway,
+        (event, data) => send(createEvent(event, data)),
+        this.logger
+      ) : void 0;
       const fileViewer = new RemoteFileViewerBridge(
         () => this.fileViewerHost?.(),
         this.logger
       );
-      return new RpcRouter(harnessApi, void 0, this.logger, fileViewer);
+      return new RpcRouter(harnessApi, void 0, this.logger, fileViewer, harnessRemote, () => this.hostCapabilities());
     }, this.logger);
     if (config.serverUrl !== void 0) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory));
@@ -18231,7 +18990,7 @@ var HostPluginRuntime = class {
       this.logger,
       void 0,
       this.config.forceRelay ? void 0 : () => loadNodeRtcFactory({ routeTargets: this.config.serverUrl === void 0 ? [] : [this.config.serverUrl] }),
-      () => this.fileViewerHost?.() === void 0 ? ["harness.api.v1"] : ["harness.api.v1", "fileviewer.read.v1"],
+      () => this.hostCapabilities(),
       this.harnessVersion
     );
   }
@@ -18239,7 +18998,8 @@ var HostPluginRuntime = class {
     let reportedVersion;
     let errorCode2;
     try {
-      const response = await this.apiProxy.host.describe({ rpcId: RpcId(randomUUID()), payload: {} });
+      const response = await this.apiProxy?.host.describe({ rpcId: randomUUID(), payload: {} });
+      if (response === void 0) throw new Error("ApiProxy is unavailable");
       if (!response.result.ok) {
         errorCode2 = response.result.error.code;
       } else {
@@ -18252,6 +19012,15 @@ var HostPluginRuntime = class {
     if (version !== void 0) return version;
     this.logger.warn("Harness version is unavailable", errorCode2 === void 0 ? void 0 : { code: errorCode2 });
     return void 0;
+  }
+  hostCapabilities() {
+    const capabilities = [];
+    if (this.apiProxy !== void 0) capabilities.push("harness.api.v1", "harness.api.transfer.v1");
+    if (this.localGateway?.supportsCarrier === true) {
+      capabilities.push("harness.remote.v1", "harness.remote.transfer.v1");
+    }
+    if (this.fileViewerHost?.() !== void 0) capabilities.push("fileviewer.read.v1");
+    return capabilities;
   }
 };
 function shortId5(value) {
@@ -18335,7 +19104,13 @@ function decodeBase64(value) {
 var name = "ds-harness-remote";
 var legacyLoaderModuleNames = /* @__PURE__ */ new Set(["dsh-remote", "@dsh-remote/plugin"]);
 function apply(ctx, input = {}) {
-  ctx.inject(["settings", "apiProxy", "connection", "typertGateway"], (runtimeContext) => activate(runtimeContext, input));
+  ctx.inject(["settings", "connection", "typertGateway"], (runtimeContext) => {
+    const gateway = runtimeContext.get("typertGateway");
+    if (runtimeContext.get("apiProxy") !== void 0 || new TypertGatewaySwitch(gateway).supportsCarrier()) {
+      return activate(runtimeContext, input);
+    }
+    runtimeContext.inject(["apiProxy"], (legacyContext) => activate(legacyContext, input));
+  });
 }
 async function activate(ctx, input) {
   const settings = ctx.get("settings");
@@ -18380,12 +19155,12 @@ async function activate(ctx, input) {
     hostIdentities,
     apiProxy,
     logger,
-    () => localTypertGateway,
+    localTypertGateway,
     () => ctx.get("fileViewerHost")
   );
   let clientRuntime;
   const hostControl = runtime;
-  if (config.serverUrl !== void 0 && apiProxy !== void 0 && connection !== void 0) {
+  if (config.serverUrl !== void 0 && connection !== void 0) {
     const clientIdentities = new IdentityStore({
       directory: serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, "client")
     });
@@ -18412,6 +19187,7 @@ async function activate(ctx, input) {
         logger.warn("client remote mode is unavailable", {
           serverConfigured: config.serverUrl !== void 0,
           apiProxyAvailable: apiProxy !== void 0,
+          remoteGatewayAvailable: localTypertGateway.supportsCarrier,
           connectionAvailable: connection !== void 0
         });
       }
@@ -18461,8 +19237,10 @@ export {
   ConnectionController,
   ConnectionRejectedError,
   HARNESS_API_ALLOWLIST,
+  HARNESS_REMOTE_ALLOWLIST,
   HOST_CAPABILITIES,
   HarnessApiBridge,
+  HarnessRemoteBridge,
   HostPluginRuntime,
   HostServerApi,
   HostServerConnection,
@@ -18471,6 +19249,7 @@ export {
   PluginControlRuntime,
   RemoteFileViewerBridge,
   RemoteHarnessApiProxy,
+  RemoteTypertGateway,
   RpcError,
   RpcRouter,
   ServerApiError,

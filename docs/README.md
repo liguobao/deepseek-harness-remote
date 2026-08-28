@@ -19,7 +19,7 @@
 
 Server、Remote Web 和 Admin 由独立 Server 项目作为同一站点实现。本仓库保留 Server
 设计和协议，用于约束 Plugin Host/Client 与外部服务；Android Client 复用同一
-Control/Relay 和 ApiProxy contract。
+Control/Relay，以及 rc.2 ApiProxy / alpha.1 Typert Remote contract。
 
 ## 权威文档
 
