@@ -365,7 +365,7 @@ Control frame 是 Server 可读 JSON，不得放置 Remote 业务明文。
     "protocols": [1],
     "clientVersion": "0.2.9",
     "harnessVersion": "0.1.0-rc.8",
-    "capabilities": ["transport.relay", "transport.webrtc"]
+    "capabilities": ["transport.p2p", "transport.turn", "transport.relay"]
   }
 }
 ```

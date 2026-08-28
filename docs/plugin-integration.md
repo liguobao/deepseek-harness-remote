@@ -312,7 +312,7 @@ wss://dsh.r2049.cn/ws/v1/connect
     "protocols": [1],
     "clientVersion": "0.2.9",
     "harnessVersion": "0.1.0-rc.8",
-    "capabilities": ["transport.relay", "transport.webrtc"]
+    "capabilities": ["transport.p2p", "transport.turn", "transport.relay"]
   }
 }
 ```
