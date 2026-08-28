@@ -1,7 +1,7 @@
 # DSH Remote for Android
 
 React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness host over the
-[Remote Protocol v1](../docs/protocol.md) ApiProxy tunnel.
+[Remote Protocol v1](../docs/protocol.md) ApiProxy / Typert Remote tunnel.
 
 ## Implemented flow
 
@@ -15,7 +15,8 @@ React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness hos
   identity key, and pin it locally; a changed key fails closed and is never silently replaced.
 - Establish a Noise IK channel over an adaptive transport (WebRTC P2P/TURN with Relay fallback) and
   reject tampered, replayed, or wrong-identity frames.
-- Drive the Host's ApiProxy bridge through `harness.api.call/respond/stream.open/stream.close`:
+- Drive the Host through the rc.2 ApiProxy bridge or the alpha.1 Typert Remote Gateway after
+  encrypted capability probing:
   browse sessions (including archived ones), create sessions, stream live mux frames, send
   text/image prompts, cancel generation, page older history, switch the active model from the host's
   catalog, manage host workspaces (create with a read-only directory browser, rename, delete,
@@ -76,4 +77,4 @@ src/
 ```
 
 The UI does not expose shell, filesystem, or arbitrary tool RPCs. Every Harness action goes through
-the Host's fixed ApiProxy allowlist; Host policy remains authoritative.
+the Host's fixed ApiProxy or Typert Remote allowlist; Host policy remains authoritative.

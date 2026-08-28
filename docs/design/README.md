@@ -4,8 +4,8 @@
 更新时间：2026-08-28
 上游需求：[vibe-coding.md](../../vibe-coding.md)
 
-本目录定义当前仓库内以 rc.2 ApiProxy / alpha.1 Typert Remote Gateway 为 Harness 业务面、以可选 File Viewer bridge 为只读预览面的双角色 Desktop Plugin 和共享基础包的产品与功能。
-Android 已迁移到同一 ApiProxy-only 数据面，但仍需真实设备 E2E 验证。
+本目录定义当前仓库内以 rc.2 ApiProxy / alpha.1 Typert Remote Gateway 为 Harness 业务面、以可选 File Viewer bridge 为只读预览面的双角色 Desktop Plugin、Android/VS Code Client 和共享基础包的产品与功能。
+Android 与 VS Code 已接入同一双 carrier Client Core，但仍需真实设备和 Extension Host E2E 验证。
 
 Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Client 的线协议以 [../protocol.md](../protocol.md) 为准，Host 的账号登录与授权注册流程见 [../plugin-integration.md](../plugin-integration.md)。这些文档必须保留，但 Server 由独立项目实现，不得在当前仓库创建 Server 源码或部署目录。
 

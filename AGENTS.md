@@ -7,8 +7,8 @@
 当前仓库实现：
 
 - DeepSeek Harness Plugin（Remote Host + 本地 Remote 工作区入口；无用户可见的 Client 模式）
-- Android Client（账号授权 + Adaptive transport + ApiProxy tunnel 数据面）
-- VS Code Client（账号授权 + Host 信任固定 + ApiProxy 会话/Prompt）
+- Android Client（账号授权 + Adaptive transport + rc.2 ApiProxy / alpha.1 Typert Remote 双数据面）
+- VS Code Client（账号授权 + Host 信任固定 + rc.2 ApiProxy / alpha.1 Typert Remote 会话/Prompt）
 - Protocol、Crypto、WebRTC、Client Core 等共享能力
 - 依赖外部 Server 的 Mock Host/Smoke Client
 - Server 设计与跨仓库协议契约
@@ -26,7 +26,7 @@ Server、Remote Web 和 Admin 必须由独立 Server 仓库作为同一站点实
 
 ```text
 apps/
-  android/             React Native / Expo Android Client（账号授权 + ApiProxy tunnel）
+  android/             React Native / Expo Android Client（账号授权 + ApiProxy/Typert Remote tunnel）
   vscode/              VS Code Extension Client（Host 列表、加密连接与远程会话）
   browser/             Chrome/Edge MV3 入口（Web 授权换取独立凭证 + 在线 Host + 打开 Remote Web）
 packages/
@@ -56,8 +56,8 @@ docs/
 | --- | --- | --- |
 | Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 rc.2 ApiProxy / alpha.1 Typert Remote allowlist bridge 已实现；无自定义 Harness 业务适配层 | rc.2 与 alpha.1 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
 | Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；Remote 模态框支持 GitHub/知乎扫码与账号密码登录、本机过滤、主机/版本信息、已有 Workspace、远端目录浏览、rc.2/alpha.1 图片 Prompt/回显，以及配合 dsh-file-viewer 的受限只读文件预览，随后复用原生 Harness UI；加密通道 capability 探测保留 legacy Host 降级并拒绝 rc.2/alpha.1 混连 | 真实 dsh-desktop 跨机 E2E、断线重连、页面级导航接口 |
-| Android | 已迁移到 ApiProxy-only 数据面：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、harness.api tunnel、mux frame 聊天与图片 Prompt（Host limits 预检 + transfer 分块）、跟随系统/英文/简体中文界面 | 真机 E2E 与 Server 联调、图片选择/大图传输真机验证、重连后 mux 重开与 history baseline、WebRTC 走通验证 |
-| VS Code | Extension 基础已实现：SecretStorage 身份/凭证、账号/扫码登录、Host 指纹固定、Adaptive transport + Noise、Host→Workspace→Session 导航与编辑区会话面板 | Extension Host 跨机 E2E、实时流式更新、approval/question 与重连恢复 |
+| Android | 已迁移到 rc.2 ApiProxy / alpha.1 Typert Remote 双数据面：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、capability 探测、mux 或 Gateway frame 聊天与图片 Prompt（Host limits 预检 + transfer 分块）、跟随系统/英文/简体中文界面 | rc.2/alpha.1 真机 E2E 与 Server 联调、图片选择/大图传输真机验证、重连后 stream 重开与 history baseline、WebRTC 走通验证 |
+| VS Code | Extension 基础已实现：SecretStorage 身份/凭证、账号/扫码登录、Host 指纹固定、Adaptive transport + Noise、rc.2 ApiProxy / alpha.1 Typert Remote Host→Workspace→Session 导航、Prompt、permission command 与编辑区会话面板 | Extension Host 跨机 E2E、实时流式更新、question 界面与重连恢复 |
 | Browser | Chrome/Edge MV3 轻量入口已实现：临时读取已登录 Web 的授权并换取隔离的 device credential，popup 展示在线 Host，点击后直接打开同源 Remote Web；不承载账号登录、Remote transport、ApiProxy 或会话 UI | 与独立 Server 联调，并加载 unpacked 验证 |
 | Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 完整 Zod schema、limits、golden vectors |
 | Crypto | 基础原语与标准 Noise IK 已实现 | 第三方实现审查、rekey、跨端 conformance |

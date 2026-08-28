@@ -488,11 +488,15 @@ function historyView(value: unknown): HistoryEntry['view'] | undefined {
 
 function stepKey(event: NativeSessionEvent): string {
   const data = isRecord(event.data) ? event.data : {}
-  return `${stringValue(data.turn) ?? '?'}:${stringValue(data.step) ?? '?'}`
+  return `${keyPart(data.turn)}:${keyPart(data.step)}`
 }
 
 function now(data: UnknownRecord): number {
   return typeof data.time === 'number' ? data.time : Date.now()
+}
+
+function keyPart(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : '?'
 }
 
 function stringValue(value: unknown): string | undefined {

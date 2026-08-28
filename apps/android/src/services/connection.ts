@@ -1,4 +1,4 @@
-import { RemoteClientCore } from '@dsh-remote/client-core'
+import { HarnessAlphaClient, RemoteClientCore, probeRemoteHostFeatures } from '@dsh-remote/client-core'
 import { AdaptiveTransport, type RtcIceServer } from '@dsh-remote/webrtc'
 import { websocketUrl } from '../lib/server-url'
 import { strings } from '../locales/i18n'
@@ -8,6 +8,7 @@ import { SecureTransport } from './secure-transport'
 
 export type MuxFrameHandler = (frame: MuxStreamFrame) => void
 export type CloseHandler = () => void
+type RemoteHarnessClient = RemoteApiProxy | HarnessAlphaClient
 
 export interface AndroidConnectionOptions {
   preferredTransports?: Array<'lan' | 'p2p' | 'turn' | 'relay'>
@@ -19,7 +20,7 @@ export interface AndroidConnectionOptions {
 
 export class AndroidRemoteConnection {
   private core?: RemoteClientCore
-  private proxy?: RemoteApiProxy
+  private proxy?: RemoteHarnessClient
   private closeMux?: (notifyRemote?: boolean) => Promise<void>
   private unsubscribeClose?: () => void
   private muxHandler?: MuxFrameHandler
@@ -92,16 +93,31 @@ export class AndroidRemoteConnection {
         webRtcFallback = false
         core = await connectCore(true)
       }
-      this.proxy = new RemoteApiProxy(core)
-      this.closeMux = await this.proxy.openMuxStream(frame => this.muxHandler?.(frame))
+      const features = await probeRemoteHostFeatures(core, host.clientVersion)
+      if (features.remoteGateway) {
+        const alpha = new HarnessAlphaClient(
+          core,
+          { clientVersion: host.clientVersion, harnessVersion: host.harnessVersion },
+          frame => this.muxHandler?.(frame as unknown as MuxStreamFrame),
+        )
+        alpha.start()
+        this.proxy = alpha
+        this.closeMux = async (notifyRemote = true) => { await alpha.close(notifyRemote) }
+      } else if (features.apiProxy) {
+        const apiProxy = new RemoteApiProxy(core)
+        this.proxy = apiProxy
+        this.closeMux = await apiProxy.openMuxStream(frame => this.muxHandler?.(frame))
+      } else {
+        throw new Error('The remote Host exposes no supported Harness transport.')
+      }
     } catch (error) {
       await this.close()
       throw error
     }
   }
 
-  /** ApiProxy tunnel client; only available while connected. */
-  requireProxy(): RemoteApiProxy {
+  /** Harness business client; only available while connected. */
+  requireProxy(): RemoteHarnessClient {
     if (this.proxy === undefined) throw new Error(strings.runtime.connectHostFirst)
     return this.proxy
   }

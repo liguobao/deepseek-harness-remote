@@ -13,6 +13,7 @@ class FakeCore {
   async rpc(method: string, params?: unknown): Promise<unknown> {
     this.calls.push(method)
     this.rpcCalls.push({ method, params })
+    if (method === 'harness.transport.describe') return { capabilities: testState.capabilities }
     if (method === 'harness.api.stream.open' && testState.blockStreamOpen) {
       return new Promise((_, reject) => { this.rejectPendingRpc = reject })
     }
@@ -24,6 +25,15 @@ class FakeCore {
           result: { ok: true, value: { commandId: 'permission', result: { kind: 'success' } } },
         }
       }
+    }
+    if (method === 'harness.remote.stream.open') return {}
+    if (method === 'harness.remote.stream.close') return {}
+    if (method === 'harness.remote.call') {
+      const request = params as { endpoint?: unknown }
+      if (request.endpoint === 'commands/execute') {
+        return { ok: true, value: { commandId: 'permission', result: { kind: 'success' } } }
+      }
+      return { ok: true, value: undefined }
     }
     return {}
   }
@@ -44,17 +54,25 @@ class FakeCore {
   }
 }
 
-const testState = vi.hoisted(() => ({ cores: [] as FakeCore[], blockStreamOpen: false }))
-
-vi.mock('@dsh-remote/client-core', () => ({
-  RemoteClientCore: class {
-    constructor() {
-      const core = new FakeCore()
-      testState.cores.push(core)
-      return core
-    }
-  },
+const testState = vi.hoisted(() => ({
+  cores: [] as FakeCore[],
+  blockStreamOpen: false,
+  capabilities: ['harness.api.v1'] as string[],
 }))
+
+vi.mock('@dsh-remote/client-core', async () => {
+  const actual = await vi.importActual<typeof import('@dsh-remote/client-core')>('@dsh-remote/client-core')
+  return {
+    ...actual,
+    RemoteClientCore: class {
+      constructor() {
+        const core = new FakeCore()
+        testState.cores.push(core)
+        return core
+      }
+    },
+  }
+})
 
 vi.mock('@dsh-remote/webrtc', () => ({ AdaptiveTransport: class {} }))
 vi.mock('../src/server-api.js', () => ({
@@ -85,6 +103,7 @@ describe('RemoteConnection close state', () => {
   beforeEach(() => {
     testState.cores.length = 0
     testState.blockStreamOpen = false
+    testState.capabilities = ['harness.api.v1']
   })
 
   it('cleans the core and notifies the UI after an unexpected close', async () => {
@@ -145,5 +164,36 @@ describe('RemoteConnection close state', () => {
         payload: { agentId: 'session-1', line: '/permission default', images: [] },
       }),
     })
+  })
+
+  it('uses alpha.1 Typert Remote command payload when changing approval mode', async () => {
+    testState.capabilities = ['harness.remote.v1', 'harness.remote.transfer.v1']
+    const connection = new RemoteConnection()
+    await connection.connect('https://server.example.com', identity, host, 'access-token', true)
+    const core = testState.cores[0]!
+
+    await connection.selectPermission('session-1', 'default')
+
+    expect(core.calls).not.toContain('harness.api.stream.open')
+    expect(core.rpcCalls).toContainEqual({
+      method: 'harness.remote.call',
+      params: {
+        endpoint: 'commands/execute',
+        payload: { args: { agentId: 'session-1', line: '/permission default', images: [] } },
+      },
+    })
+  })
+
+  it('clears the alpha.1 client after an unexpected close', async () => {
+    testState.capabilities = ['harness.remote.v1', 'harness.remote.transfer.v1']
+    const connection = new RemoteConnection()
+    await connection.connect('https://server.example.com', identity, host, 'access-token', true)
+    const core = testState.cores[0]!
+
+    core.drop()
+    await vi.waitFor(() => expect(core.closeCount).toBe(1))
+
+    await expect(connection.sessions()).rejects.toThrow('Connect to a host first.')
+    expect(core.rpcCalls.filter(call => call.method === 'harness.remote.call')).toHaveLength(0)
   })
 })

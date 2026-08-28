@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createRpcResponse, encodeMessage } from '@dsh-remote/protocol'
+import { createEvent, createRpcError, createRpcResponse, encodeMessage } from '@dsh-remote/protocol'
 import { BaseTransport } from '@dsh-remote/webrtc'
-import { RemoteClientCore, RemoteClientError } from '../src/index.js'
+import {
+  HarnessAlphaClient,
+  RemoteClientCore,
+  RemoteClientError,
+  RemoteTypertGateway,
+  probeRemoteHostFeatures,
+} from '../src/index.js'
 
 class LoopbackTransport extends BaseTransport {
   sent: Uint8Array[] = []
@@ -187,5 +193,239 @@ describe('RemoteClientCore', () => {
     await expect(call).rejects.toBeInstanceOf(RemoteClientError)
 
     transport.push(encodeMessage(createRpcResponse(request.id, { late: true })))
+  })
+})
+
+describe('Remote Host feature probing', () => {
+  it('recognizes alpha.1 Remote Gateway capabilities', async () => {
+    const transport = new LoopbackTransport()
+    const client = new RemoteClientCore(transport)
+    await client.connect()
+    const probing = probeRemoteHostFeatures(client)
+    const request = JSON.parse(new TextDecoder().decode(transport.sent[0]!))
+
+    transport.push(encodeMessage(createRpcResponse(request.id, {
+      capabilities: ['harness.remote.v1', 'harness.remote.transfer.v1'],
+    })))
+
+    await expect(probing).resolves.toMatchObject({
+      apiProxy: false,
+      remoteGateway: true,
+      remoteTransfer: true,
+    })
+  })
+
+  it('falls back to ApiProxy for legacy Hosts without describe', async () => {
+    const transport = new LoopbackTransport()
+    const client = new RemoteClientCore(transport)
+    await client.connect()
+    const probing = probeRemoteHostFeatures(client, 'v0.3.17')
+    const request = JSON.parse(new TextDecoder().decode(transport.sent[0]!))
+
+    transport.push(encodeMessage(createRpcError(request.id, 'METHOD_NOT_FOUND', 'not found')))
+
+    await expect(probing).resolves.toMatchObject({
+      apiProxy: true,
+      remoteGateway: false,
+      commandList: true,
+      fileViewer: true,
+    })
+  })
+})
+
+describe('RemoteTypertGateway', () => {
+  it('dispatches alpha.1 Gateway calls over harness.remote.call', async () => {
+    const transport = new LoopbackTransport()
+    const client = new RemoteClientCore(transport)
+    const gateway = new RemoteTypertGateway(client)
+    await client.connect()
+
+    const call = gateway.call('session/list', { args: { _request: {} } })
+    const request = JSON.parse(new TextDecoder().decode(transport.sent[0]!))
+    expect(request.payload).toMatchObject({
+      method: 'harness.remote.call',
+      params: { endpoint: 'session/list', payload: { args: { _request: {} } } },
+    })
+    transport.push(encodeMessage(createRpcResponse(request.id, { ok: true, value: { items: [] } })))
+
+    await expect(call).resolves.toEqual({ items: [] })
+  })
+
+  it('routes Remote stream frames and closes the stream on iterator return', async () => {
+    const transport = new LoopbackTransport()
+    const client = new RemoteClientCore(transport)
+    const gateway = new RemoteTypertGateway(client)
+    await client.connect()
+
+    const opening = gateway.open('$events', { args: {} })
+    const request = JSON.parse(new TextDecoder().decode(transport.sent[0]!))
+    expect(request.payload).toMatchObject({
+      method: 'harness.remote.stream.open',
+      params: { endpoint: '$events', payload: { args: {} } },
+    })
+    const streamId = request.payload.params.streamId as string
+    transport.push(encodeMessage(createRpcResponse(request.id, {})))
+    const iterator = (await opening)[Symbol.asyncIterator]()
+
+    transport.push(encodeMessage(createEvent('harness.remote.frame', {
+      streamId,
+      hasValue: true,
+      value: { type: 'ready', clientId: 'client-1', host: { home: '/home/u' } },
+    })))
+
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: { type: 'ready', clientId: 'client-1', host: { home: '/home/u' } },
+    })
+    const closing = iterator.return?.()
+    await vi.waitFor(() => {
+      const close = JSON.parse(new TextDecoder().decode(transport.sent.at(-1)!))
+      expect(close.payload).toMatchObject({
+        method: 'harness.remote.stream.close',
+        params: { streamId },
+      })
+    })
+    const close = JSON.parse(new TextDecoder().decode(transport.sent.at(-1)!))
+    expect(close.payload).toMatchObject({
+      method: 'harness.remote.stream.close',
+      params: { streamId },
+    })
+    transport.push(encodeMessage(createRpcResponse(close.id, {})))
+    await closing
+  })
+})
+
+class ScriptedCore {
+  private readonly eventHandlers = new Set<(event: unknown) => void>()
+  private readonly closeHandlers = new Set<() => void>()
+  readonly rpcCalls: Array<{ method: string; params?: unknown }> = []
+
+  async rpc(method: string, params?: unknown): Promise<unknown> {
+    this.rpcCalls.push({ method, params })
+    if (method === 'harness.remote.call') {
+      const request = params as { endpoint?: string; payload?: { args?: Record<string, unknown> } }
+      if (request.endpoint === '$events/result') return { ok: true, value: undefined }
+      if (request.endpoint === 'commands/execute') {
+        return { ok: true, value: { commandId: 'permission', result: { kind: 'success' } } }
+      }
+      return { ok: true, value: undefined }
+    }
+    return {}
+  }
+
+  onEvent(handler: (event: unknown) => void): () => void {
+    this.eventHandlers.add(handler)
+    return () => this.eventHandlers.delete(handler)
+  }
+
+  onClose(handler: () => void): () => void {
+    this.closeHandlers.add(handler)
+    return () => this.closeHandlers.delete(handler)
+  }
+
+  emit(event: unknown): void {
+    for (const handler of this.eventHandlers) handler(event)
+  }
+
+  streamIdFor(endpoint: string): string {
+    const open = this.rpcCalls.find(call => call.method === 'harness.remote.stream.open'
+      && (call.params as { endpoint?: string }).endpoint === endpoint)
+    if (open === undefined) throw new Error(`missing stream ${endpoint}`)
+    return (open.params as { streamId: string }).streamId
+  }
+}
+
+describe('HarnessAlphaClient', () => {
+  it('maps alpha.1 approval waterfalls to legacy client frames and answers through $events/result', async () => {
+    const core = new ScriptedCore()
+    const frames: Array<{ rpcId: string; payload: Record<string, unknown> }> = []
+    const client = new HarnessAlphaClient(core as unknown as RemoteClientCore, {}, frame => frames.push(frame))
+
+    client.start()
+    await vi.waitFor(() => expect(core.streamIdFor('$events')).toBeTruthy())
+    const streamId = core.streamIdFor('$events')
+    core.emit({ event: 'harness.remote.frame', data: { streamId, hasValue: true, value: { type: 'ready', clientId: 'client-1', host: { home: '/home/u' } } } })
+    core.emit({
+      event: 'harness.remote.frame',
+      data: {
+        streamId,
+        hasValue: true,
+        value: {
+          type: 'waterfall',
+          event: 'approval/request',
+          eventId: 'approval-1',
+          agentId: 'session-1',
+          request: { toolName: 'edit', reason: 'needs approval' },
+        },
+      },
+    })
+
+    await vi.waitFor(() => {
+      expect(frames).toContainEqual({
+        rpcId: 'approval-1',
+        payload: {
+          type: 'approval/requested',
+          sessionId: 'session-1',
+          approvalId: 'approval-1',
+          toolName: 'edit',
+          reason: 'needs approval',
+        },
+      })
+    })
+
+    await client.respondApproval('approval-1', 'session-1', 'approval-1', 'allowed-once')
+    expect(core.rpcCalls).toContainEqual({
+      method: 'harness.remote.call',
+      params: {
+        endpoint: '$events/result',
+        payload: {
+          args: {
+            clientId: 'client-1',
+            eventId: 'approval-1',
+            outcome: { kind: 'result', value: 'allowed-once' },
+          },
+        },
+      },
+    })
+    await client.close()
+  })
+
+  it('opens session/follow and expands packed text chunks for legacy history reducers', async () => {
+    const core = new ScriptedCore()
+    const client = new HarnessAlphaClient(core as unknown as RemoteClientCore)
+
+    const history = client.sessionHistory('session-1')
+    await vi.waitFor(() => expect(core.streamIdFor('session/follow')).toBeTruthy())
+    core.emit({
+      event: 'harness.remote.frame',
+      data: {
+        streamId: core.streamIdFor('session/follow'),
+        hasValue: true,
+        value: {
+          type: 'snapshot',
+          cursor: 9,
+          records: [{
+            type: 'chunks',
+            event: {
+              type: 'chunkrow/text-chunks',
+              seq: 2,
+              time: 100,
+              data: { turn: 1, step: 1, index: 0, dt: [5], texts: ['hel', 'lo'] },
+            },
+          }],
+          hasMore: false,
+          projections: { asOfSeq: 9, values: {} },
+        },
+      },
+    })
+
+    await expect(history).resolves.toEqual({
+      hasMore: false,
+      events: [
+        { event: { type: 'assistant/chunk', seq: 2, time: 100, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'hel' } } } },
+        { event: { type: 'assistant/chunk', seq: 3, time: 105, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'lo' } } } },
+      ],
+    })
+    await client.close()
   })
 })

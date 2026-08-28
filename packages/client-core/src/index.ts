@@ -210,3 +210,5 @@ function transportSendError(error: unknown): Error {
 }
 
 export type { EventPayload, RemoteEventName, RemoteTransport }
+export * from './remote-gateway.js'
+export * from './harness-alpha-client.js'

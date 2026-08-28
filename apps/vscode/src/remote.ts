@@ -1,4 +1,4 @@
-import { RemoteClientCore } from '@dsh-remote/client-core'
+import { HarnessAlphaClient, RemoteClientCore, probeRemoteHostFeatures } from '@dsh-remote/client-core'
 import { NoiseIkSession, createNoisePrologue } from '@dsh-remote/crypto'
 import { SecureMessageCodec, type HarnessApiCallParams } from '@dsh-remote/protocol'
 import {
@@ -21,6 +21,7 @@ const DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 12_000
 
 export class RemoteConnection {
   private core?: RemoteClientCore
+  private alpha?: HarnessAlphaClient
   private host?: RemoteHost
   private closeMux?: () => Promise<void>
   private readonly frameHandlers = new Set<(frame: MuxFrame) => void>()
@@ -65,7 +66,10 @@ export class RemoteConnection {
         core = undefined
       }
       if (core === undefined) throw new Error('Unable to establish a remote transport.')
-      const closeMux = await this.openMuxStream(core)
+      const features = await probeRemoteHostFeatures(core, host.clientVersion)
+      const closeMux = features.remoteGateway
+        ? this.openAlphaClient(core, host)
+        : await this.openMuxStream(core)
       if (this.core !== core) {
         await closeMux().catch(() => undefined)
         throw new Error('The remote connection closed during initialization.')
@@ -79,37 +83,44 @@ export class RemoteConnection {
   }
 
   async sessions(): Promise<RemoteSession[]> {
+    if (this.alpha !== undefined) return this.alpha.sessionList()
     const result = await this.call<{ items: RemoteSession[] }>('session.list', {})
     return Array.isArray(result.items) ? result.items : []
   }
 
   async workspaces(): Promise<RemoteWorkspace[]> {
+    if (this.alpha !== undefined) return (await this.alpha.workspaceList()).items
     const result = await this.call<{ items: RemoteWorkspace[] }>('workspace.list', {})
     return Array.isArray(result.items) ? result.items : []
   }
 
   async listDirectory(path?: string): Promise<DirectoryListing> {
+    if (this.alpha !== undefined) return this.alpha.hostListDirectory(path)
     const result = await this.call<DirectoryListing>('host.listDirectory', path ? { path } : {})
     if (typeof result.path !== 'string' || !Array.isArray(result.entries)) throw new Error('Host returned an invalid directory listing.')
     return result
   }
 
   async createWorkspace(path: string): Promise<RemoteWorkspace> {
+    if (this.alpha !== undefined) return (await this.alpha.workspaceCreate(path)).workspace
     const result = await this.call<{ workspace: RemoteWorkspace }>('workspace.create', { path })
     if (typeof result.workspace?.workspaceId !== 'string') throw new Error('Host returned an invalid workspace.')
     return result.workspace
   }
 
   async models(sessionId: string): Promise<SessionModels> {
+    if (this.alpha !== undefined) return this.alpha.sessionModels(sessionId)
     return this.call('session.models', { sessionId })
   }
 
   async selectModel(sessionId: string, selection: ModelSelection): Promise<ModelSelection> {
+    if (this.alpha !== undefined) return this.alpha.sessionSelectModel(sessionId, selection)
     const result = await this.call<{ selected: ModelSelection }>('session.selectModel', { sessionId, ...selection })
     return result.selected
   }
 
   async selectPermission(sessionId: string, preset: string): Promise<void> {
+    if (this.alpha !== undefined) return this.alpha.sessionSelectPermission(sessionId, preset)
     const execution = await this.call<{ result: { kind: 'success' | 'error'; text?: string } } | undefined>(
       'commands.execute',
       { agentId: sessionId, line: `/permission ${preset}`, images: [] },
@@ -118,29 +129,37 @@ export class RemoteConnection {
     if (execution.result.kind === 'error') throw new Error(execution.result.text ?? 'Harness rejected the permission preset.')
   }
 
-  async hostDescriptor(): Promise<HostDescriptor> { return this.call('host.describe', {}) }
+  async hostDescriptor(): Promise<HostDescriptor> {
+    if (this.alpha !== undefined) return this.alpha.hostDescribe()
+    return this.call('host.describe', {})
+  }
   stats() { return this.core?.getStats() }
   onFrame(handler: (frame: MuxFrame) => void): () => void { this.frameHandlers.add(handler); return () => this.frameHandlers.delete(handler) }
   onClose(handler: () => void): () => void { this.closeHandlers.add(handler); return () => this.closeHandlers.delete(handler) }
 
   async respondApproval(frameRpcId: string, sessionId: string, approvalId: string, outcome: 'allowed-once' | 'rejected'): Promise<void> {
+    if (this.alpha !== undefined) return this.alpha.respondApproval(frameRpcId, sessionId, approvalId, outcome)
     await this.core?.rpc('harness.api.respond', { message: { type: 'client-response', rpcId: frameRpcId, result: { ok: true, value: { sessionId, approvalId, outcome } } } })
   }
 
   async history(sessionId: string): Promise<ChatMessage[]> {
+    if (this.alpha !== undefined) return foldHistory(await this.alpha.sessionHistory(sessionId, undefined, 100).then(result => result.events as HistoryEntry[]))
     const result = await this.call<{ events: HistoryEntry[] }>('session.history', { sessionId, maxMessages: 100 })
     return foldHistory(Array.isArray(result.events) ? result.events : [])
   }
 
   async createSession(options: { workspaceId?: string; cwd?: string } = {}): Promise<{ sessionId: string }> {
+    if (this.alpha !== undefined) return this.alpha.sessionCreate(options.workspaceId, options.cwd)
     return this.call('session.create', options.workspaceId ? { workspaceId: options.workspaceId } : options.cwd ? { cwd: options.cwd } : {})
   }
 
   async prompt(sessionId: string, text: string): Promise<void> {
+    if (this.alpha !== undefined) return this.alpha.sessionPrompt(sessionId, text)
     await this.call('session.prompt', { sessionId, mode: 'queue', content: [{ type: 'text', text }] })
   }
 
   async cancelSession(sessionId: string): Promise<void> {
+    if (this.alpha !== undefined) return this.alpha.sessionCancel(sessionId)
     const result = await this.call<{ accepted: true }>('session.cancel', { sessionId })
     if (result.accepted !== true) throw new Error('Harness did not accept the stop request.')
   }
@@ -150,6 +169,7 @@ export class RemoteConnection {
     this.closeMux = undefined
     const core = this.core
     this.core = undefined
+    this.alpha = undefined
     this.host = undefined
     await closeMux?.().catch(() => undefined)
     await core?.close()
@@ -164,13 +184,24 @@ export class RemoteConnection {
     return response.result.value
   }
 
+  private openAlphaClient(core: RemoteClientCore, host: RemoteHost): () => Promise<void> {
+    const alpha = new HarnessAlphaClient(
+      core,
+      { clientVersion: host.clientVersion, harnessVersion: host.harnessVersion },
+      frame => this.dispatchFrame(frame as unknown as MuxFrame),
+    )
+    alpha.start()
+    this.alpha = alpha
+    return async () => { await alpha.close() }
+  }
+
   private async openMuxStream(core: RemoteClientCore): Promise<() => Promise<void>> {
     const streamId = crypto.randomUUID()
     const unsubscribe = core.onEvent(event => {
       if (event.event !== 'harness.api.frame' || !isRecord(event.data)) return
       if (event.data.streamId !== streamId || !isRecord(event.data.frame) || typeof event.data.frame.rpcId !== 'string' || !isRecord(event.data.frame.payload)) return
       const frame = { rpcId: event.data.frame.rpcId, payload: event.data.frame.payload }
-      for (const handler of this.frameHandlers) handler(frame)
+      this.dispatchFrame(frame)
     })
     try {
       await core.rpc('harness.api.stream.open', { streamId, stream: 'mux', rpcId: crypto.randomUUID(), payload: {} })
@@ -181,11 +212,16 @@ export class RemoteConnection {
     return async () => { unsubscribe(); await core.rpc('harness.api.stream.close', { streamId }).catch(() => undefined) }
   }
 
+  private dispatchFrame(frame: MuxFrame): void {
+    for (const handler of this.frameHandlers) handler(frame)
+  }
+
   private handleCoreClose(core: RemoteClientCore): void {
     if (this.core !== core) return
     const closeMux = this.closeMux
     this.closeMux = undefined
     this.core = undefined
+    this.alpha = undefined
     this.host = undefined
     void closeMux?.().catch(() => undefined)
     void core.close().catch(() => undefined)

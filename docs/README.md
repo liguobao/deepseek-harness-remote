@@ -5,7 +5,8 @@
 本仓库只实现以下内容：
 
 - DeepSeek Harness Plugin（常驻 Host + 本地 Remote 工作区入口，无用户可见的 Client 模式）
-- Android Client（账号授权 + Adaptive transport + ApiProxy tunnel 数据面）
+- Android Client（账号授权 + Adaptive transport + rc.2 ApiProxy / alpha.1 Typert Remote 双数据面）
+- VS Code Client（账号授权 + Host 信任固定 + rc.2 ApiProxy / alpha.1 Typert Remote 会话/Prompt）
 - `protocol`、`crypto`、`webrtc`、`client-core`、`ui` 等共享包
 - 用于客户端和插件联调的 Mock Host
 

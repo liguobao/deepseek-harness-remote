@@ -206,4 +206,4 @@ alpha.1 的 eventId/clientId 关联由官方 Gateway 验证。状态按 `connect
 - File Viewer 只允许 stat/list/受限 range read，超限和未安装依赖 fail closed。
 - Host/Client account token 与 device token 隔离，主机匹配码单次消费，refresh single-flight。
 
-Android 使用相同 ApiProxy-only 数据面；其 UI 和生命周期独立，不构成 Desktop Plugin 的组件兼容要求。
+Android 和 VS Code Client 使用相同 rc.2 ApiProxy / alpha.1 Typert Remote capability 探测；其 UI 和生命周期独立，不构成 Desktop Plugin 的组件兼容要求。
