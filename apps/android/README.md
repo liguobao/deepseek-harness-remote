@@ -1,7 +1,7 @@
 # DSH Remote for Android
 
 React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness host over the
-[Remote Protocol v1](../docs/protocol.md) ApiProxy / Typert Remote tunnel.
+[Remote Protocol v1](../../docs/protocol.md) ApiProxy / Typert Remote tunnel.
 
 ## Implemented flow
 
@@ -45,6 +45,11 @@ To generate and install the native Android development build:
 ```bash
 pnpm --filter @dsh-remote/android android
 ```
+
+The Android `start`, `android`, `ios`, and `build` commands rebuild the shared protocol, crypto,
+WebRTC, and client-core packages first, then verify that the compiled client contains both the
+rc.2 ApiProxy and alpha.1 Typert Remote capability paths. This prevents Metro or Gradle from
+silently packaging stale workspace `dist` files.
 
 Android Emulator reaches a server on the development machine at `http://10.0.2.2:8080`. Cleartext
 HTTP is accepted only for `localhost`, `127.0.0.1`, `10.0.2.2`, and private-network addresses

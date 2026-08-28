@@ -24,7 +24,13 @@ describe('Remote Server API compatibility', () => {
     expect(calls[0]?.headers).toMatchObject({ Authorization: 'Bearer account-token' })
     expect(JSON.parse(String(calls[0]?.body))).toMatchObject({
       v: 1,
-      device: { deviceId: identity.deviceId, role: 'client', platform: 'android', identityKey: identity.publicKey },
+      device: {
+        deviceId: identity.deviceId,
+        role: 'client',
+        platform: 'android',
+        identityKey: identity.publicKey,
+        clientVersion: '0.4.1',
+      },
     })
   })
 

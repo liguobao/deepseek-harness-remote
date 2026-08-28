@@ -33,6 +33,8 @@ export interface RtcPathDetails {
   mode?: RtcPathMode
   localCandidateType?: string
   remoteCandidateType?: string
+  localAddressScope?: RtcAddressScope
+  remoteAddressScope?: RtcAddressScope
   localAddress?: string
   remoteAddress?: string
   protocol?: string
@@ -76,6 +78,8 @@ export interface RtcSelectedPathTelemetry {
   mode?: RtcPathMode
   localCandidateType?: string
   remoteCandidateType?: string
+  localAddressScope?: RtcAddressScope
+  remoteAddressScope?: RtcAddressScope
   protocol?: string
   relayProtocol?: string
   currentRoundTripTimeMs?: number
@@ -129,6 +133,8 @@ export interface RtcDataChannelTransportOptions {
 }
 
 const DEFAULT_NEGOTIATE_TIMEOUT_MS = 8_000
+const SELECTED_PATH_RETRY_COUNT = 5
+const SELECTED_PATH_RETRY_DELAY_MS = 50
 
 /**
  * Complete WebRTC DataChannel transport state machine (webrtc plan §6.1).
@@ -467,7 +473,19 @@ export class RtcDataChannelTransport {
 
   private async resolveSelectedTransport(): Promise<void> {
     try {
-      const selected = await this.refreshStatsDiagnostics()
+      let selected = await this.refreshStatsDiagnostics()
+      // Native libwebrtc can open the DataChannel one tick before the selected
+      // candidate pair is exposed through getStats(). A one-shot read leaves
+      // selectedMode undefined forever, which is then incorrectly presented as
+      // generic P2P even when the eventual pair is LAN or TURN.
+      for (let attempt = 0;
+        attempt < SELECTED_PATH_RETRY_COUNT
+          && !this.closed
+          && (selected.transport === undefined || selected.mode === undefined);
+        attempt += 1) {
+        await sleep(SELECTED_PATH_RETRY_DELAY_MS)
+        selected = await this.refreshStatsDiagnostics()
+      }
       this.selected = selected?.transport
       this.selectedMode = selected?.mode
       this.selectedPathTelemetry = selectedPathTelemetry(selected)
@@ -643,18 +661,22 @@ export function inspectSelectedPath(stats: RtcStats): RtcPathDetails {
     const remote = candidates.get(String(pair.remoteCandidateId))
     const localType = local?.candidateType
     const remoteType = remote?.candidateType
+    const localAddressScope = summarizeAddress(candidateAddressValue(local)).addressScope
+    const remoteAddressScope = summarizeAddress(candidateAddressValue(remote)).addressScope
     let selected: RtcSelectedPath | undefined
     if (localType === 'relay' || remoteType === 'relay') selected = { transport: 'turn', mode: 'TURN' }
     if (local === undefined && remote === undefined) continue
     selected ??= {
       transport: 'p2p',
-      mode: localType === 'host' && remoteType === 'host' ? 'LAN' : 'P2P',
+      mode: isLanCandidatePair(localType, remoteType, localAddressScope, remoteAddressScope) ? 'LAN' : 'P2P',
     }
     const currentRoundTripTime = numberStat(pair, 'currentRoundTripTime')
     return {
       ...selected,
       localCandidateType: stringStat(local, 'candidateType'),
       remoteCandidateType: stringStat(remote, 'candidateType'),
+      localAddressScope,
+      remoteAddressScope,
       localAddress: candidateAddress(local),
       remoteAddress: candidateAddress(remote),
       protocol: stringStat(local, 'protocol') ?? stringStat(remote, 'protocol'),
@@ -794,6 +816,30 @@ function candidateAddressValue(candidate: RtcStatsEntry | undefined): string | u
   return stringStat(candidate, 'address') ?? stringStat(candidate, 'ip')
 }
 
+function isLanCandidatePair(
+  localType: unknown,
+  remoteType: unknown,
+  localScope: RtcAddressScope,
+  remoteScope: RtcAddressScope,
+): boolean {
+  if (localType === 'host' && remoteType === 'host') return true
+  const directTypes = new Set(['host', 'prflx'])
+  if (!directTypes.has(String(localType)) || !directTypes.has(String(remoteType))) return false
+  if (isLocalNetworkScope(localScope) && isLocalNetworkScope(remoteScope)) return true
+  // libwebrtc commonly represents an mDNS-obscured LAN endpoint as prflx and
+  // withholds its address from getStats(). Keep an explicitly public/cgnat
+  // peer-reflexive endpoint as P2P, but accept the private host + unknown prflx
+  // shape emitted by Android and @roamhq/wrtc for a selected LAN path.
+  return (localType === 'host' && isLocalNetworkScope(localScope)
+      && remoteType === 'prflx' && remoteScope === 'unknown')
+    || (remoteType === 'host' && isLocalNetworkScope(remoteScope)
+      && localType === 'prflx' && localScope === 'unknown')
+}
+
+function isLocalNetworkScope(scope: RtcAddressScope): boolean {
+  return scope === 'private' || scope === 'link-local'
+}
+
 function increment(map: Record<string, number>, key: string): void {
   map[key] = (map[key] ?? 0) + 1
 }
@@ -804,6 +850,8 @@ function selectedPathTelemetry(details: RtcPathDetails): RtcSelectedPathTelemetr
     ...(details.mode === undefined ? {} : { mode: details.mode }),
     ...(details.localCandidateType === undefined ? {} : { localCandidateType: details.localCandidateType }),
     ...(details.remoteCandidateType === undefined ? {} : { remoteCandidateType: details.remoteCandidateType }),
+    ...(details.localAddressScope === undefined ? {} : { localAddressScope: details.localAddressScope }),
+    ...(details.remoteAddressScope === undefined ? {} : { remoteAddressScope: details.remoteAddressScope }),
     ...(details.protocol === undefined ? {} : { protocol: details.protocol }),
     ...(details.relayProtocol === undefined ? {} : { relayProtocol: details.relayProtocol }),
     ...(details.currentRoundTripTimeMs === undefined ? {} : { currentRoundTripTimeMs: details.currentRoundTripTimeMs }),

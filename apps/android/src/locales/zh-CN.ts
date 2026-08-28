@@ -34,10 +34,10 @@ const zhCN = {
       relay: '准备服务器转发',
     },
     connectionProbeDetails: {
-      lan: '局域网直连',
-      p2p: '点对点直连',
-      turn: 'TURN 中继',
-      relay: '服务器转发',
+      lan: 'LAN',
+      p2p: 'P2P',
+      turn: 'TURN',
+      relay: 'Relay',
     },
     connectionSteps: {
       authenticating: { title: '验证设备', body: '确认账号与设备访问权限' },

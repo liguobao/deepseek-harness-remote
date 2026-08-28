@@ -342,6 +342,99 @@ describe('HostServerConnection', () => {
     expect(tunnel.channel).toEqual({})
   })
 
+  it('binds Noise replies to WebRTC when Server forwarding delivers the handshake before P2P selection', async () => {
+    const hostKeys = generateKeyPair(new Uint8Array(32).fill(17))
+    const clientKeys = generateKeyPair(new Uint8Array(32).fill(18))
+    const socket = new FakeWebSocket()
+    socket.open()
+    let accepted: AuthenticatedPeerChannel | undefined
+    const connections = {
+      accept: vi.fn(async (channel: AuthenticatedPeerChannel) => { accepted = channel }),
+    } as unknown as ConnectionController
+    const server = new HostServerConnection(
+      { ...config(), forceRelay: false },
+      { schemaVersion: 1, deviceId: 'host-race', name: 'Host', fingerprint: 'HOST', ...hostKeys },
+      {} as IdentityStore,
+      {} as HostServerApi,
+      connections,
+      logger(),
+      () => socket,
+    )
+    const rtcSend = vi.fn(async (_ciphertext: Uint8Array) => undefined)
+    const rtc = {
+      send: rtcSend,
+      close: vi.fn(async () => undefined),
+      selectedPathMode: vi.fn(() => 'LAN' as const),
+    }
+    const tunnel = {
+      connectionId: 'connection-race',
+      membershipId: 'membership-race',
+      peer: {
+        deviceId: 'client-race',
+        name: 'Client',
+        platform: 'linux',
+        publicKey: clientKeys.publicKey,
+        fingerprint: 'CLIENT',
+        trustedAt: 1,
+        membershipId: 'membership-race',
+      },
+      preferredTransports: ['lan', 'p2p', 'turn', 'relay'],
+      noise: new NoiseIkSession({
+        role: 'responder',
+        localPrivateKey: hostKeys.privateKey,
+        localPublicKey: hostKeys.publicKey,
+        remotePublicKey: clientKeys.publicKey,
+        prologue: createNoisePrologue('connection-race', 'host-race', 'client-race'),
+      }),
+      transport: 'negotiating',
+      rtc,
+    }
+    const internals = server as unknown as {
+      socket: FakeWebSocket
+      negotiatedCapabilities: string[]
+      tunnels: Map<string, unknown>
+      handleTransportSelected(payload: unknown): Promise<void>
+      handleHandshake(payload: unknown): Promise<void>
+    }
+    internals.socket = socket
+    internals.negotiatedCapabilities = ['transport.p2p', 'transport.turn', 'transport.relay']
+    internals.tunnels.set(tunnel.connectionId, tunnel)
+
+    const clientNoise = new NoiseIkSession({
+      role: 'initiator',
+      localPrivateKey: clientKeys.privateKey,
+      localPublicKey: clientKeys.publicKey,
+      remotePublicKey: hostKeys.publicKey,
+      prologue: createNoisePrologue('connection-race', 'host-race', 'client-race'),
+    })
+    await internals.handleHandshake({
+      connectionId: tunnel.connectionId,
+      targetDeviceId: 'host-race',
+      step: 1,
+      data: toBase64Url(clientNoise.writeHandshake()),
+    })
+    expect(accepted).toBeUndefined()
+    expect(socket.sent).toHaveLength(0)
+
+    await internals.handleTransportSelected({
+      connectionId: tunnel.connectionId,
+      targetDeviceId: 'host-race',
+      transport: 'p2p',
+    })
+    expect(tunnel).toMatchObject({ transport: 'p2p', transportMode: 'LAN' })
+    const handshakeReply = socket.sent.map(frame => JSON.parse(frame))
+      .find(frame => frame.type === 'secure.handshake')
+    clientNoise.readHandshake(fromBase64UrlForTest(handshakeReply.payload.data))
+
+    const response = createRpcRequest('harness.transport.describe', {})
+    await accepted!.send(response)
+
+    expect(accepted?.mode).toBe('LAN')
+    expect(rtcSend).toHaveBeenCalledOnce()
+    expect(socket.sent.map(frame => JSON.parse(frame)).some(frame => frame.type === 'relay')).toBe(false)
+    expect(decodeMessage(clientNoise.decrypt(rtcSend.mock.calls[0]![0]))).toEqual(response)
+  })
+
   it.each([
     { negotiated: 'transport.turn', selected: 'p2p' as const, relay: true },
     { negotiated: 'transport.p2p', selected: 'turn' as const, relay: false },

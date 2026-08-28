@@ -63,6 +63,7 @@ interface PendingTunnel {
   transportMode?: 'LAN' | 'P2P' | 'TURN'
   rtc?: RtcDataChannelTransport
   channel?: ServerNoiseChannel
+  pendingHandshake?: SecureHandshakePayload
 }
 
 const DEFAULT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 12_000
@@ -292,7 +293,10 @@ export class HostServerConnection {
       this.handleSignalIce(requireSignalIce(frame.payload))
       return
     }
-    if (frame.type === 'transport.selected') return
+    if (frame.type === 'transport.selected') {
+      await this.handleTransportSelected(requireTransportSelected(frame.payload))
+      return
+    }
     if (frame.type === 'signal.answer') return
     if (frame.type === 'error') {
       const payload = requireControlError(frame.payload)
@@ -394,6 +398,22 @@ export class HostServerConnection {
     if (tunnel === undefined || payload.targetDeviceId !== this.identity.deviceId || payload.step !== 1) {
       throw new ControlConnectionError('SECURE_CHANNEL_FAILED', 'Noise IK handshake is not valid for this connection.')
     }
+    if (tunnel.transport === 'negotiating' && tunnel.rtc !== undefined) {
+      // transport.selected and secure.handshake traverse the Server control
+      // plane separately. Do not guess Relay if forwarding or the responder's
+      // RTC-ready callback delivers the handshake first; resume as soon as
+      // either side confirms the selected data plane.
+      if (tunnel.pendingHandshake === undefined) tunnel.pendingHandshake = payload
+      else this.logger.warn('duplicate pending secure handshake ignored', {
+        connectionId: shortId(tunnel.connectionId),
+        peerDeviceId: shortId(tunnel.peer.deviceId),
+      })
+      return
+    }
+    await this.completeHandshake(tunnel, payload)
+  }
+
+  private async completeHandshake(tunnel: PendingTunnel, payload: SecureHandshakePayload): Promise<void> {
     tunnel.noise.readHandshake(fromBase64Url(payload.data))
     const reply = tunnel.noise.writeHandshake()
     if (!tunnel.noise.complete) throw new ControlConnectionError('SECURE_CHANNEL_FAILED', 'Noise IK handshake did not complete.')
@@ -423,6 +443,13 @@ export class HostServerConnection {
       peerDeviceId: shortId(tunnel.peer.deviceId),
       transport: mode,
     })
+  }
+
+  private async resumePendingHandshake(tunnel: PendingTunnel): Promise<void> {
+    const payload = tunnel.pendingHandshake
+    if (payload === undefined || tunnel.channel !== undefined || tunnel.transport === 'negotiating') return
+    tunnel.pendingHandshake = undefined
+    await this.completeHandshake(tunnel, payload)
   }
 
   private async handleRelay(payload: RelayPayload): Promise<void> {
@@ -525,6 +552,53 @@ export class HostServerConnection {
     tunnel.rtc?.handleSignal({ type: 'ice', candidate: payload.candidate })
   }
 
+  private async handleTransportSelected(payload: TransportSelectedPayload): Promise<void> {
+    const tunnel = this.tunnels.get(payload.connectionId)
+    if (tunnel === undefined || payload.targetDeviceId !== this.identity.deviceId) {
+      this.logger.warn('stale transport selection ignored', { connectionId: shortId(payload.connectionId) })
+      return
+    }
+    if (tunnel.channel !== undefined) {
+      // Selection is immutable once Noise has bound the business channel to a
+      // data plane. Late duplicate control frames must not switch it beneath
+      // an authenticated connection.
+      if (tunnel.transport !== payload.transport) {
+        this.logger.warn('late transport selection ignored', {
+          connectionId: shortId(tunnel.connectionId),
+          selected: payload.transport,
+        })
+      }
+      return
+    }
+    const requiredCapability = `transport.${payload.transport}`
+    if (!this.negotiatedCapabilities.includes(requiredCapability)) {
+      throw new ControlConnectionError(
+        'INVALID_MESSAGE',
+        `Client selected unnegotiated transport: ${payload.transport}`,
+      )
+    }
+    if (payload.transport === 'relay') {
+      const rtc = tunnel.rtc
+      tunnel.rtc = undefined
+      tunnel.transport = 'relay'
+      tunnel.transportMode = undefined
+      await rtc?.close()
+      await this.resumePendingHandshake(tunnel)
+      return
+    }
+    if (tunnel.rtc === undefined) {
+      throw new ControlConnectionError('INVALID_MESSAGE', 'Client selected WebRTC before creating a data channel.')
+    }
+
+    // The initiator emits transport.selected only after its DataChannel is
+    // open, then immediately starts Noise. Apply that ordered control frame
+    // before the handshake so a slower responder-side RTC ready callback
+    // cannot bind replies to Relay while requests arrive over WebRTC.
+    tunnel.transport = payload.transport
+    tunnel.transportMode = tunnel.rtc.selectedPathMode()
+    await this.resumePendingHandshake(tunnel)
+  }
+
   private canUseWebRtc(): boolean {
     return this.negotiatedCapabilities.includes('transport.p2p')
       || this.negotiatedCapabilities.includes('transport.turn')
@@ -571,6 +645,13 @@ export class HostServerConnection {
       transport: tunnel.transportMode ?? selected,
       ...webrtcDiagnosticsLogFields(rtcDiagnostics(tunnel.rtc)),
     })
+    void this.resumePendingHandshake(tunnel).catch(error => {
+      this.logger.warn('pending secure handshake failed', {
+        connectionId: shortId(tunnel.connectionId),
+        reason: diagnosticReason(error),
+      })
+      void this.dropTunnel(tunnel.connectionId, 'SECURE_CHANNEL_FAILED')
+    })
   }
 
   private async handleRtcFailed(
@@ -596,6 +677,7 @@ export class HostServerConnection {
       reason: diagnosticReason(error),
       ...webrtcDiagnosticsLogFields(rtcDiagnostics(rtc)),
     })
+    await this.resumePendingHandshake(tunnel)
   }
 
   private sendTransportSelected(tunnel: PendingTunnel, transport: SelectedTransport): void {
@@ -813,6 +895,15 @@ function requireSignalIce(value: unknown): SignalIcePayload {
     throw new ControlConnectionError('INVALID_MESSAGE', 'signal.ice payload is invalid.')
   }
   return payload as unknown as SignalIcePayload
+}
+
+function requireTransportSelected(value: unknown): TransportSelectedPayload {
+  const payload = requireObject(value)
+  if (typeof payload.connectionId !== 'string' || typeof payload.targetDeviceId !== 'string'
+    || (payload.transport !== 'p2p' && payload.transport !== 'turn' && payload.transport !== 'relay')) {
+    throw new ControlConnectionError('INVALID_MESSAGE', 'transport.selected payload is invalid.')
+  }
+  return payload as unknown as TransportSelectedPayload
 }
 
 function requireControlError(value: unknown): ControlErrorPayload {

@@ -46,6 +46,8 @@ export interface AdaptiveConnectionDetails {
   controlChannelUrl: string
   controlChannelState: 'connecting' | 'open' | 'closing' | 'closed'
   preferredTransports: Array<'lan' | 'p2p' | 'turn' | 'relay'>
+  negotiatedCapabilities: string[]
+  webRtcEnabled: boolean
   webRtc?: RtcConnectionDetails
 }
 
@@ -159,6 +161,8 @@ export class AdaptiveTransport extends BaseTransport {
       preferredTransports: this.options.forceRelay === true
         ? ['relay']
         : [...(this.options.preferredTransports ?? DEFAULT_PREFERRED_TRANSPORTS)],
+      negotiatedCapabilities: [...this.negotiatedCapabilities],
+      webRtcEnabled: this.webrtcEnabled,
       ...(this.rtc === undefined ? {} : { webRtc: await this.rtc.connectionDetails() }),
     }
   }

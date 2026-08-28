@@ -426,6 +426,11 @@ export class ClientModeRuntime {
     const rtcFactory = this.config.forceRelay
       ? undefined
       : await this.rtcFactoryProvider({ routeTargets: [this.server.baseUrl] }).catch(() => undefined)
+    if (!this.config.forceRelay && rtcFactory === undefined) {
+      this.logger.warn('remote Harness WebRTC backend unavailable; using relay', {
+        targetDeviceId: shortId(target.deviceId),
+      })
+    }
     let webRtcFallback = false
     const createTransport = (attempt: TransportAttempt): AdaptiveTransport => new AdaptiveTransport(
       websocketUrl(this.server.baseUrl),
@@ -494,6 +499,11 @@ export class ClientModeRuntime {
       this.logger.info('remote Harness transport ready', {
         targetDeviceId: shortId(target.deviceId),
         transport: connectedClient.getStats().mode,
+        ...(connectionDetails === undefined ? {} : {
+          preferredTransports: connectionDetails.preferredTransports,
+          negotiatedCapabilities: connectionDetails.negotiatedCapabilities,
+          webRtcEnabled: connectionDetails.webRtcEnabled,
+        }),
         ...webrtcDiagnosticsLogFields(connectionDetails?.webRtc?.diagnostics),
       })
       const features = await probeRemoteHostFeatures(connectedClient, serverDevice.clientVersion)

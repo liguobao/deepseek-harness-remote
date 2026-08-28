@@ -57,7 +57,7 @@ DSH Desktop 已默认集成并启用 Remote，无需另行安装插件。
 为 `web` profile 安装确切的 npm 版本：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.0
+dsh plugin --profile web add ds-harness-remote@0.4.1
 ```
 
 安装后请重启 Harness。
@@ -138,11 +138,11 @@ Remote 通过双向端到端加密链路通信。它将客户端切换到所选 
 会话流量现在只通过官方 rc.2 `ApiProxy` 或 alpha.1 Typert Remote Gateway 承载；
 本插件不提供旧 RPC 的适配层或 wire format 翻译。
 
-Plugin `0.4.0` 同时兼容 DeepSeek Harness `dsh-v0.1.1-rc.2` 与
+Plugin `0.4.1` 同时兼容 DeepSeek Harness `dsh-v0.1.1-rc.2` 与
 `dsh-v0.1.2-alpha.1`：rc.2 继续使用官方 legacy `ApiProxy`，alpha.1 使用官方 Typert Remote
-Gateway。运行 rc.2 的 `0.4.0` Client 仍可通过 legacy capability 降级连接旧 rc.2 Host。
+Gateway。运行 rc.2 的 `0.4.1` Client 仍可通过 legacy capability 降级连接旧 rc.2 Host。
 
-两端 Desktop 必须处于同一 Harness transport 代际。`0.4.0` 不翻译 rc.2 与 alpha.1 的业务模型：
+两端 Desktop 必须处于同一 Harness transport 代际。`0.4.x` 不翻译 rc.2 与 alpha.1 的业务模型：
 alpha.1 Client 不能打开 rc.2 Host，rc.2 Client 也不能打开 alpha.1 Host；混连会在切换原生
 UI 或修改 Workspace 前被拒绝。
 

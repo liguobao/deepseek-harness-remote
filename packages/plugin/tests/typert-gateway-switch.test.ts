@@ -92,6 +92,51 @@ describe('TypertGatewaySwitch', () => {
     await expect(values(await gateway.openWireStream('session/follow', { args: {} }, new AbortController().signal)))
       .resolves.toEqual(['local-open'])
   })
+
+  it('keeps dynamic Cordis UI runtime calls local in alpha remote mode', async () => {
+    const localInvoke = vi.fn(async (_request: Parameters<TypertGatewayLike['invoke']>[0]) => 'local-invoke')
+    const localStream = vi.fn(async (_request: Parameters<TypertGatewayLike['invoke']>[0]) => (
+      async function* () { yield 'local-stream' }
+    )())
+    const localDispatch = vi.fn(async (_endpoint: string, _payload: unknown, _signal: AbortSignal) => (
+      { ok: true as const, value: 'local-dispatch' }
+    ))
+    const localOpen = vi.fn(async (_endpoint: string, _payload: unknown, _signal: AbortSignal) => (
+      async function* () { yield 'local-open' }
+    )())
+    const gateway = {
+      invoke: localInvoke,
+      stream: localStream,
+      dispatchRpc: localDispatch,
+      openWireStream: localOpen,
+      wireStream: {
+        open: localOpen,
+        failure: () => ({ code: 'internal', message: 'failed', details: {} }),
+      },
+    }
+    const remote = {
+      invoke: vi.fn(async () => 'remote-invoke'),
+      dispatch: vi.fn(async () => ({ ok: true as const, value: 'remote-dispatch' })),
+      open: vi.fn(async () => (async function* () { yield 'remote-open' })()),
+    }
+    const target = new TypertGatewaySwitch(gateway)
+    const signal = new AbortController().signal
+
+    target.install()
+    target.selectRemote(remote)
+
+    await expect(gateway.invoke({ namespace: 'dynamicCordisRunner', method: 'inventory', args: {} }))
+      .resolves.toBe('local-invoke')
+    await expect(values(await gateway.stream({ namespace: 'dynamicCordisRunner', method: 'events', args: {} })))
+      .resolves.toEqual(['local-stream'])
+    await expect(gateway.dispatchRpc('dynamicCordisRunner/getClientCode', { args: {} }, signal))
+      .resolves.toEqual({ ok: true, value: 'local-dispatch' })
+    await expect(values(await gateway.openWireStream('dynamicCordisRunner/events', { args: {} }, signal)))
+      .resolves.toEqual(['local-open'])
+    expect(remote.invoke).not.toHaveBeenCalled()
+    expect(remote.dispatch).not.toHaveBeenCalled()
+    expect(remote.open).not.toHaveBeenCalled()
+  })
 })
 
 async function values(source: AsyncIterable<unknown>): Promise<unknown[]> {

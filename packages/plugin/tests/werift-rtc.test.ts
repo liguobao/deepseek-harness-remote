@@ -1,8 +1,12 @@
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import type { NetworkInterfaceInfo } from 'node:os'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { RtcDataChannelTransport } from '@dsh-remote/webrtc'
 import { describe, expect, it } from 'vitest'
-import { buildExternalNativeRtcFactory } from '../src/native-rtc-helper.js'
+import { buildExternalNativeRtcFactory, resolveNativeRtcRequireFrom } from '../src/native-rtc-helper.js'
 import {
   buildWeriftFactory,
   detectHostIpv4Candidates,
@@ -53,6 +57,23 @@ class CapturingWeriftPeerConnection {
 }
 
 describe('werift RTC backend', () => {
+  it('resolves native dependencies from a symlinked plugin physical path', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'dsh-remote-rtc-'))
+    try {
+      const physical = join(directory, 'physical')
+      const surfaced = join(directory, 'surfaced')
+      const entry = join(physical, 'dist', 'index.js')
+      mkdirSync(join(physical, 'dist'), { recursive: true })
+      writeFileSync(entry, '')
+      symlinkSync(physical, surfaced, process.platform === 'win32' ? 'junction' : 'dir')
+
+      expect(resolveNativeRtcRequireFrom(pathToFileURL(join(surfaced, 'dist', 'index.js')).href))
+        .toBe(realpathSync(entry))
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it('keeps physical IPv4 candidates instead of pinning to a single enumerated address', () => {
     expect(detectHostIpv4Candidates({
       bridge0: [ipv4('192.168.64.1')],

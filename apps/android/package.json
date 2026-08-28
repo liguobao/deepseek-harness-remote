@@ -1,6 +1,6 @@
 {
   "name": "@dsh-remote/android",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "main": "index.ts",
   "dependencies": {
@@ -40,11 +40,17 @@
     "vitest": "^2.1.8"
   },
   "scripts": {
+    "prepare:workspace": "pnpm --filter '@dsh-remote/android^...' -r build && pnpm run verify:workspace",
+    "verify:workspace": "node scripts/verify-workspace-data-planes.mjs",
+    "prestart": "pnpm run prepare:workspace",
     "start": "expo start",
+    "preandroid": "pnpm run prepare:workspace",
     "android": "expo run:android",
+    "preios": "pnpm run prepare:workspace",
     "ios": "expo run:ios",
-    "check": "tsc --noEmit",
-    "test": "vitest run",
+    "check": "pnpm run verify:workspace && tsc --noEmit",
+    "test": "pnpm run verify:workspace && vitest run",
+    "prebuild": "pnpm run prepare:workspace",
     "build": "expo export --platform android"
   },
   "private": true,

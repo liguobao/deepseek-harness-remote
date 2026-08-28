@@ -101,6 +101,30 @@ function lanStats(): RtcStatsEntry[] {
   ]
 }
 
+function privatePeerReflexiveLanStats(): RtcStatsEntry[] {
+  return [
+    { type: 'local-candidate', candidateType: 'host', address: '192.168.31.225', id: 'lc' },
+    { type: 'remote-candidate', candidateType: 'prflx', address: '192.168.31.9', id: 'rc' },
+    { type: 'candidate-pair', selected: true, nominated: true, localCandidateId: 'lc', remoteCandidateId: 'rc' },
+  ]
+}
+
+function publicPeerReflexiveP2pStats(): RtcStatsEntry[] {
+  return [
+    { type: 'local-candidate', candidateType: 'host', address: '192.168.31.225', id: 'lc' },
+    { type: 'remote-candidate', candidateType: 'prflx', address: '203.0.113.9', id: 'rc' },
+    { type: 'candidate-pair', selected: true, nominated: true, localCandidateId: 'lc', remoteCandidateId: 'rc' },
+  ]
+}
+
+function hiddenPeerReflexiveLanStats(): RtcStatsEntry[] {
+  return [
+    { type: 'local-candidate', candidateType: 'host', address: '192.168.31.225', id: 'lc' },
+    { type: 'remote-candidate', candidateType: 'prflx', id: 'rc' },
+    { type: 'candidate-pair', selected: true, nominated: true, localCandidateId: 'lc', remoteCandidateId: 'rc' },
+  ]
+}
+
 function turnStats(): RtcStatsEntry[] {
   return [
     { type: 'local-candidate', candidateType: 'relay', id: 'lc' },
@@ -132,6 +156,27 @@ describe('detectSelectedTransport', () => {
       byLocalScope: { private: 1 },
       byRemoteScope: { private: 1 },
     })
+  })
+
+  it('classifies a private host-to-peer-reflexive pair as LAN', () => {
+    expect(detectSelectedPath(asStats(privatePeerReflexiveLanStats())))
+      .toEqual({ transport: 'p2p', mode: 'LAN' })
+    expect(inspectSelectedPath(asStats(privatePeerReflexiveLanStats()))).toMatchObject({
+      localCandidateType: 'host',
+      remoteCandidateType: 'prflx',
+      localAddressScope: 'private',
+      remoteAddressScope: 'private',
+    })
+  })
+
+  it('keeps a public peer-reflexive pair classified as P2P', () => {
+    expect(detectSelectedPath(asStats(publicPeerReflexiveP2pStats())))
+      .toEqual({ transport: 'p2p', mode: 'P2P' })
+  })
+
+  it('classifies an address-hidden peer-reflexive candidate beside a private host as LAN', () => {
+    expect(detectSelectedPath(asStats(hiddenPeerReflexiveLanStats())))
+      .toEqual({ transport: 'p2p', mode: 'LAN' })
   })
 
   it('detects p2p from a selected host/srflx candidate pair', () => {
@@ -195,6 +240,29 @@ describe('RtcDataChannelTransport initiator', () => {
       remoteAddress: '192.168.1.30:51002',
       currentRoundTripTimeMs: 12,
     })
+    await transport.close()
+  })
+
+  it('waits for native stats to expose the selected LAN candidate pair', async () => {
+    const pc = new FakePeerConnection()
+    const getStats = vi.spyOn(pc, 'getStats')
+      .mockResolvedValueOnce(asStats([]))
+      .mockResolvedValue(asStats(lanStats()))
+    const transport = new RtcDataChannelTransport({
+      role: 'initiator',
+      factory: factoryFor(pc),
+      onSignal: () => undefined,
+    })
+    const connecting = transport.connect()
+    await flush()
+    transport.handleSignal({ type: 'answer', sdp: 'v=0 answer' })
+    await flush()
+    pc.channels[0]!.open()
+    await connecting
+
+    expect(getStats).toHaveBeenCalledTimes(2)
+    expect(transport.selectedPathMode()).toBe('LAN')
+    expect(transport.getStats()).toMatchObject({ mode: 'LAN', connected: true })
     await transport.close()
   })
 

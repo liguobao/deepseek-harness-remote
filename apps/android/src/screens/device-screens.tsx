@@ -84,7 +84,6 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
   const disconnect = useAppStore(state => state.disconnect)
   const clearError = useAppStore(state => state.clearError)
   const [attempt, setAttempt] = useState(0)
-  const [activeProbeIndex, setActiveProbeIndex] = useState(0)
   const launchedAttempt = useRef(-1)
   const leaving = useRef(false)
   const onConnectedRef = useRef(onConnected)
@@ -112,18 +111,8 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
     return () => { active = false }
   }, [attempt, connect, device])
 
-  useEffect(() => {
-    setActiveProbeIndex(0)
-    if (connectionStage !== 'transport' || connection.phase !== 'connecting' || connectionProbeOrder.length < 2) return
-    const timers = connectionProbeOrder.slice(1).map((_, index) => setTimeout(
-      () => setActiveProbeIndex(index + 1),
-      360 * (index + 1),
-    ))
-    return () => timers.forEach(clearTimeout)
-  }, [attempt, connection.phase, connectionProbeOrder, connectionStage])
-
   const currentStage = connectionStage ?? 'authenticating'
-  const currentProbe = connectionProbeOrder[activeProbeIndex]
+  const selectedProbe = probeTransportForMode(connection.stats.mode)
   const currentIndex = currentStage === 'ready'
     ? connectionStages.length
     : Math.max(0, connectionStages.indexOf(currentStage))
@@ -162,9 +151,6 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
             const active = index === currentIndex && !failed
             const stepFailed = index === currentIndex && failed
             const copy = zhCN.devices.connectionSteps[stage]
-            const title = stage === 'transport' && active && currentProbe !== undefined
-              ? zhCN.devices.connectionProbeLabels[currentProbe]
-              : copy.title
             return (
               <View key={stage} style={styles.connectionStep}>
                 <View style={styles.stepMarker}>
@@ -183,7 +169,7 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
                   {index < connectionStages.length - 1 && <View style={[styles.stepConnector, completed && styles.stepConnectorComplete]} />}
                 </View>
                 <View style={styles.stepCopy}>
-                  <Text accessibilityLiveRegion={active ? 'polite' : 'none'} style={[styles.stepTitle, (active || completed) && styles.stepTitleCurrent]}>{title}</Text>
+                  <Text accessibilityLiveRegion={active ? 'polite' : 'none'} style={[styles.stepTitle, (active || completed) && styles.stepTitleCurrent]}>{copy.title}</Text>
                   {(stage !== 'transport' || connectionProbeOrder.length === 0) && <Text style={styles.stepBody}>{copy.body}</Text>}
                   {stage === 'transport' && connectionProbeOrder.length > 0 && (
                     <View style={styles.progressRoute}>
@@ -192,7 +178,7 @@ export function ConnectionScreen({ device, onBack, onConnected }: {
                           {probeIndex > 0 && <Text style={styles.progressRouteArrow}>→</Text>}
                           <Text style={[
                             styles.progressRouteLabel,
-                            active && probeIndex === activeProbeIndex && styles.progressRouteLabelActive,
+                            selectedProbe === transport && styles.progressRouteLabelActive,
                           ]}>
                             {probeTransportDiagnosticLabel(transport)}
                           </Text>
@@ -438,18 +424,19 @@ function connectionPath(mode: string | undefined): string {
 }
 
 function probeOrderText(order: readonly ConnectionProbeTransport[]): string {
-  return order.map(probeTransportLabel).join(' -> ')
-}
-
-function probeTransportLabel(transport: ConnectionProbeTransport): string {
-  if (transport === 'lan') return zhCN.status.lan
-  if (transport === 'p2p') return zhCN.status.p2p
-  if (transport === 'turn') return zhCN.status.turn
-  return zhCN.status.relay
+  return order.map(probeTransportDiagnosticLabel).join(' → ')
 }
 
 function probeTransportDiagnosticLabel(transport: ConnectionProbeTransport): string {
   return zhCN.devices.connectionProbeDetails[transport]
+}
+
+function probeTransportForMode(mode: string | undefined): ConnectionProbeTransport | undefined {
+  if (mode === 'LAN') return 'lan'
+  if (mode === 'P2P') return 'p2p'
+  if (mode === 'TURN') return 'turn'
+  if (mode === 'Relay') return 'relay'
+  return undefined
 }
 
 function connectionBadgeStatus(

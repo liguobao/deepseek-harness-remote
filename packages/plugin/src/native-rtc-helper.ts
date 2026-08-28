@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type {
@@ -71,7 +71,7 @@ export async function loadExternalNativeRtcFactory(): Promise<RtcPeerConnectionF
 
 export function buildExternalNativeRtcFactory(
   nodeBinary: string,
-  requireFrom = fileURLToPath(import.meta.url),
+  requireFrom = resolveNativeRtcRequireFrom(),
 ): RtcPeerConnectionFactory {
   return {
     create(configuration) {
@@ -80,10 +80,28 @@ export function buildExternalNativeRtcFactory(
   }
 }
 
+/**
+ * Resolve dependencies from the plugin's physical package location.
+ *
+ * DSH profiles load plugins through a top-level symlink (or a Windows
+ * junction), while pnpm links optional dependencies such as `@roamhq/wrtc`
+ * beside the physical package under `.pnpm`. Using the surfaced plugin path
+ * makes Node skip that virtual dependency directory and incorrectly reports
+ * that the installed native backend is missing.
+ */
+export function resolveNativeRtcRequireFrom(moduleUrl = import.meta.url): string {
+  const modulePath = fileURLToPath(moduleUrl)
+  try {
+    return realpathSync(modulePath)
+  } catch {
+    return modulePath
+  }
+}
+
 function resolveExternalNodeBinaryForRtc(): string | undefined {
   if (cachedNodeBinaryResolved) return cachedNodeBinary
   cachedNodeBinaryResolved = true
-  const requireFrom = fileURLToPath(import.meta.url)
+  const requireFrom = resolveNativeRtcRequireFrom()
   for (const candidate of nodeBinaryCandidates()) {
     if (isUsableExternalNode(candidate, requireFrom)) {
       cachedNodeBinary = candidate

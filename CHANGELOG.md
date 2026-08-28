@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.1
+
+- Fixes Host transport selection ordering so `transport.selected` cannot race
+  the Noise handshake and bind the two peers to different WebRTC/Relay paths.
+- Restores native `@roamhq/wrtc` loading from pnpm-linked DSH profiles on
+  Windows, macOS, and Linux, with additional connection diagnostics.
+- Correctly identifies private, address-hidden `host`/`prflx` candidate pairs
+  as LAN while retaining public peer-reflexive paths as P2P.
+- Keeps alpha.1 `dynamicCordisRunner/*` calls local instead of forwarding local
+  UI/runtime loading to the selected Host.
+- Refreshes Android connection progress, selected-route highlighting, compiled
+  workspace verification, and client version metadata.
+- Advances the Plugin and Android app to `0.4.1` (`versionCode 21`).
+
 ## 0.4.0
 
 - Adds DeepSeek Harness `dsh-v0.1.2-alpha.1` Desktop support through the

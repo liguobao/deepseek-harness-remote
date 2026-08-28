@@ -17,6 +17,7 @@ interface RuntimeGateway extends TypertGatewayLike {
 }
 
 const REMOTE_COMMAND_METHODS = ['execute', 'list'] as const
+const LOCAL_ONLY_NAMESPACES = new Set(['dynamicCordisRunner'])
 
 export interface RemoteCommandSupport {
   execute: boolean
@@ -92,17 +93,17 @@ export class TypertGatewaySwitch {
     if (this.installed) return
     this.runtime.invoke = request => this.selectInvoke(request)
     if (this.originalStream !== undefined) {
-      this.runtime.stream = request => this.remoteTarget === undefined
+      this.runtime.stream = request => this.remoteTarget === undefined || isLocalOnlyEndpoint(endpointOf(request))
         ? this.localStream!(request)
         : this.remoteTarget.open(endpointOf(request), { args: request.args }, request.signal ?? new AbortController().signal)
     }
     if (this.originalDispatch !== undefined) {
-      this.runtime.dispatchRpc = (endpoint, payload, signal) => this.remoteTarget === undefined
+      this.runtime.dispatchRpc = (endpoint, payload, signal) => this.remoteTarget === undefined || isLocalOnlyEndpoint(endpoint)
         ? this.localDispatch!(endpoint, payload, signal)
         : this.remoteTarget.dispatch(endpoint, payload, signal)
     }
     if (this.originalOpen !== undefined) {
-      this.runtime.openWireStream = (endpoint, payload, signal) => this.remoteTarget === undefined
+      this.runtime.openWireStream = (endpoint, payload, signal) => this.remoteTarget === undefined || isLocalOnlyEndpoint(endpoint)
         ? this.localOpen!(endpoint, payload, signal)
         : this.remoteTarget.open(endpoint, payload, signal)
     }
@@ -139,6 +140,7 @@ export class TypertGatewaySwitch {
   }
 
   private selectInvoke(request: TypertGatewayRequest): Promise<unknown> {
+    if (isLocalOnlyEndpoint(endpointOf(request))) return this.localInvoke(request)
     if (this.remoteTarget !== undefined) return this.remoteTarget.invoke(request)
     if (request.namespace !== 'commands' || !isRemoteCommandMethod(request.method) || this.remoteInvoke === undefined) {
       return this.localInvoke(request)
@@ -171,6 +173,11 @@ function requestFromCarrier(endpoint: string, payload: unknown, signal: AbortSig
 
 function endpointOf(request: TypertGatewayRequest): string {
   return `${request.namespace}/${request.method}`
+}
+
+function isLocalOnlyEndpoint(endpoint: string): boolean {
+  const separator = endpoint.indexOf('/')
+  return separator > 0 && LOCAL_ONLY_NAMESPACES.has(endpoint.slice(0, separator))
 }
 
 function isRemoteCommandMethod(method: string): method is typeof REMOTE_COMMAND_METHODS[number] {

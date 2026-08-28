@@ -4942,6 +4942,8 @@ function isChunk(frame) {
 
 // ../webrtc/dist/rtc-data-channel.js
 var DEFAULT_NEGOTIATE_TIMEOUT_MS = 8e3;
+var SELECTED_PATH_RETRY_COUNT = 5;
+var SELECTED_PATH_RETRY_DELAY_MS = 50;
 var RtcDataChannelTransport = class {
   pc;
   role;
@@ -5271,7 +5273,11 @@ var RtcDataChannelTransport = class {
   }
   async resolveSelectedTransport() {
     try {
-      const selected = await this.refreshStatsDiagnostics();
+      let selected = await this.refreshStatsDiagnostics();
+      for (let attempt = 0; attempt < SELECTED_PATH_RETRY_COUNT && !this.closed && (selected.transport === void 0 || selected.mode === void 0); attempt += 1) {
+        await sleep(SELECTED_PATH_RETRY_DELAY_MS);
+        selected = await this.refreshStatsDiagnostics();
+      }
       this.selected = selected?.transport;
       this.selectedMode = selected?.mode;
       this.selectedPathTelemetry = selectedPathTelemetry(selected);
@@ -5435,6 +5441,8 @@ function inspectSelectedPath(stats) {
     const remote = candidates.get(String(pair.remoteCandidateId));
     const localType = local?.candidateType;
     const remoteType = remote?.candidateType;
+    const localAddressScope = summarizeAddress(candidateAddressValue(local)).addressScope;
+    const remoteAddressScope = summarizeAddress(candidateAddressValue(remote)).addressScope;
     let selected;
     if (localType === "relay" || remoteType === "relay")
       selected = { transport: "turn", mode: "TURN" };
@@ -5442,13 +5450,15 @@ function inspectSelectedPath(stats) {
       continue;
     selected ??= {
       transport: "p2p",
-      mode: localType === "host" && remoteType === "host" ? "LAN" : "P2P"
+      mode: isLanCandidatePair(localType, remoteType, localAddressScope, remoteAddressScope) ? "LAN" : "P2P"
     };
     const currentRoundTripTime = numberStat(pair, "currentRoundTripTime");
     return {
       ...selected,
       localCandidateType: stringStat(local, "candidateType"),
       remoteCandidateType: stringStat(remote, "candidateType"),
+      localAddressScope,
+      remoteAddressScope,
       localAddress: candidateAddress(local),
       remoteAddress: candidateAddress(remote),
       protocol: stringStat(local, "protocol") ?? stringStat(remote, "protocol"),
@@ -5573,6 +5583,19 @@ function candidateTypeStat(candidate) {
 function candidateAddressValue(candidate) {
   return stringStat(candidate, "address") ?? stringStat(candidate, "ip");
 }
+function isLanCandidatePair(localType, remoteType, localScope, remoteScope) {
+  if (localType === "host" && remoteType === "host")
+    return true;
+  const directTypes = /* @__PURE__ */ new Set(["host", "prflx"]);
+  if (!directTypes.has(String(localType)) || !directTypes.has(String(remoteType)))
+    return false;
+  if (isLocalNetworkScope(localScope) && isLocalNetworkScope(remoteScope))
+    return true;
+  return localType === "host" && isLocalNetworkScope(localScope) && remoteType === "prflx" && remoteScope === "unknown" || remoteType === "host" && isLocalNetworkScope(remoteScope) && localType === "prflx" && localScope === "unknown";
+}
+function isLocalNetworkScope(scope) {
+  return scope === "private" || scope === "link-local";
+}
 function increment(map, key) {
   map[key] = (map[key] ?? 0) + 1;
 }
@@ -5582,6 +5605,8 @@ function selectedPathTelemetry(details) {
     ...details.mode === void 0 ? {} : { mode: details.mode },
     ...details.localCandidateType === void 0 ? {} : { localCandidateType: details.localCandidateType },
     ...details.remoteCandidateType === void 0 ? {} : { remoteCandidateType: details.remoteCandidateType },
+    ...details.localAddressScope === void 0 ? {} : { localAddressScope: details.localAddressScope },
+    ...details.remoteAddressScope === void 0 ? {} : { remoteAddressScope: details.remoteAddressScope },
     ...details.protocol === void 0 ? {} : { protocol: details.protocol },
     ...details.relayProtocol === void 0 ? {} : { relayProtocol: details.relayProtocol },
     ...details.currentRoundTripTimeMs === void 0 ? {} : { currentRoundTripTimeMs: details.currentRoundTripTimeMs },
@@ -5705,6 +5730,8 @@ var AdaptiveTransport = class extends BaseTransport {
       controlChannelUrl: this.url,
       controlChannelState: socketState(this.socket?.readyState),
       preferredTransports: this.options.forceRelay === true ? ["relay"] : [...this.options.preferredTransports ?? DEFAULT_PREFERRED_TRANSPORTS],
+      negotiatedCapabilities: [...this.negotiatedCapabilities],
+      webRtcEnabled: this.webrtcEnabled,
       ...this.rtc === void 0 ? {} : { webRtc: await this.rtc.connectionDetails() }
     };
   }
@@ -13818,7 +13845,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.4.0";
+var PLUGIN_VERSION = "0.4.1";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -14217,6 +14244,7 @@ function requireRecord(value, name2) {
 
 // src/typert-gateway-switch.ts
 var REMOTE_COMMAND_METHODS = ["execute", "list"];
+var LOCAL_ONLY_NAMESPACES = /* @__PURE__ */ new Set(["dynamicCordisRunner"]);
 var ALL_REMOTE_COMMANDS = { execute: true, list: true };
 var TypertGatewaySwitch = class {
   runtime;
@@ -14277,13 +14305,13 @@ var TypertGatewaySwitch = class {
     if (this.installed) return;
     this.runtime.invoke = (request) => this.selectInvoke(request);
     if (this.originalStream !== void 0) {
-      this.runtime.stream = (request) => this.remoteTarget === void 0 ? this.localStream(request) : this.remoteTarget.open(endpointOf(request), { args: request.args }, request.signal ?? new AbortController().signal);
+      this.runtime.stream = (request) => this.remoteTarget === void 0 || isLocalOnlyEndpoint(endpointOf(request)) ? this.localStream(request) : this.remoteTarget.open(endpointOf(request), { args: request.args }, request.signal ?? new AbortController().signal);
     }
     if (this.originalDispatch !== void 0) {
-      this.runtime.dispatchRpc = (endpoint, payload, signal) => this.remoteTarget === void 0 ? this.localDispatch(endpoint, payload, signal) : this.remoteTarget.dispatch(endpoint, payload, signal);
+      this.runtime.dispatchRpc = (endpoint, payload, signal) => this.remoteTarget === void 0 || isLocalOnlyEndpoint(endpoint) ? this.localDispatch(endpoint, payload, signal) : this.remoteTarget.dispatch(endpoint, payload, signal);
     }
     if (this.originalOpen !== void 0) {
-      this.runtime.openWireStream = (endpoint, payload, signal) => this.remoteTarget === void 0 ? this.localOpen(endpoint, payload, signal) : this.remoteTarget.open(endpoint, payload, signal);
+      this.runtime.openWireStream = (endpoint, payload, signal) => this.remoteTarget === void 0 || isLocalOnlyEndpoint(endpoint) ? this.localOpen(endpoint, payload, signal) : this.remoteTarget.open(endpoint, payload, signal);
     }
     this.installed = true;
   }
@@ -14310,6 +14338,7 @@ var TypertGatewaySwitch = class {
     this.installed = false;
   }
   selectInvoke(request) {
+    if (isLocalOnlyEndpoint(endpointOf(request))) return this.localInvoke(request);
     if (this.remoteTarget !== void 0) return this.remoteTarget.invoke(request);
     if (request.namespace !== "commands" || !isRemoteCommandMethod(request.method) || this.remoteInvoke === void 0) {
       return this.localInvoke(request);
@@ -14340,6 +14369,10 @@ function requestFromCarrier(endpoint, payload, signal) {
 function endpointOf(request) {
   return `${request.namespace}/${request.method}`;
 }
+function isLocalOnlyEndpoint(endpoint) {
+  const separator = endpoint.indexOf("/");
+  return separator > 0 && LOCAL_ONLY_NAMESPACES.has(endpoint.slice(0, separator));
+}
 function isRemoteCommandMethod(method) {
   return REMOTE_COMMAND_METHODS.includes(method);
 }
@@ -14353,7 +14386,7 @@ import { networkInterfaces } from "node:os";
 
 // src/native-rtc-helper.ts
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 var cachedExternalFactory;
@@ -14369,17 +14402,25 @@ async function loadExternalNativeRtcFactory() {
   cachedExternalFactory = buildExternalNativeRtcFactory(nodeBinary);
   return cachedExternalFactory;
 }
-function buildExternalNativeRtcFactory(nodeBinary, requireFrom = fileURLToPath(import.meta.url)) {
+function buildExternalNativeRtcFactory(nodeBinary, requireFrom = resolveNativeRtcRequireFrom()) {
   return {
     create(configuration) {
       return new ExternalNativePeerConnection(nodeBinary, requireFrom, configuration);
     }
   };
 }
+function resolveNativeRtcRequireFrom(moduleUrl = import.meta.url) {
+  const modulePath = fileURLToPath(moduleUrl);
+  try {
+    return realpathSync(modulePath);
+  } catch {
+    return modulePath;
+  }
+}
 function resolveExternalNodeBinaryForRtc() {
   if (cachedNodeBinaryResolved) return cachedNodeBinary;
   cachedNodeBinaryResolved = true;
-  const requireFrom = fileURLToPath(import.meta.url);
+  const requireFrom = resolveNativeRtcRequireFrom();
   for (const candidate of nodeBinaryCandidates()) {
     if (isUsableExternalNode(candidate, requireFrom)) {
       cachedNodeBinary = candidate;
@@ -15682,6 +15723,11 @@ var ClientModeRuntime = class {
     if (!presence.online) throw new ClientModeError("HOST_OFFLINE", "The selected Host is offline.", true);
     const credentials = await this.server.authenticate(identity);
     const rtcFactory = this.config.forceRelay ? void 0 : await this.rtcFactoryProvider({ routeTargets: [this.server.baseUrl] }).catch(() => void 0);
+    if (!this.config.forceRelay && rtcFactory === void 0) {
+      this.logger.warn("remote Harness WebRTC backend unavailable; using relay", {
+        targetDeviceId: shortId(target.deviceId)
+      });
+    }
     let webRtcFallback = false;
     const createTransport = (attempt) => new AdaptiveTransport(
       websocketUrl(this.server.baseUrl),
@@ -15746,6 +15792,11 @@ var ClientModeRuntime = class {
       this.logger.info("remote Harness transport ready", {
         targetDeviceId: shortId(target.deviceId),
         transport: connectedClient.getStats().mode,
+        ...connectionDetails === void 0 ? {} : {
+          preferredTransports: connectionDetails.preferredTransports,
+          negotiatedCapabilities: connectionDetails.negotiatedCapabilities,
+          webRtcEnabled: connectionDetails.webRtcEnabled
+        },
         ...webrtcDiagnosticsLogFields(connectionDetails?.webRtc?.diagnostics)
       });
       const features = await probeRemoteHostFeatures(connectedClient, serverDevice.clientVersion);
@@ -17276,7 +17327,10 @@ var HostServerConnection = class {
       this.handleSignalIce(requireSignalIce(frame.payload));
       return;
     }
-    if (frame.type === "transport.selected") return;
+    if (frame.type === "transport.selected") {
+      await this.handleTransportSelected(requireTransportSelected(frame.payload));
+      return;
+    }
     if (frame.type === "signal.answer") return;
     if (frame.type === "error") {
       const payload = requireControlError(frame.payload);
@@ -17363,6 +17417,17 @@ var HostServerConnection = class {
     if (tunnel === void 0 || payload.targetDeviceId !== this.identity.deviceId || payload.step !== 1) {
       throw new ControlConnectionError("SECURE_CHANNEL_FAILED", "Noise IK handshake is not valid for this connection.");
     }
+    if (tunnel.transport === "negotiating" && tunnel.rtc !== void 0) {
+      if (tunnel.pendingHandshake === void 0) tunnel.pendingHandshake = payload;
+      else this.logger.warn("duplicate pending secure handshake ignored", {
+        connectionId: shortId3(tunnel.connectionId),
+        peerDeviceId: shortId3(tunnel.peer.deviceId)
+      });
+      return;
+    }
+    await this.completeHandshake(tunnel, payload);
+  }
+  async completeHandshake(tunnel, payload) {
     tunnel.noise.readHandshake(fromBase64Url2(payload.data));
     const reply = tunnel.noise.writeHandshake();
     if (!tunnel.noise.complete) throw new ControlConnectionError("SECURE_CHANNEL_FAILED", "Noise IK handshake did not complete.");
@@ -17386,6 +17451,12 @@ var HostServerConnection = class {
       peerDeviceId: shortId3(tunnel.peer.deviceId),
       transport: mode
     });
+  }
+  async resumePendingHandshake(tunnel) {
+    const payload = tunnel.pendingHandshake;
+    if (payload === void 0 || tunnel.channel !== void 0 || tunnel.transport === "negotiating") return;
+    tunnel.pendingHandshake = void 0;
+    await this.completeHandshake(tunnel, payload);
   }
   async handleRelay(payload) {
     if (!this.negotiatedCapabilities.includes("transport.relay")) {
@@ -17480,6 +17551,44 @@ var HostServerConnection = class {
     if (tunnel === void 0 || payload.targetDeviceId !== this.identity.deviceId) return;
     tunnel.rtc?.handleSignal({ type: "ice", candidate: payload.candidate });
   }
+  async handleTransportSelected(payload) {
+    const tunnel = this.tunnels.get(payload.connectionId);
+    if (tunnel === void 0 || payload.targetDeviceId !== this.identity.deviceId) {
+      this.logger.warn("stale transport selection ignored", { connectionId: shortId3(payload.connectionId) });
+      return;
+    }
+    if (tunnel.channel !== void 0) {
+      if (tunnel.transport !== payload.transport) {
+        this.logger.warn("late transport selection ignored", {
+          connectionId: shortId3(tunnel.connectionId),
+          selected: payload.transport
+        });
+      }
+      return;
+    }
+    const requiredCapability = `transport.${payload.transport}`;
+    if (!this.negotiatedCapabilities.includes(requiredCapability)) {
+      throw new ControlConnectionError(
+        "INVALID_MESSAGE",
+        `Client selected unnegotiated transport: ${payload.transport}`
+      );
+    }
+    if (payload.transport === "relay") {
+      const rtc = tunnel.rtc;
+      tunnel.rtc = void 0;
+      tunnel.transport = "relay";
+      tunnel.transportMode = void 0;
+      await rtc?.close();
+      await this.resumePendingHandshake(tunnel);
+      return;
+    }
+    if (tunnel.rtc === void 0) {
+      throw new ControlConnectionError("INVALID_MESSAGE", "Client selected WebRTC before creating a data channel.");
+    }
+    tunnel.transport = payload.transport;
+    tunnel.transportMode = tunnel.rtc.selectedPathMode();
+    await this.resumePendingHandshake(tunnel);
+  }
   canUseWebRtc() {
     return this.negotiatedCapabilities.includes("transport.p2p") || this.negotiatedCapabilities.includes("transport.turn");
   }
@@ -17523,6 +17632,13 @@ var HostServerConnection = class {
       transport: tunnel.transportMode ?? selected,
       ...webrtcDiagnosticsLogFields2(rtcDiagnostics(tunnel.rtc))
     });
+    void this.resumePendingHandshake(tunnel).catch((error) => {
+      this.logger.warn("pending secure handshake failed", {
+        connectionId: shortId3(tunnel.connectionId),
+        reason: diagnosticReason3(error)
+      });
+      void this.dropTunnel(tunnel.connectionId, "SECURE_CHANNEL_FAILED");
+    });
   }
   async handleRtcFailed(tunnel, rtc, error) {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc !== rtc) return;
@@ -17543,6 +17659,7 @@ var HostServerConnection = class {
       reason: diagnosticReason3(error),
       ...webrtcDiagnosticsLogFields2(rtcDiagnostics(rtc))
     });
+    await this.resumePendingHandshake(tunnel);
   }
   sendTransportSelected(tunnel, transport) {
     this.sendControl("transport.selected", {
@@ -17739,6 +17856,13 @@ function requireSignalIce(value) {
   const payload = requireObject(value);
   if (typeof payload.connectionId !== "string" || typeof payload.targetDeviceId !== "string" || typeof payload.candidate !== "object" || payload.candidate === null || Array.isArray(payload.candidate)) {
     throw new ControlConnectionError("INVALID_MESSAGE", "signal.ice payload is invalid.");
+  }
+  return payload;
+}
+function requireTransportSelected(value) {
+  const payload = requireObject(value);
+  if (typeof payload.connectionId !== "string" || typeof payload.targetDeviceId !== "string" || payload.transport !== "p2p" && payload.transport !== "turn" && payload.transport !== "relay") {
+    throw new ControlConnectionError("INVALID_MESSAGE", "transport.selected payload is invalid.");
   }
   return payload;
 }

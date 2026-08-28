@@ -444,6 +444,14 @@ Server 校验 membership、双方账号归属一致且 Host online 后创建 `co
 }
 ```
 
+WebRTC DataChannel 建立后，Initiator 必须先发送 `transport.selected`，再开始 Noise
+握手。Host 必须按同一 Control WebSocket 上的消息顺序，在创建 authenticated channel 前应用该
+选择；不得忽略该帧并仅依赖本机异步 RTC ready 回调，否则两端可能分别把同一条 Noise channel
+绑定到 WebRTC 与 Relay。Noise channel 建立后，迟到或冲突的 `transport.selected` 不得切换
+已有连接的数据面。Server 必须按 `connectionId` 保持 `transport.selected` 与
+`secure.handshake` 的转发顺序；Host 仍必须容忍二者被乱序交付，在 transport 尚为
+`negotiating` 时暂存握手，而不能自行猜测为 Relay。
+
 Host 必须要求 `authorization` 为 `account`，校验 identityKey 格式，并通过受 membership
 保护的设备详情接口确认 Client descriptor。本机已有相同 deviceId 但公钥不同则必须拒绝；
 验证通过后写入/更新本机 pinned peer，并把该 key 与 `connectionId` 绑定，才可返回
@@ -715,8 +723,8 @@ carrier 代际不一致时，Desktop Client 必须在选择目标、创建 Works
 | --- | --- | --- | --- | --- |
 | `0.3.15–0.3.23` / rc.2 | `harness.api.v1`（旧 Host 由版本降级识别） | 支持 | `0.3.17+` 且 provider 存在时支持 | 不支持 |
 | `0.3.24–0.3.36` / rc.2 | `harness.api.v1` | 支持 | provider 存在时支持 | `harness.api.transfer.v1` |
-| `0.4.0` / rc.2 | capability 探测返回 `harness.api.v1` | 支持 | provider 存在时支持 | `harness.api.transfer.v1` |
-| `0.4.0` / alpha.1 | capability 探测返回 `harness.remote.v1` | 支持 | provider 存在时支持 | `harness.remote.transfer.v1` |
+| `0.4.x` / rc.2 | capability 探测返回 `harness.api.v1` | 支持 | provider 存在时支持 | `harness.api.transfer.v1` |
+| `0.4.x` / alpha.1 | capability 探测返回 `harness.remote.v1` | 支持 | provider 存在时支持 | `harness.remote.transfer.v1` |
 
 未知版本按 `0.3.15` 之前的能力处理。未来 Server 暴露 Host capability 后，应优先使用
 capability，`clientVersion` 仅保留为旧 Server 的兼容路径。
@@ -1056,7 +1064,9 @@ Session Reference 与只读 `directoryPicker/list` endpoints，以及 Gateway �
 `$events/result`。明确禁止 `directoryPicker/pick`、`directoryPicker/createDirectory`、
 `session/openWorkspacePath`、Settings/native open、动态 Cordis package/source/runtime 操作、
 Agent Preset copy/delete 和任何未列出的 endpoint。endpoint 必须命中代码内固定集合，不能
-根据 Typert registry 动态扩张。
+根据 Typert registry 动态扩张。Client 的 Gateway target switch 必须让
+`dynamicCordisRunner/*` 固定调用本地 Gateway，不得因选中远端 Host 而把本机 UI/runtime
+装载请求转发到 Host。
 
 #### `harness.remote.stream.open` / `harness.remote.stream.close`
 

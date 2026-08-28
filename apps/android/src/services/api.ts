@@ -1,3 +1,4 @@
+import appConfig from '../../app.json'
 import { RemoteApiError } from '../lib/errors'
 import { normalizeServerUrl } from '../lib/server-url'
 import type {
@@ -230,7 +231,8 @@ export class RemoteServerApi {
   }
 }
 
-export const ANDROID_CLIENT_VERSION = '0.3.0'
+/** Keep Server device metadata aligned with the version embedded in the native APK. */
+export const ANDROID_CLIENT_VERSION = appConfig.expo.version
 
 function parseTokenPair(input: unknown): TokenPair {
   if (!isRecord(input)

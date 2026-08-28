@@ -35,9 +35,9 @@ export function automaticPreferredTransports(route: NetworkRoute): PreferredTran
 }
 
 export function initialProbeTransports(preferredTransports: readonly PreferredTransport[]): PreferredTransport[] {
-  if (preferredTransports.length === 1) return [...preferredTransports]
-  const directTransports = preferredTransports.filter(transport => transport === 'lan' || transport === 'p2p')
-  if (directTransports.length > 0) return directTransports
-  if (preferredTransports.includes('turn')) return ['turn']
-  return ['relay']
+  // The connection progress must show every route that AdaptiveTransport is
+  // allowed to use. Previously this returned only the first direct group
+  // (LAN/P2P), so TURN and Relay disappeared from the UI even though they
+  // remained active fallbacks in the transport state machine.
+  return [...preferredTransports]
 }

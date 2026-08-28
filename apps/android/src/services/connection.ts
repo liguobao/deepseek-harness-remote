@@ -54,6 +54,19 @@ export class AndroidRemoteConnection {
         // Do not include credentials, SDP, prompts, or tunnel payloads.
         console.warn('[dsh-remote] WebRTC fallback:', error.message)
       },
+      onWebRtcDiagnostic: event => {
+        if (event.type !== 'selected-path') return
+        // Selected-path telemetry contains candidate types and address scopes,
+        // never the candidate IPs, SDP, credentials, or tunnel payloads.
+        console.info('[dsh-remote] WebRTC selected path:', JSON.stringify({
+          ...event.selectedPath,
+          signaledRemoteCandidates: {
+            total: event.diagnostics.remoteCandidates.total,
+            byType: event.diagnostics.remoteCandidates.byType,
+            byScope: event.diagnostics.remoteCandidates.byScope,
+          },
+        }))
+      },
     })
     const connectCore = async (relayOnly: boolean) => {
       const transport = createTransport(relayOnly)

@@ -229,6 +229,11 @@ Server 转发 `signal.offer`、`signal.answer` 和 `signal.ice`，但必须校�
 
 Server 不修改 SDP，不参与 DataChannel 业务协议。
 
+同一 `connectionId` 发往同一目标的 `signal.*`、`transport.selected` 与
+`secure.handshake` 必须通过单一有序发送队列转发，禁止为不同 frame 启动彼此独立的
+fire-and-forget send task。尤其不能让 `secure.handshake` 越过先收到的
+`transport.selected`；否则 Client 和 Host 可能把同一条 Noise channel 绑定到不同数据面。
+
 ## 12. Relay
 
 Relay 是 P2P/TURN 不可用时的数据面 fallback。

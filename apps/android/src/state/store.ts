@@ -327,7 +327,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           fetchIceServers: async connectionId => api.turnCredentials(connectionId),
           preferredTransports: [...preferredTransports],
           forceRelay,
-          onSecureHandshake: () => set({ connectionStage: 'secure' }),
+          onSecureHandshake: () => set(state => ({
+            connectionStage: 'secure',
+            connection: {
+              ...state.connection,
+              stats: connection.getStats() ?? state.connection.stats,
+            },
+          })),
           onClose: () => {
             if (get().connection.phase === 'connected' || get().connection.phase === 'reconnecting') {
               set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: zhCN.runtime.hostClosed } })

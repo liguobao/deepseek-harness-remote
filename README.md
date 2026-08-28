@@ -57,7 +57,7 @@ Linux. Remote is included and enabled by default, so no separate plugin installa
 Install the exact npm version for the `web` profile:
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.0
+dsh plugin --profile web add ds-harness-remote@0.4.1
 ```
 
 Restart Harness after installation.
@@ -145,13 +145,13 @@ Remote business RPC surface (`sessions.*`, `session.*`, `permissions.respond`,
 `ApiProxy` or alpha.1 Typert Remote Gateway, and this plugin does not provide
 an adapter or wire-format translation for the old RPC surface.
 
-Plugin `0.4.0` supports DeepSeek Harness `dsh-v0.1.1-rc.2` through the legacy
+Plugin `0.4.1` supports DeepSeek Harness `dsh-v0.1.1-rc.2` through the legacy
 official `ApiProxy` and `dsh-v0.1.2-alpha.1` through the official Typert Remote
-Gateway. A `0.4.0` Client running rc.2 remains compatible with older rc.2 Hosts
+Gateway. A `0.4.1` Client running rc.2 remains compatible with older rc.2 Hosts
 through the legacy capability fallback.
 
 Both Desktop endpoints must use the same Harness transport generation. Plugin
-`0.4.0` does not translate rc.2 and alpha.1 business models: an alpha.1 Client
+`0.4.x` does not translate rc.2 and alpha.1 business models: an alpha.1 Client
 cannot open an rc.2 Host, and an rc.2 Client cannot open an alpha.1 Host. Mixed
 connections are rejected before switching the native UI or mutating a Workspace.
 
