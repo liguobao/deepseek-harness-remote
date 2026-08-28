@@ -285,6 +285,17 @@ describe('hello payload rejection', () => {
     }))).toThrow()
   })
 
+  it('rejects protocol versions outside the safe integer range', () => {
+    expect(() => parseControlFrame(makeFrame('hello', {
+      ...validPayloads['hello'] as HelloPayload,
+      protocols: [-1],
+    }))).toThrow()
+    expect(() => parseControlFrame(makeFrame('hello', {
+      ...validPayloads['hello'] as HelloPayload,
+      protocols: [Number.MAX_SAFE_INTEGER + 1],
+    }))).toThrow()
+  })
+
   it('rejects missing protocols', () => {
     const { protocols, ...noProtocols } = validPayloads['hello'] as HelloPayload
     expect(() => parseControlFrame(makeFrame('hello', noProtocols))).toThrow()
@@ -416,6 +427,13 @@ describe('relay payload rejection', () => {
     expect(() => parseControlFrame(makeFrame('relay', {
       ...valid,
       counter: -1,
+    }))).toThrow()
+  })
+
+  it('rejects counters outside the safe integer range', () => {
+    expect(() => parseControlFrame(makeFrame('relay', {
+      ...valid,
+      counter: Number.MAX_SAFE_INTEGER + 1,
     }))).toThrow()
   })
 

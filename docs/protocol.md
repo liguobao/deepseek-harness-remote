@@ -372,6 +372,9 @@ Control frame 是 Server 可读 JSON，不得放置 Remote 业务明文。
 Server 展示设备版本和诊断；与 `hello.ack` 的 `serverVersion` 对称。插件建立连接时必须上报自己的
 版本；对 Server 而言这是 v1 新增的 optional 字段，不能因为缺失或未知版本而拒绝连接。
 
+`protocols` 必须包含至少一个非负安全整数。Server 必须选择双方都支持的版本。
+当前实现只接受 v1。没有共同版本时，Server 必须拒绝 hello。
+
 Host 的 `harnessVersion` 优先来自本机 Harness `host.describe.version`；旧 Harness 返回已知
 占位值或不提供该方法时，从当前 `@deepseek-ai/dsh` 运行包读取版本。Host 注册 descriptor
 在可用时携带该值，首次 `hello` 也会再次上报以刷新设备记录。字段同样可选：插件不发送时
@@ -523,7 +526,8 @@ TLS/WSS 保护到 Server 的链路，但不能替代本节 E2EE。
 }
 ```
 
-`counter` 用于 Server 基础限速/排序诊断，不作为解密 nonce 的权威来源。Noise frame 内部状态才是认证依据。
+`counter` 必须是 `0..Number.MAX_SAFE_INTEGER` 范围内的整数。它用于 Server 基础限速和排序诊断，
+不作为解密 nonce 的权威来源。Noise frame 内部状态才是认证依据。
 
 Server 禁止解密、解析、缓存到数据库或记录 `ciphertext`。
 

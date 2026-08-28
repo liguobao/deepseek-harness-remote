@@ -421,7 +421,7 @@ export const helloPayloadSchema = z.object({
   role: z.enum(['host', 'client']),
   deviceId: z.string().min(1),
   accessToken: z.string().min(1),
-  protocols: z.array(z.number().int()).min(1),
+  protocols: z.array(z.number().int().nonnegative().safe()).min(1),
   capabilities: z.array(z.string()),
   clientVersion: z.string().optional(),
   harnessVersion: z.string().optional(),
@@ -471,7 +471,7 @@ export const secureHandshakePayloadSchema = z.object({
 export const relayPayloadSchema = z.object({
   connectionId: z.string().min(1),
   targetDeviceId: z.string().min(1),
-  counter: z.number().int().nonnegative(),
+  counter: z.number().int().nonnegative().safe(),
   ciphertext: z.string().min(1),
 })
 

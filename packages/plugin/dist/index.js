@@ -4134,7 +4134,7 @@ var helloPayloadSchema = external_exports.object({
   role: external_exports.enum(["host", "client"]),
   deviceId: external_exports.string().min(1),
   accessToken: external_exports.string().min(1),
-  protocols: external_exports.array(external_exports.number().int()).min(1),
+  protocols: external_exports.array(external_exports.number().int().nonnegative().safe()).min(1),
   capabilities: external_exports.array(external_exports.string()),
   clientVersion: external_exports.string().optional(),
   harnessVersion: external_exports.string().optional()
@@ -4177,7 +4177,7 @@ var secureHandshakePayloadSchema = external_exports.object({
 var relayPayloadSchema = external_exports.object({
   connectionId: external_exports.string().min(1),
   targetDeviceId: external_exports.string().min(1),
-  counter: external_exports.number().int().nonnegative(),
+  counter: external_exports.number().int().nonnegative().safe(),
   ciphertext: external_exports.string().min(1)
 });
 var signalPayloadSchema = external_exports.object({
