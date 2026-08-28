@@ -4384,6 +4384,9 @@ function cryptoRandomId() {
   return `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
+// ../client-core/dist/remote-gateway.js
+var DIRECT_REMOTE_CALL_BYTES = 2 * 1024 * 1024;
+
 // ../client-core/dist/index.js
 var RemoteClientError = class extends Error {
   code;
@@ -13470,8 +13473,8 @@ function base64ToBytes(value) {
 }
 
 // src/remote-typert-gateway.ts
-var DIRECT_REMOTE_CALL_BYTES = 2 * 1024 * 1024;
-var RemoteTypertGateway = class {
+var DIRECT_REMOTE_CALL_BYTES2 = 2 * 1024 * 1024;
+var RemoteTypertGateway2 = class {
   constructor(client) {
     this.client = client;
   }
@@ -13488,7 +13491,7 @@ var RemoteTypertGateway = class {
     const request = { endpoint, payload };
     const encoded = new TextEncoder().encode(JSON.stringify(request));
     let response;
-    if (encoded.byteLength > DIRECT_REMOTE_CALL_BYTES) {
+    if (encoded.byteLength > DIRECT_REMOTE_CALL_BYTES2) {
       response = await this.callTransferred(encoded, signal);
     } else {
       try {
@@ -15520,7 +15523,7 @@ var ClientModeRuntime = class {
   async listRemoteDirectory(targetDeviceId, path, signal) {
     const remote = await this.ensureConnected(targetDeviceId, signal);
     if (remote.features.remoteGateway) {
-      const value = await new RemoteTypertGateway(remote.client).invoke({
+      const value = await new RemoteTypertGateway2(remote.client).invoke({
         namespace: "directoryPicker",
         method: "list",
         args: path === void 0 ? {} : { path },
@@ -15538,7 +15541,7 @@ var ClientModeRuntime = class {
   async listRemoteWorkspaces(targetDeviceId, signal) {
     const remote = await this.ensureConnected(targetDeviceId, signal);
     if (remote.features.remoteGateway) {
-      return readRemoteWorkspaceBaseline(new RemoteTypertGateway(remote.client), signal);
+      return readRemoteWorkspaceBaseline(new RemoteTypertGateway2(remote.client), signal);
     }
     const api = new RemoteHarnessApiProxy(remote.client).api;
     const response = await api.workspace.list({
@@ -15554,7 +15557,7 @@ var ClientModeRuntime = class {
     this.assertRemoteCompatible(remote);
     let workspace;
     if (remote.features.remoteGateway) {
-      workspace = await new RemoteTypertGateway(remote.client).invoke({
+      workspace = await new RemoteTypertGateway2(remote.client).invoke({
         namespace: "workspace",
         method: "create",
         args: { request: { path } },
@@ -15605,7 +15608,7 @@ var ClientModeRuntime = class {
   selectRemoteTarget(remote) {
     const target = { deviceId: remote.target.deviceId, name: remote.target.name };
     if (this.gatewaySwitch.supportsCarrier()) {
-      this.gatewaySwitch.selectRemote(new RemoteTypertGateway(remote.client), void 0, target);
+      this.gatewaySwitch.selectRemote(new RemoteTypertGateway2(remote.client), void 0, target);
       return;
     }
     this.proxySwitch.selectRemote(new RemoteHarnessApiProxy(remote.client).api, target);
@@ -19249,7 +19252,7 @@ export {
   PluginControlRuntime,
   RemoteFileViewerBridge,
   RemoteHarnessApiProxy,
-  RemoteTypertGateway,
+  RemoteTypertGateway2 as RemoteTypertGateway,
   RpcError,
   RpcRouter,
   ServerApiError,
