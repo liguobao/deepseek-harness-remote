@@ -4114,6 +4114,8 @@ function normalizeSdpMLineIndex(value) {
 var rpcMethodSchema = external_exports.enum(rpcMethods);
 var messageTypeSchema = external_exports.enum(messageTypes);
 var controlFrameTypeSchema = external_exports.enum(controlFrameTypes);
+var uniqueStrings = (values) => new Set(values).size === values.length;
+var uniqueNumbers = (values) => new Set(values).size === values.length;
 var remoteMessageSchema = external_exports.object({
   v: external_exports.literal(PROTOCOL_VERSION),
   id: external_exports.string().min(1),
@@ -4134,8 +4136,8 @@ var helloPayloadSchema = external_exports.object({
   role: external_exports.enum(["host", "client"]),
   deviceId: external_exports.string().min(1),
   accessToken: external_exports.string().min(1),
-  protocols: external_exports.array(external_exports.number().int().nonnegative().safe()).min(1),
-  capabilities: external_exports.array(external_exports.string()),
+  protocols: external_exports.array(external_exports.number().int().nonnegative().safe()).min(1).refine(uniqueNumbers),
+  capabilities: external_exports.array(external_exports.string().min(1)).refine(uniqueStrings),
   clientVersion: external_exports.string().optional(),
   harnessVersion: external_exports.string().optional()
 });

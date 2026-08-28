@@ -121,6 +121,8 @@ REST/Control JSON 中的 key、nonce、handshake 和 ciphertext 使用无 paddin
 - v1 可以新增 optional 字段和 capability；不能改变现有字段语义或 enum 含义。
 - 新增 RPC/Event 必须由 capability 宣告。
 - 未协商的 method/event 不能发送。
+- hello 的 `protocols` 是无重复版本集合。Server 选择双方支持的最高版本。
+- 没有共同版本时，Server 返回 `UNSUPPORTED_VERSION` 并关闭连接。
 
 ## 6. REST 通用格式
 
@@ -372,8 +374,9 @@ Control frame 是 Server 可读 JSON，不得放置 Remote 业务明文。
 Server 展示设备版本和诊断；与 `hello.ack` 的 `serverVersion` 对称。插件建立连接时必须上报自己的
 版本；对 Server 而言这是 v1 新增的 optional 字段，不能因为缺失或未知版本而拒绝连接。
 
-`protocols` 必须包含至少一个非负安全整数。Server 必须选择双方都支持的版本。
-当前实现只接受 v1。没有共同版本时，Server 必须拒绝 hello。
+`protocols` 必须包含至少一个非负安全整数，且不能有重复值。当前实现只支持 v1。
+`capabilities` 必须是无重复的非空字符串集合。接收端必须忽略未知 capability。
+发送端只能使用双方都支持的 capability。
 
 Host 的 `harnessVersion` 优先来自本机 Harness `host.describe.version`；旧 Harness 返回已知
 占位值或不提供该方法时，从当前 `@deepseek-ai/dsh` 运行包读取版本。Host 注册 descriptor

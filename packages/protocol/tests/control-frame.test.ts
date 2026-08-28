@@ -158,6 +158,13 @@ describe('hello payload validation', () => {
     }))).toBeDefined()
   })
 
+  it('accepts unknown capabilities for additive negotiation', () => {
+    expect(parseControlFrame(makeFrame('hello', {
+      ...valid,
+      capabilities: ['transport.relay', 'example.future.v1'],
+    }))).toBeDefined()
+  })
+
   it('returns parsed payload with stripped unknown fields', () => {
     const withExtra = { ...valid, unknownField: 'should-be-stripped' }
     const result = parseControlFrame(makeFrame('hello', withExtra))
@@ -308,6 +315,24 @@ describe('hello payload rejection', () => {
     expect(() => parseControlFrame(makeFrame('hello', {
       ...validPayloads['hello'] as HelloPayload,
       protocols: [Number.MAX_SAFE_INTEGER + 1],
+    }))).toThrow()
+  })
+
+  it('rejects duplicate protocol versions', () => {
+    expect(() => parseControlFrame(makeFrame('hello', {
+      ...validPayloads['hello'] as HelloPayload,
+      protocols: [1, 1],
+    }))).toThrow()
+  })
+
+  it('rejects empty and duplicate capabilities', () => {
+    expect(() => parseControlFrame(makeFrame('hello', {
+      ...validPayloads['hello'] as HelloPayload,
+      capabilities: [''],
+    }))).toThrow()
+    expect(() => parseControlFrame(makeFrame('hello', {
+      ...validPayloads['hello'] as HelloPayload,
+      capabilities: ['transport.relay', 'transport.relay'],
     }))).toThrow()
   })
 
