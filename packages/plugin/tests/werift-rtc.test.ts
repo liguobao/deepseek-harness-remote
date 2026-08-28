@@ -227,7 +227,7 @@ describe('werift RTC backend', () => {
 
     expect(new TextDecoder().decode(responderReceived[0]!)).toBe('hello-from-adapter')
     expect(new TextDecoder().decode(initiatorReceived[0]!)).toBe('reply')
-    expect(initiator.selectedTransport() ?? responder.selectedTransport()).toBe('p2p')
+    expect(initiator.selectedTransport() ?? responder.selectedTransport()).toBe('lan')
 
     await initiator.close()
     await responder.close()
@@ -259,7 +259,7 @@ describe('werift RTC backend', () => {
     await waitFor(() => received.length === 1, 'node default receive')
 
     expect(new TextDecoder().decode(received[0]!)).toBe('hello-from-node-default')
-    expect(initiator.selectedTransport() ?? responder.selectedTransport()).toBe('p2p')
+    expect(initiator.selectedTransport() ?? responder.selectedTransport()).toBe('lan')
 
     await initiator.close()
     await responder.close()
@@ -292,7 +292,7 @@ describe('werift RTC backend', () => {
     await waitFor(() => received.length === 1, 'helper receive')
 
     expect(new TextDecoder().decode(received[0]!)).toBe('hello-from-helper')
-    expect(initiator.selectedTransport() ?? responder.selectedTransport()).toBe('p2p')
+    expect(initiator.selectedTransport() ?? responder.selectedTransport()).toBe('lan')
 
     await initiator.close()
     await responder.close()

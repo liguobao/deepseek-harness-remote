@@ -55,6 +55,13 @@ describe('protocol envelope', () => {
     )).toEqual(['transport.p2p', 'transport.relay'])
   })
 
+  it('negotiates LAN independently from internet P2P', () => {
+    expect(selectCapabilities(
+      ['transport.lan', 'transport.p2p'],
+      ['transport.lan'],
+    )).toEqual(['transport.lan'])
+  })
+
   it('accepts negotiated capabilities and uses a Relay-only legacy fallback', () => {
     expect(acceptNegotiatedCapabilities(
       ['transport.p2p', 'transport.relay'],

@@ -397,7 +397,7 @@ describe('HostServerConnection', () => {
       handleHandshake(payload: unknown): Promise<void>
     }
     internals.socket = socket
-    internals.negotiatedCapabilities = ['transport.p2p', 'transport.turn', 'transport.relay']
+    internals.negotiatedCapabilities = ['transport.lan', 'transport.p2p', 'transport.turn', 'transport.relay']
     internals.tunnels.set(tunnel.connectionId, tunnel)
 
     const clientNoise = new NoiseIkSession({
@@ -419,9 +419,9 @@ describe('HostServerConnection', () => {
     await internals.handleTransportSelected({
       connectionId: tunnel.connectionId,
       targetDeviceId: 'host-race',
-      transport: 'p2p',
+      transport: 'lan',
     })
-    expect(tunnel).toMatchObject({ transport: 'p2p', transportMode: 'LAN' })
+    expect(tunnel).toMatchObject({ transport: 'lan', transportMode: 'LAN' })
     const handshakeReply = socket.sent.map(frame => JSON.parse(frame))
       .find(frame => frame.type === 'secure.handshake')
     clientNoise.readHandshake(fromBase64UrlForTest(handshakeReply.payload.data))
@@ -433,6 +433,47 @@ describe('HostServerConnection', () => {
     expect(rtcSend).toHaveBeenCalledOnce()
     expect(socket.sent.map(frame => JSON.parse(frame)).some(frame => frame.type === 'relay')).toBe(false)
     expect(decodeMessage(clientNoise.decrypt(rtcSend.mock.calls[0]![0]))).toEqual(response)
+  })
+
+  it('downgrades a selected LAN path for an older Server without transport.lan', () => {
+    const server = new HostServerConnection(
+      config(),
+      {} as HostIdentity,
+      {} as IdentityStore,
+      {} as HostServerApi,
+      {} as ConnectionController,
+      logger(),
+    )
+    const socket = new FakeWebSocket()
+    const rtc = {
+      selectedPathMode: vi.fn(() => 'LAN' as const),
+      diagnostics: vi.fn(() => undefined),
+    }
+    const tunnel = {
+      connectionId: 'connection-lan-compat',
+      peer: { deviceId: 'client-1' },
+      noise: { destroy: vi.fn() },
+      rtc,
+      transport: 'negotiating',
+    }
+    const internals = server as unknown as {
+      socket: FakeWebSocket
+      negotiatedCapabilities: string[]
+      tunnels: Map<string, unknown>
+      handleRtcOpened(value: unknown, transport: 'lan' | 'p2p' | 'turn'): void
+    }
+    internals.socket = socket
+    socket.open()
+    internals.negotiatedCapabilities = ['transport.p2p', 'transport.relay']
+    internals.tunnels.set(tunnel.connectionId, tunnel)
+
+    internals.handleRtcOpened(tunnel, 'lan')
+
+    expect(tunnel).toMatchObject({ transport: 'p2p' })
+    expect(socket.sent.map(frame => JSON.parse(frame))).toContainEqual(expect.objectContaining({
+      type: 'transport.selected',
+      payload: expect.objectContaining({ transport: 'p2p' }),
+    }))
   })
 
   it.each([
@@ -461,7 +502,7 @@ describe('HostServerConnection', () => {
     const internals = server as unknown as {
       negotiatedCapabilities: string[]
       tunnels: Map<string, unknown>
-      handleRtcOpened(value: unknown, transport: 'p2p' | 'turn'): void
+      handleRtcOpened(value: unknown, transport: 'lan' | 'p2p' | 'turn'): void
     }
     internals.negotiatedCapabilities = relay ? [negotiated, 'transport.relay'] : [negotiated]
     internals.tunnels.set(tunnel.connectionId, tunnel)

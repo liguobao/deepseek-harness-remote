@@ -452,6 +452,10 @@ WebRTC DataChannel 建立后，Initiator 必须先发送 `transport.selected`，
 `secure.handshake` 的转发顺序；Host 仍必须容忍二者被乱序交付，在 transport 尚为
 `negotiating` 时暂存握手，而不能自行猜测为 Relay。
 
+`transport.selected.payload.transport` 的允许值为 `lan | p2p | turn | relay`。`lan` 是一等
+线协议值，双方声明 `transport.lan` capability 时必须端到端保留；Server 仅可为未声明该
+capability、仍只接受 `p2p | turn | relay` 的旧 RC2 Host 将 `lan` 兼容降级为 `p2p`。
+
 Host 必须要求 `authorization` 为 `account`，校验 identityKey 格式，并通过受 membership
 保护的设备详情接口确认 Client descriptor。本机已有相同 deviceId 但公钥不同则必须拒绝；
 验证通过后写入/更新本机 pinned peer，并把该 key 与 `connectionId` 绑定，才可返回

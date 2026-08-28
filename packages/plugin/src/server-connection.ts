@@ -185,7 +185,7 @@ export class HostServerConnection {
     if (this.stopped) return
     const offeredCapabilities = this.rtcFactoryProvider === undefined || this.config.forceRelay
       ? ['transport.relay', ...this.hostCapabilities()]
-      : ['transport.p2p', 'transport.turn', 'transport.relay', ...this.hostCapabilities()]
+      : ['transport.lan', 'transport.p2p', 'transport.turn', 'transport.relay', ...this.hostCapabilities()]
     const socket = this.createWebSocket(websocketUrl(this.api.baseUrl))
     this.socket = socket
     let acknowledged = false
@@ -221,6 +221,7 @@ export class HostServerConnection {
             this.negotiatedCapabilities = acceptNegotiatedCapabilities(offeredCapabilities, payload.capabilities)
             if (!this.negotiatedCapabilities.some(capability =>
               capability === 'transport.relay'
+              || capability === 'transport.lan'
               || capability === 'transport.p2p'
               || capability === 'transport.turn')) {
               throw new ControlConnectionError('INVALID_MESSAGE', 'Server did not negotiate a transport capability.')
@@ -417,9 +418,12 @@ export class HostServerConnection {
     tunnel.noise.readHandshake(fromBase64Url(payload.data))
     const reply = tunnel.noise.writeHandshake()
     if (!tunnel.noise.complete) throw new ControlConnectionError('SECURE_CHANNEL_FAILED', 'Noise IK handshake did not complete.')
-    const viaWebRtc = tunnel.rtc !== undefined && (tunnel.transport === 'p2p' || tunnel.transport === 'turn')
+    const viaWebRtc = tunnel.rtc !== undefined
+      && (tunnel.transport === 'lan' || tunnel.transport === 'p2p' || tunnel.transport === 'turn')
     if (!viaWebRtc && tunnel.transport === 'negotiating') tunnel.transport = 'relay'
-    const mode = viaWebRtc ? tunnel.transportMode ?? (tunnel.transport === 'turn' ? 'TURN' : 'P2P') : 'Relay'
+    const mode = viaWebRtc
+      ? tunnel.transportMode ?? (tunnel.transport === 'turn' ? 'TURN' : tunnel.transport === 'lan' ? 'LAN' : 'P2P')
+      : 'Relay'
     const transmit = viaWebRtc
       ? (ciphertext: Uint8Array) => tunnel.rtc!.send(ciphertext)
       : (ciphertext: Uint8Array) => this.sendRelay(tunnel, ciphertext)
@@ -600,7 +604,8 @@ export class HostServerConnection {
   }
 
   private canUseWebRtc(): boolean {
-    return this.negotiatedCapabilities.includes('transport.p2p')
+    return this.negotiatedCapabilities.includes('transport.lan')
+      || this.negotiatedCapabilities.includes('transport.p2p')
       || this.negotiatedCapabilities.includes('transport.turn')
   }
 
@@ -622,7 +627,14 @@ export class HostServerConnection {
 
   private handleRtcOpened(tunnel: PendingTunnel, selected: RtcSelectedTransport): void {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc === undefined) return
-    const requiredCapability = selected === 'turn' ? 'transport.turn' : 'transport.p2p'
+    const wireSelected = selected === 'lan'
+      && !this.negotiatedCapabilities.includes('transport.lan')
+      && this.negotiatedCapabilities.includes('transport.p2p')
+      ? 'p2p'
+      : selected
+    const requiredCapability = wireSelected === 'lan'
+      ? 'transport.lan'
+      : wireSelected === 'turn' ? 'transport.turn' : 'transport.p2p'
     if (!this.negotiatedCapabilities.includes(requiredCapability)) {
       const error = new Error(`WebRTC selected unnegotiated transport: ${selected}`)
       if (!this.negotiatedCapabilities.includes('transport.relay')) {
@@ -636,13 +648,13 @@ export class HostServerConnection {
       )
       return
     }
-    tunnel.transport = selected
+    tunnel.transport = wireSelected
     tunnel.transportMode = tunnel.rtc.selectedPathMode()
-    this.sendTransportSelected(tunnel, selected)
+    this.sendTransportSelected(tunnel, wireSelected)
     this.logger.info('webrtc data channel ready', {
       connectionId: shortId(tunnel.connectionId),
       peerDeviceId: shortId(tunnel.peer.deviceId),
-      transport: tunnel.transportMode ?? selected,
+      transport: tunnel.transportMode ?? wireSelected,
       ...webrtcDiagnosticsLogFields(rtcDiagnostics(tunnel.rtc)),
     })
     void this.resumePendingHandshake(tunnel).catch(error => {
@@ -660,7 +672,7 @@ export class HostServerConnection {
     error: Error,
   ): Promise<void> {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc !== rtc) return
-    if (tunnel.transport === 'p2p' || tunnel.transport === 'turn') {
+    if (tunnel.transport === 'lan' || tunnel.transport === 'p2p' || tunnel.transport === 'turn') {
       this.logger.warn('webrtc data channel failed; disconnecting peer', {
         connectionId: shortId(tunnel.connectionId),
         reason: diagnosticReason(error),
@@ -900,7 +912,8 @@ function requireSignalIce(value: unknown): SignalIcePayload {
 function requireTransportSelected(value: unknown): TransportSelectedPayload {
   const payload = requireObject(value)
   if (typeof payload.connectionId !== 'string' || typeof payload.targetDeviceId !== 'string'
-    || (payload.transport !== 'p2p' && payload.transport !== 'turn' && payload.transport !== 'relay')) {
+    || (payload.transport !== 'lan' && payload.transport !== 'p2p'
+      && payload.transport !== 'turn' && payload.transport !== 'relay')) {
     throw new ControlConnectionError('INVALID_MESSAGE', 'transport.selected payload is invalid.')
   }
   return payload as unknown as TransportSelectedPayload

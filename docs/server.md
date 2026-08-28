@@ -233,6 +233,8 @@ Server 不修改 SDP，不参与 DataChannel 业务协议。
 `secure.handshake` 必须通过单一有序发送队列转发，禁止为不同 frame 启动彼此独立的
 fire-and-forget send task。尤其不能让 `secure.handshake` 越过先收到的
 `transport.selected`；否则 Client 和 Host 可能把同一条 Noise channel 绑定到不同数据面。
+`lan` 是 `transport.selected` 的一等线协议值；双方声明 `transport.lan` capability 时必须
+原样转发。只有目标旧 RC2 Host 未声明该 capability 时，才允许兼容降级为 `p2p`。
 
 ## 12. Relay
 

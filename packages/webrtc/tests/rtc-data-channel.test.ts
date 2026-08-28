@@ -134,9 +134,9 @@ function turnStats(): RtcStatsEntry[] {
 }
 
 describe('detectSelectedTransport', () => {
-  it('classifies a selected private host-to-host pair as LAN while retaining p2p signaling', () => {
-    expect(detectSelectedPath(asStats(lanStats()))).toEqual({ transport: 'p2p', mode: 'LAN' })
-    expect(detectSelectedTransport(asStats(lanStats()))).toBe('p2p')
+  it('classifies a selected private host-to-host pair as LAN on the wire', () => {
+    expect(detectSelectedPath(asStats(lanStats()))).toEqual({ transport: 'lan', mode: 'LAN' })
+    expect(detectSelectedTransport(asStats(lanStats()))).toBe('lan')
     expect(inspectSelectedPath(asStats(lanStats()))).toMatchObject({
       localCandidateType: 'host',
       remoteCandidateType: 'host',
@@ -160,7 +160,7 @@ describe('detectSelectedTransport', () => {
 
   it('classifies a private host-to-peer-reflexive pair as LAN', () => {
     expect(detectSelectedPath(asStats(privatePeerReflexiveLanStats())))
-      .toEqual({ transport: 'p2p', mode: 'LAN' })
+      .toEqual({ transport: 'lan', mode: 'LAN' })
     expect(inspectSelectedPath(asStats(privatePeerReflexiveLanStats()))).toMatchObject({
       localCandidateType: 'host',
       remoteCandidateType: 'prflx',
@@ -176,7 +176,15 @@ describe('detectSelectedTransport', () => {
 
   it('classifies an address-hidden peer-reflexive candidate beside a private host as LAN', () => {
     expect(detectSelectedPath(asStats(hiddenPeerReflexiveLanStats())))
-      .toEqual({ transport: 'p2p', mode: 'LAN' })
+      .toEqual({ transport: 'lan', mode: 'LAN' })
+  })
+
+  it('classifies a loopback host beside an address-hidden prflx candidate as LAN', () => {
+    expect(detectSelectedPath(asStats([
+      { type: 'local-candidate', candidateType: 'prflx', id: 'lc' },
+      { type: 'remote-candidate', candidateType: 'host', address: '127.0.0.1', id: 'rc' },
+      { type: 'candidate-pair', selected: true, nominated: true, localCandidateId: 'lc', remoteCandidateId: 'rc' },
+    ]))).toEqual({ transport: 'lan', mode: 'LAN' })
   })
 
   it('detects p2p from a selected host/srflx candidate pair', () => {
@@ -228,7 +236,7 @@ describe('RtcDataChannelTransport initiator', () => {
     await flush()
     pc.channels[0]!.open()
     await connecting
-    expect(transport.selectedTransport()).toBe('p2p')
+    expect(transport.selectedTransport()).toBe('lan')
     expect(transport.selectedPathMode()).toBe('LAN')
     expect(transport.getStats().mode).toBe('LAN')
     await expect(transport.connectionDetails()).resolves.toMatchObject({

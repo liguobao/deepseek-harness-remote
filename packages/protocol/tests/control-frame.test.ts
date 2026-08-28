@@ -526,6 +526,13 @@ describe('signal payload rejection', () => {
 describe('transport.selected payload rejection', () => {
   const valid = validPayloads['transport.selected'] as TransportSelectedPayload
 
+  it('accepts LAN as a selected wire transport', () => {
+    expect(parseControlFrame(makeFrame('transport.selected', {
+      ...valid,
+      transport: 'lan',
+    })).payload).toMatchObject({ transport: 'lan' })
+  })
+
   it('rejects empty connectionId', () => {
     expect(() => parseControlFrame(makeFrame('transport.selected', {
       ...valid,
@@ -543,7 +550,7 @@ describe('transport.selected payload rejection', () => {
   it('rejects invalid transport', () => {
     expect(() => parseControlFrame(makeFrame('transport.selected', {
       ...valid,
-      transport: 'lan',
+      transport: 'direct',
     }))).toThrow()
   })
 

@@ -51,7 +51,7 @@ export interface AdaptiveConnectionDetails {
   webRtc?: RtcConnectionDetails
 }
 
-const DEFAULT_CAPABILITIES = ['transport.p2p', 'transport.turn', 'transport.relay', 'harness.api.v1']
+const DEFAULT_CAPABILITIES = ['transport.lan', 'transport.p2p', 'transport.turn', 'transport.relay', 'harness.api.v1']
 const DEFAULT_PREFERRED_TRANSPORTS = ['lan', 'p2p', 'turn', 'relay'] as const
 
 /**
@@ -201,7 +201,7 @@ export class AdaptiveTransport extends BaseTransport {
     const connected = webrtcConnected || relayConnected
     let mode: TransportStats['mode'] = 'Disconnected'
     if (this.selected === 'relay') mode = relayConnected ? 'Relay' : 'Disconnected'
-    else if (this.selected === 'turn' || this.selected === 'p2p') {
+    else if (this.selected === 'lan' || this.selected === 'turn' || this.selected === 'p2p') {
       mode = webrtcConnected ? this.rtc!.getStats().mode : 'Disconnected'
     }
     return { mode, connected, bytesSent: this.bytesSent, bytesReceived: this.bytesReceived }
@@ -308,7 +308,10 @@ export class AdaptiveTransport extends BaseTransport {
     if (wantWebRtc) {
       try {
         const rtcSelected = await this.tryWebRtc()
-        if (!preferred.includes(rtcSelected)) {
+        const wireSelected = rtcSelected === 'lan' && !preferred.includes('lan') && preferred.includes('p2p')
+          ? 'p2p'
+          : rtcSelected
+        if (!preferred.includes(wireSelected)) {
           await this.rtc?.close()
           this.rtc = undefined
           if (!preferred.includes('relay')) {
@@ -318,7 +321,7 @@ export class AdaptiveTransport extends BaseTransport {
           selected = 'relay'
         } else {
           this.dataMode = 'webrtc'
-          selected = rtcSelected
+          selected = wireSelected
         }
       } catch (error) {
         const reason = error instanceof Error ? error : new Error('WebRTC negotiation failed.')
@@ -348,7 +351,8 @@ export class AdaptiveTransport extends BaseTransport {
       ? ['relay'] as const
       : this.options.preferredTransports ?? DEFAULT_PREFERRED_TRANSPORTS
     return preferred.filter(transport => {
-      if (transport === 'lan' || transport === 'p2p') return this.negotiatedCapabilities.includes('transport.p2p')
+      if (transport === 'lan') return this.negotiatedCapabilities.includes('transport.lan')
+      if (transport === 'p2p') return this.negotiatedCapabilities.includes('transport.p2p')
       return this.negotiatedCapabilities.includes(`transport.${transport}`)
     })
   }

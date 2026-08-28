@@ -4102,6 +4102,7 @@ var rpcMethods = [
   "harness.remote.stream.close",
   "fileviewer.call"
 ];
+var selectedTransports = ["lan", "p2p", "turn", "relay"];
 function normalizeSdpMLineIndex(value) {
   if (value === void 0)
     return void 0;
@@ -4142,7 +4143,7 @@ var controlFrameSchema = external_exports.object({
   payload: external_exports.unknown()
 }).strict();
 var transportEnum = external_exports.enum(["lan", "p2p", "turn", "relay"]);
-var selectedTransportEnum = external_exports.enum(["p2p", "turn", "relay"]);
+var selectedTransportEnum = external_exports.enum(selectedTransports);
 var helloPayloadSchema = external_exports.object({
   role: external_exports.enum(["host", "client"]),
   deviceId: external_exports.string().min(1),
@@ -5106,7 +5107,7 @@ var RtcDataChannelTransport = class {
   getStats() {
     const connected = this.channel?.readyState === "open";
     return {
-      mode: !connected ? "Disconnected" : this.selectedMode ?? (this.selected === "turn" ? "TURN" : "P2P"),
+      mode: !connected ? "Disconnected" : this.selectedMode ?? (this.selected === "turn" ? "TURN" : this.selected === "lan" ? "LAN" : "P2P"),
       connected,
       bytesSent: this.bytesSent,
       bytesReceived: this.bytesReceived
@@ -5274,7 +5275,7 @@ var RtcDataChannelTransport = class {
   async resolveSelectedTransport() {
     try {
       let selected = await this.refreshStatsDiagnostics();
-      for (let attempt = 0; attempt < SELECTED_PATH_RETRY_COUNT && !this.closed && (selected.transport === void 0 || selected.mode === void 0); attempt += 1) {
+      for (let attempt = 0; attempt < SELECTED_PATH_RETRY_COUNT && !this.closed && (selected.transport === void 0 || selected.mode === void 0 || selected.mode === "P2P"); attempt += 1) {
         await sleep(SELECTED_PATH_RETRY_DELAY_MS);
         selected = await this.refreshStatsDiagnostics();
       }
@@ -5448,10 +5449,8 @@ function inspectSelectedPath(stats) {
       selected = { transport: "turn", mode: "TURN" };
     if (local === void 0 && remote === void 0)
       continue;
-    selected ??= {
-      transport: "p2p",
-      mode: isLanCandidatePair(localType, remoteType, localAddressScope, remoteAddressScope) ? "LAN" : "P2P"
-    };
+    const lan = isLanCandidatePair(localType, remoteType, localAddressScope, remoteAddressScope);
+    selected ??= { transport: lan ? "lan" : "p2p", mode: lan ? "LAN" : "P2P" };
     const currentRoundTripTime = numberStat(pair, "currentRoundTripTime");
     return {
       ...selected,
@@ -5594,7 +5593,7 @@ function isLanCandidatePair(localType, remoteType, localScope, remoteScope) {
   return localType === "host" && isLocalNetworkScope(localScope) && remoteType === "prflx" && remoteScope === "unknown" || remoteType === "host" && isLocalNetworkScope(remoteScope) && localType === "prflx" && localScope === "unknown";
 }
 function isLocalNetworkScope(scope) {
-  return scope === "private" || scope === "link-local";
+  return scope === "private" || scope === "link-local" || scope === "loopback";
 }
 function increment(map, key) {
   map[key] = (map[key] ?? 0) + 1;
@@ -5632,7 +5631,7 @@ function sleep(ms) {
 }
 
 // ../webrtc/dist/adaptive-transport.js
-var DEFAULT_CAPABILITIES = ["transport.p2p", "transport.turn", "transport.relay", "harness.api.v1"];
+var DEFAULT_CAPABILITIES = ["transport.lan", "transport.p2p", "transport.turn", "transport.relay", "harness.api.v1"];
 var DEFAULT_PREFERRED_TRANSPORTS = ["lan", "p2p", "turn", "relay"];
 var AdaptiveTransport = class extends BaseTransport {
   url;
@@ -5765,7 +5764,7 @@ var AdaptiveTransport = class extends BaseTransport {
     let mode = "Disconnected";
     if (this.selected === "relay")
       mode = relayConnected ? "Relay" : "Disconnected";
-    else if (this.selected === "turn" || this.selected === "p2p") {
+    else if (this.selected === "lan" || this.selected === "turn" || this.selected === "p2p") {
       mode = webrtcConnected ? this.rtc.getStats().mode : "Disconnected";
     }
     return { mode, connected, bytesSent: this.bytesSent, bytesReceived: this.bytesReceived };
@@ -5867,7 +5866,8 @@ var AdaptiveTransport = class extends BaseTransport {
     if (wantWebRtc) {
       try {
         const rtcSelected = await this.tryWebRtc();
-        if (!preferred.includes(rtcSelected)) {
+        const wireSelected = rtcSelected === "lan" && !preferred.includes("lan") && preferred.includes("p2p") ? "p2p" : rtcSelected;
+        if (!preferred.includes(wireSelected)) {
           await this.rtc?.close();
           this.rtc = void 0;
           if (!preferred.includes("relay")) {
@@ -5877,7 +5877,7 @@ var AdaptiveTransport = class extends BaseTransport {
           selected = "relay";
         } else {
           this.dataMode = "webrtc";
-          selected = rtcSelected;
+          selected = wireSelected;
         }
       } catch (error) {
         const reason = error instanceof Error ? error : new Error("WebRTC negotiation failed.");
@@ -5909,7 +5909,9 @@ var AdaptiveTransport = class extends BaseTransport {
   negotiatedTransports() {
     const preferred = this.options.forceRelay === true ? ["relay"] : this.options.preferredTransports ?? DEFAULT_PREFERRED_TRANSPORTS;
     return preferred.filter((transport) => {
-      if (transport === "lan" || transport === "p2p")
+      if (transport === "lan")
+        return this.negotiatedCapabilities.includes("transport.lan");
+      if (transport === "p2p")
         return this.negotiatedCapabilities.includes("transport.p2p");
       return this.negotiatedCapabilities.includes(`transport.${transport}`);
     });
@@ -17215,7 +17217,7 @@ var HostServerConnection = class {
   async connectOnce() {
     const credentials = await this.api.authenticate(this.identity);
     if (this.stopped) return;
-    const offeredCapabilities = this.rtcFactoryProvider === void 0 || this.config.forceRelay ? ["transport.relay", ...this.hostCapabilities()] : ["transport.p2p", "transport.turn", "transport.relay", ...this.hostCapabilities()];
+    const offeredCapabilities = this.rtcFactoryProvider === void 0 || this.config.forceRelay ? ["transport.relay", ...this.hostCapabilities()] : ["transport.lan", "transport.p2p", "transport.turn", "transport.relay", ...this.hostCapabilities()];
     const socket = this.createWebSocket(websocketUrl2(this.api.baseUrl));
     this.socket = socket;
     let acknowledged = false;
@@ -17249,7 +17251,7 @@ var HostServerConnection = class {
           if (frame.type === "hello.ack") {
             const payload = requireHelloAck(frame.payload);
             this.negotiatedCapabilities = acceptNegotiatedCapabilities(offeredCapabilities, payload.capabilities);
-            if (!this.negotiatedCapabilities.some((capability) => capability === "transport.relay" || capability === "transport.p2p" || capability === "transport.turn")) {
+            if (!this.negotiatedCapabilities.some((capability) => capability === "transport.relay" || capability === "transport.lan" || capability === "transport.p2p" || capability === "transport.turn")) {
               throw new ControlConnectionError("INVALID_MESSAGE", "Server did not negotiate a transport capability.");
             }
             acknowledged = true;
@@ -17431,9 +17433,9 @@ var HostServerConnection = class {
     tunnel.noise.readHandshake(fromBase64Url2(payload.data));
     const reply = tunnel.noise.writeHandshake();
     if (!tunnel.noise.complete) throw new ControlConnectionError("SECURE_CHANNEL_FAILED", "Noise IK handshake did not complete.");
-    const viaWebRtc = tunnel.rtc !== void 0 && (tunnel.transport === "p2p" || tunnel.transport === "turn");
+    const viaWebRtc = tunnel.rtc !== void 0 && (tunnel.transport === "lan" || tunnel.transport === "p2p" || tunnel.transport === "turn");
     if (!viaWebRtc && tunnel.transport === "negotiating") tunnel.transport = "relay";
-    const mode = viaWebRtc ? tunnel.transportMode ?? (tunnel.transport === "turn" ? "TURN" : "P2P") : "Relay";
+    const mode = viaWebRtc ? tunnel.transportMode ?? (tunnel.transport === "turn" ? "TURN" : tunnel.transport === "lan" ? "LAN" : "P2P") : "Relay";
     const transmit = viaWebRtc ? (ciphertext) => tunnel.rtc.send(ciphertext) : (ciphertext) => this.sendRelay(tunnel, ciphertext);
     const channel = new ServerNoiseChannel(tunnel, transmit, () => {
       if (this.tunnels.get(tunnel.connectionId) === tunnel) this.tunnels.delete(tunnel.connectionId);
@@ -17590,7 +17592,7 @@ var HostServerConnection = class {
     await this.resumePendingHandshake(tunnel);
   }
   canUseWebRtc() {
-    return this.negotiatedCapabilities.includes("transport.p2p") || this.negotiatedCapabilities.includes("transport.turn");
+    return this.negotiatedCapabilities.includes("transport.lan") || this.negotiatedCapabilities.includes("transport.p2p") || this.negotiatedCapabilities.includes("transport.turn");
   }
   sendRtcSignal(tunnel, signal) {
     if (signal.type === "answer") {
@@ -17609,7 +17611,8 @@ var HostServerConnection = class {
   }
   handleRtcOpened(tunnel, selected) {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc === void 0) return;
-    const requiredCapability = selected === "turn" ? "transport.turn" : "transport.p2p";
+    const wireSelected = selected === "lan" && !this.negotiatedCapabilities.includes("transport.lan") && this.negotiatedCapabilities.includes("transport.p2p") ? "p2p" : selected;
+    const requiredCapability = wireSelected === "lan" ? "transport.lan" : wireSelected === "turn" ? "transport.turn" : "transport.p2p";
     if (!this.negotiatedCapabilities.includes(requiredCapability)) {
       const error = new Error(`WebRTC selected unnegotiated transport: ${selected}`);
       if (!this.negotiatedCapabilities.includes("transport.relay")) {
@@ -17623,13 +17626,13 @@ var HostServerConnection = class {
       );
       return;
     }
-    tunnel.transport = selected;
+    tunnel.transport = wireSelected;
     tunnel.transportMode = tunnel.rtc.selectedPathMode();
-    this.sendTransportSelected(tunnel, selected);
+    this.sendTransportSelected(tunnel, wireSelected);
     this.logger.info("webrtc data channel ready", {
       connectionId: shortId3(tunnel.connectionId),
       peerDeviceId: shortId3(tunnel.peer.deviceId),
-      transport: tunnel.transportMode ?? selected,
+      transport: tunnel.transportMode ?? wireSelected,
       ...webrtcDiagnosticsLogFields2(rtcDiagnostics(tunnel.rtc))
     });
     void this.resumePendingHandshake(tunnel).catch((error) => {
@@ -17642,7 +17645,7 @@ var HostServerConnection = class {
   }
   async handleRtcFailed(tunnel, rtc, error) {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc !== rtc) return;
-    if (tunnel.transport === "p2p" || tunnel.transport === "turn") {
+    if (tunnel.transport === "lan" || tunnel.transport === "p2p" || tunnel.transport === "turn") {
       this.logger.warn("webrtc data channel failed; disconnecting peer", {
         connectionId: shortId3(tunnel.connectionId),
         reason: diagnosticReason3(error),
@@ -17861,7 +17864,7 @@ function requireSignalIce(value) {
 }
 function requireTransportSelected(value) {
   const payload = requireObject(value);
-  if (typeof payload.connectionId !== "string" || typeof payload.targetDeviceId !== "string" || payload.transport !== "p2p" && payload.transport !== "turn" && payload.transport !== "relay") {
+  if (typeof payload.connectionId !== "string" || typeof payload.targetDeviceId !== "string" || payload.transport !== "lan" && payload.transport !== "p2p" && payload.transport !== "turn" && payload.transport !== "relay") {
     throw new ControlConnectionError("INVALID_MESSAGE", "transport.selected payload is invalid.");
   }
   return payload;

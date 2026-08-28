@@ -161,7 +161,7 @@ export interface RelayPayload {
   ciphertext: string
 }
 
-export const selectedTransports = ['p2p', 'turn', 'relay'] as const
+export const selectedTransports = ['lan', 'p2p', 'turn', 'relay'] as const
 export type SelectedTransport = typeof selectedTransports[number]
 
 export interface SignalPayload {
@@ -198,6 +198,7 @@ export interface TransportSelectedPayload {
 
 /** Capabilities both ends announce in ``hello`` to negotiate the data plane. */
 export const transportCapabilities = [
+  'transport.lan',
   'transport.p2p',
   'transport.turn',
   'transport.relay',
@@ -447,7 +448,7 @@ export const controlFrameSchema = z.object({
 // ────────────────────────────────────────────────────────────────────────────
 
 const transportEnum = z.enum(['lan', 'p2p', 'turn', 'relay'])
-const selectedTransportEnum = z.enum(['p2p', 'turn', 'relay'])
+const selectedTransportEnum = z.enum(selectedTransports)
 
 export const helloPayloadSchema = z.object({
   role: z.enum(['host', 'client']),

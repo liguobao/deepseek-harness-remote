@@ -165,6 +165,18 @@ describe('AdaptiveTransport capability negotiation', () => {
 
   it.each([
     {
+      name: 'preserves LAN when LAN was negotiated',
+      capabilities: ['transport.lan', 'transport.p2p'],
+      selected: 'lan' as const,
+      expected: 'lan',
+    },
+    {
+      name: 'downgrades LAN for an older P2P-only server',
+      capabilities: ['transport.p2p'],
+      selected: 'lan' as const,
+      expected: 'p2p',
+    },
+    {
       name: 'falls back when TURN-only negotiation selects P2P',
       capabilities: ['transport.turn', 'transport.relay'],
       selected: 'p2p' as const,

@@ -20,7 +20,7 @@ import {
 import { RtcChunkCodec, RTC_CHUNK_MAX_MESSAGE_BYTES } from './rtc-chunking.js'
 
 export type RtcRole = 'initiator' | 'responder'
-export type RtcSelectedTransport = 'p2p' | 'turn'
+export type RtcSelectedTransport = 'lan' | 'p2p' | 'turn'
 export type RtcPathMode = 'LAN' | 'P2P' | 'TURN'
 
 export interface RtcSelectedPath {
@@ -318,7 +318,9 @@ export class RtcDataChannelTransport {
   getStats(): TransportStats {
     const connected = this.channel?.readyState === 'open'
     return {
-      mode: !connected ? 'Disconnected' : this.selectedMode ?? (this.selected === 'turn' ? 'TURN' : 'P2P'),
+      mode: !connected
+        ? 'Disconnected'
+        : this.selectedMode ?? (this.selected === 'turn' ? 'TURN' : this.selected === 'lan' ? 'LAN' : 'P2P'),
       connected,
       bytesSent: this.bytesSent,
       bytesReceived: this.bytesReceived,
@@ -481,7 +483,7 @@ export class RtcDataChannelTransport {
       for (let attempt = 0;
         attempt < SELECTED_PATH_RETRY_COUNT
           && !this.closed
-          && (selected.transport === undefined || selected.mode === undefined);
+          && (selected.transport === undefined || selected.mode === undefined || selected.mode === 'P2P');
         attempt += 1) {
         await sleep(SELECTED_PATH_RETRY_DELAY_MS)
         selected = await this.refreshStatsDiagnostics()
@@ -666,10 +668,8 @@ export function inspectSelectedPath(stats: RtcStats): RtcPathDetails {
     let selected: RtcSelectedPath | undefined
     if (localType === 'relay' || remoteType === 'relay') selected = { transport: 'turn', mode: 'TURN' }
     if (local === undefined && remote === undefined) continue
-    selected ??= {
-      transport: 'p2p',
-      mode: isLanCandidatePair(localType, remoteType, localAddressScope, remoteAddressScope) ? 'LAN' : 'P2P',
-    }
+    const lan = isLanCandidatePair(localType, remoteType, localAddressScope, remoteAddressScope)
+    selected ??= { transport: lan ? 'lan' : 'p2p', mode: lan ? 'LAN' : 'P2P' }
     const currentRoundTripTime = numberStat(pair, 'currentRoundTripTime')
     return {
       ...selected,
@@ -837,7 +837,7 @@ function isLanCandidatePair(
 }
 
 function isLocalNetworkScope(scope: RtcAddressScope): boolean {
-  return scope === 'private' || scope === 'link-local'
+  return scope === 'private' || scope === 'link-local' || scope === 'loopback'
 }
 
 function increment(map: Record<string, number>, key: string): void {
