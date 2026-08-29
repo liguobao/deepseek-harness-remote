@@ -29,9 +29,15 @@ Control/Relay，以及 rc.2 ApiProxy / alpha.1 Typert Remote contract。
 - [Remote Protocol v1](protocol.md)：定义 Host、Server、Client 的线协议，是本仓库 Plugin、Client 和共享协议包的实现依据。
 - [产品与功能设计](design/README.md)：定义 Plugin、Client 和共享基础能力。
 
+## 主题说明
+
+- [端到端加密](end-to-end-encryption.md)：解释 Noise IK、设备身份固定、密钥生命周期、Server 可见元数据、重放保护与安全边界。
+- [网络与传输](network.md)：解释出站连接、Control/Data plane、LAN/P2P/TURN/Relay 选路、NAT、降级、断线恢复与当前验证状态。
+
 ## 阅读路径
 
 - **安装或使用插件**：先读[根 README](../README.md)，再读[插件包说明](../packages/plugin/README.md)。
+- **了解安全与网络边界**：先读[端到端加密](end-to-end-encryption.md)和[网络与传输](network.md)，需要实现级字段时再查[协议](protocol.md)。
 - **实现或审查 Plugin**：读[功能设计](design/plugin/functional-design.md)和[Host 接入指南](plugin-integration.md)。
 - **实现外部 Server**：以[协议](protocol.md)为线协议权威，再参考[Server 设计](server.md)。
 - **跟踪尚未完成的工作**：读[开发任务](../TODO.md)。

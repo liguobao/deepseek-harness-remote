@@ -78,10 +78,6 @@ dsh plugin --profile web add ds-harness-remote@0.4.1
 
 在 Remote 设置中启用**允许控制当前设备**，即可将当前电脑作为 Host。
 
-<p align="center">
-  <img src="docs/images/setting.png" alt="已完成授权并在线的 Remote Host 设置" width="520">
-</p>
-
 在另一台电脑上选择在线 Host，然后打开它的 Workspace。
 
 <p align="center">
@@ -121,6 +117,21 @@ Remote 通过双向端到端加密链路通信。它将客户端切换到所选 
 因此原有 Workspace、工具和权限流程都保留在该电脑上。Host 当前注册的全部设置分区也可以
 通过 Harness 官方设置 API 在远端配置。凭据值仍然只写，Host 本地的文档打开操作不会暴露到远端。
 
+## 端到端加密
+
+Harness 业务流量在 Client 加密，只能由选定的 Host 解密，固定使用
+`Noise_IK_25519_ChaChaPoly_SHA256`。连接必须同时通过同账号 membership 与本地固定的设备
+identity key 校验。服务端可以协调连接并看到必要的网络元数据，但不能读取会话消息、Prompt、
+工具输出、Workspace 路径或 File Viewer 内容。握手、密钥生命周期、可见元数据、重放保护和
+安全边界详见[端到端加密](docs/end-to-end-encryption.md)。
+
+## 网络与传输
+
+Host 只建立出站连接，不监听公网端口，也不要求路由器端口转发。Remote 按
+`LAN -> P2P -> TURN -> Relay` 协商路径；WebRTC 不可用或连接失败时，会降级到加密的
+WebSocket Relay。所有路径都承载同一份 Noise 密文，并保持相同的 Host/Client 身份边界。
+网络拓扑、控制面与数据面、NAT、降级、重连语义和当前验证状态详见[网络与传输](docs/network.md)。
+
 ## 安全边界
 
 - 会话流量经过端到端加密；服务端只中继密文，不保存会话明文或设备私钥。
@@ -150,13 +161,15 @@ UI 或修改 Workspace 前被拒绝。
 
 - [插件说明](packages/plugin/README.md)
 - [文档索引](docs/README.md)
+- [端到端加密](docs/end-to-end-encryption.md)
+- [网络与传输](docs/network.md)
 - [远程协议](docs/protocol.md)
 - [开发进度与路线图](TODO.md)
 
 ## 友情链接
 
-- 社区认可：本项目认可并支持 [LINUX DO](https://linux.do/) 社区。
-- 作者的相关项目：[赛博刘看山](https://kanshan.r2049.cn/)
+- 友情链接：[LINUX DO 社区](https://linux.do/)
+- 友情链接：[赛博刘看山](https://kanshan.r2049.cn/)
 
 ## 项目声明与商标
 

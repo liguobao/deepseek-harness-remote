@@ -75,8 +75,9 @@ Client 与 Host Plugin 推荐安装同一发布物。对已经发布的 Host，�
 
 ## 6. 传输与恢复
 
-当前可用数据面是 Relay；未来优先级为 `LAN -> P2P -> TURN -> Relay`。上层只依赖
-`RemoteTransport`。
+当前已实现 WebRTC offer/answer/ICE、STUN/TURN 与 Relay fallback 基础链路，选路优先级为
+`LAN -> P2P -> TURN -> Relay`。上层只依赖 `RemoteTransport`。真实跨网互操作、网络切换恢复
+与长期稳定性仍需验证，不能据此描述为已经稳定交付。
 
 断线时：
 
