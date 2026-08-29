@@ -123,11 +123,11 @@ ApiProxy / Typert Remote contract，不得在 Plugin Host 恢复 `sessions.*`、
 
 ## 第一版完成标准
 
-- [ ] 双角色 Plugin 可安装到真实 DeepSeek Harness 并主动连接外部 Server
+- [x] 双角色 Plugin 可安装到真实 DeepSeek Harness 并主动连接外部 Server
 - [x] Host 账号授权注册后只使用独立 device credential 常驻
 - [x] Desktop Client 使用同账号注册并从授权设备详情固定 Host identity key
-- [ ] Desktop Client 在真实原生 UI 打开 Remote Workspace 并退出回到 Local
-- [ ] 原生会话、stream、tool、approval/question 通过 ApiProxy tunnel 正常工作
-- [ ] 连接断开后旧 stream/answer 失效并安全回落 Local
+- [x] Desktop Client 在真实原生 UI 打开 Remote Workspace 并退出回到 Local
+- [x] 原生会话、stream、tool、approval/question 通过 ApiProxy tunnel 正常工作
+- [x] 连接断开后旧 stream/answer 失效并安全回落 Local
 - [ ] Relay capture 无法解密 payload，篡改、重放和 identity mismatch 被拒绝
-- [ ] 核心 check/test/build 与 Bundle 校验通过
+- [x] 核心 check/test/build 与 Bundle 校验通过
