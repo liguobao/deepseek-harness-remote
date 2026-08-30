@@ -9,9 +9,11 @@ import {
   SecureMessageCodec,
   acceptNegotiatedCapabilities,
   createControlFrame,
+  decodeControlFrame,
   decodeMessage,
+  encodeControlFrame,
   encodeMessage,
-  parseControlFrame,
+  type ControlFrameByteLimits,
   type ConnectIncomingPayload,
   type ControlErrorPayload,
   type HelloAckPayload,
@@ -81,6 +83,7 @@ export class HostServerConnection {
   private resumeQueued = false
   private rtcFactory?: RtcPeerConnectionFactory
   private negotiatedCapabilities: string[] = ['transport.relay']
+  private controlFrameLimits: ControlFrameByteLimits = {}
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -188,6 +191,7 @@ export class HostServerConnection {
       : ['transport.lan', 'transport.p2p', 'transport.turn', 'transport.relay', ...this.hostCapabilities()]
     const socket = this.createWebSocket(websocketUrl(this.api.baseUrl))
     this.socket = socket
+    this.controlFrameLimits = {}
     let acknowledged = false
     let messageQueue = Promise.resolve()
     await new Promise<void>((resolve, reject) => {
@@ -214,10 +218,14 @@ export class HostServerConnection {
       }
       socket.onmessage = event => {
         messageQueue = messageQueue.then(async () => {
-          const frame = decodeControl(event.data)
+          const frame = decodeControl(event.data, this.controlFrameLimits)
           this.lastActiveAt = Date.now()
           if (frame.type === 'hello.ack') {
             const payload = requireHelloAck(frame.payload)
+            this.controlFrameLimits = {
+              maxControlFrameBytes: payload.maxControlFrameBytes,
+              maxRelayFrameBytes: payload.maxRelayFrameBytes,
+            }
             this.negotiatedCapabilities = acceptNegotiatedCapabilities(offeredCapabilities, payload.capabilities)
             if (!this.negotiatedCapabilities.some(capability =>
               capability === 'transport.relay'
@@ -266,7 +274,7 @@ export class HostServerConnection {
     })
   }
 
-  private async handleFrame(frame: ReturnType<typeof parseControlFrame>): Promise<void> {
+  private async handleFrame(frame: ReturnType<typeof decodeControlFrame>): Promise<void> {
     if (frame.type === 'ping') {
       const nonce = objectValue(frame.payload, 'nonce')
       if (typeof nonce !== 'string') throw new ControlConnectionError('INVALID_MESSAGE', 'Control ping has no nonce.')
@@ -714,7 +722,7 @@ export class HostServerConnection {
   private sendControl(type: Parameters<typeof createControlFrame>[0], payload: unknown): void {
     const socket = this.socket
     if (socket === undefined || socket.readyState !== 1) throw new ControlConnectionError('CONNECTION_FAILED', 'Server control socket is not open.')
-    socket.send(JSON.stringify(createControlFrame(type, payload)))
+    socket.send(encodeControlFrame(createControlFrame(type, payload), this.controlFrameLimits))
   }
 
   private async dropTunnels(): Promise<void> {
@@ -802,8 +810,14 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
 
   async send(message: RemoteMessage): Promise<void> {
     if (this.closed) throw new Error('secure channel is closed')
-    for (const plaintext of this.outgoing.encode(encodeMessage(message))) {
-      await this.transmit(this.tunnel.noise.encrypt(plaintext))
+    const plaintextFrames = this.outgoing.encode(encodeMessage(message))
+    try {
+      for (const plaintext of plaintextFrames) {
+        await this.transmit(this.tunnel.noise.encrypt(plaintext))
+      }
+    } catch (error) {
+      await this.close().catch(() => undefined)
+      throw error
     }
   }
 
@@ -848,9 +862,9 @@ function websocketUrl(baseUrl: string): string {
   return url.toString()
 }
 
-function decodeControl(data: unknown): ReturnType<typeof parseControlFrame> {
+function decodeControl(data: unknown, limits: ControlFrameByteLimits): ReturnType<typeof decodeControlFrame> {
   if (typeof data !== 'string') throw new ControlConnectionError('INVALID_MESSAGE', 'Server control frames must be text JSON.')
-  try { return parseControlFrame(JSON.parse(data)) } catch { throw new ControlConnectionError('INVALID_MESSAGE', 'Server sent an invalid control frame.') }
+  try { return decodeControlFrame(data, limits) } catch { throw new ControlConnectionError('INVALID_MESSAGE', 'Server sent an invalid control frame.') }
 }
 
 function requireHelloAck(value: unknown): HelloAckPayload {

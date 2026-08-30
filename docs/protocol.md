@@ -349,6 +349,10 @@ URL：`wss://<REMOTE_PUBLIC_URL>/ws/v1/connect`
 ```
 
 Control frame 是 Server 可读 JSON，不得放置 Remote 业务明文。
+Control frame 必须使用 WebSocket text message。接收端必须拒绝 binary message。
+
+非 Relay Control frame 的 UTF-8 JSON 上限为 64 KiB。
+Relay Control frame 的 UTF-8 JSON 上限为 1 MiB。
 
 ### 10.3 Hello
 
@@ -408,6 +412,9 @@ WebSocket 关闭后 access token 不能通过 URL/query 泄露。Server 日志�
 `hello.ack.capabilities` 是 Client hello 与 Server 支持能力的交集，不是 Server 的完整能力列表。
 Server 不能返回 Client 未宣告的 capability。Client 后续只能使用该集合中的能力。
 该字段对旧 Server 兼容为 optional。字段缺失时，Client 只能使用 `transport.relay`。
+
+`maxControlFrameBytes` 和 `maxRelayFrameBytes` 可以声明更小的上限。
+双方必须对后续收发 frame 使用该上限。大于 v1 默认值的声明必须拒绝。
 
 ## 11. 建立 Host/Client Connection
 
@@ -1368,7 +1375,7 @@ pong 回显 nonce。Heartbeat 不能携带业务数据。
 | Hello timeout | 5 s |
 | Host registration code TTL | 10 min |
 | Control JSON frame | 64 KiB |
-| Relay ciphertext frame | 1 MiB |
+| Relay Control JSON frame | 1 MiB |
 | Reassembled secure message | 4 MiB |
 | Harness business transfer chunk（解码后） | 512 KiB |
 | Harness ApiProxy / Typert Remote transfer | 288 MiB；每连接输入/输出各 2 个；2 min idle |

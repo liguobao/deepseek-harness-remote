@@ -50,8 +50,14 @@ export class SecureTransport implements RemoteTransport {
   }
 
   async send(data: Uint8Array): Promise<void> {
-    for (const plaintext of this.outgoing.encode(data)) {
-      await this.inner.send(this.requireNoise().encrypt(plaintext))
+    const plaintextFrames = this.outgoing.encode(data)
+    try {
+      for (const plaintext of plaintextFrames) {
+        await this.inner.send(this.requireNoise().encrypt(plaintext))
+      }
+    } catch (error) {
+      await this.close().catch(() => undefined)
+      throw error
     }
   }
 

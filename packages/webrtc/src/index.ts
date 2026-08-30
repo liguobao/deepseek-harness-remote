@@ -2,7 +2,9 @@ import {
   PROTOCOL_VERSION,
   acceptNegotiatedCapabilities,
   createControlFrame,
-  parseControlFrame,
+  decodeControlFrame,
+  encodeControlFrame,
+  type ControlFrameByteLimits,
   type ConnectAcceptedPayload,
   type HelloAckPayload,
   type RelayPayload,
@@ -10,7 +12,7 @@ import {
   type TransportStats,
 } from '@dsh-remote/protocol'
 import { BaseTransport } from './transport.js'
-import { fromBase64Url, socketText, toBase64Url } from './util.js'
+import { fromBase64Url, toBase64Url } from './util.js'
 
 export * from './transport.js'
 export * from './rtc-adapter.js'
@@ -38,6 +40,7 @@ export class RelayTransport extends BaseTransport {
   private readyResolve?: () => void
   private readyReject?: (error: Error) => void
   private handshakeTimer?: ReturnType<typeof setTimeout>
+  private controlFrameLimits: ControlFrameByteLimits = {}
 
   constructor(
     private readonly url: string,
@@ -49,6 +52,7 @@ export class RelayTransport extends BaseTransport {
   async connect(): Promise<void> {
     if (this.socket !== undefined) return
     this.socket = new WebSocket(this.url)
+    this.controlFrameLimits = {}
     this.socket.binaryType = 'arraybuffer'
     await new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve
@@ -84,13 +88,13 @@ export class RelayTransport extends BaseTransport {
   async send(data: Uint8Array): Promise<void> {
     if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('relay transport is not connected')
     if (this.connectionId === undefined) throw new Error('relay connection has not been authorized')
-    this.bytesSent += data.byteLength
     this.sendControl('relay', {
       connectionId: this.connectionId,
       targetDeviceId: this.options.targetDeviceId,
       counter: this.relayCounter,
       ciphertext: toBase64Url(data),
     } satisfies RelayPayload)
+    this.bytesSent += data.byteLength
     this.relayCounter += 1
   }
 
@@ -138,13 +142,17 @@ export class RelayTransport extends BaseTransport {
 
   private async handleSocketMessage(raw: string | ArrayBuffer | Blob): Promise<void> {
     try {
-      const text = await socketText(raw)
-      const frame = parseControlFrame(JSON.parse(text))
+      if (typeof raw !== 'string') throw new Error('Relay control frames must be text JSON')
+      const frame = decodeControlFrame(raw, this.controlFrameLimits)
       if (frame.type === 'hello.ack') {
         const payload = frame.payload as Partial<HelloAckPayload>
         if (payload.protocol !== PROTOCOL_VERSION) throw new Error('Server selected an unsupported protocol version')
         const offered = this.options.capabilities ?? ['transport.relay']
         const negotiated = acceptNegotiatedCapabilities(offered, payload.capabilities)
+        this.controlFrameLimits = {
+          maxControlFrameBytes: payload.maxControlFrameBytes,
+          maxRelayFrameBytes: payload.maxRelayFrameBytes,
+        }
         if (!negotiated.includes('transport.relay')) {
           throw new Error('Server did not negotiate the required Relay capability')
         }
@@ -201,7 +209,7 @@ export class RelayTransport extends BaseTransport {
 
   private sendControl(type: Parameters<typeof createControlFrame>[0], payload: unknown): void {
     if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('relay control socket is not open')
-    this.socket.send(JSON.stringify(createControlFrame(type, payload)))
+    this.socket.send(encodeControlFrame(createControlFrame(type, payload), this.controlFrameLimits))
   }
 
   private finishConnection(): void {
