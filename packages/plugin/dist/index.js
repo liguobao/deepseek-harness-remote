@@ -13216,8 +13216,13 @@ var ClientSecureTransport = class {
     }
   }
   async send(data) {
-    for (const plaintext of this.outgoing.encode(data)) {
-      await this.inner.send(this.requireNoise().encrypt(plaintext));
+    try {
+      for (const plaintext of this.outgoing.encode(data)) {
+        await this.inner.send(this.requireNoise().encrypt(plaintext));
+      }
+    } catch (error) {
+      await this.close().catch(() => void 0);
+      throw error;
     }
   }
   onMessage(handler) {
@@ -17807,8 +17812,13 @@ var ServerNoiseChannel = class {
   closed = false;
   async send(message) {
     if (this.closed) throw new Error("secure channel is closed");
-    for (const plaintext of this.outgoing.encode(encodeMessage(message))) {
-      await this.transmit(this.tunnel.noise.encrypt(plaintext));
+    try {
+      for (const plaintext of this.outgoing.encode(encodeMessage(message))) {
+        await this.transmit(this.tunnel.noise.encrypt(plaintext));
+      }
+    } catch (error) {
+      await this.close().catch(() => void 0);
+      throw error;
     }
   }
   onMessage(handler) {

@@ -810,8 +810,13 @@ class ServerNoiseChannel implements AuthenticatedPeerChannel {
 
   async send(message: RemoteMessage): Promise<void> {
     if (this.closed) throw new Error('secure channel is closed')
-    for (const plaintext of this.outgoing.encode(encodeMessage(message))) {
-      await this.transmit(this.tunnel.noise.encrypt(plaintext))
+    try {
+      for (const plaintext of this.outgoing.encode(encodeMessage(message))) {
+        await this.transmit(this.tunnel.noise.encrypt(plaintext))
+      }
+    } catch (error) {
+      await this.close().catch(() => undefined)
+      throw error
     }
   }
 

@@ -46,8 +46,13 @@ export class ClientSecureTransport implements RemoteTransport {
   }
 
   async send(data: Uint8Array): Promise<void> {
-    for (const plaintext of this.outgoing.encode(data)) {
-      await this.inner.send(this.requireNoise().encrypt(plaintext))
+    try {
+      for (const plaintext of this.outgoing.encode(data)) {
+        await this.inner.send(this.requireNoise().encrypt(plaintext))
+      }
+    } catch (error) {
+      await this.close().catch(() => undefined)
+      throw error
     }
   }
 
