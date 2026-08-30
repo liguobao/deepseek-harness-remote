@@ -197,7 +197,7 @@ describe('RemoteClientCore', () => {
 })
 
 describe('Remote Host feature probing', () => {
-  it('recognizes alpha.1 Remote Gateway capabilities', async () => {
+  it('recognizes alpha Remote Gateway capabilities', async () => {
     const transport = new LoopbackTransport()
     const client = new RemoteClientCore(transport)
     await client.connect()
@@ -234,7 +234,7 @@ describe('Remote Host feature probing', () => {
 })
 
 describe('RemoteTypertGateway', () => {
-  it('dispatches alpha.1 Gateway calls over harness.remote.call', async () => {
+  it('dispatches alpha Gateway calls over harness.remote.call', async () => {
     const transport = new LoopbackTransport()
     const client = new RemoteClientCore(transport)
     const gateway = new RemoteTypertGateway(client)
@@ -336,7 +336,7 @@ class ScriptedCore {
 }
 
 describe('HarnessAlphaClient', () => {
-  it('maps alpha.1 approval waterfalls to legacy client frames and answers through $events/result', async () => {
+  it('maps alpha approval waterfalls to legacy client frames and answers through $events/result', async () => {
     const core = new ScriptedCore()
     const frames: Array<{ rpcId: string; payload: Record<string, unknown> }> = []
     const client = new HarnessAlphaClient(core as unknown as RemoteClientCore, {}, frame => frames.push(frame))

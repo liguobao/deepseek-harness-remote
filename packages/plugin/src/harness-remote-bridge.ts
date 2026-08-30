@@ -71,7 +71,7 @@ const MAX_ACTIVE_TRANSFERS = 2
 const TRANSFER_IDLE_MS = 2 * 60_000
 const INLINE_TRANSFER_RESPONSE_BYTES = 2 * 1024 * 1024
 
-/** Fixed alpha.1 Remote subset exposed to authenticated peers. */
+/** Fixed alpha Remote subset exposed to authenticated peers. */
 export const HARNESS_REMOTE_ALLOWLIST = [
   '$events',
   '$events/result',
@@ -132,7 +132,7 @@ export const HARNESS_REMOTE_ALLOWLIST = [
 
 const allowedEndpoints = new Set<string>(HARNESS_REMOTE_ALLOWLIST)
 
-/** Host-side adapter from the encrypted peer channel to the official alpha.1 Gateway carrier. */
+/** Host-side adapter from the encrypted peer channel to the official alpha Gateway carrier. */
 export class HarnessRemoteBridge {
   private readonly streams = new Map<string, ActiveRemoteStream>()
   private readonly incomingTransfers = new Map<string, IncomingTransfer>()

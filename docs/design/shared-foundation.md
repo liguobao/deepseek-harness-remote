@@ -5,9 +5,9 @@
 ## 1. 目的
 
 统一 Desktop 双角色 Plugin 与外部 Server 的身份、加密、连接和传输边界。Harness 业务层以
-rc.2 官方 `ApiProxy` 或 alpha.1 官方 Typert Remote Gateway 为唯一事实来源；可选文件预览以 `dsh-file-viewer` provider 为唯一授权来源，
+rc.2 官方 `ApiProxy` 或 alpha.1/alpha.2 官方 Typert Remote Gateway 为唯一事实来源；可选文件预览以 `dsh-file-viewer` provider 为唯一授权来源，
 不再维护平行的 Remote Session/Event 或文件系统协议。
-Android 与 VS Code Client 复用同一 capability 探测，在 rc.2 ApiProxy 和 alpha.1 Typert Remote carrier 之间选择数据面。
+Android 与 VS Code Client 复用同一 capability 探测，在 rc.2 ApiProxy 和 alpha Typert Remote carrier 之间选择数据面。
 
 ## 2. 包边界
 
@@ -23,7 +23,7 @@ Android 与 VS Code Client 复用同一 capability 探测，在 rc.2 ApiProxy �
 
 ```text
 Harness Web UI
-  -> ApiProxySwitch (rc.2) / TypertGatewaySwitch (alpha.1)
+  -> ApiProxySwitch (rc.2) / TypertGatewaySwitch (alpha)
   -> RemoteHarnessApiProxy / RemoteTypertGateway
   -> Noise secure channel
   -> opaque Server relay
@@ -69,7 +69,7 @@ Session、Message、Tool、Approval、Question、Workspace 和 Goal 的结构全
 
 Client 与 Host Plugin 推荐安装同一发布物。对已经发布的 Host，新增业务 endpoint 必须
 保留加法兼容：Client 先在 Noise channel 内调用 `harness.transport.describe`；旧 Host 返回
-`METHOD_NOT_FOUND` 时才使用 `clientVersion` 作为 rc.2 降级。rc.2 与 alpha.1 carrier 不一致
+`METHOD_NOT_FOUND` 时才使用 `clientVersion` 作为 rc.2 降级。rc.2 与 alpha carrier 不一致
 时在 mutation 前明确拒绝。官方 carrier 本身的破坏性 schema 变化仍需要提升协议版本，
 不能只依赖 Plugin 版本字符串。
 

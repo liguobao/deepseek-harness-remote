@@ -334,7 +334,7 @@ export class HarnessAlphaClient {
     if (this.sessionsCache.size === 0) await this.sessionList().catch(() => [])
     const canOpenPath = await this.callValue<boolean>('session/canOpenWorkspacePath', {}).catch(() => false)
     return {
-      version: this.host.harnessVersion ?? this.host.clientVersion ?? 'v0.1.2-alpha.1',
+      version: this.host.harnessVersion ?? this.host.clientVersion ?? 'v0.1.2-alpha.2',
       cwd: this.eventHostHome ?? '',
       attachedSessions: this.sessionsCache.size,
       canOpenPath,

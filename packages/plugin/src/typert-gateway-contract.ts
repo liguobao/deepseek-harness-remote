@@ -14,14 +14,14 @@ export interface TypertGatewayWireStreamLike {
   failure(error: unknown): { code: string; message: string; details: Record<string, unknown> }
 }
 
-/** Public Gateway face shared by Harness rc.2 and alpha.1. */
+/** Public Gateway face shared by Harness rc.2 and alpha releases. */
 export interface TypertGatewayLike {
   invoke(request: TypertGatewayRequest): Promise<unknown>
   stream?(request: TypertGatewayRequest): Promise<AsyncIterable<unknown>>
   wireStream?: TypertGatewayWireStreamLike
 }
 
-/** Carrier-level face captured from the alpha.1 Gateway before target switching. */
+/** Carrier-level face captured from the alpha Gateway before target switching. */
 export interface LocalTypertGateway extends TypertGatewayLike {
   dispatch(endpoint: string, payload: unknown, signal: AbortSignal): Promise<TypertRpcResult>
   open(endpoint: string, payload: unknown, signal: AbortSignal): Promise<AsyncIterable<unknown>>

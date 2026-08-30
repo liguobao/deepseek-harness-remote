@@ -15,7 +15,7 @@ React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness hos
   identity key, and pin it locally; a changed key fails closed and is never silently replaced.
 - Establish a Noise IK channel over an adaptive transport (WebRTC P2P/TURN with Relay fallback) and
   reject tampered, replayed, or wrong-identity frames.
-- Drive the Host through the rc.2 ApiProxy bridge or the alpha.1 Typert Remote Gateway after
+- Drive the Host through the rc.2 ApiProxy bridge or the alpha Typert Remote Gateway after
   encrypted capability probing:
   browse sessions (including archived ones), create sessions, stream live mux frames, send
   text/image prompts, cancel generation, page older history, switch the active model from the host's
@@ -48,7 +48,7 @@ pnpm --filter @dsh-remote/android android
 
 The Android `start`, `android`, `ios`, and `build` commands rebuild the shared protocol, crypto,
 WebRTC, and client-core packages first, then verify that the compiled client contains both the
-rc.2 ApiProxy and alpha.1 Typert Remote capability paths. This prevents Metro or Gradle from
+rc.2 ApiProxy and alpha Typert Remote capability paths. This prevents Metro or Gradle from
 silently packaging stale workspace `dist` files.
 
 Android Emulator reaches a server on the development machine at `http://10.0.2.2:8080`. Cleartext

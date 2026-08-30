@@ -8,9 +8,9 @@ DeepSeek Remote plugin for DSH Host + Remote workspaces. One install provides en
 
 DeepSeek Remote 是 DSH Host + Remote 工作区插件。一次安装可提供本地设备到远端的加密远程访问能力，以及在现有 Harness UI 内切换远端工作区。
 
-No Client mode switch is required. Choosing a remote workspace keeps the local UI unchanged, routes rc.2 through `RemoteHarnessApiProxy` or alpha.1 through the Typert Remote Gateway carrier, and falls back to the matching local transport on disconnect or exit.
+No Client mode switch is required. Choosing a remote workspace keeps the local UI unchanged, routes rc.2 through `RemoteHarnessApiProxy` or the alpha generation through the Typert Remote Gateway carrier, and falls back to the matching local transport on disconnect or exit.
 
-无需启动或切换 Client 模式。选择远端工作区后，本地 UI 不变：rc.2 请求通过 `RemoteHarnessApiProxy` 路由，alpha.1 请求通过 Typert Remote Gateway carrier 路由；断线或退出时恢复对应的本地 transport。
+无需启动或切换 Client 模式。选择远端工作区后，本地 UI 不变：rc.2 请求通过 `RemoteHarnessApiProxy` 路由，alpha 代际请求通过 Typert Remote Gateway carrier 路由；断线或退出时恢复对应的本地 transport。
 
 ## User flow / 用户流程
 
@@ -26,13 +26,13 @@ No Client mode switch is required. Choosing a remote workspace keeps the local U
 
 ## Harness images / Harness 图片
 
-With DSH `dsh-v0.1.1-rc.2` or `dsh-v0.1.2-alpha.1`, the native conversation UI
+With DSH `dsh-v0.1.1-rc.2` or `dsh-v0.1.2-alpha.1`–`alpha.2`, the native conversation UI
 can send images through `session.prompt` and render them through the read-only
 `session.attachment` lookup. Large ApiProxy or Gateway envelopes use bounded
 512 KiB transfer chunks; image preprocessing, DeepSeek Files API upload, and
 file-id reuse stay on the Host in the official adapter.
 
-使用 DSH `dsh-v0.1.1-rc.2` 或 `dsh-v0.1.2-alpha.1` 时，原生会话 UI 可通过
+使用 DSH `dsh-v0.1.1-rc.2` 或 `dsh-v0.1.2-alpha.1`–`alpha.2` 时，原生会话 UI 可通过
 `session.prompt` 发送图片，并通过只读 `session.attachment` 回读显示。较大的 ApiProxy 或
 Gateway envelope 使用受限的 512 KiB 分块；图片预处理、DeepSeek Files API 上传与 file-id
 复用仍由 Host 官方 adapter 完成。
@@ -69,7 +69,7 @@ general filesystem RPC.
 
 ```text
 Local Harness UI
-  -> ApiProxySwitch (rc.2) / TypertGatewaySwitch (alpha.1)
+  -> ApiProxySwitch (rc.2) / TypertGatewaySwitch (alpha)
   -> RemoteHarnessApiProxy / RemoteTypertGateway
   -> Adaptive transport (LAN / P2P / TURN / Relay)
   -> Noise IK secure channel
@@ -79,7 +79,7 @@ Local Harness UI
 
 ```text
 本地 Harness UI
-  -> ApiProxySwitch（rc.2）/ TypertGatewaySwitch（alpha.1）
+  -> ApiProxySwitch（rc.2）/ TypertGatewaySwitch（alpha）
   -> RemoteHarnessApiProxy / RemoteTypertGateway
   -> 自适应传输（LAN / P2P / TURN / Relay）
   -> Noise IK 安全通道
@@ -93,7 +93,7 @@ Local Harness UI
 - `client-runtime.ts`: device list, connection, workspace actions / 设备列表、连接、工作区操作
 - `client.ts`: settings UI, remote modal, sidebar, remote header / 设置卡片、Remote 弹窗、侧边栏、远端 Header
 - `harness-api-bridge.ts`: ApiProxy allowlist and stream bridge / ApiProxy 白名单与 stream 桥接
-- `harness-remote-bridge.ts`: alpha.1 Typert Remote allowlist and stream carrier / alpha.1 Typert Remote 白名单与 stream carrier
+- `harness-remote-bridge.ts`: alpha Typert Remote allowlist and stream carrier / alpha Typert Remote 白名单与 stream carrier
 - `file-viewer-bridge.ts`: bounded File Viewer read bridge / 受限 File Viewer 读取桥
 - `identity-store.ts` / `server-credentials.ts`: account-scoped identity and credentials / 账号隔离的身份与凭证
 
@@ -128,7 +128,7 @@ Install the npm package for the `web` profile:
 通过 npm 包安装到 `web` profile：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.1
+dsh plugin --profile web add ds-harness-remote@0.4.2
 ```
 
 npm / npm 包地址：<https://www.npmjs.com/package/ds-harness-remote>
@@ -138,11 +138,11 @@ Alternatively, install the pinned GitHub release in DSH Desktop or with the CLI:
 也可以在 DSH Desktop 中安装固定版本的 GitHub Release，或使用命令行安装：
 
 ```text
-github:liguobao/deepseek-harness-remote#v0.4.1
+github:liguobao/deepseek-harness-remote#v0.4.2
 ```
 
 ```sh
-dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.4.1"
+dsh plugin --profile web add "github:liguobao/deepseek-harness-remote#v0.4.2"
 ```
 
 GitHub / 项目地址：<https://github.com/liguobao/deepseek-harness-remote>

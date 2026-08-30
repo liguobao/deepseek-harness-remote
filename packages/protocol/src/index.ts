@@ -385,7 +385,7 @@ export interface HarnessApiStreamClosedData {
   reason: 'cancelled' | 'completed' | 'failed' | 'peer-disconnected'
 }
 
-/** alpha.1 Typert Remote carrier request after the local Gateway encoded it. */
+/** Alpha Typert Remote carrier request after the local Gateway encoded it. */
 export interface HarnessRemoteCallParams {
   endpoint: string
   payload: unknown

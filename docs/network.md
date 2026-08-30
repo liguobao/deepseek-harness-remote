@@ -190,7 +190,7 @@ Client 可以把当前模式显示为 `LAN`、`P2P`、`TURN`、`Relay` 或 `Disc
 
 仍需完成或扩大验证：
 
-- rc.2/alpha.1 真实 Harness 双机与跨网 E2E；
+- rc.2/alpha.1/alpha.2 真实 Harness 双机与跨网 E2E；
 - Android `react-native-webrtc` 与 Host WebRTC runtime 的真机 P2P/TURN 互操作；
 - 网络切换、休眠/唤醒、长期稳定性和代理环境；
 - control heartbeat、RTT、错误分类和重连后的 stream/history 恢复；

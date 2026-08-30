@@ -46,6 +46,11 @@ assert.match(publicTypes, /name:\s*'ds-harness-remote'/, 'public types must expo
 
 const hostBundle = readFileSync(join(root, 'packages/plugin/dist/index.js'), 'utf8')
 assert.doesNotMatch(hostBundle, /(?:from\s+|require\()['\"]@dsh-remote\//, 'Host bundle must not import unpublished workspace packages')
+assert.doesNotMatch(
+  hostBundle,
+  /\bsettingsNamespace\b/,
+  'Host bundle must not import the settingsNamespace helper removed by DSH alpha.2',
+)
 
 const clientBundle = readFileSync(join(root, 'packages/plugin/dist/client.github.js'), 'utf8')
 assert.match(clientBundle, /window\.__ModuleLoader__\.load/, 'browser client entry must register with the DSH module loader')

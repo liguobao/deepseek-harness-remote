@@ -4,9 +4,6 @@ var __export = (target, all) => {
     __defProp(target, name2, { get: all[name2], enumerable: true });
 };
 
-// src/index.ts
-import { settingsNamespace } from "@deepseek-ai/dsh-settings";
-
 // ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
 var external_exports = {};
 __export(external_exports, {
@@ -13742,7 +13739,11 @@ function parseRpcResult(value) {
   };
 }
 function remoteFailure(failure) {
-  return Object.assign(new Error(failure.message), { code: failure.code, details: failure.details });
+  return Object.assign(new Error(failure.message), {
+    isDSHRemoteError: true,
+    code: failure.code,
+    details: failure.details
+  });
 }
 function bytesToBase642(bytes) {
   let binary = "";
@@ -13853,7 +13854,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.4.1";
+var PLUGIN_VERSION = "0.4.2";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -19316,6 +19317,7 @@ function decodeBase64(value) {
 // src/index.ts
 var name = "ds-harness-remote";
 var legacyLoaderModuleNames = /* @__PURE__ */ new Set(["dsh-remote", "@dsh-remote/plugin"]);
+var pluginSettingsNamespace = "ds-harness-remote";
 function apply(ctx, input = {}) {
   ctx.inject(["settings", "connection", "typertGateway"], (runtimeContext) => {
     const gateway = runtimeContext.get("typertGateway");
@@ -19327,7 +19329,7 @@ function apply(ctx, input = {}) {
 }
 async function activate(ctx, input) {
   const settings = ctx.get("settings");
-  const settingsScope = settings?.register(settingsNamespace("ds-harness-remote"), Config, {
+  const settingsScope = settings?.register(pluginSettingsNamespace, Config, {
     base: input,
     applies: "restart",
     validate: (value) => {

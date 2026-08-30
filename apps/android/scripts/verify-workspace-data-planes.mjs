@@ -31,7 +31,7 @@ if (!alphaClient.includes('HarnessAlphaClient')) {
   throw new Error('Compiled client-core is stale or incomplete: missing HarnessAlphaClient.')
 }
 
-console.log(`Android workspace data planes verified: rc.2 ApiProxy + alpha.1 Typert Remote (${appVersion})`)
+console.log(`Android workspace data planes verified: rc.2 ApiProxy + alpha Typert Remote (${appVersion})`)
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, 'utf8'))

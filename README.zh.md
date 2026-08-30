@@ -38,7 +38,7 @@
 ## 主要特性
 
 - 从另一台设备继续活跃会话，查看最新进展
-- 发送新指令、调整任务方向，并在 Harness `dsh-v0.1.1-rc.2` 或 `dsh-v0.1.2-alpha.1` 中使用图片 Prompt
+- 发送新指令、调整任务方向，并在 Harness `dsh-v0.1.1-rc.2` 或 `dsh-v0.1.2-alpha.1`–`alpha.2` 中使用图片 Prompt
 - 在支持实时会话控制的客户端中回答问题、处理权限请求
 - 打开同一账号下另一台已授权电脑上的 Workspace
 - 复用 Harness 原生界面，不另外维护一套桌面会话 UI
@@ -57,7 +57,7 @@ DSH Desktop 已默认集成并启用 Remote，无需另行安装插件。
 为 `web` profile 安装确切的 npm 版本：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.1
+dsh plugin --profile web add ds-harness-remote@0.4.2
 ```
 
 安装后请重启 Harness。
@@ -146,15 +146,15 @@ WebSocket Relay。所有路径都承载同一份 Noise 密文，并保持相同�
 
 **破坏性更新声明：** Plugin `0.4.1` 已移除早期实验性的 Remote 业务 RPC
 （`sessions.*`、`session.*`、`permissions.respond`、`sync.from`）。Harness
-会话流量现在只通过官方 rc.2 `ApiProxy` 或 alpha.1 Typert Remote Gateway 承载；
+会话流量现在只通过官方 rc.2 `ApiProxy` 或 alpha Typert Remote Gateway 承载；
 本插件不提供旧 RPC 的适配层或 wire format 翻译。
 
-Plugin `0.4.1` 同时兼容 DeepSeek Harness `dsh-v0.1.1-rc.2` 与
-`dsh-v0.1.2-alpha.1`：rc.2 继续使用官方 legacy `ApiProxy`，alpha.1 使用官方 Typert Remote
-Gateway。运行 rc.2 的 `0.4.1` Client 仍可通过 legacy capability 降级连接旧 rc.2 Host。
+Plugin `0.4.2` 同时兼容 DeepSeek Harness `dsh-v0.1.1-rc.2` 与
+`dsh-v0.1.2-alpha.1`–`alpha.2`：rc.2 继续使用官方 legacy `ApiProxy`，alpha 使用官方
+Typert Remote Gateway。运行 rc.2 的 `0.4.2` Client 仍可通过 legacy capability 降级连接旧 rc.2 Host。
 
-两端 Desktop 必须处于同一 Harness transport 代际。`0.4.x` 不翻译 rc.2 与 alpha.1 的业务模型：
-alpha.1 Client 不能打开 rc.2 Host，rc.2 Client 也不能打开 alpha.1 Host；混连会在切换原生
+两端 Desktop 必须处于同一 Harness transport 代际。`0.4.x` 不翻译 rc.2 与 alpha 的业务模型：
+alpha Client 不能打开 rc.2 Host，rc.2 Client 也不能打开 alpha Host；混连会在切换原生
 UI 或修改 Workspace 前被拒绝。
 
 ## 文档

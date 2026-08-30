@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { settingsNamespace, type SettingsScope } from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace, SettingsScope } from '@deepseek-ai/dsh-settings'
 import { ClientModeRuntime, type HostConnectionHandle } from './client-runtime.js'
 import { Config, resolveConfig, type Config as ConfigInput, type ResolvedConfig } from './config.js'
 import { PluginControlRuntime } from './control-runtime.js'
@@ -25,6 +25,9 @@ export const name = 'ds-harness-remote'
 export { Config }
 
 const legacyLoaderModuleNames = new Set(['dsh-remote', '@dsh-remote/plugin'])
+// rc.2 requires the branded SettingsNamespace type, while alpha.2 accepts and
+// validates the literal directly after removing the settingsNamespace helper.
+const pluginSettingsNamespace = 'ds-harness-remote' as SettingsNamespace
 
 interface LoaderEntryLike {
   id: string
@@ -52,7 +55,7 @@ export function apply(ctx: Context, input: ConfigInput = {}): void {
 
 async function activate(ctx: Context, input: ConfigInput): Promise<void> {
   const settings = ctx.get('settings')
-  const settingsScope: SettingsScope<ConfigInput> | undefined = settings?.register(settingsNamespace('ds-harness-remote'), Config, {
+  const settingsScope: SettingsScope<ConfigInput> | undefined = settings?.register(pluginSettingsNamespace, Config, {
     base: input,
     applies: 'restart',
     validate: value => { resolveConfig(value) },

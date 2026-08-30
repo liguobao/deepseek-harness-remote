@@ -17,7 +17,7 @@ import type {
 
 const DIRECT_REMOTE_CALL_BYTES = 2 * 1024 * 1024
 
-/** Client-side alpha.1 Gateway carrier over the authenticated Remote channel. */
+/** Client-side alpha Gateway carrier over the authenticated Remote channel. */
 export class RemoteTypertGateway implements RemoteTypertGatewayTarget {
   constructor(private readonly client: RemoteClientCore) {}
 
@@ -234,7 +234,14 @@ function parseRpcResult(value: unknown): TypertRpcResult {
 }
 
 function remoteFailure(failure: { code: string; message: string; details: Record<string, unknown> }): Error {
-  return Object.assign(new Error(failure.message), { code: failure.code, details: failure.details })
+  // alpha.2 identifies RemoteError values structurally across bundles and
+  // realms. Keep this carrier dependency-free so the same build still runs on
+  // older Harness releases, while preserving alpha.2 stream failures at the local mux.
+  return Object.assign(new Error(failure.message), {
+    isDSHRemoteError: true as const,
+    code: failure.code,
+    details: failure.details,
+  })
 }
 
 function bytesToBase64(bytes: Uint8Array): string {

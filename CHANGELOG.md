@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.2
+
+- Adds DeepSeek Harness `dsh-v0.1.2-alpha.2` compatibility while retaining the
+  `dsh-v0.1.2-alpha.1` Typert Remote and `dsh-v0.1.1-rc.2` ApiProxy paths.
+- Stops importing the `settingsNamespace` helper removed by Harness alpha.2;
+  Settings registration now uses a literal that remains type-compatible with
+  rc.2 and alpha.1.
+- Preserves alpha.2 `RemoteError` identity across the encrypted Desktop stream
+  bridge so Host failure codes are not collapsed to `gateway/internal` by the
+  local Harness mux.
+- Moves the compatibility build matrix to the alpha.2 Gateway, Client, Settings,
+  locale, sidebar, slot, and settings UI packages and adds a Bundle regression
+  check for the removed Settings export.
+- Corrects prerelease peer ranges so strict npm resolution accepts both the
+  claimed `0.1.1-rc.2` and `0.1.2-alpha.x` package families, without asking
+  alpha installs to resolve the retired rc.2-only ApiProxy package.
+- Advances the Plugin and Android app to `0.4.2` (`versionCode 22`).
+
 ## 0.4.1
 
 - Replaces the withdrawn `v0.4.0` Release and tag so the alpha.1 Remote Client,

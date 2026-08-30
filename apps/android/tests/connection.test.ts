@@ -99,7 +99,7 @@ describe('AndroidRemoteConnection Harness transport selection', () => {
     await connection.close()
   })
 
-  it('uses alpha.1 Typert Remote without opening the ApiProxy mux', async () => {
+  it('uses alpha Typert Remote without opening the ApiProxy mux', async () => {
     testState.capabilities = ['harness.remote.v1', 'harness.remote.transfer.v1']
     const connection = new AndroidRemoteConnection()
     await connection.connect('https://server.example.com', identity, host, 'access-token', () => undefined, { forceRelay: true })

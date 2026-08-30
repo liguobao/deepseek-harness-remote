@@ -166,7 +166,7 @@ describe('RemoteConnection close state', () => {
     })
   })
 
-  it('uses alpha.1 Typert Remote command payload when changing approval mode', async () => {
+  it('uses the alpha Typert Remote command payload when changing approval mode', async () => {
     testState.capabilities = ['harness.remote.v1', 'harness.remote.transfer.v1']
     const connection = new RemoteConnection()
     await connection.connect('https://server.example.com', identity, host, 'access-token', true)
@@ -184,7 +184,7 @@ describe('RemoteConnection close state', () => {
     })
   })
 
-  it('clears the alpha.1 client after an unexpected close', async () => {
+  it('clears the alpha client after an unexpected close', async () => {
     testState.capabilities = ['harness.remote.v1', 'harness.remote.transfer.v1']
     const connection = new RemoteConnection()
     await connection.connect('https://server.example.com', identity, host, 'access-token', true)

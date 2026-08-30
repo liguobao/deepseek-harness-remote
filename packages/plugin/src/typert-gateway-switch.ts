@@ -11,7 +11,7 @@ type CarrierDispatch = (endpoint: string, payload: unknown, signal: AbortSignal)
 type CarrierOpen = (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<AsyncIterable<unknown>>
 
 interface RuntimeGateway extends TypertGatewayLike {
-  // alpha.1's Connection adapters call these prototype methods dynamically.
+  // Alpha Connection adapters call these prototype methods dynamically.
   dispatchRpc?: CarrierDispatch
   openWireStream?: CarrierOpen
 }

@@ -104,7 +104,7 @@ export async function probeRemoteHostFeatures(
   }
 }
 
-/** Client-side alpha.1 Gateway carrier over the authenticated Remote channel. */
+/** Client-side alpha Gateway carrier over the authenticated Remote channel. */
 export class RemoteTypertGateway {
   constructor(private readonly client: RemoteClientCore) {}
 

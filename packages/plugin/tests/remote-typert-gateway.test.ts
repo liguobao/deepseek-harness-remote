@@ -69,4 +69,49 @@ describe('RemoteTypertGateway', () => {
     await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
     expect(rpc).toHaveBeenCalledWith('harness.remote.stream.close', { streamId })
   })
+
+  it('marks Host stream failures for alpha.2 cross-bundle RemoteError detection', async () => {
+    let eventHandler: ((event: EventPayload) => void) | undefined
+    let streamId: string | undefined
+    const client = {
+      rpc: vi.fn(async (method: string, params: unknown) => {
+        if (method === 'harness.remote.stream.open') {
+          streamId = (params as { streamId: string }).streamId
+          return { opened: true, streamId }
+        }
+        return { closed: true, streamId }
+      }),
+      onEvent: (handler: (event: EventPayload) => void) => {
+        eventHandler = handler
+        return () => undefined
+      },
+      onClose: () => () => undefined,
+    } as unknown as RemoteClientCore
+    const source = await new RemoteTypertGateway(client).open(
+      'session/follow',
+      { args: {} },
+      new AbortController().signal,
+    )
+    const iterator = source[Symbol.asyncIterator]()
+
+    eventHandler?.({
+      event: 'harness.remote.stream.closed',
+      data: {
+        streamId,
+        reason: 'failed',
+        failure: {
+          code: 'session/not-found',
+          message: 'Session is unavailable.',
+          details: { sessionId: 'session-1' },
+        },
+      },
+    } as EventPayload)
+
+    await expect(iterator.next()).rejects.toMatchObject({
+      isDSHRemoteError: true,
+      code: 'session/not-found',
+      message: 'Session is unavailable.',
+      details: { sessionId: 'session-1' },
+    })
+  })
 })
