@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
 export const PROTOCOL_VERSION = 1
+export const MAX_CONTROL_FRAME_BYTES = 64 * 1024
+export const MAX_RELAY_FRAME_BYTES = 1024 * 1024
 export const SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024
 export const MAX_SECURE_MESSAGE_BYTES = 4 * 1024 * 1024
 /** Decoded bytes carried by one authenticated Harness business transfer chunk. */
@@ -93,6 +95,11 @@ export interface ControlFrame<TPayload = unknown> {
   type: ControlFrameType
   timestamp: number
   payload: TPayload
+}
+
+export interface ControlFrameByteLimits {
+  maxControlFrameBytes?: number
+  maxRelayFrameBytes?: number
 }
 
 export interface HelloPayload {
@@ -465,8 +472,8 @@ export const helloAckPayloadSchema = z.object({
   serverVersion: z.string().min(1),
   connectionSessionId: z.string().min(1),
   heartbeatIntervalMs: z.number().int().positive(),
-  maxControlFrameBytes: z.number().int().positive(),
-  maxRelayFrameBytes: z.number().int().positive(),
+  maxControlFrameBytes: z.number().int().positive().max(MAX_CONTROL_FRAME_BYTES),
+  maxRelayFrameBytes: z.number().int().positive().max(MAX_RELAY_FRAME_BYTES),
   capabilities: z.array(z.string().min(1)).refine(uniqueStrings).optional(),
   webrtcEnabled: z.boolean().optional(),
   webrtcFallbackTimeoutMs: z.number().int().positive().optional(),
@@ -653,6 +660,22 @@ export function parseControlFrame(input: unknown): ControlFrame {
   return frame
 }
 
+export function encodeControlFrame(frame: ControlFrame, limits: ControlFrameByteLimits = {}): string {
+  const parsed = parseControlFrame(frame)
+  const encoded = JSON.stringify(parsed)
+  assertControlFrameSize(new TextEncoder().encode(encoded).byteLength, parsed.type, limits)
+  return encoded
+}
+
+export function decodeControlFrame(data: Uint8Array | string, limits: ControlFrameByteLimits = {}): ControlFrame {
+  const encoded = typeof data === 'string' ? new TextEncoder().encode(data) : data
+  if (encoded.byteLength > MAX_RELAY_FRAME_BYTES) throw new Error('Control frame exceeds the Relay frame limit.')
+  const text = typeof data === 'string' ? data : new TextDecoder('utf-8', { fatal: true }).decode(data)
+  const frame = parseControlFrame(JSON.parse(text))
+  assertControlFrameSize(encoded.byteLength, frame.type, limits)
+  return frame
+}
+
 export function encodeMessage(message: RemoteMessage): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(message))
 }
@@ -765,6 +788,14 @@ function isSecureFragment(frame: Uint8Array): boolean {
     if (frame[index] !== SECURE_FRAGMENT_MAGIC[index]) return false
   }
   return true
+}
+
+function assertControlFrameSize(bytes: number, type: ControlFrameType, limits: ControlFrameByteLimits): void {
+  const configured = type === 'relay' ? limits.maxRelayFrameBytes : limits.maxControlFrameBytes
+  const protocolMaximum = type === 'relay' ? MAX_RELAY_FRAME_BYTES : MAX_CONTROL_FRAME_BYTES
+  const maximum = configured === undefined ? protocolMaximum : Math.min(protocolMaximum, configured)
+  if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new Error('Control frame limit is invalid.')
+  if (bytes > maximum) throw new Error(`${type === 'relay' ? 'Relay' : 'Control'} frame exceeds its limit.`)
 }
 
 function cryptoRandomId(): string {

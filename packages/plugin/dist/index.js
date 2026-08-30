@@ -4050,6 +4050,8 @@ var NEVER = INVALID;
 
 // ../protocol/dist/index.js
 var PROTOCOL_VERSION = 1;
+var MAX_CONTROL_FRAME_BYTES = 64 * 1024;
+var MAX_RELAY_FRAME_BYTES = 1024 * 1024;
 var SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024;
 var MAX_SECURE_MESSAGE_BYTES = 4 * 1024 * 1024;
 var HARNESS_API_TRANSFER_CHUNK_BYTES = 512 * 1024;
@@ -4158,8 +4160,8 @@ var helloAckPayloadSchema = external_exports.object({
   serverVersion: external_exports.string().min(1),
   connectionSessionId: external_exports.string().min(1),
   heartbeatIntervalMs: external_exports.number().int().positive(),
-  maxControlFrameBytes: external_exports.number().int().positive(),
-  maxRelayFrameBytes: external_exports.number().int().positive(),
+  maxControlFrameBytes: external_exports.number().int().positive().max(MAX_CONTROL_FRAME_BYTES),
+  maxRelayFrameBytes: external_exports.number().int().positive().max(MAX_RELAY_FRAME_BYTES),
   capabilities: external_exports.array(external_exports.string().min(1)).refine(uniqueStrings).optional(),
   webrtcEnabled: external_exports.boolean().optional(),
   webrtcFallbackTimeoutMs: external_exports.number().int().positive().optional()
@@ -4297,6 +4299,21 @@ function parseControlFrame(input) {
   }
   return frame;
 }
+function encodeControlFrame(frame, limits = {}) {
+  const parsed = parseControlFrame(frame);
+  const encoded = JSON.stringify(parsed);
+  assertControlFrameSize(new TextEncoder().encode(encoded).byteLength, parsed.type, limits);
+  return encoded;
+}
+function decodeControlFrame(data, limits = {}) {
+  const encoded = typeof data === "string" ? new TextEncoder().encode(data) : data;
+  if (encoded.byteLength > MAX_RELAY_FRAME_BYTES)
+    throw new Error("Control frame exceeds the Relay frame limit.");
+  const text = typeof data === "string" ? data : new TextDecoder("utf-8", { fatal: true }).decode(data);
+  const frame = parseControlFrame(JSON.parse(text));
+  assertControlFrameSize(encoded.byteLength, frame.type, limits);
+  return frame;
+}
 function encodeMessage(message) {
   return new TextEncoder().encode(JSON.stringify(message));
 }
@@ -4391,6 +4408,15 @@ function isSecureFragment(frame) {
       return false;
   }
   return true;
+}
+function assertControlFrameSize(bytes, type, limits) {
+  const configured = type === "relay" ? limits.maxRelayFrameBytes : limits.maxControlFrameBytes;
+  const protocolMaximum = type === "relay" ? MAX_RELAY_FRAME_BYTES : MAX_CONTROL_FRAME_BYTES;
+  const maximum = configured === void 0 ? protocolMaximum : Math.min(protocolMaximum, configured);
+  if (!Number.isSafeInteger(maximum) || maximum <= 0)
+    throw new Error("Control frame limit is invalid.");
+  if (bytes > maximum)
+    throw new Error(`${type === "relay" ? "Relay" : "Control"} frame exceeds its limit.`);
 }
 function cryptoRandomId() {
   const g = globalThis.crypto;
@@ -5657,6 +5683,7 @@ var AdaptiveTransport = class extends BaseTransport {
   webrtcEnabled = true;
   serverNegotiateTimeoutMs;
   negotiatedCapabilities = ["transport.relay"];
+  controlFrameLimits = {};
   connectedAt;
   lastRtcDiagnostics;
   constructor(url, options) {
@@ -5668,6 +5695,7 @@ var AdaptiveTransport = class extends BaseTransport {
     if (this.socket !== void 0)
       return;
     this.socket = new WebSocket(this.url);
+    this.controlFrameLimits = {};
     this.socket.binaryType = "arraybuffer";
     await new Promise((resolve2, reject) => {
       this.readyResolve = resolve2;
@@ -5778,13 +5806,17 @@ var AdaptiveTransport = class extends BaseTransport {
   async handleSocketMessage(raw) {
     try {
       const text = await socketText(raw);
-      const frame = parseControlFrame(JSON.parse(text));
+      const frame = decodeControlFrame(text, this.controlFrameLimits);
       if (frame.type === "hello.ack") {
         const payload = frame.payload;
         if (payload.protocol !== PROTOCOL_VERSION)
           throw new Error("Server selected an unsupported protocol version");
         const offered = this.options.capabilities ?? DEFAULT_CAPABILITIES;
         this.negotiatedCapabilities = acceptNegotiatedCapabilities(offered, payload.capabilities);
+        this.controlFrameLimits = {
+          maxControlFrameBytes: payload.maxControlFrameBytes,
+          maxRelayFrameBytes: payload.maxRelayFrameBytes
+        };
         const preferredTransports = this.negotiatedTransports();
         if (preferredTransports.length === 0) {
           throw new Error("Server did not negotiate a supported transport capability");
@@ -5997,7 +6029,7 @@ var AdaptiveTransport = class extends BaseTransport {
   sendControl(type, payload) {
     if (this.socket?.readyState !== WebSocket.OPEN)
       throw new Error("adaptive control socket is not open");
-    this.socket.send(JSON.stringify(createControlFrame(type, payload)));
+    this.socket.send(encodeControlFrame(createControlFrame(type, payload), this.controlFrameLimits));
   }
   finishConnection() {
     this.clearHandshake();
@@ -17134,6 +17166,7 @@ var HostServerConnection = class {
   resumeQueued = false;
   rtcFactory;
   negotiatedCapabilities = ["transport.relay"];
+  controlFrameLimits = {};
   start() {
     if (this.running !== void 0) return;
     this.stopped = false;
@@ -17226,6 +17259,7 @@ var HostServerConnection = class {
     const offeredCapabilities = this.rtcFactoryProvider === void 0 || this.config.forceRelay ? ["transport.relay", ...this.hostCapabilities()] : ["transport.lan", "transport.p2p", "transport.turn", "transport.relay", ...this.hostCapabilities()];
     const socket = this.createWebSocket(websocketUrl2(this.api.baseUrl));
     this.socket = socket;
+    this.controlFrameLimits = {};
     let acknowledged = false;
     let messageQueue = Promise.resolve();
     await new Promise((resolve2, reject) => {
@@ -17252,10 +17286,14 @@ var HostServerConnection = class {
       };
       socket.onmessage = (event) => {
         messageQueue = messageQueue.then(async () => {
-          const frame = decodeControl(event.data);
+          const frame = decodeControl(event.data, this.controlFrameLimits);
           this.lastActiveAt = Date.now();
           if (frame.type === "hello.ack") {
             const payload = requireHelloAck(frame.payload);
+            this.controlFrameLimits = {
+              maxControlFrameBytes: payload.maxControlFrameBytes,
+              maxRelayFrameBytes: payload.maxRelayFrameBytes
+            };
             this.negotiatedCapabilities = acceptNegotiatedCapabilities(offeredCapabilities, payload.capabilities);
             if (!this.negotiatedCapabilities.some((capability) => capability === "transport.relay" || capability === "transport.lan" || capability === "transport.p2p" || capability === "transport.turn")) {
               throw new ControlConnectionError("INVALID_MESSAGE", "Server did not negotiate a transport capability.");
@@ -17690,7 +17728,7 @@ var HostServerConnection = class {
   sendControl(type, payload) {
     const socket = this.socket;
     if (socket === void 0 || socket.readyState !== 1) throw new ControlConnectionError("CONNECTION_FAILED", "Server control socket is not open.");
-    socket.send(JSON.stringify(createControlFrame(type, payload)));
+    socket.send(encodeControlFrame(createControlFrame(type, payload), this.controlFrameLimits));
   }
   async dropTunnels() {
     const tunnels = [...this.tunnels.values()];
@@ -17818,10 +17856,10 @@ function websocketUrl2(baseUrl) {
   url.pathname = `${url.pathname.replace(/\/$/, "")}/ws/v1/connect`;
   return url.toString();
 }
-function decodeControl(data) {
+function decodeControl(data, limits) {
   if (typeof data !== "string") throw new ControlConnectionError("INVALID_MESSAGE", "Server control frames must be text JSON.");
   try {
-    return parseControlFrame(JSON.parse(data));
+    return decodeControlFrame(data, limits);
   } catch {
     throw new ControlConnectionError("INVALID_MESSAGE", "Server sent an invalid control frame.");
   }

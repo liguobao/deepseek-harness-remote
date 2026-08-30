@@ -2,7 +2,9 @@ import {
   PROTOCOL_VERSION,
   acceptNegotiatedCapabilities,
   createControlFrame,
-  parseControlFrame,
+  decodeControlFrame,
+  encodeControlFrame,
+  type ControlFrameByteLimits,
   type ConnectAcceptedPayload,
   type HelloAckPayload,
   type RelayPayload,
@@ -80,6 +82,7 @@ export class AdaptiveTransport extends BaseTransport {
   private webrtcEnabled = true
   private serverNegotiateTimeoutMs?: number
   private negotiatedCapabilities: string[] = ['transport.relay']
+  private controlFrameLimits: ControlFrameByteLimits = {}
   private connectedAt?: number
   private lastRtcDiagnostics?: RtcConnectionDiagnostics
 
@@ -93,6 +96,7 @@ export class AdaptiveTransport extends BaseTransport {
   async connect(): Promise<void> {
     if (this.socket !== undefined) return
     this.socket = new WebSocket(this.url)
+    this.controlFrameLimits = {}
     this.socket.binaryType = 'arraybuffer'
     await new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve
@@ -210,12 +214,16 @@ export class AdaptiveTransport extends BaseTransport {
   private async handleSocketMessage(raw: string | ArrayBuffer | Blob): Promise<void> {
     try {
       const text = await socketText(raw)
-      const frame = parseControlFrame(JSON.parse(text))
+      const frame = decodeControlFrame(text, this.controlFrameLimits)
       if (frame.type === 'hello.ack') {
         const payload = frame.payload as Partial<HelloAckPayload>
         if (payload.protocol !== PROTOCOL_VERSION) throw new Error('Server selected an unsupported protocol version')
         const offered = this.options.capabilities ?? DEFAULT_CAPABILITIES
         this.negotiatedCapabilities = acceptNegotiatedCapabilities(offered, payload.capabilities)
+        this.controlFrameLimits = {
+          maxControlFrameBytes: payload.maxControlFrameBytes,
+          maxRelayFrameBytes: payload.maxRelayFrameBytes,
+        }
         const preferredTransports = this.negotiatedTransports()
         if (preferredTransports.length === 0) {
           throw new Error('Server did not negotiate a supported transport capability')
@@ -432,7 +440,7 @@ export class AdaptiveTransport extends BaseTransport {
 
   private sendControl(type: Parameters<typeof createControlFrame>[0], payload: unknown): void {
     if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('adaptive control socket is not open')
-    this.socket.send(JSON.stringify(createControlFrame(type, payload)))
+    this.socket.send(encodeControlFrame(createControlFrame(type, payload), this.controlFrameLimits))
   }
 
   private finishConnection(): void {
