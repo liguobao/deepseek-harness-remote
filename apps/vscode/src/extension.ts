@@ -405,7 +405,7 @@ class LoginViewProvider implements vscode.WebviewViewProvider {
       }
       if (message.type === 'qr' && typeof message.serverUrl === 'string') void this.qrLogin(message.serverUrl)
       if (message.type === 'settings') void this.controller.openSettings()
-      if (message.type === 'github') void vscode.env.openExternal(vscode.Uri.parse('https://github.com/liguobao/deepseek-harness-remote'))
+      if (message.type === 'github') void vscode.env.openExternal(vscode.Uri.parse('https://github.com/liguobao/ds-harness-remote'))
       if (message.type === 'npm') void vscode.env.openExternal(vscode.Uri.parse('https://www.npmjs.com/package/ds-harness-remote'))
       if (message.type === 'tab' && (message.value === 'qr' || message.value === 'password')) this.activeTab = message.value
     })

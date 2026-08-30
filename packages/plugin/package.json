@@ -4,7 +4,7 @@
   "description": "DeepSeek 远程连接",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/liguobao/deepseek-harness-remote.git"
+    "url": "git+https://github.com/liguobao/ds-harness-remote.git"
   },
   "publishConfig": {
     "access": "public",

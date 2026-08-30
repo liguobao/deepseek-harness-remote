@@ -1,6 +1,6 @@
 ## English
 
-This release includes changes since `v0.4.1` ([full comparison](https://github.com/liguobao/deepseek-harness-remote/compare/v0.4.1...v0.4.2)).
+This release includes changes since `v0.4.1` ([full comparison](https://github.com/liguobao/ds-harness-remote/compare/v0.4.1...v0.4.2)).
 
 - Ships Plugin `0.4.2` and Android `0.4.2` (`versionCode 22`).
 - Adds DeepSeek Harness `dsh-v0.1.2-alpha.2` support while retaining the alpha.1 Typert Remote and rc.2 ApiProxy paths.
@@ -10,7 +10,7 @@ This release includes changes since `v0.4.1` ([full comparison](https://github.c
 
 ## 中文
 
-本版本包含自 `v0.4.1` 以来的改动（[完整对比](https://github.com/liguobao/deepseek-harness-remote/compare/v0.4.1...v0.4.2)）。
+本版本包含自 `v0.4.1` 以来的改动（[完整对比](https://github.com/liguobao/ds-harness-remote/compare/v0.4.1...v0.4.2)）。
 
 - 发布 Plugin `0.4.2` 和 Android `0.4.2`（`versionCode 22`）。
 - 新增 DeepSeek Harness `dsh-v0.1.2-alpha.2` 支持，同时保留 alpha.1 Typert Remote 与 rc.2 ApiProxy 路径。

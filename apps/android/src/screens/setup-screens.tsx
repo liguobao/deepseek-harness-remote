@@ -18,8 +18,8 @@ import type { ThemePreference } from '../ui/theme'
 
 /** Default DSH Remote Server; a build can override it via EXPO_PUBLIC_DSH_REMOTE_SERVER. */
 const defaultServerUrl = 'https://dsh.r2049.cn'
-const updateUrl = 'https://github.com/liguobao/deepseek-harness-remote/releases/latest'
-const releaseApiUrl = 'https://api.github.com/repos/liguobao/deepseek-harness-remote/releases/latest'
+const updateUrl = 'https://github.com/liguobao/ds-harness-remote/releases/latest'
+const releaseApiUrl = 'https://api.github.com/repos/liguobao/ds-harness-remote/releases/latest'
 const developerUrl = 'https://www.zhihu.com/people/codelover'
 
 type SetupLoginMethod = Extract<LoginMethod, 'oauth' | 'github-oauth' | 'password'>

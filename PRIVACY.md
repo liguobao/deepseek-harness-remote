@@ -36,7 +36,7 @@ When you sign out, the extension requests revocation of its device authorization
 
 For privacy questions or requests, open an issue at:
 
-https://github.com/liguobao/deepseek-harness-remote/issues
+https://github.com/liguobao/ds-harness-remote/issues
 
 ---
 
@@ -78,4 +78,4 @@ DeepSeek Harness Remote 是一个用于从 Remote Web 打开已连接电脑的�
 
 如有隐私问题或请求，请在以下地址提交 Issue：
 
-https://github.com/liguobao/deepseek-harness-remote/issues
+https://github.com/liguobao/ds-harness-remote/issues

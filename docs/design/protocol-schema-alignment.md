@@ -1,7 +1,7 @@
 # Protocol Schema Alignment
 
 状态：Draft
-关联 Issue：[#34](https://github.com/liguobao/deepseek-harness-remote/issues/34)
+关联 Issue：[#34](https://github.com/liguobao/ds-harness-remote/issues/34)
 
 ## 目标
 

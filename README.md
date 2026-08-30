@@ -18,13 +18,13 @@
   &nbsp;·&nbsp;
   <a href="https://dsh.r2049.cn/app">Web</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/liguobao/deepseek-harness-remote/releases/latest">Android</a>
+  <a href="https://github.com/liguobao/ds-harness-remote/releases/latest">Android</a>
 </p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/ds-harness-remote">npm</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/liguobao/deepseek-harness-remote">GitHub</a>
+  <a href="https://github.com/liguobao/ds-harness-remote">GitHub</a>
   &nbsp;·&nbsp;
   <a href="https://dshfind.com/zh/plugins/liguobao/deepseek-harness-remote?ref=badge"><img src="https://dshfind.com/api/badge/liguobao/deepseek-harness-remote?metric=downloads&amp;lang=zh" alt="dshfind downloads" width="137" height="20" align="absmiddle"></a>
 </p>
@@ -95,7 +95,7 @@ connection status shown in the header.
 
 ### Android
 
-Download the latest Android APK from [GitHub Releases](https://github.com/liguobao/deepseek-harness-remote/releases/latest).
+Download the latest Android APK from [GitHub Releases](https://github.com/liguobao/ds-harness-remote/releases/latest).
 
 Sign in to the Android client with your existing account, select an available computer,
 open a workspace, and continue the conversation with text or image prompts.

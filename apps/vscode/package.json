@@ -9,12 +9,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/liguobao/deepseek-harness-remote.git",
+    "url": "git+https://github.com/liguobao/ds-harness-remote.git",
     "directory": "apps/vscode"
   },
-  "homepage": "https://github.com/liguobao/deepseek-harness-remote#readme",
+  "homepage": "https://github.com/liguobao/ds-harness-remote#readme",
   "bugs": {
-    "url": "https://github.com/liguobao/deepseek-harness-remote/issues"
+    "url": "https://github.com/liguobao/ds-harness-remote/issues"
   },
   "keywords": ["deepseek", "harness", "remote", "agent", "webrtc"],
   "engines": {
