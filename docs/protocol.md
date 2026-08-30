@@ -349,6 +349,7 @@ URL：`wss://<REMOTE_PUBLIC_URL>/ws/v1/connect`
 ```
 
 Control frame 是 Server 可读 JSON，不得放置 Remote 业务明文。
+Control frame 必须使用 WebSocket text message。接收端必须拒绝 binary message。
 
 非 Relay Control frame 的 UTF-8 JSON 上限为 64 KiB。
 Relay Control frame 的 UTF-8 JSON 上限为 1 MiB。

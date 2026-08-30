@@ -4610,13 +4610,6 @@ var BaseTransport = class {
 };
 
 // ../webrtc/dist/util.js
-async function socketText(data) {
-  if (typeof data === "string")
-    return data;
-  if (data instanceof ArrayBuffer)
-    return new TextDecoder().decode(data);
-  return new TextDecoder().decode(await data.arrayBuffer());
-}
 function toBase64Url(bytes) {
   const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
   const base64 = typeof btoa === "function" ? btoa(binary) : Buffer.from(bytes).toString("base64");
@@ -5738,13 +5731,13 @@ var AdaptiveTransport = class extends BaseTransport {
     }
     if (this.socket?.readyState !== WebSocket.OPEN)
       throw new Error("adaptive transport is not connected");
-    this.bytesSent += data.byteLength;
     this.sendControl("relay", {
       connectionId: this.connectionId,
       targetDeviceId: this.options.targetDeviceId,
       counter: this.relayCounter,
       ciphertext: toBase64Url(data)
     });
+    this.bytesSent += data.byteLength;
     this.relayCounter += 1;
   }
   connectionInfo() {
@@ -5805,8 +5798,9 @@ var AdaptiveTransport = class extends BaseTransport {
   }
   async handleSocketMessage(raw) {
     try {
-      const text = await socketText(raw);
-      const frame = decodeControlFrame(text, this.controlFrameLimits);
+      if (typeof raw !== "string")
+        throw new Error("Adaptive control frames must be text JSON");
+      const frame = decodeControlFrame(raw, this.controlFrameLimits);
       if (frame.type === "hello.ack") {
         const payload = frame.payload;
         if (payload.protocol !== PROTOCOL_VERSION)

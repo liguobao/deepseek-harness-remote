@@ -12,7 +12,7 @@ import {
   type TransportStats,
 } from '@dsh-remote/protocol'
 import { BaseTransport } from './transport.js'
-import { fromBase64Url, socketText, toBase64Url } from './util.js'
+import { fromBase64Url, toBase64Url } from './util.js'
 
 export * from './transport.js'
 export * from './rtc-adapter.js'
@@ -88,13 +88,13 @@ export class RelayTransport extends BaseTransport {
   async send(data: Uint8Array): Promise<void> {
     if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('relay transport is not connected')
     if (this.connectionId === undefined) throw new Error('relay connection has not been authorized')
-    this.bytesSent += data.byteLength
     this.sendControl('relay', {
       connectionId: this.connectionId,
       targetDeviceId: this.options.targetDeviceId,
       counter: this.relayCounter,
       ciphertext: toBase64Url(data),
     } satisfies RelayPayload)
+    this.bytesSent += data.byteLength
     this.relayCounter += 1
   }
 
@@ -142,8 +142,8 @@ export class RelayTransport extends BaseTransport {
 
   private async handleSocketMessage(raw: string | ArrayBuffer | Blob): Promise<void> {
     try {
-      const text = await socketText(raw)
-      const frame = decodeControlFrame(text, this.controlFrameLimits)
+      if (typeof raw !== 'string') throw new Error('Relay control frames must be text JSON')
+      const frame = decodeControlFrame(raw, this.controlFrameLimits)
       if (frame.type === 'hello.ack') {
         const payload = frame.payload as Partial<HelloAckPayload>
         if (payload.protocol !== PROTOCOL_VERSION) throw new Error('Server selected an unsupported protocol version')

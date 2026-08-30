@@ -14,7 +14,7 @@ class FakeWebSocket {
   binaryType = ''
   sent: string[] = []
   onopen: (() => void) | null = null
-  onmessage: ((event: { data: string }) => void) | null = null
+  onmessage: ((event: { data: string | ArrayBuffer | Blob }) => void) | null = null
   onerror: (() => void) | null = null
   onclose: (() => void) | null = null
 
@@ -28,7 +28,11 @@ class FakeWebSocket {
   }
 
   receive(value: unknown): void {
-    this.onmessage?.({ data: JSON.stringify(value) })
+    this.receiveRaw(JSON.stringify(value))
+  }
+
+  receiveRaw(data: string | ArrayBuffer | Blob): void {
+    this.onmessage?.({ data })
   }
 
   send(value: string): void {
@@ -131,6 +135,45 @@ describe('RelayTransport control handshake', () => {
     }))
     await expect(connecting).rejects.toThrow('did not offer')
   })
+
+  it('enforces the negotiated Relay limit before updating send statistics', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const transport = new RelayTransport('wss://remote.example/ws/v1/connect', {
+      role: 'client',
+      deviceId: 'client-1',
+      accessToken: 'access-token',
+      targetDeviceId: 'host-1',
+    })
+    const connecting = transport.connect()
+    const socket = FakeWebSocket.latest!
+    socket.open()
+    socket.receive(helloAck({
+      capabilities: ['transport.relay'],
+      maxRelayFrameBytes: 180,
+    }))
+    await Promise.resolve()
+    socket.receive(createControlFrame('connect.accepted', { connectionId: 'connection-1' }))
+    await connecting
+
+    await expect(transport.send(new Uint8Array(256))).rejects.toThrow('Relay frame exceeds')
+    expect(transport.getStats().bytesSent).toBe(0)
+  })
+
+  it('rejects binary Control frames before decoding them', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const transport = new RelayTransport('wss://remote.example/ws/v1/connect', {
+      role: 'client',
+      deviceId: 'client-1',
+      accessToken: 'access-token',
+      targetDeviceId: 'host-1',
+    })
+    const connecting = transport.connect()
+    const socket = FakeWebSocket.latest!
+    socket.open()
+    socket.receiveRaw(new ArrayBuffer(2 * 1024 * 1024))
+
+    await expect(connecting).rejects.toThrow('must be text JSON')
+  })
 })
 
 describe('AdaptiveTransport capability negotiation', () => {
@@ -220,6 +263,24 @@ describe('AdaptiveTransport capability negotiation', () => {
     socket.receive(createControlFrame('connect.accepted', { connectionId: 'connection-1' }))
     await expect(connecting).rejects.toThrow('No negotiated transport is available')
   })
+
+  it('enforces the negotiated Control limit on incoming frames', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const transport = createAdaptiveTransport()
+    const connecting = transport.connect()
+    const socket = FakeWebSocket.latest!
+    socket.open()
+    socket.receive(helloAck({
+      capabilities: ['transport.relay'],
+      maxControlFrameBytes: 256,
+    }))
+    await Promise.resolve()
+    socket.receive(createControlFrame('connect.accepted', {
+      connectionId: 'x'.repeat(300),
+    }))
+
+    await expect(connecting).rejects.toThrow('Control frame exceeds')
+  })
 })
 
 function createAdaptiveTransport(): AdaptiveTransport {
@@ -232,7 +293,12 @@ function createAdaptiveTransport(): AdaptiveTransport {
   })
 }
 
-function helloAck(overrides: { capabilities: string[]; webrtcEnabled?: boolean }): unknown {
+function helloAck(overrides: {
+  capabilities: string[]
+  webrtcEnabled?: boolean
+  maxControlFrameBytes?: number
+  maxRelayFrameBytes?: number
+}): unknown {
   return createControlFrame('hello.ack', {
     protocol: 1,
     serverVersion: '0.1.0',

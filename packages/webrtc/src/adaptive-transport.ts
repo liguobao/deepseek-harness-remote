@@ -24,7 +24,7 @@ import {
   type RtcSignal,
 } from './rtc-data-channel.js'
 import { BaseTransport } from './transport.js'
-import { fromBase64Url, socketText, toBase64Url } from './util.js'
+import { fromBase64Url, toBase64Url } from './util.js'
 
 export interface AdaptiveTransportOptions {
   role: 'client'
@@ -137,13 +137,13 @@ export class AdaptiveTransport extends BaseTransport {
       return
     }
     if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('adaptive transport is not connected')
-    this.bytesSent += data.byteLength
     this.sendControl('relay', {
       connectionId: this.connectionId,
       targetDeviceId: this.options.targetDeviceId,
       counter: this.relayCounter,
       ciphertext: toBase64Url(data),
     } satisfies RelayPayload)
+    this.bytesSent += data.byteLength
     this.relayCounter += 1
   }
 
@@ -213,8 +213,8 @@ export class AdaptiveTransport extends BaseTransport {
 
   private async handleSocketMessage(raw: string | ArrayBuffer | Blob): Promise<void> {
     try {
-      const text = await socketText(raw)
-      const frame = decodeControlFrame(text, this.controlFrameLimits)
+      if (typeof raw !== 'string') throw new Error('Adaptive control frames must be text JSON')
+      const frame = decodeControlFrame(raw, this.controlFrameLimits)
       if (frame.type === 'hello.ack') {
         const payload = frame.payload as Partial<HelloAckPayload>
         if (payload.protocol !== PROTOCOL_VERSION) throw new Error('Server selected an unsupported protocol version')
