@@ -1,5 +1,5 @@
 import { NoiseIkSession, createNoisePrologue, generateKeyPair } from '@dsh-remote/crypto'
-import { SECURE_FRAGMENT_CHUNK_BYTES, SecureMessageCodec } from '@dsh-remote/protocol'
+import { MAX_SECURE_MESSAGE_BYTES, SECURE_FRAGMENT_CHUNK_BYTES, SecureMessageCodec } from '@dsh-remote/protocol'
 import type { SecureHandshakeTransport } from '@dsh-remote/webrtc'
 import { describe, expect, it, vi } from 'vitest'
 import { ClientSecureTransport } from '../src/client-secure-transport.js'
@@ -120,6 +120,18 @@ describe('ClientSecureTransport', () => {
     await expect(secure.send(new Uint8Array([1]))).rejects.toThrow(
       'The authenticated Noise channel is not connected.',
     )
+  })
+
+  it('keeps the Noise session open when local message validation fails', async () => {
+    const { secure, wire } = secureTransportFixture()
+    await secure.connect()
+
+    await expect(secure.send(new Uint8Array(MAX_SECURE_MESSAGE_BYTES + 1))).rejects.toThrow(
+      'Secure message exceeds the reassembly limit.',
+    )
+    expect(wire.closed).toBe(false)
+    await secure.send(new TextEncoder().encode('valid request'))
+    expect(new TextDecoder().decode(wire.plaintext)).toBe('valid request')
   })
 })
 

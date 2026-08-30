@@ -322,8 +322,9 @@ class SecureTransport implements RemoteTransport {
 
   async send(data: Uint8Array): Promise<void> {
     if (!this.noise?.complete) throw new Error('Secure channel is not connected.')
+    const plaintextFrames = this.outgoing.encode(data)
     try {
-      for (const chunk of this.outgoing.encode(data)) await this.inner.send(this.noise.encrypt(chunk))
+      for (const plaintext of plaintextFrames) await this.inner.send(this.noise.encrypt(plaintext))
     } catch (error) {
       await this.close().catch(() => undefined)
       throw error

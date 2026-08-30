@@ -13216,8 +13216,9 @@ var ClientSecureTransport = class {
     }
   }
   async send(data) {
+    const plaintextFrames = this.outgoing.encode(data);
     try {
-      for (const plaintext of this.outgoing.encode(data)) {
+      for (const plaintext of plaintextFrames) {
         await this.inner.send(this.requireNoise().encrypt(plaintext));
       }
     } catch (error) {
@@ -17812,8 +17813,9 @@ var ServerNoiseChannel = class {
   closed = false;
   async send(message) {
     if (this.closed) throw new Error("secure channel is closed");
+    const plaintextFrames = this.outgoing.encode(encodeMessage(message));
     try {
-      for (const plaintext of this.outgoing.encode(encodeMessage(message))) {
+      for (const plaintext of plaintextFrames) {
         await this.transmit(this.tunnel.noise.encrypt(plaintext));
       }
     } catch (error) {
