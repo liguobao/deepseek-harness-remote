@@ -43,16 +43,18 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 
 ## Codex Remote Session / History（开发预览）
 
-Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域；它只把 Codex
-`Thread -> Turn -> Item` 投影为 DSH 展示层，不迁移或伪装成 Harness Session。
+Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域。它在 Remote 工作区选择阶段
+提供虚拟 Workspace/Session 数据源，并把 `Thread -> Turn -> Item` 临时投影为 DSH 原生 Session
+事件；不迁移数据，也不写入 DSH SessionStore。
 
 - [x] 增加默认关闭的 `codex.enabled`、本机 `binary` 与 canonical `allowedRoots` 配置
 - [x] 增加 Host 单例 stdio App Server 生命周期、initialize/account probe 与动态 capability
 - [x] 增加独立 `codex.app.*` RPC/event/transfer、固定 method schema allowlist 与大 History 分块
 - [x] 增加按 connection 隔离的 stream、active-turn owner、opaque approval handle 与断线 fail-closed
 - [x] 增加共享 Client Core Codex client、`DisplaySession` / `DisplayHistoryItem` 纯展示投影
-- [x] 接入 Desktop Plugin Web Client face 的 Codex Thread 列表、新建/改名/归档/恢复、History、Prompt、停止与审批 UI
-- [x] 完善 Desktop Codex Timeline 的 Item 增量 reducer、Thread 分页与断线 baseline/live 重建
+- [x] 在 Remote 工作区选择器中增加 CodeX 虚拟工作区入口，不增加本地入口或独立页面
+- [x] 增加 rc.2 ApiProxy / alpha Typert 内存虚拟载体，将 CodeX History/live 映射为原生 Session 事件
+- [x] 复用 DSH 原生 Workspace/Session 列表、Conversation Renderer、Composer、工具与审批 UI
 - [x] 增加 App Server crash 后有界指数退避重启；关闭旧 stream 且不自动重放 mutation
 - [x] 使用当前 v2 schema 与真实 Codex App Server 完成 stdio initialize/account/list/read/root-filter 冒烟
 - [x] 使用真实 Codex App Server 完成本机 thread/start、幂等 resume、streamed turn/completed、History 回读与归档清理冒烟
@@ -60,8 +62,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 - [ ] 用两台真实 DSH Desktop 跑通加密跨机 resume/turn/event/approval/interrupt 与大 History 传输
 - [ ] 验证 App Server crash、Host transport 重连和多 Desktop Web Client 同时观察同一 Thread
 
-Android Codex navigation/store/screens 已按用户要求移出当前 Plugin-only 交付范围；未来恢复时必须
-复用 Client Core，且不得修改现有 Harness reducer。
+Android Codex navigation/store/screens 已按用户要求移出当前 Plugin-only 交付范围。
 
 ## P0：协议与安全
 

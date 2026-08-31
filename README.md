@@ -117,23 +117,22 @@ Remote Plugin on the Host
 Harness sessions, tools, and workspaces
 ```
 
-## Experimental Codex session view
+## Experimental Codex virtual workspaces
 
-Codex support is an optional, independent business domain inside the same Remote Plugin. It reuses
-the existing account membership, pinned Host identity, Noise channel, and adaptive transport, but it
-does not convert Codex threads into Harness sessions. The Host starts the local official Codex App
-Server over stdio and exposes only a fixed thread/turn allowlist under the separate `codex.app.*`
-namespace. Codex is disabled by default and requires explicit Host-local allowed roots.
+Codex is an optional domain inside the same Remote Plugin. After connecting to a Host, the normal
+Remote workspace picker can also show CodeX working directories. Selecting one switches the existing
+DSH Workspace/Session data plane to an in-memory virtual carrier: CodeX threads appear as Sessions,
+and their history and live frames are projected into native DSH Session events. The existing DSH
+workspace list, conversation renderer, composer, tool cards, and approval UI remain responsible for
+the interface; there is no separate CodeX page.
 
-The Host carrier, bounded history transfer, per-connection event streams, approval isolation, shared
-Client Core projection, and the Desktop Plugin Web view are implemented. The view supports paginated
-thread lists, create, rename, archive/restore, persisted history plus live item updates, text prompts,
-turn interruption, one-time approvals, and baseline reconstruction after stream or App Server recovery.
-Opening history only performs a read; `thread/resume` is deferred until the user continues work. The Host uses bounded
-exponential restart without replaying mutations. Current App Server stdio/list/read compatibility has
-been smoke-tested, including a real local thread/start, streamed turn, completed history read, and
-archive cleanup; real encrypted cross-machine turn/approval testing is still pending. Android is
-outside the current Plugin-only scope.
+This is a presentation adapter, not an import. The virtual Workspace/Session records are never written
+to DSH SessionStore, workspace storage, or Harness logs. CodeX App Server remains the source of truth,
+and create, rename, archive, prompt, interrupt, and approval actions are routed back to its allowlisted
+methods. The Host carrier still uses the existing account membership, pinned Host identity, Noise
+channel, and adaptive transport. CodeX is disabled by default and requires explicit Host-local allowed
+roots. Real encrypted cross-machine turn/approval testing is still pending; Android is outside the
+current Plugin-only scope.
 
 ```yaml
 ds-harness-remote:

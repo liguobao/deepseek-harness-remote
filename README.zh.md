@@ -113,20 +113,19 @@ Host 上的 Remote 插件
 Harness 会话、工具和 Workspace
 ```
 
-## 实验性 Codex Session 视图
+## 实验性 Codex 虚拟工作区
 
-Codex 支持仍是同一个 Remote Plugin 内的可选独立业务领域。它复用现有账号 membership、Host
-identity 固定、Noise 安全通道和自适应传输，但不会把 Codex Thread 转换成 Harness Session。
-Host 通过 stdio 启动本机官方 Codex App Server，只在独立的 `codex.app.*` namespace 中开放固定的
-Thread/Turn 白名单。Codex 默认关闭，并且必须由 Host 本机显式配置允许访问的根目录。
+Codex 是同一个 Remote Plugin 内的可选独立领域。连接 Host 后，原有 Remote 工作区选择器可以同时
+展示 CodeX 工作目录。选中后，Plugin 会把现有 DSH Workspace/Session 数据面切换到内存虚拟载体：
+CodeX Thread 以 Session 形式出现，History 与实时 frame 被投影成 DSH 原生 Session 事件。界面仍由
+DSH 原生工作区列表、Conversation Renderer、Composer、工具卡片和审批组件负责，不再提供独立
+CodeX 页面。
 
-目前已实现 Host carrier、受限 History 分块、按连接隔离的事件/审批、共享 Client Core 投影，以及
-Desktop Plugin Web 视图。该视图支持 Thread 分页、新建、改名、归档/恢复、持久化 History 与实时
-Item 更新、文本 Prompt、停止 Turn、单次审批，以及 stream 或 App Server 恢复后的 baseline 重建。
-单纯打开 History 只读 `thread/read`，继续发送时才会 `thread/resume`。Host 使用有界指数退避
-重启，并且不会重放 mutation。当前 App Server 的 stdio/list/read 已完成真实冒烟验证，测试也已
-覆盖本机真实 thread/start、流式 Turn、完成后 History 回读和归档清理；加密跨机
-turn/approval 联调仍待完成。Android 不属于当前仅 Plugin 的交付范围。
+这只是展示适配，不是导入。虚拟 Workspace/Session 不会写入 DSH SessionStore、工作区存储或
+Harness 日志；CodeX App Server 始终是唯一数据源，新建、改名、归档、Prompt、停止和审批操作都
+路由回其白名单方法。Host carrier 继续复用账号 membership、Host identity 固定、Noise 安全通道和
+自适应传输。Codex 默认关闭，并要求 Host 本机显式配置允许根目录。加密跨机 turn/approval 联调仍
+待完成；Android 不属于当前 Plugin-only 范围。
 
 ```yaml
 ds-harness-remote:

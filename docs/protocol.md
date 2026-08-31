@@ -644,8 +644,9 @@ Plugin Host 的业务路由只接受 capability 对应的官方 Harness tunnel�
 `harness.transport.describe` capability 探测；旧 Host 对此返回 `METHOD_NOT_FOUND`。
 此外只允许在
 `fileviewer.read.v1` capability 下的 `fileviewer.call`。可选 Codex 领域仍属于同一个 Remote Plugin，
-但使用独立的 `codex.appserver.v1` / `codex.appserver.transfer.v1` capability、`codex.app.*` RPC
-和 event namespace，不得伪装成 Harness Session carrier。
+但在线上仍使用独立的 `codex.appserver.v1` / `codex.appserver.transfer.v1` capability、
+`codex.app.*` RPC 和 event namespace；只有认证 Client Plugin 内的临时展示 target 可以把它包装成
+原生 Harness Session carrier，Host 与 Server 不得伪造或持久化 Harness Session。
 旧 `system.info`、`workspace.get`、`sessions.*`、`session.*`、
 `permissions.respond`、`connection.ping` 与 `sync.from` 已退出 Plugin 协议，Host 必须返回
 `METHOD_NOT_FOUND`。Android 旧原型不是兼容目标。
@@ -1149,13 +1150,19 @@ Host 必须调用 `fileViewerHost` 服务，让被选中的 File Viewer provider
 
 ### Codex App Server domain
 
-Codex 是现有 Remote Plugin 内部的可选独立业务领域，不是第二个 Plugin，也不是 Harness
-Session adapter。Host 本机配置 `codex.enabled: true` 且至少一个绝对 `allowedRoots` 后，Plugin
+Codex 是现有 Remote Plugin 内部的可选独立业务领域，不是第二个 Plugin。Host 本机配置
+`codex.enabled: true` 且至少一个绝对 `allowedRoots` 后，Plugin
 才可使用配置的 `codex.binary` 启动 `codex app-server`。Plugin 与 App Server 只使用默认 stdio
 JSONL；App Server 不监听 Remote/公网端口。初始化、账户状态和 canonical root policy 全部成功后，
 Host 才宣告 `codex.appserver.v1` 与 `codex.appserver.transfer.v1`。
 当 `codex.binary` 保持默认值时，macOS Host 可以优先发现 ChatGPT App 内置 Codex 后再回退到
 `PATH`；用户显式配置的 binary 不得被替换或补充候选项。
+
+Client Plugin 可在用户从 Remote 工作区选择器进入 CodeX 模式后，将已认证的 `codex.app.*`
+carrier 包装成临时 rc.2 `ApiProxy` 或 alpha Typert target。该 target 只在内存中把 CodeX 工作目录、
+Thread、History/live frame 映射为 DSH 原生 Workspace/Session/Event，使原生 Conversation Renderer
+和 Composer 可以消费；它不是新的线协议，也不得把虚拟记录写入 DSH SessionStore、Workspace
+数据库或 Harness 日志。退出 CodeX 模式或连接关闭时必须销毁 target 和全部 stream。
 
 业务 RPC 固定为：
 
@@ -1475,7 +1482,7 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 12. 日志禁止记录 token、code 明文、key、prompt、source、workspace 和 tool output。
 13. Admin 无法从数据库或 API 获取 E2EE conversation。
 14. 未协商 capability 的功能不得调用或展示为可用。
-15. Codex Thread 继续归 Codex App Server 所有；Remote 只能投影显示，不得写入或伪装成 Harness Session。
+15. Codex Thread 继续归 Codex App Server 所有；Remote 可在 Client Plugin 内临时伪装为原生 Workspace/Session/Event 供展示与操作，但不得写入 DSH SessionStore、Workspace 数据库或 Harness 日志。
 
 ## 26. Conformance 测试
 

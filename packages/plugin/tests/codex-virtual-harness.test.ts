@@ -1,0 +1,193 @@
+import { describe, expect, it, vi } from 'vitest'
+import {
+  CodexVirtualHarness,
+  discoverCodexVirtualWorkspaces,
+} from '../src/codex/virtual-harness.js'
+
+describe('CodexVirtualHarness', () => {
+  it('groups visible CodeX threads into virtual DSH workspaces and sessions', async () => {
+    const client = fakeCodex()
+
+    const workspaces = await discoverCodexVirtualWorkspaces(client)
+    expect(workspaces).toHaveLength(1)
+    expect(workspaces[0]).toMatchObject({
+      path: '/workspace/repo',
+      title: 'CodeX · repo',
+      sessionIds: ['codex:thr_1'],
+      sessionCount: 1,
+    })
+
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const result = await target.dispatch('session/list', { args: {} }, new AbortController().signal)
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        items: [{
+          sessionId: 'codex:thr_1',
+          running: false,
+          blank: false,
+          cwd: '/workspace/repo',
+          projections: { values: { title: 'Native renderer' } },
+        }],
+      },
+    })
+    await target.close()
+  })
+
+  it('projects persisted CodeX history and live frames into native session events', async () => {
+    const client = fakeCodex()
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const controller = new AbortController()
+    const source = await target.open('session/follow', {
+      args: { request: { address: { kind: 'session', sessionId: 'codex:thr_1' } } },
+    }, controller.signal)
+    const iterator = source[Symbol.asyncIterator]()
+
+    const snapshot = await iterator.next()
+    expect(snapshot.value).toMatchObject({
+      type: 'snapshot',
+      header: { id: 'codex:thr_1', cwd: '/workspace/repo' },
+      records: [
+        { event: { type: 'turn/start', seq: 0 } },
+        { event: { type: 'step/start', seq: 1 } },
+        { event: { type: 'user/message', seq: 2, data: { content: [{ type: 'text', text: 'Use native UI' }] } } },
+        { event: { type: 'assistant/message', seq: 3 } },
+        { event: { type: 'tool/call', seq: 4 } },
+        { event: { type: 'tool/result', seq: 5 } },
+        { event: { type: 'step/end', seq: 6 } },
+        { event: { type: 'turn/end', seq: 7 } },
+      ],
+    })
+    expect(JSON.stringify(snapshot.value)).not.toContain('private diff body')
+
+    client.emit('thr_1', {
+      method: 'turn/started',
+      params: { turn: { id: 'turn_2', status: 'inProgress', items: [] } },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { type: 'event', event: { type: 'turn/start', seq: 8 } } })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { type: 'event', event: { type: 'step/start', seq: 9 } } })
+
+    client.emit('thr_1', {
+      method: 'item/agentMessage/delta',
+      params: { turnId: 'turn_2', itemId: 'assistant_2', delta: 'Streaming' },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: 'event', event: { type: 'assistant/chunk', data: { chunk: { type: 'block-start' } } } },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: 'event', event: { type: 'assistant/chunk', data: { chunk: { type: 'text-delta', text: 'Streaming' } } } },
+    })
+
+    controller.abort()
+    await iterator.return?.()
+    await target.close()
+  })
+
+  it('routes the native composer prompt back to CodeX resume and turn/start', async () => {
+    const client = fakeCodex()
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const result = await target.dispatch('session/prompt', {
+      args: {
+        request: {
+          sessionId: 'codex:thr_1',
+          requestId: 'rpc-1',
+          content: [{ type: 'text', text: 'Continue here' }],
+        },
+      },
+    }, new AbortController().signal)
+
+    expect(result).toEqual({ ok: true, value: { accepted: true } })
+    expect(client.request).toHaveBeenCalledWith('thread/resume', { threadId: 'thr_1' }, expect.any(AbortSignal))
+    expect(client.request).toHaveBeenCalledWith('turn/start', {
+      threadId: 'thr_1',
+      input: [{ type: 'text', text: 'Continue here' }],
+    }, expect.any(AbortSignal))
+    await target.close()
+  })
+
+  it('attaches rc.2 live updates when the native client reads session history', async () => {
+    const client = fakeCodex()
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const controller = new AbortController()
+    const iterator = target.api.events.mux(
+      { rpcId: 'mux-1' as never, payload: {} },
+      controller.signal,
+    )[Symbol.asyncIterator]()
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { payload: { type: 'session/subscribed', sessionId: 'codex:thr_1' } },
+    })
+    await target.dispatch('session/history', {
+      args: { request: { sessionId: 'codex:thr_1' } },
+    }, controller.signal)
+
+    client.emit('thr_1', {
+      method: 'turn/started',
+      params: { turn: { id: 'turn_2', status: 'inProgress', items: [] } },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { payload: { type: 'session/event', sessionId: 'codex:thr_1', event: { type: 'turn/start', seq: 8 } } },
+    })
+
+    controller.abort()
+    await iterator.return?.()
+    await target.close()
+  })
+})
+
+function fakeCodex(): {
+  request: ReturnType<typeof vi.fn>
+  subscribe: ReturnType<typeof vi.fn>
+  respond: ReturnType<typeof vi.fn>
+  emit(threadId: string, frame: { method: string; params: unknown }): void
+} {
+  const subscribers = new Map<string, Set<(frame: { method: string; params: unknown }) => void>>()
+  const thread = {
+    id: 'thr_1',
+    name: 'Native renderer',
+    cwd: '/workspace/repo',
+    createdAt: 1_700_000_000,
+    updatedAt: 1_700_000_100,
+    status: { type: 'idle' },
+    turns: [{
+      id: 'turn_1',
+      status: 'completed',
+      createdAt: 1_700_000_000,
+      updatedAt: 1_700_000_100,
+      items: [
+        { id: 'user_1', type: 'userMessage', content: [{ type: 'text', text: 'Use native UI' }] },
+        { id: 'assistant_1', type: 'agentMessage', text: 'Done.', status: 'completed' },
+        {
+          id: 'files_1',
+          type: 'fileChange',
+          status: 'completed',
+          changes: [{ path: 'src/native.ts', kind: { type: 'update' }, diff: 'private diff body' }],
+        },
+      ],
+    }],
+  }
+  const request = vi.fn(async (method: string) => {
+    if (method === 'thread/list') return { data: [thread] }
+    if (method === 'thread/read') return { thread }
+    if (method === 'thread/resume') return { thread }
+    if (method === 'turn/start') return { turn: { id: 'turn_2', status: 'inProgress', items: [] } }
+    return {}
+  })
+  const subscribe = vi.fn(async (
+    threadId: string,
+    onFrame: (frame: { method: string; params: unknown }) => void,
+  ) => {
+    const listeners = subscribers.get(threadId) ?? new Set()
+    listeners.add(onFrame)
+    subscribers.set(threadId, listeners)
+    return { close: vi.fn(async () => { listeners.delete(onFrame) }) }
+  })
+  return {
+    request,
+    subscribe,
+    respond: vi.fn(async () => undefined),
+    emit(threadId, frame) {
+      for (const listener of subscribers.get(threadId) ?? []) listener(frame)
+    },
+  }
+}

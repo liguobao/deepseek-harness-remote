@@ -165,8 +165,8 @@ var util;
     return void 0;
   };
   util2.isInteger = typeof Number.isInteger === "function" ? (val) => Number.isInteger(val) : (val) => typeof val === "number" && Number.isFinite(val) && Math.floor(val) === val;
-  function joinValues(array, separator = " | ") {
-    return array.map((val) => typeof val === "string" ? `'${val}'` : val).join(separator);
+  function joinValues(array2, separator = " | ") {
+    return array2.map((val) => typeof val === "string" ? `'${val}'` : val).join(separator);
   }
   util2.joinValues = joinValues;
   util2.jsonStringifyReplacer = (_, value) => {
@@ -6626,7 +6626,7 @@ function hexToBytes(hex) {
   const al = hl / 2;
   if (hl % 2)
     throw new Error("hex string expected, got unpadded hex of length " + hl);
-  const array = new Uint8Array(al);
+  const array2 = new Uint8Array(al);
   for (let ai = 0, hi = 0; ai < al; ai++, hi += 2) {
     const n1 = asciiToBase16(hex.charCodeAt(hi));
     const n2 = asciiToBase16(hex.charCodeAt(hi + 1));
@@ -6634,9 +6634,9 @@ function hexToBytes(hex) {
       const char = hex[hi] + hex[hi + 1];
       throw new Error('hex string expected, got non-hex character "' + char + '" at index ' + hi);
     }
-    array[ai] = n1 * 16 + n2;
+    array2[ai] = n1 * 16 + n2;
   }
-  return array;
+  return array2;
 }
 function utf8ToBytes(str) {
   if (typeof str !== "string")
@@ -9343,7 +9343,7 @@ function hexToBytes2(hex) {
   const al = hl / 2;
   if (hl % 2)
     throw new RangeError("hex string expected, got unpadded hex of length " + hl);
-  const array = new Uint8Array(al);
+  const array2 = new Uint8Array(al);
   for (let ai = 0, hi = 0; ai < al; ai++, hi += 2) {
     const n1 = asciiToBase162(hex.charCodeAt(hi));
     const n2 = asciiToBase162(hex.charCodeAt(hi + 1));
@@ -9351,9 +9351,9 @@ function hexToBytes2(hex) {
       const char = hex[hi] + hex[hi + 1];
       throw new RangeError('hex string expected, got non-hex character "' + char + '" at index ' + hi);
     }
-    array[ai] = n1 * 16 + n2;
+    array2[ai] = n1 * 16 + n2;
   }
-  return array;
+  return array2;
 }
 function concatBytes2(...arrays) {
   let sum = 0;
@@ -10540,8 +10540,8 @@ function validateMSMScalars2(scalars, field, maxScalar) {
   if (!Array.isArray(scalars))
     throw new Error("array of scalars expected");
   scalars.forEach((s2, i) => {
-    const ok3 = maxScalar === void 0 ? field.isValid(s2) : isPosBig2(s2) && s2 < maxScalar;
-    if (!ok3)
+    const ok4 = maxScalar === void 0 ? field.isValid(s2) : isPosBig2(s2) && s2 < maxScalar;
+    if (!ok4)
       throw new Error("invalid scalar at index " + i);
   });
 }
@@ -14118,11 +14118,11 @@ function routeStreamEvent2(event, streamId, queue) {
   const data = event.data;
   if (data.streamId !== streamId) return;
   if (data.reason === "failed") {
-    const failure = data.failure;
+    const failure2 = data.failure;
     queue.fail(remoteFailure({
-      code: typeof failure?.code === "string" ? failure.code : "internal",
-      message: typeof failure?.message === "string" ? failure.message : "The remote Harness stream failed.",
-      details: isRecord2(failure?.details) ? failure.details : {}
+      code: typeof failure2?.code === "string" ? failure2.code : "internal",
+      message: typeof failure2?.message === "string" ? failure2.message : "The remote Harness stream failed.",
+      details: isRecord2(failure2?.details) ? failure2.details : {}
     }));
   } else {
     queue.close();
@@ -14139,11 +14139,11 @@ function parseRpcResult(value) {
     error: { code: value.error.code, message: value.error.message, details: value.error.details }
   };
 }
-function remoteFailure(failure) {
-  return Object.assign(new Error(failure.message), {
+function remoteFailure(failure2) {
+  return Object.assign(new Error(failure2.message), {
     isDSHRemoteError: true,
-    code: failure.code,
-    details: failure.details
+    code: failure2.code,
+    details: failure2.details
   });
 }
 function bytesToBase643(bytes) {
@@ -14171,6 +14171,1003 @@ function isRecord2(value) {
 function hasErrorCode(error, code) {
   return error instanceof Error && "code" in error && error.code === code;
 }
+
+// src/codex/virtual-harness.ts
+var CODEX_SESSION_PREFIX = "codex:";
+var CODEX_WORKSPACE_PREFIX = "codex-workspace:";
+var CODEX_PROVIDER = "codex";
+var CODEX_MODEL = "codex";
+var CODEX_PAGE_LIMIT = 100;
+var MAX_CODEX_PAGES = 32;
+async function discoverCodexVirtualWorkspaces(client, signal) {
+  return (await loadCatalog(client, signal)).workspaces;
+}
+var CodexVirtualHarness = class _CodexVirtualHarness {
+  constructor(client, host) {
+    this.client = client;
+    this.host = host;
+    this.api = this.createApiProxy();
+  }
+  api;
+  catalog;
+  workspaceStreams = /* @__PURE__ */ new Set();
+  controlStreams = /* @__PURE__ */ new Set();
+  eventStreams = /* @__PURE__ */ new Map();
+  rcMuxStreams = /* @__PURE__ */ new Set();
+  rcHostStreams = /* @__PURE__ */ new Set();
+  follows = /* @__PURE__ */ new Set();
+  pendingRequestIds = /* @__PURE__ */ new Map();
+  pendingApprovals = /* @__PURE__ */ new Map();
+  closed = false;
+  static remote(core, host) {
+    return new _CodexVirtualHarness(new CodexRemoteClient(core), host);
+  }
+  async workspaces(signal) {
+    return (await this.refreshCatalog(signal)).workspaces;
+  }
+  async invoke(request) {
+    const result = await this.dispatch(
+      `${request.namespace}/${request.method}`,
+      { args: request.args },
+      request.signal ?? new AbortController().signal
+    );
+    if (result.ok) return result.value;
+    throw Object.assign(new Error(result.error.message), {
+      isDSHRemoteError: true,
+      code: result.error.code,
+      details: result.error.details
+    });
+  }
+  async dispatch(endpoint, payload, signal) {
+    try {
+      const args = carrierArgs(payload);
+      switch (endpoint) {
+        case "$events/result":
+          return business(await this.answerRemoteEvent(args, signal));
+        case "workspace/list":
+          return business(success({
+            items: (await this.refreshCatalog(signal)).workspaces.map(nativeWorkspace),
+            archivedSessionIds: (await this.currentCatalog(signal)).sessions.filter((item) => item.archived).map((item) => item.id)
+          }));
+        case "workspace/create":
+          return business(await this.createWorkspace(requestArg(args), signal));
+        case "workspace/rename":
+          return business(await this.renameWorkspace(requestArg(args)));
+        case "workspace/delete":
+          return business(failure("workspace-read-only", "CodeX virtual Workspaces cannot be deleted."));
+        case "workspace/insertBefore":
+          return business({ workspaceIds: (await this.currentCatalog(signal)).workspaces.map((item) => item.workspaceId) });
+        case "workspace/insertSessionBefore":
+          return business(await this.workspaceForSession(requestArg(args), signal));
+        case "workspace/archiveSession":
+          return business(await this.archiveSession(requestArg(args), signal));
+        case "session/list":
+          return business(success({ items: await this.sessionSummaries(signal) }));
+        case "session/search":
+          return business(success({ items: [], hasMore: false }));
+        case "session/create":
+          return business(await this.createSession(requestArg(args), signal));
+        case "session/fork":
+          return business(await this.forkSession(requestArg(args), signal));
+        case "session/history":
+          return business(await this.sessionHistory(requestArg(args), signal));
+        case "session/page":
+          return business(success({ records: [], hasMore: false }));
+        case "session/prompt":
+          return business(await this.prompt(requestArg(args), signal));
+        case "session/cancel":
+          return business(await this.cancel(requestArg(args), signal));
+        case "session/rename":
+          return business(await this.renameSession(requestArg(args), signal));
+        case "session/updateQueue":
+          return business(failure("queue-item-not-found", "CodeX does not expose a DSH inbox queue."));
+        case "session/attachment":
+          return business(failure("attachment-error", "CodeX virtual Sessions do not expose DSH attachments."));
+        case "session/modelCatalog":
+          return business(success(modelCatalog()));
+        case "session/models":
+          return business(success({
+            current: modelSelection(),
+            routable: true,
+            groups: modelGroups(),
+            failures: []
+          }));
+        case "session/selectModel":
+          return business(success({ selected: modelSelection() }));
+        case "session/canOpenWorkspacePath":
+          return business(false);
+        case "session/openWorkspacePath":
+          return business(failure("bad-request", "Opening Host paths is unavailable in CodeX mode."));
+        case "skills/list":
+          return business(success({ items: [] }));
+        default:
+          return fail("method-not-found", `CodeX virtual Harness does not implement ${endpoint}.`);
+      }
+    } catch (error) {
+      return failFrom(error);
+    }
+  }
+  async open(endpoint, payload, signal) {
+    const args = carrierArgs(payload);
+    if (endpoint === "workspace/follow") return this.workspaceFollow(signal);
+    if (endpoint === "session/control") return this.sessionControl(signal);
+    if (endpoint === "session/follow") return this.sessionFollow(requestArg(args), signal);
+    if (endpoint === "$events") return this.remoteEvents(signal);
+    throw Object.assign(new Error(`CodeX virtual Harness does not implement stream ${endpoint}.`), {
+      isDSHRemoteError: true,
+      code: "method-not-found",
+      details: {}
+    });
+  }
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    for (const stream of this.workspaceStreams) stream.close();
+    for (const stream of this.controlStreams) stream.close();
+    for (const stream of this.eventStreams.values()) stream.close();
+    for (const stream of this.rcMuxStreams) stream.close();
+    for (const stream of this.rcHostStreams) stream.close();
+    this.workspaceStreams.clear();
+    this.controlStreams.clear();
+    this.eventStreams.clear();
+    this.rcMuxStreams.clear();
+    this.rcHostStreams.clear();
+    const follows = [...this.follows];
+    this.follows.clear();
+    for (const follow of follows) {
+      follow.queue.close();
+      await follow.close?.().catch(() => void 0);
+    }
+    this.pendingApprovals.clear();
+    this.pendingRequestIds.clear();
+  }
+  async refreshCatalog(signal) {
+    const catalog = await loadCatalog(this.client, signal);
+    this.catalog = catalog;
+    return catalog;
+  }
+  async currentCatalog(signal) {
+    return this.catalog ?? this.refreshCatalog(signal);
+  }
+  async sessionSummaries(signal) {
+    const catalog = await this.refreshCatalog(signal);
+    return catalog.sessions.map((session) => ({
+      sessionId: session.id,
+      updatedAt: session.updatedAt,
+      running: session.status === "running" || session.status === "waiting",
+      blank: false,
+      ...session.cwd === void 0 ? {} : { cwd: session.cwd },
+      projections: {
+        asOfSeq: 0,
+        values: {
+          title: displayTitle(session),
+          sessionListMetadata: { blank: false, lastPromptAt: session.updatedAt || null }
+        }
+      }
+    }));
+  }
+  async workspaceFollow(signal) {
+    const queue = new AsyncValueQueue2(signal);
+    this.workspaceStreams.add(queue);
+    const catalog = await this.refreshCatalog(signal);
+    queue.push({
+      type: "baseline",
+      value: {
+        items: catalog.workspaces.map(nativeWorkspace),
+        archivedSessionIds: catalog.sessions.filter((item) => item.archived).map((item) => item.id)
+      }
+    });
+    return queue.iterate(() => this.workspaceStreams.delete(queue));
+  }
+  async sessionControl(signal) {
+    const queue = new AsyncValueQueue2(signal);
+    this.controlStreams.add(queue);
+    queue.push({ type: "baseline", value: { queues: {}, jobs: {}, projections: {} } });
+    return queue.iterate(() => this.controlStreams.delete(queue));
+  }
+  async remoteEvents(signal) {
+    const queue = new AsyncValueQueue2(signal);
+    const clientId = `codex-events:${this.host.deviceId}:${Date.now().toString(36)}`;
+    this.eventStreams.set(clientId, queue);
+    const home = (await this.currentCatalog(signal)).workspaces[0]?.path ?? "/";
+    queue.push({ type: "ready", clientId, host: { home } });
+    return queue.iterate(() => this.eventStreams.delete(clientId));
+  }
+  async sessionFollow(request, signal) {
+    const sessionId = sessionIdFromAddress(record(request.address));
+    const threadId = nativeThreadId(sessionId);
+    const raw = await this.readThread(threadId, signal);
+    const history = nativeHistory(raw, sessionId);
+    const queue = new AsyncValueQueue2(signal);
+    const follow = {
+      sessionId,
+      threadId,
+      queue,
+      nextSeq: history.lastSeq + 1,
+      turn: history.nextTurn,
+      stepOpen: false,
+      startedItems: /* @__PURE__ */ new Set(),
+      completedItems: /* @__PURE__ */ new Set(),
+      assistantBlocks: /* @__PURE__ */ new Set(),
+      requestId: this.pendingRequestIds.get(sessionId)
+    };
+    this.follows.add(follow);
+    queue.push({
+      type: "snapshot",
+      header: history.header,
+      cursor: history.lastSeq,
+      records: history.entries,
+      hasMore: false,
+      projections: {
+        asOfSeq: history.lastSeq,
+        values: {
+          title: threadTitle(raw),
+          sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: lastPromptAt(raw) }
+        }
+      }
+    });
+    try {
+      const stream = await this.client.subscribe(threadId, (frame) => this.acceptCodexFrame(follow, frame), signal);
+      follow.close = () => stream.close();
+    } catch (error) {
+      this.follows.delete(follow);
+      queue.close();
+      throw error;
+    }
+    return queue.iterate(() => {
+      this.follows.delete(follow);
+      void follow.close?.().catch(() => void 0);
+    });
+  }
+  acceptCodexFrame(follow, frame) {
+    const params = record(frame.params);
+    if (frame.method === "turn/started") {
+      const turn = record(params.turn);
+      follow.turn += 1;
+      follow.activeTurnId = string(turn.id);
+      follow.requestId = this.pendingRequestIds.get(follow.sessionId);
+      follow.stepOpen = true;
+      this.pushEvent(follow, "turn/start", { turn: follow.turn });
+      this.pushEvent(follow, "step/start", { turn: follow.turn, step: 1 });
+      this.emitRemoteEvent("api-session/status", [follow.sessionId, true]);
+      for (const item of array(turn.items)) this.acceptCompletedItem(follow, record(item), false);
+      return;
+    }
+    if (frame.method === "item/started" || frame.method === "item/completed") {
+      const item = record(params.item);
+      const itemId = string(item.id);
+      if (frame.method === "item/started" && itemId !== void 0) follow.startedItems.add(itemId);
+      if (frame.method === "item/completed") this.acceptCompletedItem(follow, item, true);
+      return;
+    }
+    if (frame.method === "item/agentMessage/delta") {
+      const itemId = string(params.itemId) ?? `assistant:${follow.turn}`;
+      const delta = string(params.delta);
+      if (delta === void 0) return;
+      if (!follow.assistantBlocks.has(itemId)) {
+        follow.assistantBlocks.add(itemId);
+        this.pushEvent(follow, "assistant/chunk", {
+          turn: follow.turn,
+          step: 1,
+          chunk: { type: "block-start", index: 0, blockType: "text" }
+        });
+      }
+      this.pushEvent(follow, "assistant/chunk", {
+        turn: follow.turn,
+        step: 1,
+        chunk: { type: "text-delta", index: 0, text: delta }
+      });
+      return;
+    }
+    if (frame.method === "turn/completed") {
+      const turn = record(params.turn);
+      for (const item of array(turn.items)) this.acceptCompletedItem(follow, record(item), true);
+      if (follow.stepOpen) {
+        this.pushEvent(follow, "step/end", { turn: follow.turn, step: 1 });
+        follow.stepOpen = false;
+      }
+      this.pushEvent(follow, "turn/end", {
+        turn: follow.turn,
+        reason: turn.status === "failed" || turn.error !== void 0 && turn.error !== null ? { kind: "error", error: { message: "CodeX turn failed.", code: "codex-turn-failed" } } : { kind: "completed" }
+      });
+      this.emitRemoteEvent("api-session/status", [follow.sessionId, false]);
+      this.emitRemoteEvent("api-session/activity", [follow.sessionId, Date.now()]);
+      follow.activeTurnId = void 0;
+      this.pendingRequestIds.delete(follow.sessionId);
+      void this.refreshAndPublishWorkspaces();
+      return;
+    }
+    if (frame.method === "item/commandExecution/requestApproval" || frame.method === "item/fileChange/requestApproval") {
+      const requestHandle = string(params.requestHandle);
+      if (requestHandle === void 0) return;
+      const command = commandText(params.command);
+      this.pendingApprovals.set(requestHandle, { requestHandle, sessionId: follow.sessionId });
+      this.emitApproval({
+        eventId: requestHandle,
+        agentId: follow.sessionId,
+        request: {
+          toolName: frame.method.includes("fileChange") ? "CodeX file change" : "CodeX command",
+          ...command === void 0 ? {} : { reason: command }
+        }
+      });
+    }
+  }
+  acceptCompletedItem(follow, item, settleAssistant) {
+    const itemId = string(item.id) ?? `item:${follow.nextSeq}`;
+    if (follow.completedItems.has(itemId)) return;
+    const type = string(item.type);
+    if (type === "agentMessage" && !settleAssistant) return;
+    follow.completedItems.add(itemId);
+    for (const event of itemEvents(item, follow.turn, 1, follow.requestId)) {
+      this.pushEvent(follow, event.type, event.data);
+    }
+  }
+  pushEvent(follow, type, data) {
+    const event = { type, seq: follow.nextSeq++, time: Date.now(), data };
+    if (!follow.rcOnly) follow.queue.push({
+      type: "event",
+      event
+    });
+    this.broadcastRcMux({ type: "session/event", sessionId: follow.sessionId, event });
+  }
+  emitRemoteEvent(event, args) {
+    for (const queue of this.eventStreams.values()) queue.push({ type: "emit", event, args });
+    const sessionId = typeof args[0] === "string" ? args[0] : void 0;
+    if (event === "api-session/status" && sessionId !== void 0 && typeof args[1] === "boolean") {
+      this.broadcastRcHost({ type: "host/session-status", sessionId, running: args[1] });
+    } else if (event === "api-session/added" && isRecord3(args[0])) {
+      const summary = args[0];
+      this.broadcastRcHost({
+        type: "host/session-added",
+        sessionId: summary.sessionId,
+        blank: summary.blank === true,
+        ...typeof summary.cwd === "string" ? { cwd: summary.cwd } : {}
+      });
+    }
+  }
+  emitApproval(input2) {
+    for (const queue of this.eventStreams.values()) queue.push({
+      type: "waterfall",
+      event: "approval/request",
+      eventId: input2.eventId,
+      agentId: input2.agentId,
+      request: input2.request
+    });
+    this.broadcastRcMux({
+      type: "approval/requested",
+      sessionId: input2.agentId,
+      approvalId: input2.eventId,
+      toolName: string(input2.request.toolName) ?? "CodeX",
+      ...typeof input2.request.reason === "string" ? { reason: input2.request.reason } : {}
+    }, input2.eventId);
+  }
+  async answerRemoteEvent(args, signal) {
+    const eventId = string(args.eventId);
+    const outcome = record(args.outcome);
+    if (eventId === void 0) throw new Error("The CodeX approval result is missing its event id.");
+    const pending = this.pendingApprovals.get(eventId);
+    if (pending === void 0) return void 0;
+    this.pendingApprovals.delete(eventId);
+    const decision = outcome.kind === "result" && outcome.value === "allowed-once" ? "accept" : outcome.kind === "result" && outcome.value === "cancelled" ? "cancel" : "decline";
+    await this.client.respond(pending.requestHandle, decision, signal);
+    return void 0;
+  }
+  async createWorkspace(request, signal) {
+    const path = string(request.path);
+    if (path === void 0 || path.trim() === "") return failure("bad-request", "A CodeX working directory is required.");
+    const catalog = await this.currentCatalog(signal);
+    const existing = catalog.workspaces.find((item) => item.path === path);
+    if (existing !== void 0) return success({ workspace: nativeWorkspace(existing), created: false });
+    return failure("workspace-not-found", "The selected directory is not visible to CodeX Remote.");
+  }
+  async renameWorkspace(request) {
+    return failure("workspace-read-only", `CodeX virtual Workspace ${string(request.workspaceId) ?? ""} cannot be renamed.`);
+  }
+  async workspaceForSession(request, signal) {
+    const sessionId = string(request.sessionId);
+    const catalog = await this.currentCatalog(signal);
+    const workspace = catalog.workspaces.find((item) => sessionId !== void 0 && item.sessionIds.includes(sessionId));
+    return workspace === void 0 ? failure("workspace-not-found", "The CodeX virtual Workspace was not found.") : success({ workspace: nativeWorkspace(workspace) });
+  }
+  async archiveSession(request, signal) {
+    const sessionId = requiredString(request.sessionId, "sessionId");
+    await this.client.request("thread/archive", { threadId: nativeThreadId(sessionId) }, signal);
+    const catalog = await this.refreshCatalog(signal);
+    this.publishWorkspaceBaseline(catalog);
+    return success({ archivedSessionIds: [sessionId] });
+  }
+  async createSession(request, signal) {
+    const catalog = await this.currentCatalog(signal);
+    const workspaceId = string(request.workspaceId);
+    const cwd = workspaceId === void 0 ? string(request.cwd) : catalog.workspaces.find((item) => item.workspaceId === workspaceId)?.path;
+    if (cwd === void 0) return failure("workspace-not-found", "The CodeX virtual Workspace was not found.");
+    const result = record(await this.client.request("thread/start", { cwd }, signal));
+    const thread = record(result.thread);
+    const projected = projectCodexThread(thread);
+    if (projected === void 0) return failure("internal", "CodeX returned an invalid Thread.");
+    await this.refreshAndPublishWorkspaces();
+    this.emitRemoteEvent("api-session/added", [{
+      sessionId: projected.id,
+      updatedAt: projected.updatedAt,
+      running: false,
+      blank: true,
+      ...projected.cwd === void 0 ? {} : { cwd: projected.cwd }
+    }]);
+    return success({ sessionId: projected.id });
+  }
+  async forkSession(request, signal) {
+    const sessionId = requiredString(request.sessionId, "sessionId");
+    const result = record(await this.client.request("thread/fork", { threadId: nativeThreadId(sessionId) }, signal));
+    const projected = projectCodexThread(record(result.thread));
+    if (projected === void 0) return failure("internal", "CodeX returned an invalid forked Thread.");
+    await this.refreshAndPublishWorkspaces();
+    return success({ sessionId: projected.id });
+  }
+  async prompt(request, signal) {
+    const sessionId = requiredString(request.sessionId, "sessionId");
+    const content = array(request.content);
+    const texts = content.map(record).filter((part) => part.type === "text").map((part) => string(part.text) ?? "");
+    if (texts.length === 0 || content.some((part) => record(part).type !== "text")) {
+      return failure("attachment-error", "CodeX virtual Sessions currently accept text prompts only.");
+    }
+    const threadId = nativeThreadId(sessionId);
+    await this.ensureRcFollow(sessionId);
+    await this.client.request("thread/resume", { threadId }, signal);
+    this.pendingRequestIds.set(sessionId, string(request.requestId) ?? "");
+    const mode = request.mode === "steer" ? "turn/steer" : "turn/start";
+    if (mode === "turn/steer") {
+      const active = this.activeTurnId(threadId);
+      if (active === void 0) return failure("steer-unavailable", "The CodeX Thread has no active turn to steer.");
+      await this.client.request(mode, { threadId, expectedTurnId: active, input: [{ type: "text", text: texts.join("\n") }] }, signal);
+    } else {
+      await this.client.request(mode, { threadId, input: [{ type: "text", text: texts.join("\n") }] }, signal);
+    }
+    return success({ accepted: true });
+  }
+  async cancel(request, signal) {
+    const sessionId = requiredString(request.sessionId, "sessionId");
+    const threadId = nativeThreadId(sessionId);
+    const turnId = this.activeTurnId(threadId);
+    if (turnId !== void 0) await this.client.request("turn/interrupt", { threadId, turnId }, signal);
+    return success({ accepted: true });
+  }
+  async renameSession(request, signal) {
+    const sessionId = requiredString(request.sessionId, "sessionId");
+    const title = requiredString(request.title, "title");
+    await this.client.request("thread/name/set", { threadId: nativeThreadId(sessionId), name: title }, signal);
+    const seq = Date.now();
+    for (const queue of this.controlStreams) queue.push({ type: "projection", sessionId, key: "title", value: title, seq });
+    await this.refreshAndPublishWorkspaces();
+    return success({ title, seq });
+  }
+  activeTurnId(threadId) {
+    for (const follow of this.follows) if (follow.threadId === threadId && follow.stepOpen) return follow.activeTurnId;
+    return void 0;
+  }
+  async readThread(threadId, signal) {
+    const result = record(await this.client.request("thread/read", { threadId, includeTurns: true }, signal));
+    const thread = record(result.thread);
+    if (string(thread.id) !== threadId) throw new Error("CodeX returned an invalid Thread history.");
+    return thread;
+  }
+  async sessionHistory(request, signal) {
+    const sessionId = requiredString(request.sessionId, "sessionId");
+    const thread = await this.readThread(nativeThreadId(sessionId), signal);
+    const history = nativeHistory(thread, sessionId);
+    await this.ensureRcFollow(sessionId, thread);
+    return success({
+      events: history.entries.map((entry) => ({ event: entry.event })),
+      hasMore: false,
+      projections: {
+        asOfSeq: history.lastSeq,
+        values: {
+          title: threadTitle(thread),
+          sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: null }
+        }
+      }
+    });
+  }
+  async ensureRcFollow(sessionId, seedThread) {
+    if (this.followsHas(sessionId)) return;
+    const threadId = nativeThreadId(sessionId);
+    const stale = [...this.follows].filter((follow2) => follow2.rcOnly && follow2.sessionId !== sessionId);
+    for (const follow2 of stale) {
+      this.follows.delete(follow2);
+      follow2.queue.close();
+      await follow2.close?.().catch(() => void 0);
+    }
+    const history = nativeHistory(seedThread ?? await this.readThread(threadId), sessionId);
+    const controller = new AbortController();
+    const follow = {
+      sessionId,
+      threadId,
+      queue: new AsyncValueQueue2(controller.signal),
+      nextSeq: history.lastSeq + 1,
+      turn: history.nextTurn,
+      stepOpen: false,
+      startedItems: /* @__PURE__ */ new Set(),
+      completedItems: /* @__PURE__ */ new Set(),
+      assistantBlocks: /* @__PURE__ */ new Set(),
+      requestId: this.pendingRequestIds.get(sessionId),
+      rcOnly: true
+    };
+    this.follows.add(follow);
+    try {
+      const stream = await this.client.subscribe(threadId, (frame) => this.acceptCodexFrame(follow, frame), controller.signal);
+      follow.close = async () => {
+        controller.abort();
+        await stream.close();
+      };
+    } catch (error) {
+      this.follows.delete(follow);
+      controller.abort();
+      follow.queue.close();
+      throw error;
+    }
+  }
+  followsHas(sessionId) {
+    for (const follow of this.follows) if (follow.sessionId === sessionId) return true;
+    return false;
+  }
+  async refreshAndPublishWorkspaces() {
+    const catalog = await this.refreshCatalog().catch(() => void 0);
+    if (catalog !== void 0) this.publishWorkspaceBaseline(catalog);
+  }
+  publishWorkspaceBaseline(catalog) {
+    for (const queue of this.workspaceStreams) {
+      for (const workspace of catalog.workspaces) queue.push({ type: "upsert", workspace: nativeWorkspace(workspace) });
+      queue.push({ type: "archived", archivedSessionIds: catalog.sessions.filter((item) => item.archived).map((item) => item.id) });
+    }
+  }
+  createApiProxy() {
+    const call = (endpoint) => async (request, signal) => {
+      const payload = endpoint === "session.prompt" && isRecord3(request.payload) ? { ...request.payload, requestId: String(request.rpcId) } : request.payload;
+      const result = await this.dispatch(rcEndpoint(endpoint), { args: { request: payload } }, signal ?? new AbortController().signal);
+      return {
+        rpcId: request.rpcId,
+        result: result.ok ? success(result.value) : failure(result.error.code, result.error.message, result.error.details)
+      };
+    };
+    return {
+      sessions: {
+        list: call("session.list"),
+        search: call("session.search"),
+        create: call("session.create"),
+        history: call("session.history"),
+        models: call("session.modelCatalog"),
+        selectModel: call("session.selectModel"),
+        rename: call("session.rename"),
+        fork: call("session.fork"),
+        prompt: call("session.prompt"),
+        attachment: call("session.attachment"),
+        updateQueue: call("session.updateQueue"),
+        cancel: call("session.cancel")
+      },
+      workspace: {
+        list: call("workspace.list"),
+        create: call("workspace.create"),
+        rename: call("workspace.rename"),
+        delete: call("workspace.delete"),
+        insertBefore: call("workspace.insertBefore"),
+        insertSessionBefore: call("workspace.insertSessionBefore"),
+        archiveSession: call("workspace.archiveSession")
+      },
+      subagents: {},
+      host: {},
+      skills: { list: call("skills.list") },
+      agentPresets: {},
+      goals: {},
+      settings: {},
+      credentials: {},
+      llm: {},
+      events: {
+        mux: ((request, signal) => this.rcMux(request, signal)),
+        host: ((request, signal) => this.rcHost(request, signal))
+      },
+      downloads: {},
+      respond: async (message) => {
+        const pending = this.pendingApprovals.get(String(message.rpcId));
+        if (pending === void 0) return { accepted: false, reason: "not-pending" };
+        const result = message.result;
+        const outcome = result.ok ? result.value : void 0;
+        const decision = outcome === "allowed-once" ? "accept" : outcome === "cancelled" ? "cancel" : "decline";
+        await this.client.respond(pending.requestHandle, decision);
+        this.pendingApprovals.delete(pending.requestHandle);
+        return { accepted: true };
+      }
+    };
+  }
+  async *rcMux(request, signal) {
+    const queue = new AsyncValueQueue2(signal);
+    this.rcMuxStreams.add(queue);
+    const catalog = await this.currentCatalog(signal);
+    for (const session of catalog.sessions) queue.push({
+      rpcId: `${String(request.rpcId)}:${session.id}:subscribed`,
+      payload: { type: "session/subscribed", sessionId: session.id, lastSeq: -1 }
+    });
+    try {
+      yield* queue;
+    } finally {
+      this.rcMuxStreams.delete(queue);
+      queue.close();
+    }
+  }
+  async *rcHost(_request, signal) {
+    const queue = new AsyncValueQueue2(signal);
+    this.rcHostStreams.add(queue);
+    try {
+      yield* queue;
+    } finally {
+      this.rcHostStreams.delete(queue);
+      queue.close();
+    }
+  }
+  broadcastRcMux(payload, rpcId = `codex-mux:${Date.now()}:${Math.random()}`) {
+    for (const queue of this.rcMuxStreams) queue.push({ rpcId, payload });
+  }
+  broadcastRcHost(payload) {
+    const frame = { rpcId: `codex-host:${Date.now()}:${Math.random()}`, payload };
+    for (const queue of this.rcHostStreams) queue.push(frame);
+  }
+};
+async function loadCatalog(client, signal) {
+  const threads = [];
+  let cursor2;
+  for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
+    const result = record(await client.request("thread/list", {
+      limit: CODEX_PAGE_LIMIT,
+      sortKey: "updated_at",
+      sortDirection: "desc",
+      archived: false,
+      ...cursor2 === void 0 ? {} : { cursor: cursor2 }
+    }, signal));
+    for (const value of array(result.data)) {
+      const thread = record(value);
+      if (string(thread.id) !== void 0) threads.push(thread);
+    }
+    cursor2 = typeof result.nextCursor === "string" && result.nextCursor.length > 0 ? result.nextCursor : void 0;
+    if (cursor2 === void 0) break;
+  }
+  const sessions = threads.map(projectCodexThread).filter((value) => value !== void 0);
+  const workspaceByPath = /* @__PURE__ */ new Map();
+  for (const session of sessions) {
+    if (session.cwd === void 0 || session.cwd.length === 0) continue;
+    const current = workspaceByPath.get(session.cwd);
+    const createdAt = new Date(session.createdAt || Date.now()).toISOString();
+    const updatedAt = new Date(session.updatedAt || session.createdAt || Date.now()).toISOString();
+    if (current === void 0) {
+      workspaceByPath.set(session.cwd, {
+        workspaceId: `${CODEX_WORKSPACE_PREFIX}${hashString(session.cwd)}`,
+        path: session.cwd,
+        title: `CodeX \xB7 ${basename(session.cwd)}`,
+        sessionIds: [session.id],
+        sessionCount: 1,
+        createdAt,
+        updatedAt
+      });
+    } else {
+      current.sessionIds.push(session.id);
+      current.sessionCount += 1;
+      if (createdAt < current.createdAt) current.createdAt = createdAt;
+      if (updatedAt > current.updatedAt) current.updatedAt = updatedAt;
+    }
+  }
+  return { threads, sessions, workspaces: [...workspaceByPath.values()] };
+}
+function nativeHistory(thread, sessionId) {
+  const entries = [];
+  let seq = 0;
+  let turnNumber = 0;
+  const append = (type, data, time = Date.now()) => {
+    entries.push({ type: "event", event: { type, seq: seq++, time, data } });
+  };
+  for (const rawTurn of array(thread.turns)) {
+    const turn = record(rawTurn);
+    turnNumber += 1;
+    const time = normalizeTime(turn.createdAt) || normalizeTime(thread.createdAt) || Date.now();
+    append("turn/start", { turn: turnNumber }, time);
+    append("step/start", { turn: turnNumber, step: 1 }, time);
+    for (const rawItem of array(turn.items)) {
+      const item = record(rawItem);
+      for (const event of itemEvents(item, turnNumber, 1)) append(event.type, event.data, normalizeTime(item.createdAt) || time);
+    }
+    append("step/end", { turn: turnNumber, step: 1 }, normalizeTime(turn.updatedAt) || time);
+    append("turn/end", {
+      turn: turnNumber,
+      reason: turn.status === "failed" || turn.error !== void 0 && turn.error !== null ? { kind: "error", error: { message: "CodeX turn failed.", code: "codex-turn-failed" } } : { kind: "completed" }
+    }, normalizeTime(turn.updatedAt) || time);
+  }
+  const projected = projectCodexThread(thread);
+  return {
+    header: {
+      version: 1,
+      id: sessionId,
+      createdAt: projected?.createdAt ?? Date.now(),
+      ...projected?.cwd === void 0 ? {} : { cwd: projected.cwd }
+    },
+    entries,
+    lastSeq: seq - 1,
+    nextTurn: turnNumber
+  };
+}
+function itemEvents(item, turn, step, requestId) {
+  const type = string(item.type);
+  const id2 = string(item.id) ?? `${turn}:${step}:${hashString(JSON.stringify(item))}`;
+  const text = itemText2(item);
+  if (type === "userMessage") return [{
+    type: "user/message",
+    data: {
+      id: id2,
+      role: "user",
+      content: [{ type: "text", text: text ?? "" }],
+      source: requestId === void 0 || requestId === "" ? { kind: "user" } : { kind: "user", rpcId: requestId }
+    }
+  }];
+  if (type === "agentMessage" || type === "reasoning" || type === "plan") return [{
+    type: "assistant/message",
+    data: {
+      turn,
+      step,
+      message: {
+        id: id2,
+        role: "assistant",
+        content: [{ type: type === "reasoning" ? "reasoning" : "text", text: text ?? "" }],
+        source: { kind: "model", provider: CODEX_PROVIDER, model: CODEX_MODEL }
+      }
+    }
+  }];
+  if (type === "commandExecution" || type === "mcpToolCall" || type === "dynamicToolCall" || type === "fileChange") {
+    const name2 = type === "fileChange" ? "codex.fileChange" : type === "commandExecution" ? "codex.command" : `codex.${type}`;
+    const resultText = type === "fileChange" ? fileChangeSummary(item) : text ?? itemText2(record(item.result)) ?? type;
+    return [
+      { type: "tool/call", data: { turn, step, callId: id2, name: name2, arguments: JSON.stringify(toolArguments(item)) } },
+      {
+        type: "tool/result",
+        data: {
+          turn,
+          step,
+          message: {
+            id: `${id2}:result`,
+            role: "user",
+            content: [{
+              type: "tool-result",
+              toolCallId: id2,
+              content: [{ type: "text", text: resultText }],
+              ...item.status === "failed" ? { isError: true } : {}
+            }],
+            source: { kind: "tool", callId: id2 }
+          }
+        }
+      }
+    ];
+  }
+  if (type === "error") return [{
+    type: "assistant/message",
+    data: {
+      turn,
+      step,
+      message: {
+        id: id2,
+        role: "assistant",
+        content: [{ type: "text", text: text ?? "CodeX reported an error." }],
+        source: { kind: "model", provider: CODEX_PROVIDER, model: CODEX_MODEL }
+      }
+    }
+  }];
+  return [];
+}
+function nativeWorkspace(view) {
+  const { sessionCount: _sessionCount, ...workspace } = view;
+  return workspace;
+}
+function modelSelection() {
+  return { provider: CODEX_PROVIDER, model: CODEX_MODEL };
+}
+function modelCatalog() {
+  return {
+    default: modelSelection(),
+    routableProviders: [CODEX_PROVIDER],
+    groups: modelGroups(),
+    failures: []
+  };
+}
+function modelGroups() {
+  return [{ id: CODEX_PROVIDER, name: "CodeX", models: [{ id: CODEX_MODEL, name: "CodeX" }] }];
+}
+function displayTitle(session) {
+  const value = session.title ?? session.preview;
+  return value === void 0 || value.trim() === "" ? null : value.slice(0, 256);
+}
+function threadTitle(thread) {
+  return displayTitle(projectCodexThread(thread) ?? {
+    id: "",
+    backend: "codex",
+    nativeId: "",
+    createdAt: 0,
+    updatedAt: 0,
+    status: "idle"
+  });
+}
+function lastPromptAt(thread) {
+  let value = 0;
+  for (const turn of array(thread.turns).map(record)) {
+    for (const item of array(turn.items).map(record)) {
+      if (item.type === "userMessage") value = Math.max(value, normalizeTime(item.createdAt));
+    }
+  }
+  return value || null;
+}
+function itemText2(value) {
+  if (typeof value.text === "string") return value.text;
+  if (typeof value.content === "string") return value.content;
+  if (Array.isArray(value.content)) {
+    const text = value.content.map((part) => {
+      const block = record(part);
+      return string(block.text) ?? string(block.content) ?? "";
+    }).filter(Boolean).join("\n");
+    if (text !== "") return text;
+  }
+  if (Array.isArray(value.summary)) return value.summary.filter((item) => typeof item === "string").join("\n");
+  if (typeof value.output === "string") return value.output;
+  if (typeof value.aggregatedOutput === "string") return value.aggregatedOutput;
+  return void 0;
+}
+function toolArguments(item) {
+  if (item.type === "commandExecution") return { command: commandText(item.command) ?? item.command ?? "" };
+  if (item.type === "fileChange") return {
+    changes: array(item.changes).map((value) => {
+      const change = record(value);
+      const kind = typeof change.kind === "string" ? change.kind : string(record(change.kind).type);
+      return {
+        ...typeof change.path === "string" ? { path: change.path } : {},
+        ...kind === void 0 ? {} : { kind }
+      };
+    })
+  };
+  return { name: item.name ?? item.tool ?? item.type ?? "tool", arguments: item.arguments ?? item.input ?? {} };
+}
+function fileChangeSummary(item) {
+  const changes = array(item.changes).map((value) => {
+    const change = record(value);
+    const path = string(change.path);
+    const kind = typeof change.kind === "string" ? change.kind : string(record(change.kind).type);
+    return [kind, path].filter((part) => part !== void 0 && part.length > 0).join(" ");
+  }).filter(Boolean);
+  return changes.length === 0 ? "File changes completed." : changes.join("\n");
+}
+function commandText(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.filter((item) => typeof item === "string").join(" ");
+  const source = record(value);
+  return string(source.command) ?? string(source.text);
+}
+function sessionIdFromAddress(address) {
+  if (address.kind === "session") return requiredString(address.sessionId, "sessionId");
+  return requiredString(address.childSessionId, "childSessionId");
+}
+function nativeThreadId(sessionId) {
+  if (!sessionId.startsWith(CODEX_SESSION_PREFIX) || sessionId.length === CODEX_SESSION_PREFIX.length) {
+    throw new Error("The selected Session does not belong to CodeX.");
+  }
+  return sessionId.slice(CODEX_SESSION_PREFIX.length);
+}
+function carrierArgs(payload) {
+  return record(record(payload).args);
+}
+function requestArg(args) {
+  return record(args.request ?? args._request ?? args);
+}
+function rcEndpoint(endpoint) {
+  if (endpoint === "workspace.list") return "workspace/list";
+  return endpoint.replace(".", "/");
+}
+function success(value) {
+  return { ok: true, value };
+}
+function failure(code, message, details = {}) {
+  return { ok: false, error: { code, message, details } };
+}
+function ok(value) {
+  return value === void 0 ? { ok: true } : { ok: true, value };
+}
+function business(value) {
+  const result = record(value);
+  if (result.ok === true) return ok(result.value);
+  if (result.ok === false) {
+    const error = record(result.error);
+    return fail(string(error.code) ?? "internal", string(error.message) ?? "CodeX virtual Harness rejected the request.", record(error.details));
+  }
+  return ok(value);
+}
+function fail(code, message, details = {}) {
+  return { ok: false, error: { code, message, details } };
+}
+function failFrom(error) {
+  const source = error instanceof Error ? error : new Error(String(error));
+  return fail("internal", source.message);
+}
+function record(value) {
+  return isRecord3(value) ? value : {};
+}
+function isRecord3(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function array(value) {
+  return Array.isArray(value) ? value : [];
+}
+function string(value) {
+  return typeof value === "string" ? value : void 0;
+}
+function requiredString(value, field) {
+  if (typeof value !== "string" || value.length === 0) throw new Error(`The CodeX ${field} is required.`);
+  return value;
+}
+function normalizeTime(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 0;
+  return value < 1e10 ? Math.floor(value * 1e3) : Math.floor(value);
+}
+function basename(path) {
+  const normalized = path.replace(/[\\/]+$/u, "");
+  const parts = normalized.split(/[\\/]/u);
+  return parts.at(-1) || path;
+}
+function hashString(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+var AsyncValueQueue2 = class {
+  constructor(signal) {
+    this.signal = signal;
+    this.onAbort = () => this.close();
+    signal.addEventListener("abort", this.onAbort, { once: true });
+    if (signal.aborted) this.close();
+  }
+  values = [];
+  waiters = [];
+  closed = false;
+  onAbort;
+  push(value) {
+    if (this.closed) return;
+    const waiter = this.waiters.shift();
+    if (waiter === void 0) this.values.push(value);
+    else waiter({ done: false, value });
+  }
+  close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.signal.removeEventListener("abort", this.onAbort);
+    for (const waiter of this.waiters.splice(0)) waiter({ done: true, value: void 0 });
+  }
+  iterate(dispose) {
+    const queue = this;
+    return {
+      async *[Symbol.asyncIterator]() {
+        try {
+          yield* queue;
+        } finally {
+          dispose();
+          queue.close();
+        }
+      }
+    };
+  }
+  async *[Symbol.asyncIterator]() {
+    while (true) {
+      if (this.values.length > 0) {
+        yield this.values.shift();
+        continue;
+      }
+      if (this.closed) return;
+      const next = await new Promise((resolve2) => this.waiters.push(resolve2));
+      if (next.done) return;
+      yield next.value;
+    }
+  }
+};
 
 // src/server-api.ts
 import { platform } from "node:os";
@@ -14777,7 +15774,7 @@ var TypertGatewaySwitch = class {
     if (normalized !== void 0) return normalized;
     const source = error instanceof Error ? error : new Error("The Harness Gateway rejected the request.");
     const code = "code" in source && typeof source.code === "string" ? source.code : "internal";
-    const details = "details" in source && isRecord3(source.details) ? source.details : {};
+    const details = "details" in source && isRecord4(source.details) ? source.details : {};
     return { code, message: source.message, details };
   }
 };
@@ -14786,7 +15783,7 @@ function requestFromCarrier(endpoint, payload, signal) {
   if (segments.length !== 2 || segments.some((segment) => segment.length === 0)) {
     throw new Error("The Harness Gateway endpoint is invalid.");
   }
-  if (!isRecord3(payload) || !isRecord3(payload.args)) {
+  if (!isRecord4(payload) || !isRecord4(payload.args)) {
     throw new Error("The Harness Gateway payload is invalid.");
   }
   return { namespace: segments[0], method: segments[1], args: payload.args, signal };
@@ -14801,7 +15798,7 @@ function isLocalOnlyEndpoint(endpoint) {
 function isRemoteCommandMethod(method) {
   return REMOTE_COMMAND_METHODS.includes(method);
 }
-function isRecord3(value) {
+function isRecord4(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -15886,6 +16883,7 @@ var ClientModeRuntime = class {
   identity;
   connected;
   pendingWorkspaceSelection;
+  codexVirtual;
   proxySwitch;
   gatewaySwitch;
   codexStreams = /* @__PURE__ */ new Map();
@@ -15920,6 +16918,7 @@ var ClientModeRuntime = class {
       preferredTransports: this.config.forceRelay ? ["relay"] : ["lan", "p2p", "turn", "relay"],
       remoteFeatures: this.connected?.features ?? remoteHostFeatures(),
       ...this.pendingWorkspaceSelection === void 0 ? {} : { workspaceSelection: { ...this.pendingWorkspaceSelection } },
+      backend: this.codexVirtual === void 0 ? "harness" : "codex",
       hostAuthorizationAvailable: this.host !== void 0,
       ...this.host === void 0 ? {} : { host: this.host.hostStatus() }
     };
@@ -15986,6 +16985,7 @@ var ClientModeRuntime = class {
     const previous = this.connected;
     this.connected = void 0;
     this.pendingWorkspaceSelection = void 0;
+    await this.closeCodexVirtual();
     this.proxySwitch?.selectLocal();
     this.gatewaySwitch.selectLocal();
     await this.closeCodexStreams(previous?.client);
@@ -16006,6 +17006,7 @@ var ClientModeRuntime = class {
   }
   async setMode(mode, targetDeviceId, signal) {
     if (mode === "local") {
+      await this.closeCodexVirtual();
       this.proxySwitch?.selectLocal();
       this.gatewaySwitch.selectLocal();
       const previous2 = this.connected;
@@ -16029,6 +17030,7 @@ var ClientModeRuntime = class {
     const previous = this.connected;
     this.connected = next;
     this.pendingWorkspaceSelection = void 0;
+    await this.closeCodexVirtual();
     this.selectRemoteTarget(next);
     await this.closeCodexStreams(previous?.client);
     await previous?.client.close().catch(() => void 0);
@@ -16086,15 +17088,53 @@ var ClientModeRuntime = class {
       });
       workspace = unwrapNativeResult(response);
     }
+    await this.closeCodexVirtual();
     this.selectRemoteTarget(remote);
     const workspaceId = workspaceRecordId(workspace.workspace);
     this.pendingWorkspaceSelection = { targetDeviceId: remote.target.deviceId, workspaceId };
     this.logger.info("Remote workspace opened", { targetDeviceId: shortId(remote.target.deviceId) });
     return { ...this.status(), workspace };
   }
+  async listCodexWorkspaces(targetDeviceId, signal) {
+    const remote = await this.ensureConnected(targetDeviceId, signal);
+    remote.features = await probeRemoteHostFeatures(remote.client, remote.clientVersion);
+    if (!remote.features.codex) {
+      throw new ClientModeError("FEATURE_NOT_SUPPORTED", "The selected Host does not provide CodeX workspaces.");
+    }
+    return discoverCodexVirtualWorkspaces(new CodexRemoteClient(remote.client), signal);
+  }
+  async openCodexWorkspace(targetDeviceId, workspaceId, signal) {
+    const remote = await this.ensureConnected(targetDeviceId, signal);
+    remote.features = await probeRemoteHostFeatures(remote.client, remote.clientVersion);
+    if (!remote.features.codex) {
+      throw new ClientModeError("FEATURE_NOT_SUPPORTED", "The selected Host does not provide CodeX workspaces.");
+    }
+    this.assertRemoteCompatible(remote);
+    const virtual = CodexVirtualHarness.remote(remote.client, {
+      deviceId: remote.target.deviceId,
+      name: remote.target.name
+    });
+    const workspaces = await virtual.workspaces(signal);
+    const workspace = workspaces.find((item) => item.workspaceId === workspaceId);
+    if (workspace === void 0) {
+      await virtual.close();
+      throw new ClientModeError("WORKSPACE_NOT_FOUND", "The selected CodeX workspace is no longer available.");
+    }
+    await this.closeCodexVirtual();
+    this.codexVirtual = virtual;
+    this.selectCodexTarget(virtual, remote);
+    this.pendingWorkspaceSelection = {
+      targetDeviceId: remote.target.deviceId,
+      workspaceId,
+      backend: "codex",
+      ...workspace.sessionIds[0] === void 0 ? {} : { sessionId: workspace.sessionIds[0] }
+    };
+    this.logger.info("CodeX virtual workspace opened", { targetDeviceId: shortId(remote.target.deviceId) });
+    return { ...this.status(), workspace };
+  }
   consumeWorkspaceSelection(selection) {
     const pending = this.pendingWorkspaceSelection;
-    if (pending?.targetDeviceId === selection.targetDeviceId && pending.workspaceId === selection.workspaceId) {
+    if (pending?.targetDeviceId === selection.targetDeviceId && pending.workspaceId === selection.workspaceId && (pending.backend ?? "harness") === (selection.backend ?? "harness")) {
       this.pendingWorkspaceSelection = void 0;
     }
     return this.status();
@@ -16105,6 +17145,7 @@ var ClientModeRuntime = class {
     this.proxySwitch?.selectLocal();
     this.gatewaySwitch.selectLocal();
     this.pendingWorkspaceSelection = void 0;
+    await this.closeCodexVirtual();
     await this.closeCodexStreams(this.connected?.client);
     await this.connected?.client.close().catch(() => void 0);
     this.connected = void 0;
@@ -16134,7 +17175,7 @@ var ClientModeRuntime = class {
   }
   async openCodexStream(payload, signal) {
     const remote = this.activeCodexRemote();
-    const value = record(payload);
+    const value = record2(payload);
     if (typeof value.streamId !== "string" || value.streamId.length === 0 || value.streamId.length > 128 || typeof value.threadId !== "string" || value.threadId.length === 0) {
       throw new ClientModeError("INVALID_MESSAGE", "A Codex stream and thread are required.");
     }
@@ -16166,10 +17207,10 @@ var ClientModeRuntime = class {
       }
     }
     stream.unsubscribe = remote.client.onEvent((event) => {
-      if (event.event === "codex.app.frame" && isRecord4(event.data) && event.data.streamId === value.streamId) {
+      if (event.event === "codex.app.frame" && isRecord5(event.data) && event.data.streamId === value.streamId) {
         this.appendCodexFrame(stream, event.data);
       }
-      if (event.event === "codex.app.stream.closed" && isRecord4(event.data) && event.data.streamId === value.streamId) {
+      if (event.event === "codex.app.stream.closed" && isRecord5(event.data) && event.data.streamId === value.streamId) {
         stream.closed = typeof event.data.reason === "string" ? event.data.reason : "closed";
         stream.wake();
       }
@@ -16196,7 +17237,7 @@ var ClientModeRuntime = class {
     stream.wake();
   };
   appendCodexFrame(stream, data) {
-    if (!isRecord4(data) || !isRecord4(data.frame) || typeof data.frame.method !== "string") return;
+    if (!isRecord5(data) || !isRecord5(data.frame) || typeof data.frame.method !== "string") return;
     if (stream.frames.length >= 256) {
       stream.closed = "overflow";
     } else {
@@ -16219,7 +17260,7 @@ var ClientModeRuntime = class {
     };
   }
   async nextCodexFrames(payload, signal) {
-    const value = record(payload);
+    const value = record2(payload);
     if (typeof value.streamId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Codex stream is required.");
     const stream = this.codexStreams.get(value.streamId);
     if (stream === void 0) throw new ClientModeError("STREAM_NOT_FOUND", "The Codex stream is not open.");
@@ -16233,7 +17274,7 @@ var ClientModeRuntime = class {
     };
   }
   async closeCodexStream(payload) {
-    const value = record(payload);
+    const value = record2(payload);
     if (typeof value.streamId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Codex stream is required.");
     const stream = this.codexStreams.get(value.streamId);
     if (stream === void 0) return { closed: false, streamId: value.streamId };
@@ -16264,6 +17305,20 @@ var ClientModeRuntime = class {
       execute: true,
       list: remote.features.commandList
     }, target);
+  }
+  selectCodexTarget(virtual, remote) {
+    const target = { deviceId: remote.target.deviceId, name: remote.target.name };
+    if (this.gatewaySwitch.supportsCarrier()) {
+      this.gatewaySwitch.selectRemote(virtual, void 0, target);
+      return;
+    }
+    this.proxySwitch.selectRemote(virtual.api, target);
+    this.gatewaySwitch.selectRemote((request) => virtual.invoke(request), { execute: false, list: false }, target);
+  }
+  async closeCodexVirtual() {
+    const virtual = this.codexVirtual;
+    this.codexVirtual = void 0;
+    await virtual?.close();
   }
   assertRemoteCompatible(remote) {
     const localRemoteGateway = this.gatewaySwitch.supportsCarrier();
@@ -16349,6 +17404,7 @@ var ClientModeRuntime = class {
         if (this.connected?.client !== connectedClient) return;
         this.connected = void 0;
         this.pendingWorkspaceSelection = void 0;
+        void this.closeCodexVirtual();
         this.proxySwitch?.selectLocal();
         this.gatewaySwitch.selectLocal();
         void connectedClient.close().catch(() => void 0);
@@ -16395,74 +17451,88 @@ var ClientModeRuntime = class {
   }
   async handleControl(endpoint, payload, signal) {
     try {
-      if (endpoint === "status") return ok(await this.detailedStatus());
-      if (endpoint === "devices") return ok(await this.devices());
+      if (endpoint === "status") return ok2(await this.detailedStatus());
+      if (endpoint === "devices") return ok2(await this.devices());
       if (endpoint === "client.account.login") {
-        const value = record(payload);
+        const value = record2(payload);
         if (typeof value.email !== "string" || typeof value.password !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
         }
-        return ok(await this.authorizeClientWithAccount(value.email, value.password));
+        return ok2(await this.authorizeClientWithAccount(value.email, value.password));
       }
       if (endpoint === "client.account.qr.start") {
-        const value = record(payload);
+        const value = record2(payload);
         const provider = value.provider ?? "zhihu";
         if (provider !== "zhihu" && provider !== "github") {
           throw new ClientModeError("INVALID_MESSAGE", "A supported OAuth provider is required.");
         }
-        return ok(await this.startClientOAuthQrLogin(provider));
+        return ok2(await this.startClientOAuthQrLogin(provider));
       }
       if (endpoint === "client.account.qr.poll") {
-        const value = record(payload);
+        const value = record2(payload);
         if (typeof value.qrId !== "string" || value.qrId.length < 20) {
           throw new ClientModeError("INVALID_MESSAGE", "A QR login session is required.");
         }
-        return ok(await this.pollClientOAuthQrLogin(value.qrId));
+        return ok2(await this.pollClientOAuthQrLogin(value.qrId));
       }
       if (endpoint === "directory.list") {
-        const value = record(payload);
+        const value = record2(payload);
         if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
-        return ok(await this.listRemoteDirectory(
+        return ok2(await this.listRemoteDirectory(
           value.targetDeviceId,
           typeof value.path === "string" ? value.path : void 0,
           signal
         ));
       }
       if (endpoint === "workspaces.list") {
-        const value = record(payload);
+        const value = record2(payload);
         if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
-        return ok(await this.listRemoteWorkspaces(value.targetDeviceId, signal));
+        return ok2(await this.listRemoteWorkspaces(value.targetDeviceId, signal));
+      }
+      if (endpoint === "codex.workspaces.list") {
+        const value = record2(payload);
+        if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
+        return ok2(await this.listCodexWorkspaces(value.targetDeviceId, signal));
       }
       if (endpoint === "workspace.open") {
-        const value = record(payload);
+        const value = record2(payload);
         if (typeof value.targetDeviceId !== "string" || typeof value.path !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "A Host and working directory are required.");
         }
-        return ok(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal));
+        return ok2(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal));
+      }
+      if (endpoint === "codex.workspace.open") {
+        const value = record2(payload);
+        if (typeof value.targetDeviceId !== "string" || typeof value.workspaceId !== "string") {
+          throw new ClientModeError("INVALID_MESSAGE", "A Host and CodeX Workspace are required.");
+        }
+        return ok2(await this.openCodexWorkspace(value.targetDeviceId, value.workspaceId, signal));
       }
       if (endpoint === "workspace.selection.consume") {
-        const value = record(payload);
+        const value = record2(payload);
         if (typeof value.targetDeviceId !== "string" || typeof value.workspaceId !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "A Host and Workspace are required.");
         }
-        return ok(this.consumeWorkspaceSelection({
+        return ok2(this.consumeWorkspaceSelection({
           targetDeviceId: value.targetDeviceId,
-          workspaceId: value.workspaceId
+          workspaceId: value.workspaceId,
+          ...value.backend === "codex" ? { backend: "codex" } : {},
+          ...typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}
         }));
       }
       if (endpoint === "fileviewer.stat" || endpoint === "fileviewer.readRange" || endpoint === "fileviewer.list") {
         const method = endpoint === "fileviewer.stat" ? "stat" : endpoint === "fileviewer.readRange" ? "readRange" : "list";
-        return ok(await this.callRemoteFileViewer(method, payload, signal));
+        return ok2(await this.callRemoteFileViewer(method, payload, signal));
       }
       if (endpoint === "codex.call") {
-        const value = record(payload);
+        const value = record2(payload);
         if (typeof value.method !== "string" || !("params" in value)) {
           throw new ClientModeError("INVALID_MESSAGE", "A Codex method and params are required.");
         }
         const remote = this.activeCodexRemote();
-        if (remote !== void 0) return ok(await new CodexRemoteClient(remote.client).request(value.method, value.params, signal));
+        if (remote !== void 0) return ok2(await new CodexRemoteClient(remote.client).request(value.method, value.params, signal));
         const host = this.requireLocalCodex();
-        return ok(await host.codexCall(value, signal));
+        return ok2(await host.codexCall(value, signal));
       }
       if (endpoint === "codex.probe") {
         const local = this.localCodexAvailable();
@@ -16476,49 +17546,49 @@ var ClientModeRuntime = class {
             if (!local) throw error;
           }
         }
-        return ok({ supported: local || remoteSupported, local, remote: remoteSupported });
+        return ok2({ supported: local || remoteSupported, local, remote: remoteSupported });
       }
       if (endpoint === "codex.respond") {
-        const value = record(payload);
+        const value = record2(payload);
         const remote = this.activeCodexRemote();
-        if (remote !== void 0) return ok(await remote.client.rpc("codex.app.respond", value, signal));
+        if (remote !== void 0) return ok2(await remote.client.rpc("codex.app.respond", value, signal));
         const host = this.requireLocalCodex();
-        return ok(await host.codexRespond(value, signal));
+        return ok2(await host.codexRespond(value, signal));
       }
-      if (endpoint === "codex.stream.open") return ok(await this.openCodexStream(payload, signal));
-      if (endpoint === "codex.stream.next") return ok(await this.nextCodexFrames(payload, signal));
-      if (endpoint === "codex.stream.close") return ok(await this.closeCodexStream(payload));
+      if (endpoint === "codex.stream.open") return ok2(await this.openCodexStream(payload, signal));
+      if (endpoint === "codex.stream.next") return ok2(await this.nextCodexFrames(payload, signal));
+      if (endpoint === "codex.stream.close") return ok2(await this.closeCodexStream(payload));
       if (endpoint === "host.account.login") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        const value = record(payload);
+        const value = record2(payload);
         if (typeof value.email !== "string" || typeof value.password !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
         }
-        return ok(await this.host.authorizeHostWithAccount(value.email, value.password));
+        return ok2(await this.host.authorizeHostWithAccount(value.email, value.password));
       }
       if (endpoint === "host.authorization.set") {
-        const value = record(payload);
+        const value = record2(payload);
         if (typeof value.enabled !== "boolean") {
           throw new ClientModeError("INVALID_MESSAGE", "Host authorization state is required.");
         }
-        return ok(await this.setHostAuthorization(value.enabled));
+        return ok2(await this.setHostAuthorization(value.enabled));
       }
       if (endpoint === "host.registration-code.submit") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        const value = record(payload);
+        const value = record2(payload);
         if (typeof value.code !== "string" || value.code.trim() === "") {
           throw new ClientModeError("INVALID_MESSAGE", "A Host registration code is required.");
         }
-        return ok(await this.host.authorizeHostWithCode(value.code));
+        return ok2(await this.host.authorizeHostWithCode(value.code));
       }
       if (endpoint === "mode.set") {
-        const value = record(payload);
+        const value = record2(payload);
         if (value.mode !== "local" && value.mode !== "remote") throw new ClientModeError("INVALID_MESSAGE", "Mode must be local or remote.");
-        return ok(await this.setMode(value.mode, typeof value.targetDeviceId === "string" ? value.targetDeviceId : void 0, signal));
+        return ok2(await this.setMode(value.mode, typeof value.targetDeviceId === "string" ? value.targetDeviceId : void 0, signal));
       }
       throw new ClientModeError("METHOD_NOT_FOUND", "The remote-mode control method does not exist.");
     } catch (error) {
-      return fail(error);
+      return fail2(error);
     }
   }
   requireIdentity() {
@@ -16576,16 +17646,16 @@ function webrtcDiagnosticsLogFields(diagnostics) {
     ...diagnostics.selectedPath === void 0 ? {} : { rtcSelectedPath: diagnostics.selectedPath }
   };
 }
-function record(value) {
+function record2(value) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
   }
   return value;
 }
-function isRecord4(value) {
+function isRecord5(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function ok(value) {
+function ok2(value) {
   return { ok: true, value };
 }
 async function invokeRemoteCommand(client, request) {
@@ -16607,11 +17677,11 @@ async function readRemoteWorkspaceBaseline(gateway, signal) {
   const iterator = source[Symbol.asyncIterator]();
   try {
     const first = await iterator.next();
-    if (first.done || !isRecord4(first.value) || first.value.type !== "baseline" || !isRecord4(first.value.value) || !Array.isArray(first.value.value.items)) {
+    if (first.done || !isRecord5(first.value) || first.value.type !== "baseline" || !isRecord5(first.value.value) || !Array.isArray(first.value.value.items)) {
       throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid Workspace baseline.");
     }
     return first.value.value.items.map((item) => {
-      if (!isRecord4(item) || typeof item.workspaceId !== "string" || typeof item.path !== "string" || typeof item.title !== "string") {
+      if (!isRecord5(item) || typeof item.workspaceId !== "string" || typeof item.path !== "string" || typeof item.title !== "string") {
         throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid Workspace row.");
       }
       return { workspaceId: item.workspaceId, path: item.path, title: item.title };
@@ -16638,7 +17708,7 @@ function workspaceRecordId(value) {
   }
   return value.workspaceId;
 }
-function fail(error) {
+function fail2(error) {
   const source = error instanceof Error ? error : void 0;
   const remoteCode = source !== void 0 && "code" in source && typeof source.code === "string" ? source.code : source instanceof ClientModeError ? source.code : void 0;
   const retryable = source !== void 0 && "retryable" in source && typeof source.retryable === "boolean" ? source.retryable : source instanceof ClientModeError ? source.retryable : false;
@@ -16672,7 +17742,7 @@ async function probeRemoteHostFeatures(client, clientVersion) {
     if (error instanceof Error && "code" in error && error.code === "METHOD_NOT_FOUND") return fallback;
     throw error;
   }
-  if (!isRecord4(value) || !Array.isArray(value.capabilities) || value.capabilities.some((capability) => typeof capability !== "string")) {
+  if (!isRecord5(value) || !Array.isArray(value.capabilities) || value.capabilities.some((capability) => typeof capability !== "string")) {
     throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned invalid transport capabilities.");
   }
   const capabilities = new Set(value.capabilities);
@@ -16790,24 +17860,24 @@ var IdentityStore = class {
     }
     if (!hasDevice) {
       const keys = generateKeyPair();
-      const record3 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
-      await atomicJsonWrite(devicePath, record3, 384);
+      const record4 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
+      await atomicJsonWrite(devicePath, record4, 384);
       await atomicTextWrite(keyPath, `${keys.privateKey}
 `, 384);
     }
     await assertPrivateMode(keyPath);
     try {
-      let record3 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
+      let record4 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
       const privateKey = (await readFile(keyPath, "utf8")).trim();
       const regenerated = generateKeyPair(fromBase64Url2(privateKey));
-      if (regenerated.publicKey !== record3.publicKey) {
+      if (regenerated.publicKey !== record4.publicKey) {
         throw new IdentityInvalidError("device public and private keys do not match");
       }
-      if (record3.name !== deviceName) {
-        record3 = { ...record3, name: deviceName };
-        await atomicJsonWrite(devicePath, record3, 384);
+      if (record4.name !== deviceName) {
+        record4 = { ...record4, name: deviceName };
+        await atomicJsonWrite(devicePath, record4, 384);
       }
-      this.identity = { ...record3, privateKey, fingerprint: fingerprint(record3.publicKey) };
+      this.identity = { ...record4, privateKey, fingerprint: fingerprint(record4.publicKey) };
       await this.loadPeers();
       return this.identity;
     } catch (error) {
@@ -16949,10 +18019,10 @@ var ServerCredentialStore = class {
     return parsed.serverUrl === serverUrl && parsed.deviceId === deviceId ? parsed : void 0;
   }
   async save(credentials) {
-    const record3 = credentialSchema.parse({ schemaVersion: 1, ...credentials });
-    await atomicWrite(this.path, `${JSON.stringify(record3, null, 2)}
+    const record4 = credentialSchema.parse({ schemaVersion: 1, ...credentials });
+    await atomicWrite(this.path, `${JSON.stringify(record4, null, 2)}
 `);
-    return record3;
+    return record4;
   }
   async clear() {
     await rm2(this.path, { force: true });
@@ -17003,46 +18073,46 @@ var PluginControlRuntime = class {
   }
   async handle(endpoint, payload, signal) {
     try {
-      if (endpoint === "settings.get") return ok2(await this.settingsView());
-      if (endpoint === "settings.configure") return ok2(await this.configure(payload));
-      if (endpoint === "settings.server.set") return ok2(await this.setServer(payload));
-      if (endpoint === "settings.role.set") return ok2(await this.setRole(payload));
-      if (endpoint === "settings.logout") return ok2(await this.logout());
+      if (endpoint === "settings.get") return ok3(await this.settingsView());
+      if (endpoint === "settings.configure") return ok3(await this.configure(payload));
+      if (endpoint === "settings.server.set") return ok3(await this.setServer(payload));
+      if (endpoint === "settings.role.set") return ok3(await this.setRole(payload));
+      if (endpoint === "settings.logout") return ok3(await this.logout());
       if (endpoint === "host.reconnect") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
         this.host.reconnectHost();
-        return ok2(this.hostOnlyStatus());
+        return ok3(this.hostOnlyStatus());
       }
       if (this.client !== void 0) return this.client.handleControl(endpoint, payload, signal);
-      if (endpoint === "status") return ok2(this.hostOnlyStatus());
-      if (endpoint === "devices") return ok2([]);
+      if (endpoint === "status") return ok3(this.hostOnlyStatus());
+      if (endpoint === "devices") return ok3([]);
       if (endpoint === "host.account.login") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.email !== "string" || typeof value.password !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
         }
-        return ok2(await this.host.authorizeHostWithAccount(value.email, value.password));
+        return ok3(await this.host.authorizeHostWithAccount(value.email, value.password));
       }
       if (endpoint === "host.registration-code.submit") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.code !== "string" || value.code.trim() === "") {
           throw new ClientModeError("INVALID_MESSAGE", "A Host registration code is required.");
         }
-        return ok2(await this.host.authorizeHostWithCode(value.code));
+        return ok3(await this.host.authorizeHostWithCode(value.code));
       }
-      if (endpoint === "mode.set" && record2(payload).mode === "local") return ok2(this.hostOnlyStatus());
+      if (endpoint === "mode.set" && record3(payload).mode === "local") return ok3(this.hostOnlyStatus());
       throw new ClientModeError("METHOD_NOT_ALLOWED", "Remote Client mode is disabled by the plugin role.");
     } catch (error) {
-      return fail2(error);
+      return fail3(error);
     }
   }
   async configure(payload) {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const value = record2(payload);
+    const value = record3(payload);
     if (value.role !== "host" && value.role !== "client") {
       throw new ClientModeError("INVALID_MESSAGE", "Role must be Host or Client.");
     }
@@ -17077,7 +18147,7 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const value = record2(payload);
+    const value = record3(payload);
     if (typeof value.serverUrl !== "string") {
       throw new ClientModeError("INVALID_MESSAGE", "Server URL is required.");
     }
@@ -17090,7 +18160,7 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const role = record2(payload).role;
+    const role = record3(payload).role;
     if (role !== "host" && role !== "client") {
       throw new ClientModeError("INVALID_MESSAGE", "Role must be Host or Client.");
     }
@@ -17192,17 +18262,17 @@ function editableConfig(config) {
     } : false
   };
 }
-function isRecord5(value) {
+function isRecord6(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function record2(value) {
-  if (!isRecord5(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
+function record3(value) {
+  if (!isRecord6(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
   return value;
 }
-function ok2(value) {
+function ok3(value) {
   return { ok: true, value };
 }
-function fail2(error) {
+function fail3(error) {
   const source = error instanceof Error ? error : void 0;
   const remoteCode = source !== void 0 && "code" in source && typeof source.code === "string" ? source.code : source instanceof ClientModeError ? source.code : void 0;
   return {
@@ -18640,7 +19710,7 @@ function closeCode(code) {
 // src/remote-directory-browser.ts
 import { readdir, stat as stat3 } from "node:fs/promises";
 import { homedir as homedir2, platform as platform2 } from "node:os";
-import { basename, dirname as dirname5, isAbsolute as isAbsolute2, parse, resolve } from "node:path";
+import { basename as basename2, dirname as dirname5, isAbsolute as isAbsolute2, parse, resolve } from "node:path";
 var MAX_ENTRIES = 500;
 async function listRemoteDirectory(path, signal) {
   signal?.throwIfAborted();
@@ -18672,7 +19742,7 @@ function crumbs(path) {
   const segments = [];
   let current = path;
   while (current !== root) {
-    segments.unshift(basename(current));
+    segments.unshift(basename2(current));
     current = dirname5(current);
   }
   for (const segment of segments) {
@@ -19691,7 +20761,7 @@ var HarnessRemoteBridge = class {
   }
   async pump(streamId, source, signal) {
     let reason = "completed";
-    let failure;
+    let failure2;
     try {
       for await (const value of source) {
         if (signal.aborted) break;
@@ -19704,13 +20774,13 @@ var HarnessRemoteBridge = class {
       if (signal.aborted) reason = "cancelled";
     } catch (error) {
       reason = signal.aborted ? "cancelled" : "failed";
-      if (!signal.aborted) failure = this.gateway.failure(error);
+      if (!signal.aborted) failure2 = this.gateway.failure(error);
     } finally {
       this.streams.delete(streamId);
       await this.publish("harness.remote.stream.closed", {
         streamId,
         reason,
-        ...failure === void 0 ? {} : { failure }
+        ...failure2 === void 0 ? {} : { failure: failure2 }
       }).catch(() => void 0);
     }
   }
@@ -19924,7 +20994,7 @@ var CodexAppServerClient = class {
       this.handleProcessFailure("CODEX_INVALID_RESPONSE", new Error("Codex App Server emitted invalid JSON."));
       return;
     }
-    if (!isRecord6(value)) {
+    if (!isRecord7(value)) {
       this.handleProcessFailure("CODEX_INVALID_RESPONSE", new Error("Codex App Server emitted an invalid message."));
       return;
     }
@@ -19969,10 +21039,10 @@ var CodexAppServerClient = class {
   }
 };
 function safeUpstreamError(value) {
-  if (!isRecord6(value) || typeof value.message !== "string") return "Codex App Server rejected the request.";
+  if (!isRecord7(value) || typeof value.message !== "string") return "Codex App Server rejected the request.";
   return value.message.toLowerCase().includes("not initialized") ? "Codex App Server is not initialized." : "Codex App Server rejected the request.";
 }
-function isRecord6(value) {
+function isRecord7(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -20713,12 +21783,12 @@ var CodexRemoteDomain = class {
     return { ...params, cwd: Array.isArray(params.cwd) ? cwd : cwd[0] };
   }
   async filterThreadList(result) {
-    if (!isRecord7(result) || !Array.isArray(result.data)) {
+    if (!isRecord8(result) || !Array.isArray(result.data)) {
       throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread list.");
     }
     const allowed = [];
     for (const value of result.data) {
-      if (!isRecord7(value) || typeof value.id !== "string") continue;
+      if (!isRecord8(value) || typeof value.id !== "string") continue;
       if (await this.requirePathPolicy().allows(value.cwd)) allowed.push(value);
     }
     return { ...result, data: allowed };
@@ -20744,7 +21814,7 @@ var CodexRemoteDomain = class {
     return [...this.peers.values()].some((peer) => peer.hasThreadSubscription(threadId));
   }
   resolveUpstreamApproval(params) {
-    if (!isRecord7(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return;
+    if (!isRecord8(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return;
     for (const [handle, approval] of this.approvals) {
       if (approval.upstreamId === params.requestId) this.approvals.delete(handle);
     }
@@ -20799,24 +21869,24 @@ function codexBinaryCandidates(configured, hostPlatform = process.platform, user
   ])];
 }
 function parseCallEnvelope(input2) {
-  if (!isRecord7(input2) || typeof input2.method !== "string" || !("params" in input2) || Object.keys(input2).some((key) => key !== "method" && key !== "params")) {
+  if (!isRecord8(input2) || typeof input2.method !== "string" || !("params" in input2) || Object.keys(input2).some((key) => key !== "method" && key !== "params")) {
     throw new RpcError("INVALID_MESSAGE", "The Codex call envelope is invalid.");
   }
   return { method: input2.method, params: input2.params };
 }
 function parseRespond(input2) {
-  if (!isRecord7(input2) || typeof input2.requestHandle !== "string" || !["accept", "decline", "cancel"].includes(String(input2.decision)) || Object.keys(input2).some((key) => key !== "requestHandle" && key !== "decision")) {
+  if (!isRecord8(input2) || typeof input2.requestHandle !== "string" || !["accept", "decline", "cancel"].includes(String(input2.decision)) || Object.keys(input2).some((key) => key !== "requestHandle" && key !== "decision")) {
     throw new RpcError("INVALID_MESSAGE", "The Codex approval response is invalid.");
   }
   return input2;
 }
 function accountCanRun(result) {
-  if (!isRecord7(result) || typeof result.requiresOpenaiAuth !== "boolean") return false;
-  return result.requiresOpenaiAuth === false || isRecord7(result.account);
+  if (!isRecord8(result) || typeof result.requiresOpenaiAuth !== "boolean") return false;
+  return result.requiresOpenaiAuth === false || isRecord8(result.account);
 }
 function sanitizeAccount(result) {
-  if (!isRecord7(result)) throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid account state.");
-  const account = isRecord7(result.account) ? result.account : void 0;
+  if (!isRecord8(result)) throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid account state.");
+  const account = isRecord8(result.account) ? result.account : void 0;
   return {
     authenticated: account !== void 0 || result.requiresOpenaiAuth === false,
     requiresOpenaiAuth: result.requiresOpenaiAuth === true,
@@ -20829,17 +21899,17 @@ function sanitizeAccount(result) {
   };
 }
 function extractThread(result) {
-  return isRecord7(result) && isRecord7(result.thread) ? result.thread : void 0;
+  return isRecord8(result) && isRecord8(result.thread) ? result.thread : void 0;
 }
 function extractThreadId(params) {
-  if (!isRecord7(params)) return void 0;
+  if (!isRecord8(params)) return void 0;
   if (typeof params.threadId === "string") return params.threadId;
-  if (isRecord7(params.thread) && typeof params.thread.id === "string") return params.thread.id;
-  if (isRecord7(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
+  if (isRecord8(params.thread) && typeof params.thread.id === "string") return params.thread.id;
+  if (isRecord8(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
   return void 0;
 }
 function sanitizeApprovalParams(params, requestHandle) {
-  if (!isRecord7(params)) return { requestHandle };
+  if (!isRecord8(params)) return { requestHandle };
   const safe = { ...params };
   delete safe.proposedExecpolicyAmendment;
   delete safe.additionalPermissions;
@@ -20861,7 +21931,7 @@ function errorCode2(error) {
 function canTryNextBinary(error) {
   return !(error instanceof RpcError) || !["CODEX_AUTH_REQUIRED", "CODEX_CLOSED"].includes(error.code);
 }
-function isRecord7(value) {
+function isRecord8(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

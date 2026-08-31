@@ -19,6 +19,11 @@ import type { SafeLogger } from './logging.js'
 import { RemoteHarnessApiProxy } from './remote-api-proxy.js'
 import { RemoteTypertGateway } from './remote-typert-gateway.js'
 import {
+  CodexVirtualHarness,
+  discoverCodexVirtualWorkspaces,
+  type CodexVirtualWorkspaceView,
+} from './codex/virtual-harness.js'
+import {
   ClientServerApi,
   ServerApiError,
   type AuthorizedPeerDevice,
@@ -83,6 +88,8 @@ export interface RemoteWorkspaceView {
 interface RemoteWorkspaceSelection {
   targetDeviceId: string
   workspaceId: string
+  backend?: 'harness' | 'codex'
+  sessionId?: string
 }
 
 export interface RemoteDeviceView {
@@ -138,6 +145,7 @@ export class ClientModeRuntime {
   private identity?: HostIdentity
   private connected?: ConnectedRemote
   private pendingWorkspaceSelection?: RemoteWorkspaceSelection
+  private codexVirtual?: CodexVirtualHarness
   private readonly proxySwitch?: ApiProxySwitch
   private readonly gatewaySwitch: TypertGatewaySwitch
   private readonly codexStreams = new Map<string, CodexLoopbackStream>()
@@ -193,6 +201,7 @@ export class ClientModeRuntime {
       ...(this.pendingWorkspaceSelection === undefined
         ? {}
         : { workspaceSelection: { ...this.pendingWorkspaceSelection } }),
+      backend: this.codexVirtual === undefined ? 'harness' : 'codex',
       hostAuthorizationAvailable: this.host !== undefined,
       ...(this.host === undefined ? {} : { host: this.host.hostStatus() }),
     }
@@ -265,6 +274,7 @@ export class ClientModeRuntime {
     const previous = this.connected
     this.connected = undefined
     this.pendingWorkspaceSelection = undefined
+    await this.closeCodexVirtual()
     this.proxySwitch?.selectLocal()
     this.gatewaySwitch.selectLocal()
     await this.closeCodexStreams(previous?.client)
@@ -287,6 +297,7 @@ export class ClientModeRuntime {
 
   async setMode(mode: HarnessMode, targetDeviceId?: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     if (mode === 'local') {
+      await this.closeCodexVirtual()
       this.proxySwitch?.selectLocal()
       this.gatewaySwitch.selectLocal()
       const previous = this.connected
@@ -310,6 +321,7 @@ export class ClientModeRuntime {
     const previous = this.connected
     this.connected = next
     this.pendingWorkspaceSelection = undefined
+    await this.closeCodexVirtual()
     this.selectRemoteTarget(next)
     await this.closeCodexStreams(previous?.client)
     await previous?.client.close().catch(() => undefined)
@@ -370,6 +382,7 @@ export class ClientModeRuntime {
       })
       workspace = unwrapNativeResult<{ workspace: unknown; created: boolean }>(response)
     }
+    await this.closeCodexVirtual()
     this.selectRemoteTarget(remote)
     const workspaceId = workspaceRecordId(workspace.workspace)
     this.pendingWorkspaceSelection = { targetDeviceId: remote.target.deviceId, workspaceId }
@@ -377,9 +390,54 @@ export class ClientModeRuntime {
     return { ...this.status(), workspace }
   }
 
+  async listCodexWorkspaces(targetDeviceId: string, signal?: AbortSignal): Promise<CodexVirtualWorkspaceView[]> {
+    const remote = await this.ensureConnected(targetDeviceId, signal)
+    remote.features = await probeRemoteHostFeatures(remote.client, remote.clientVersion)
+    if (!remote.features.codex) {
+      throw new ClientModeError('FEATURE_NOT_SUPPORTED', 'The selected Host does not provide CodeX workspaces.')
+    }
+    return discoverCodexVirtualWorkspaces(new CodexRemoteClient(remote.client), signal)
+  }
+
+  async openCodexWorkspace(
+    targetDeviceId: string,
+    workspaceId: string,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    const remote = await this.ensureConnected(targetDeviceId, signal)
+    remote.features = await probeRemoteHostFeatures(remote.client, remote.clientVersion)
+    if (!remote.features.codex) {
+      throw new ClientModeError('FEATURE_NOT_SUPPORTED', 'The selected Host does not provide CodeX workspaces.')
+    }
+    this.assertRemoteCompatible(remote)
+    const virtual = CodexVirtualHarness.remote(remote.client, {
+      deviceId: remote.target.deviceId,
+      name: remote.target.name,
+    })
+    const workspaces = await virtual.workspaces(signal)
+    const workspace = workspaces.find(item => item.workspaceId === workspaceId)
+    if (workspace === undefined) {
+      await virtual.close()
+      throw new ClientModeError('WORKSPACE_NOT_FOUND', 'The selected CodeX workspace is no longer available.')
+    }
+    await this.closeCodexVirtual()
+    this.codexVirtual = virtual
+    this.selectCodexTarget(virtual, remote)
+    this.pendingWorkspaceSelection = {
+      targetDeviceId: remote.target.deviceId,
+      workspaceId,
+      backend: 'codex',
+      ...(workspace.sessionIds[0] === undefined ? {} : { sessionId: workspace.sessionIds[0] }),
+    }
+    this.logger.info('CodeX virtual workspace opened', { targetDeviceId: shortId(remote.target.deviceId) })
+    return { ...this.status(), workspace }
+  }
+
   private consumeWorkspaceSelection(selection: RemoteWorkspaceSelection): Record<string, unknown> {
     const pending = this.pendingWorkspaceSelection
-    if (pending?.targetDeviceId === selection.targetDeviceId && pending.workspaceId === selection.workspaceId) {
+    if (pending?.targetDeviceId === selection.targetDeviceId
+      && pending.workspaceId === selection.workspaceId
+      && (pending.backend ?? 'harness') === (selection.backend ?? 'harness')) {
       this.pendingWorkspaceSelection = undefined
     }
     return this.status()
@@ -391,6 +449,7 @@ export class ClientModeRuntime {
     this.proxySwitch?.selectLocal()
     this.gatewaySwitch.selectLocal()
     this.pendingWorkspaceSelection = undefined
+    await this.closeCodexVirtual()
     await this.closeCodexStreams(this.connected?.client)
     await this.connected?.client.close().catch(() => undefined)
     this.connected = undefined
@@ -582,6 +641,22 @@ export class ClientModeRuntime {
     }, target)
   }
 
+  private selectCodexTarget(virtual: CodexVirtualHarness, remote: ConnectedRemote): void {
+    const target = { deviceId: remote.target.deviceId, name: remote.target.name }
+    if (this.gatewaySwitch.supportsCarrier()) {
+      this.gatewaySwitch.selectRemote(virtual, undefined, target)
+      return
+    }
+    this.proxySwitch!.selectRemote(virtual.api, target)
+    this.gatewaySwitch.selectRemote(request => virtual.invoke(request), { execute: false, list: false }, target)
+  }
+
+  private async closeCodexVirtual(): Promise<void> {
+    const virtual = this.codexVirtual
+    this.codexVirtual = undefined
+    await virtual?.close()
+  }
+
   private assertRemoteCompatible(remote: ConnectedRemote): void {
     const localRemoteGateway = this.gatewaySwitch.supportsCarrier()
     if ((localRemoteGateway && remote.features.remoteGateway)
@@ -676,6 +751,7 @@ export class ClientModeRuntime {
         if (this.connected?.client !== connectedClient) return
         this.connected = undefined
         this.pendingWorkspaceSelection = undefined
+        void this.closeCodexVirtual()
         this.proxySwitch?.selectLocal()
         this.gatewaySwitch.selectLocal()
         void connectedClient.close().catch(() => undefined)
@@ -762,12 +838,24 @@ export class ClientModeRuntime {
         if (typeof value.targetDeviceId !== 'string') throw new ClientModeError('INVALID_MESSAGE', 'A Host is required.')
         return ok(await this.listRemoteWorkspaces(value.targetDeviceId, signal))
       }
+      if (endpoint === 'codex.workspaces.list') {
+        const value = record(payload)
+        if (typeof value.targetDeviceId !== 'string') throw new ClientModeError('INVALID_MESSAGE', 'A Host is required.')
+        return ok(await this.listCodexWorkspaces(value.targetDeviceId, signal))
+      }
       if (endpoint === 'workspace.open') {
         const value = record(payload)
         if (typeof value.targetDeviceId !== 'string' || typeof value.path !== 'string') {
           throw new ClientModeError('INVALID_MESSAGE', 'A Host and working directory are required.')
         }
         return ok(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal))
+      }
+      if (endpoint === 'codex.workspace.open') {
+        const value = record(payload)
+        if (typeof value.targetDeviceId !== 'string' || typeof value.workspaceId !== 'string') {
+          throw new ClientModeError('INVALID_MESSAGE', 'A Host and CodeX Workspace are required.')
+        }
+        return ok(await this.openCodexWorkspace(value.targetDeviceId, value.workspaceId, signal))
       }
       if (endpoint === 'workspace.selection.consume') {
         const value = record(payload)
@@ -777,6 +865,8 @@ export class ClientModeRuntime {
         return ok(this.consumeWorkspaceSelection({
           targetDeviceId: value.targetDeviceId,
           workspaceId: value.workspaceId,
+          ...(value.backend === 'codex' ? { backend: 'codex' } : {}),
+          ...(typeof value.sessionId === 'string' ? { sessionId: value.sessionId } : {}),
         }))
       }
       if (endpoint === 'fileviewer.stat' || endpoint === 'fileviewer.readRange' || endpoint === 'fileviewer.list') {
