@@ -45,6 +45,28 @@ interface CatalogState {
   workspaces: CodexVirtualWorkspaceView[]
 }
 
+interface CodexModelSelection {
+  provider: string
+  model: string
+  reasoningEffort?: string
+}
+
+interface CodexModelView {
+  id: string
+  name: string
+  description?: string
+  reasoning?: {
+    efforts: Array<{ id: string; name: string; description?: string }>
+    defaultEffort?: string
+  }
+}
+
+interface CodexModelDirectory {
+  default: CodexModelSelection
+  groups: Array<{ id: string; name: string; models: CodexModelView[] }>
+  models: Map<string, CodexModelView>
+}
+
 interface NativeEvent {
   type: string
   seq: number
@@ -124,6 +146,9 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private readonly pendingRequestIds = new Map<string, string>()
   private readonly pendingApprovals = new Map<string, PendingApproval>()
   private readonly threadHistoryCache = new Map<string, JsonRecord>()
+  private readonly selectedModels = new Map<string, CodexModelSelection>()
+  private modelDirectory?: CodexModelDirectory
+  private modelDirectoryPromise?: Promise<CodexModelDirectory>
   private selectedWorkspaceId?: string
   private closed = false
 
@@ -223,14 +248,19 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         case 'session/rename': return business(await this.renameSession(requestArg(args), signal))
         case 'session/updateQueue': return business(failure('queue-item-not-found', 'CodeX does not expose a DSH inbox queue.'))
         case 'session/attachment': return business(failure('attachment-error', 'CodeX virtual Sessions do not expose DSH attachments.'))
-        case 'session/modelCatalog': return business(success(modelCatalog()))
-        case 'session/models': return business(success({
-          current: modelSelection(),
-          routable: true,
-          groups: modelGroups(),
-          failures: [],
-        }))
-        case 'session/selectModel': return business(success({ selected: modelSelection() }))
+        case 'session/modelCatalog': return business(success(modelCatalog(await this.models(signal))))
+        case 'session/models': {
+          const sessionId = requiredString(requestArg(args).sessionId, 'sessionId')
+          nativeThreadId(sessionId)
+          const directory = await this.models(signal)
+          return business(success({
+            current: this.modelSelection(sessionId, directory),
+            routable: true,
+            groups: directory.groups,
+            failures: [],
+          }))
+        }
+        case 'session/selectModel': return business(await this.selectModel(requestArg(args), signal))
         case 'session/canOpenWorkspacePath': return business(false)
         case 'session/openWorkspacePath': return business(failure('bad-request', 'Opening Host paths is unavailable in CodeX mode.'))
         case 'skills/list': return business(success({ items: [] }))
@@ -275,6 +305,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     }
     this.pendingApprovals.clear()
     this.pendingRequestIds.clear()
+    this.selectedModels.clear()
   }
 
   private async refreshCatalog(signal?: AbortSignal): Promise<CatalogState> {
@@ -291,8 +322,52 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     return this.catalog ?? this.refreshCatalog(signal)
   }
 
+  private models(signal?: AbortSignal): Promise<CodexModelDirectory> {
+    if (this.modelDirectory !== undefined) return Promise.resolve(this.modelDirectory)
+    this.modelDirectoryPromise ??= loadModelDirectory(this.client, signal)
+      .then(directory => {
+        this.modelDirectory = directory
+        return directory
+      })
+      .finally(() => { this.modelDirectoryPromise = undefined })
+    return this.modelDirectoryPromise
+  }
+
+  private modelSelection(sessionId: string, directory?: CodexModelDirectory): CodexModelSelection {
+    return this.selectedModels.get(sessionId) ?? directory?.default ?? modelSelection()
+  }
+
+  private async selectModel(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
+    const sessionId = requiredString(request.sessionId, 'sessionId')
+    nativeThreadId(sessionId)
+    const provider = requiredString(request.provider, 'provider')
+    const model = requiredString(request.model, 'model')
+    const reasoningEffort = string(request.reasoningEffort)
+    const directory = await this.models(signal)
+    const available = directory.models.get(model)
+    if (provider !== CODEX_PROVIDER || available === undefined) {
+      return failure('model-unavailable', 'The selected CodeX model is unavailable on this Host.')
+    }
+    const supportedEfforts = available.reasoning?.efforts.map(effort => effort.id) ?? []
+    if (reasoningEffort !== undefined && !supportedEfforts.includes(reasoningEffort)) {
+      return failure('model-unavailable', 'The selected reasoning effort is unavailable for this CodeX model.')
+    }
+    const selected: CodexModelSelection = {
+      provider,
+      model,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    }
+    this.selectedModels.set(sessionId, selected)
+    const seq = Date.now()
+    for (const queue of this.controlStreams) {
+      queue.push({ type: 'projection', sessionId, key: 'modelSelection', value: modelSelectionProjection(selected), seq })
+    }
+    return success({ selected })
+  }
+
   private async sessionSummaries(signal?: AbortSignal): Promise<unknown[]> {
     const catalog = await this.refreshCatalog(signal)
+    const directory = await this.models(signal).catch(() => undefined)
     return catalog.sessions.map(session => ({
       sessionId: session.id,
       updatedAt: session.updatedAt,
@@ -304,7 +379,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         values: {
           title: displayTitle(session),
           sessionListMetadata: { blank: false, lastPromptAt: session.updatedAt || null },
-          modelSelection: modelSelectionProjection(),
+          modelSelection: modelSelectionProjection(this.modelSelection(session.id, directory)),
         },
       },
     }))
@@ -345,6 +420,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     const threadId = nativeThreadId(sessionId)
     const raw = await this.readThread(threadId, signal)
     const history = nativeHistory(raw, sessionId)
+    const directory = await this.models(signal).catch(() => undefined)
     const queue = new AsyncValueQueue(signal)
     const follow: FollowState = {
       sessionId,
@@ -371,7 +447,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         values: {
           title: threadTitle(raw),
           sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: lastPromptAt(raw) },
-          modelSelection: modelSelectionProjection(),
+          modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory)),
         },
       },
     })
@@ -602,10 +678,13 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       ? string(request.cwd)
       : catalog.workspaces.find(item => item.workspaceId === workspaceId)?.path
     if (cwd === undefined) return failure('workspace-not-found', 'The CodeX virtual Workspace was not found.')
-    const result = record(await this.client.request('thread/start', { cwd }, signal))
+    const directory = await this.models(signal)
+    const selection = directory.default
+    const result = record(await this.client.request('thread/start', { cwd, model: selection.model }, signal))
     const thread = record(result.thread)
     const projected = projectCodexThread(thread)
     if (projected === undefined) return failure('internal', 'CodeX returned an invalid Thread.')
+    this.selectedModels.set(projected.id, selection)
     await this.refreshAndPublishWorkspaces()
     this.emitRemoteEvent('api-session/added', [{
       sessionId: projected.id,
@@ -622,6 +701,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     const result = record(await this.client.request('thread/fork', { threadId: nativeThreadId(sessionId) }, signal))
     const projected = projectCodexThread(record(result.thread))
     if (projected === undefined) return failure('internal', 'CodeX returned an invalid forked Thread.')
+    this.selectedModels.set(projected.id, this.modelSelection(sessionId, await this.models(signal)))
     await this.refreshAndPublishWorkspaces()
     return success({ sessionId: projected.id })
   }
@@ -634,8 +714,9 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       return failure('attachment-error', 'CodeX virtual Sessions currently accept text prompts only.')
     }
     const threadId = nativeThreadId(sessionId)
+    const selection = this.modelSelection(sessionId, await this.models(signal))
     await this.ensureRcFollow(sessionId)
-    await this.client.request('thread/resume', { threadId }, signal)
+    await this.client.request('thread/resume', { threadId, model: selection.model }, signal)
     this.pendingRequestIds.set(sessionId, string(request.requestId) ?? '')
     const mode = request.mode === 'steer' ? 'turn/steer' : 'turn/start'
     if (mode === 'turn/steer') {
@@ -643,7 +724,11 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       if (active === undefined) return failure('steer-unavailable', 'The CodeX Thread has no active turn to steer.')
       await this.client.request(mode, { threadId, expectedTurnId: active, input: [{ type: 'text', text: texts.join('\n') }] }, signal)
     } else {
-      await this.client.request(mode, { threadId, input: [{ type: 'text', text: texts.join('\n') }] }, signal)
+      await this.client.request(mode, {
+        threadId,
+        input: [{ type: 'text', text: texts.join('\n') }],
+        ...codexModelParams(selection),
+      }, signal)
     }
     return success({ accepted: true })
   }
@@ -688,6 +773,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     const sessionId = requiredString(request.sessionId, 'sessionId')
     const thread = await this.readThread(nativeThreadId(sessionId), signal)
     const history = nativeHistory(thread, sessionId)
+    const directory = await this.models(signal).catch(() => undefined)
     // rc.2 has one global mux rather than the alpha session/follow stream. A
     // history read is the reliable signal that the native client has opened a
     // Session, so attach the CodeX live stream here before returning its tail.
@@ -703,7 +789,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         values: {
           title: threadTitle(thread),
           sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: null },
-          modelSelection: modelSelectionProjection(),
+          modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory)),
         },
       },
     })
@@ -914,6 +1000,67 @@ async function loadCatalog(client: CodexClientLike, signal?: AbortSignal): Promi
   return { threads, sessions, workspaces: [...workspaceByPath.values()] }
 }
 
+async function loadModelDirectory(client: CodexClientLike, signal?: AbortSignal): Promise<CodexModelDirectory> {
+  const models = new Map<string, CodexModelView>()
+  let defaultModelId: string | undefined
+  let cursor: string | null | undefined
+  for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
+    const result = record(await client.request('model/list', {
+      limit: CODEX_PAGE_LIMIT,
+      includeHidden: false,
+      ...(cursor === undefined ? {} : { cursor }),
+    }, signal))
+    for (const value of array(result.data)) {
+      const source = record(value)
+      if (source.hidden === true) continue
+      const id = string(source.model) ?? string(source.id)
+      if (id === undefined || models.has(id)) continue
+      const efforts = array(source.supportedReasoningEfforts).map(value => {
+        const effort = record(value)
+        const effortId = string(effort.reasoningEffort)
+        if (effortId === undefined) return undefined
+        const description = string(effort.description)
+        return {
+          id: effortId,
+          name: reasoningEffortName(effortId),
+          ...(description === undefined ? {} : { description }),
+        }
+      }).filter((value): value is NonNullable<typeof value> => value !== undefined)
+      const defaultEffort = string(source.defaultReasoningEffort)
+      const description = string(source.description)
+      const model: CodexModelView = {
+        id,
+        name: string(source.displayName) ?? id,
+        ...(description === undefined ? {} : { description }),
+        ...(efforts.length === 0 ? {} : {
+          reasoning: {
+            efforts,
+            ...(defaultEffort === undefined || !efforts.some(effort => effort.id === defaultEffort)
+              ? {}
+              : { defaultEffort }),
+          },
+        }),
+      }
+      models.set(id, model)
+      if (source.isDefault === true) defaultModelId = id
+    }
+    cursor = typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? result.nextCursor : undefined
+    if (cursor === undefined) break
+  }
+  const defaultModel = models.get(defaultModelId ?? '') ?? (models.values().next().value as CodexModelView | undefined)
+  if (defaultModel === undefined) throw new Error('CodeX did not advertise any available models.')
+  const defaultEffort = defaultModel.reasoning?.defaultEffort
+  return {
+    default: {
+      provider: CODEX_PROVIDER,
+      model: defaultModel.id,
+      ...(defaultEffort === undefined ? {} : { reasoningEffort: defaultEffort }),
+    },
+    groups: [{ id: CODEX_PROVIDER, name: 'CodeX', models: [...models.values()] }],
+    models,
+  }
+}
+
 function nativeHistory(thread: JsonRecord, sessionId: string): NativeHistory {
   const entries: NativeHistory['entries'] = []
   let seq = 0
@@ -1102,25 +1249,42 @@ function nativeWorkspace(view: CodexVirtualWorkspaceView): Omit<CodexVirtualWork
   return workspace
 }
 
-function modelSelection(): { provider: string; model: string } {
+function modelSelection(): CodexModelSelection {
   return { provider: CODEX_PROVIDER, model: CODEX_MODEL }
 }
 
-function modelSelectionProjection(): { lastUsed: ReturnType<typeof modelSelection>; next: ReturnType<typeof modelSelection> } {
-  return { lastUsed: modelSelection(), next: modelSelection() }
+function modelSelectionProjection(selection: CodexModelSelection): { lastUsed: CodexModelSelection; next: CodexModelSelection } {
+  return { lastUsed: selection, next: selection }
 }
 
-function modelCatalog(): unknown {
+function modelCatalog(directory: CodexModelDirectory): unknown {
   return {
-    default: modelSelection(),
+    default: directory.default,
     routableProviders: [CODEX_PROVIDER],
-    groups: modelGroups(),
+    groups: directory.groups,
     failures: [],
   }
 }
 
-function modelGroups(): unknown[] {
-  return [{ id: CODEX_PROVIDER, name: 'CodeX', models: [{ id: CODEX_MODEL, name: 'CodeX' }] }]
+function codexModelParams(selection: CodexModelSelection): { model: string; effort?: string } {
+  return {
+    model: selection.model,
+    ...(selection.reasoningEffort === undefined ? {} : { effort: selection.reasoningEffort }),
+  }
+}
+
+function reasoningEffortName(effort: string): string {
+  const names: Record<string, string> = {
+    none: 'None',
+    minimal: 'Minimal',
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High',
+    xhigh: 'Extra High',
+    max: 'Max',
+    ultra: 'Ultra',
+  }
+  return names[effort] ?? effort
 }
 
 function displayTitle(session: DisplaySession): string | null {

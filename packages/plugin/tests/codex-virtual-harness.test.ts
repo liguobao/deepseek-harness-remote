@@ -31,8 +31,8 @@ describe('CodexVirtualHarness', () => {
             values: {
               title: 'Native renderer',
               modelSelection: {
-                lastUsed: { provider: 'codex', model: 'codex' },
-                next: { provider: 'codex', model: 'codex' },
+                lastUsed: { provider: 'codex', model: 'gpt-5.6-sol', reasoningEffort: 'low' },
+                next: { provider: 'codex', model: 'gpt-5.6-sol', reasoningEffort: 'low' },
               },
             },
           },
@@ -45,7 +45,14 @@ describe('CodexVirtualHarness', () => {
     })).resolves.toMatchObject({
       result: {
         ok: true,
-        value: { current: { provider: 'codex', model: 'codex' }, routable: true },
+        value: {
+          current: { provider: 'codex', model: 'gpt-5.6-sol', reasoningEffort: 'low' },
+          routable: true,
+          groups: [{ id: 'codex', models: [
+            { id: 'gpt-5.6-sol', reasoning: { defaultEffort: 'low' } },
+            { id: 'gpt-5.6-terra', reasoning: { defaultEffort: 'medium' } },
+          ] }],
+        },
       },
     })
     await target.close()
@@ -64,7 +71,9 @@ describe('CodexVirtualHarness', () => {
     expect(snapshot.value).toMatchObject({
       type: 'snapshot',
       header: { id: 'codex:thr_1', cwd: '/workspace/repo' },
-      projections: { values: { modelSelection: { next: { provider: 'codex', model: 'codex' } } } },
+      projections: { values: { modelSelection: { next: {
+        provider: 'codex', model: 'gpt-5.6-sol', reasoningEffort: 'low',
+      } } } },
       records: [
         { event: { type: 'turn/start', seq: 0 } },
         { event: { type: 'step/start', seq: 1 } },
@@ -140,6 +149,17 @@ describe('CodexVirtualHarness', () => {
   it('routes the native composer prompt back to CodeX resume and turn/start', async () => {
     const client = fakeCodex()
     const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    await expect(target.dispatch('session/selectModel', {
+      args: { request: {
+        sessionId: 'codex:thr_1',
+        provider: 'codex',
+        model: 'gpt-5.6-terra',
+        reasoningEffort: 'high',
+      } },
+    }, new AbortController().signal)).resolves.toEqual({
+      ok: true,
+      value: { selected: { provider: 'codex', model: 'gpt-5.6-terra', reasoningEffort: 'high' } },
+    })
     const result = await target.dispatch('session/prompt', {
       args: {
         request: {
@@ -151,10 +171,15 @@ describe('CodexVirtualHarness', () => {
     }, new AbortController().signal)
 
     expect(result).toEqual({ ok: true, value: { accepted: true } })
-    expect(client.request).toHaveBeenCalledWith('thread/resume', { threadId: 'thr_1' }, expect.any(AbortSignal))
+    expect(client.request).toHaveBeenCalledWith('thread/resume', {
+      threadId: 'thr_1',
+      model: 'gpt-5.6-terra',
+    }, expect.any(AbortSignal))
     expect(client.request).toHaveBeenCalledWith('turn/start', {
       threadId: 'thr_1',
       input: [{ type: 'text', text: 'Continue here' }],
+      model: 'gpt-5.6-terra',
+      effort: 'high',
     }, expect.any(AbortSignal))
     await target.close()
   })
@@ -284,6 +309,31 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = []): {
     }],
   }
   const request = vi.fn(async (method: string) => {
+    if (method === 'model/list') return { data: [
+      {
+        id: 'gpt-5.6-sol',
+        model: 'gpt-5.6-sol',
+        displayName: 'GPT-5.6-Sol',
+        description: 'Latest frontier agentic coding model.',
+        supportedReasoningEfforts: [
+          { reasoningEffort: 'low', description: 'Fast responses with lighter reasoning' },
+          { reasoningEffort: 'high', description: 'Greater reasoning depth for complex problems' },
+        ],
+        defaultReasoningEffort: 'low',
+        isDefault: true,
+      },
+      {
+        id: 'gpt-5.6-terra',
+        model: 'gpt-5.6-terra',
+        displayName: 'GPT-5.6-Terra',
+        supportedReasoningEfforts: [
+          { reasoningEffort: 'medium' },
+          { reasoningEffort: 'high' },
+        ],
+        defaultReasoningEffort: 'medium',
+        isDefault: false,
+      },
+    ], nextCursor: null }
     if (method === 'thread/list') return { data: [thread, ...extraThreads] }
     if (method === 'thread/read') return { thread }
     if (method === 'thread/resume') return { thread }

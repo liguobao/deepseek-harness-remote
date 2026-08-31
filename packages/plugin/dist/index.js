@@ -14199,6 +14199,9 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   pendingRequestIds = /* @__PURE__ */ new Map();
   pendingApprovals = /* @__PURE__ */ new Map();
   threadHistoryCache = /* @__PURE__ */ new Map();
+  selectedModels = /* @__PURE__ */ new Map();
+  modelDirectory;
+  modelDirectoryPromise;
   selectedWorkspaceId;
   closed = false;
   static remote(core, host) {
@@ -14294,16 +14297,20 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         case "session/attachment":
           return business(failure("attachment-error", "CodeX virtual Sessions do not expose DSH attachments."));
         case "session/modelCatalog":
-          return business(success(modelCatalog()));
-        case "session/models":
+          return business(success(modelCatalog(await this.models(signal))));
+        case "session/models": {
+          const sessionId = requiredString(requestArg(args).sessionId, "sessionId");
+          nativeThreadId(sessionId);
+          const directory = await this.models(signal);
           return business(success({
-            current: modelSelection(),
+            current: this.modelSelection(sessionId, directory),
             routable: true,
-            groups: modelGroups(),
+            groups: directory.groups,
             failures: []
           }));
+        }
         case "session/selectModel":
-          return business(success({ selected: modelSelection() }));
+          return business(await this.selectModel(requestArg(args), signal));
         case "session/canOpenWorkspacePath":
           return business(false);
         case "session/openWorkspacePath":
@@ -14350,6 +14357,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     }
     this.pendingApprovals.clear();
     this.pendingRequestIds.clear();
+    this.selectedModels.clear();
   }
   async refreshCatalog(signal) {
     const catalog = await loadCatalog(this.client, signal);
@@ -14362,8 +14370,49 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   async currentCatalog(signal) {
     return this.catalog ?? this.refreshCatalog(signal);
   }
+  models(signal) {
+    if (this.modelDirectory !== void 0) return Promise.resolve(this.modelDirectory);
+    this.modelDirectoryPromise ??= loadModelDirectory(this.client, signal).then((directory) => {
+      this.modelDirectory = directory;
+      return directory;
+    }).finally(() => {
+      this.modelDirectoryPromise = void 0;
+    });
+    return this.modelDirectoryPromise;
+  }
+  modelSelection(sessionId, directory) {
+    return this.selectedModels.get(sessionId) ?? directory?.default ?? modelSelection();
+  }
+  async selectModel(request, signal) {
+    const sessionId = requiredString(request.sessionId, "sessionId");
+    nativeThreadId(sessionId);
+    const provider = requiredString(request.provider, "provider");
+    const model = requiredString(request.model, "model");
+    const reasoningEffort = string(request.reasoningEffort);
+    const directory = await this.models(signal);
+    const available = directory.models.get(model);
+    if (provider !== CODEX_PROVIDER || available === void 0) {
+      return failure("model-unavailable", "The selected CodeX model is unavailable on this Host.");
+    }
+    const supportedEfforts = available.reasoning?.efforts.map((effort) => effort.id) ?? [];
+    if (reasoningEffort !== void 0 && !supportedEfforts.includes(reasoningEffort)) {
+      return failure("model-unavailable", "The selected reasoning effort is unavailable for this CodeX model.");
+    }
+    const selected = {
+      provider,
+      model,
+      ...reasoningEffort === void 0 ? {} : { reasoningEffort }
+    };
+    this.selectedModels.set(sessionId, selected);
+    const seq = Date.now();
+    for (const queue of this.controlStreams) {
+      queue.push({ type: "projection", sessionId, key: "modelSelection", value: modelSelectionProjection(selected), seq });
+    }
+    return success({ selected });
+  }
   async sessionSummaries(signal) {
     const catalog = await this.refreshCatalog(signal);
+    const directory = await this.models(signal).catch(() => void 0);
     return catalog.sessions.map((session) => ({
       sessionId: session.id,
       updatedAt: session.updatedAt,
@@ -14375,7 +14424,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         values: {
           title: displayTitle(session),
           sessionListMetadata: { blank: false, lastPromptAt: session.updatedAt || null },
-          modelSelection: modelSelectionProjection()
+          modelSelection: modelSelectionProjection(this.modelSelection(session.id, directory))
         }
       }
     }));
@@ -14412,6 +14461,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     const threadId = nativeThreadId(sessionId);
     const raw = await this.readThread(threadId, signal);
     const history = nativeHistory(raw, sessionId);
+    const directory = await this.models(signal).catch(() => void 0);
     const queue = new AsyncValueQueue2(signal);
     const follow = {
       sessionId,
@@ -14438,7 +14488,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         values: {
           title: threadTitle(raw),
           sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: lastPromptAt(raw) },
-          modelSelection: modelSelectionProjection()
+          modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory))
         }
       }
     });
@@ -14647,10 +14697,13 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     const workspaceId = string(request.workspaceId);
     const cwd = workspaceId === void 0 ? string(request.cwd) : catalog.workspaces.find((item) => item.workspaceId === workspaceId)?.path;
     if (cwd === void 0) return failure("workspace-not-found", "The CodeX virtual Workspace was not found.");
-    const result = record(await this.client.request("thread/start", { cwd }, signal));
+    const directory = await this.models(signal);
+    const selection = directory.default;
+    const result = record(await this.client.request("thread/start", { cwd, model: selection.model }, signal));
     const thread = record(result.thread);
     const projected = projectCodexThread(thread);
     if (projected === void 0) return failure("internal", "CodeX returned an invalid Thread.");
+    this.selectedModels.set(projected.id, selection);
     await this.refreshAndPublishWorkspaces();
     this.emitRemoteEvent("api-session/added", [{
       sessionId: projected.id,
@@ -14666,6 +14719,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     const result = record(await this.client.request("thread/fork", { threadId: nativeThreadId(sessionId) }, signal));
     const projected = projectCodexThread(record(result.thread));
     if (projected === void 0) return failure("internal", "CodeX returned an invalid forked Thread.");
+    this.selectedModels.set(projected.id, this.modelSelection(sessionId, await this.models(signal)));
     await this.refreshAndPublishWorkspaces();
     return success({ sessionId: projected.id });
   }
@@ -14677,8 +14731,9 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       return failure("attachment-error", "CodeX virtual Sessions currently accept text prompts only.");
     }
     const threadId = nativeThreadId(sessionId);
+    const selection = this.modelSelection(sessionId, await this.models(signal));
     await this.ensureRcFollow(sessionId);
-    await this.client.request("thread/resume", { threadId }, signal);
+    await this.client.request("thread/resume", { threadId, model: selection.model }, signal);
     this.pendingRequestIds.set(sessionId, string(request.requestId) ?? "");
     const mode = request.mode === "steer" ? "turn/steer" : "turn/start";
     if (mode === "turn/steer") {
@@ -14686,7 +14741,11 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       if (active === void 0) return failure("steer-unavailable", "The CodeX Thread has no active turn to steer.");
       await this.client.request(mode, { threadId, expectedTurnId: active, input: [{ type: "text", text: texts.join("\n") }] }, signal);
     } else {
-      await this.client.request(mode, { threadId, input: [{ type: "text", text: texts.join("\n") }] }, signal);
+      await this.client.request(mode, {
+        threadId,
+        input: [{ type: "text", text: texts.join("\n") }],
+        ...codexModelParams(selection)
+      }, signal);
     }
     return success({ accepted: true });
   }
@@ -14725,6 +14784,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     const sessionId = requiredString(request.sessionId, "sessionId");
     const thread = await this.readThread(nativeThreadId(sessionId), signal);
     const history = nativeHistory(thread, sessionId);
+    const directory = await this.models(signal).catch(() => void 0);
     await this.ensureRcFollow(sessionId, thread);
     return success({
       events: history.entries.map((entry) => ({
@@ -14737,7 +14797,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         values: {
           title: threadTitle(thread),
           sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: null },
-          modelSelection: modelSelectionProjection()
+          modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory))
         }
       }
     });
@@ -14930,6 +14990,64 @@ async function loadCatalog(client, signal) {
   }
   return { threads, sessions, workspaces: [...workspaceByPath.values()] };
 }
+async function loadModelDirectory(client, signal) {
+  const models = /* @__PURE__ */ new Map();
+  let defaultModelId;
+  let cursor2;
+  for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
+    const result = record(await client.request("model/list", {
+      limit: CODEX_PAGE_LIMIT,
+      includeHidden: false,
+      ...cursor2 === void 0 ? {} : { cursor: cursor2 }
+    }, signal));
+    for (const value of array(result.data)) {
+      const source = record(value);
+      if (source.hidden === true) continue;
+      const id2 = string(source.model) ?? string(source.id);
+      if (id2 === void 0 || models.has(id2)) continue;
+      const efforts = array(source.supportedReasoningEfforts).map((value2) => {
+        const effort = record(value2);
+        const effortId = string(effort.reasoningEffort);
+        if (effortId === void 0) return void 0;
+        const description2 = string(effort.description);
+        return {
+          id: effortId,
+          name: reasoningEffortName(effortId),
+          ...description2 === void 0 ? {} : { description: description2 }
+        };
+      }).filter((value2) => value2 !== void 0);
+      const defaultEffort2 = string(source.defaultReasoningEffort);
+      const description = string(source.description);
+      const model = {
+        id: id2,
+        name: string(source.displayName) ?? id2,
+        ...description === void 0 ? {} : { description },
+        ...efforts.length === 0 ? {} : {
+          reasoning: {
+            efforts,
+            ...defaultEffort2 === void 0 || !efforts.some((effort) => effort.id === defaultEffort2) ? {} : { defaultEffort: defaultEffort2 }
+          }
+        }
+      };
+      models.set(id2, model);
+      if (source.isDefault === true) defaultModelId = id2;
+    }
+    cursor2 = typeof result.nextCursor === "string" && result.nextCursor.length > 0 ? result.nextCursor : void 0;
+    if (cursor2 === void 0) break;
+  }
+  const defaultModel = models.get(defaultModelId ?? "") ?? models.values().next().value;
+  if (defaultModel === void 0) throw new Error("CodeX did not advertise any available models.");
+  const defaultEffort = defaultModel.reasoning?.defaultEffort;
+  return {
+    default: {
+      provider: CODEX_PROVIDER,
+      model: defaultModel.id,
+      ...defaultEffort === void 0 ? {} : { reasoningEffort: defaultEffort }
+    },
+    groups: [{ id: CODEX_PROVIDER, name: "CodeX", models: [...models.values()] }],
+    models
+  };
+}
 function nativeHistory(thread, sessionId) {
   const entries = [];
   let seq = 0;
@@ -15103,19 +15221,35 @@ function nativeWorkspace(view) {
 function modelSelection() {
   return { provider: CODEX_PROVIDER, model: CODEX_MODEL };
 }
-function modelSelectionProjection() {
-  return { lastUsed: modelSelection(), next: modelSelection() };
+function modelSelectionProjection(selection) {
+  return { lastUsed: selection, next: selection };
 }
-function modelCatalog() {
+function modelCatalog(directory) {
   return {
-    default: modelSelection(),
+    default: directory.default,
     routableProviders: [CODEX_PROVIDER],
-    groups: modelGroups(),
+    groups: directory.groups,
     failures: []
   };
 }
-function modelGroups() {
-  return [{ id: CODEX_PROVIDER, name: "CodeX", models: [{ id: CODEX_MODEL, name: "CodeX" }] }];
+function codexModelParams(selection) {
+  return {
+    model: selection.model,
+    ...selection.reasoningEffort === void 0 ? {} : { effort: selection.reasoningEffort }
+  };
+}
+function reasoningEffortName(effort) {
+  const names = {
+    none: "None",
+    minimal: "Minimal",
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    xhigh: "Extra High",
+    max: "Max",
+    ultra: "Ultra"
+  };
+  return names[effort] ?? effort;
 }
 function displayTitle(session) {
   const value = session.title ?? session.preview;
