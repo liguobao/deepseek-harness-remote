@@ -2108,7 +2108,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
     accountPasswordLogin: "\u8D26\u53F7\u5BC6\u7801",
     qrLoginExpired: "\u4E8C\u7EF4\u7801\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002",
     refreshQrCode: "\u5237\u65B0\u4E8C\u7EF4\u7801",
-    codexVirtualWorkspace: "CodeX \u865A\u62DF\u5DE5\u4F5C\u533A",
+    codexVirtualWorkspace: "CodeX \u5DE5\u4F5C\u533A",
     codexVirtualSessions: "Sessions"
   }, defaultPreferredTransports = ["lan", "p2p", "turn", "relay"];
   function normalizedPreferredTransports(value) {

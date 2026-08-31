@@ -121,13 +121,19 @@ alpha 基线至少支持 `workspace/list`、`workspace/follow`、`workspace/crea
 | `userMessage` | `user/message` |
 | `agentMessage` | `assistant/message` |
 | assistant delta | `assistant/chunk` |
-| `reasoning` / `plan` | assistant message/reasoning block |
+| `reasoning` / `plan` 及其 delta | assistant message / 原生 reasoning chunk；Turn plan 同步为 `todo/write` |
 | command/MCP/dynamic tool/file change | `tool/call` + `tool/result` |
+| command/file output delta、MCP progress | 原位替换同一 `tool/result` 的有界累计内容 |
+| file patch update | 只含 path/kind 的文件变更工具卡片；不透传原始 diff |
+| Thread status / model reroute | 原生 session status / `request/context` 与 model-selection projection |
+| Web Search/Subagent/Image/Compaction/Review Mode | 具有安全摘要的原生 `tool/call` + `tool/result` |
 | CodeX error | 可由原生 renderer 安全展示的 assistant/error 事件 |
 
 snapshot 必须包含原生 header、cursor、records、`hasMore` 与安全 projection。未知 Item 不得泄漏原始
-对象。实时订阅至少处理 `turn/started`、`item/started`、`item/completed`、
-`item/agentMessage/delta`、`turn/completed` 和 command/file-change approval request。
+对象。实时订阅处理 `turn/started`、`item/started`、`item/completed`、assistant/reasoning/plan
+delta、command/file/MCP progress、file patch update、`thread/status/changed`、`model/rerouted`、
+`turn/completed` 和 command/file-change approval request。后续 CodeX 新增且尚未识别的 Item 继续安全忽略，
+不得把原始对象作为通用 JSON 卡片透传。
 
 断线后以新的 persisted baseline 替换临时 live 状态，不维护第二套永久 replay buffer，不自动重放
 任何 mutation。

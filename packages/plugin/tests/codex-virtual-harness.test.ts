@@ -146,6 +146,203 @@ describe('CodexVirtualHarness', () => {
     await target.close()
   })
 
+  it('maps CodeX reasoning, plans, tool progress, status, reroutes, and extended items live', async () => {
+    const client = fakeCodex()
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const controller = new AbortController()
+    const source = await target.open('session/follow', {
+      args: { request: { address: { kind: 'session', sessionId: 'codex:thr_1' } } },
+    }, controller.signal)
+    const iterator = source[Symbol.asyncIterator]()
+    await iterator.next()
+
+    const controlController = new AbortController()
+    const control = await target.open('session/control', { args: {} }, controlController.signal)
+    const controlIterator = control[Symbol.asyncIterator]()
+    await controlIterator.next()
+    const eventsController = new AbortController()
+    const events = await target.open('$events', { args: {} }, eventsController.signal)
+    const eventsIterator = events[Symbol.asyncIterator]()
+    await eventsIterator.next()
+
+    client.emit('thr_1', {
+      method: 'turn/started',
+      params: { turn: { id: 'turn_2', status: 'inProgress', items: [] } },
+    })
+    await iterator.next()
+    await iterator.next()
+    await expect(eventsIterator.next()).resolves.toMatchObject({ value: {
+      type: 'emit', event: 'api-session/status', args: ['codex:thr_1', true],
+    } })
+
+    client.emit('thr_1', {
+      method: 'item/reasoning/summaryTextDelta',
+      params: { turnId: 'turn_2', itemId: 'reasoning_2', summaryIndex: 0, delta: 'Checking' },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { event: { data: { chunk: {
+      type: 'block-start', blockType: 'reasoning', index: 0,
+    } } } } })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { event: { data: { chunk: {
+      type: 'reasoning-delta', text: 'Checking', index: 0,
+    } } } } })
+
+    client.emit('thr_1', {
+      method: 'item/plan/delta',
+      params: { turnId: 'turn_2', itemId: 'plan_2', delta: 'Implement mapping' },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { event: { data: { chunk: {
+      type: 'block-start', blockType: 'reasoning', index: 1,
+    } } } } })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { event: { data: { chunk: {
+      type: 'reasoning-delta', text: 'Implement mapping', index: 1,
+    } } } } })
+
+    client.emit('thr_1', {
+      method: 'turn/plan/updated',
+      params: { turnId: 'turn_2', plan: [{ step: 'Map events', status: 'inProgress' }] },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { event: {
+      type: 'todo/write', data: { todos: [{ content: 'Map events', status: 'in_progress' }] },
+    } } })
+
+    client.emit('thr_1', {
+      method: 'item/started',
+      params: { turnId: 'turn_2', item: {
+        id: 'command_2', type: 'commandExecution', command: 'pnpm test', cwd: '/workspace/repo', status: 'inProgress',
+      } },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: {
+      event: { type: 'tool/call' }, view: { view: { card: 'terminal', title: 'pnpm test' } },
+    } })
+    client.emit('thr_1', {
+      method: 'item/commandExecution/outputDelta',
+      params: { turnId: 'turn_2', itemId: 'command_2', delta: 'first\n' },
+    })
+    const firstOutput = await iterator.next()
+    expect(firstOutput.value).toMatchObject({ event: { type: 'tool/result', surfaceOp: 'append' }, view: { view: {
+      card: 'terminal', output: 'first\n',
+    } } })
+    client.emit('thr_1', {
+      method: 'item/commandExecution/outputDelta',
+      params: { turnId: 'turn_2', itemId: 'command_2', delta: 'second' },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { event: {
+      type: 'tool/result', surfaceOp: 'replace', sourceEventSeqs: [firstOutput.value.event.seq],
+    }, view: { view: { output: 'first\nsecond' } } } })
+
+    client.emit('thr_1', {
+      method: 'item/started',
+      params: { turnId: 'turn_2', item: { id: 'files_2', type: 'fileChange', changes: [], status: 'inProgress' } },
+    })
+    await iterator.next()
+    client.emit('thr_1', {
+      method: 'item/fileChange/patchUpdated',
+      params: { turnId: 'turn_2', itemId: 'files_2', changes: [{
+        path: 'src/live.ts', kind: { type: 'update' }, diff: 'must not cross the virtual carrier',
+      }] },
+    })
+    const patchUpdate = await iterator.next()
+    expect(patchUpdate.value).toMatchObject({ event: { type: 'tool/result' } })
+    expect(patchUpdate.value.view).toMatchObject({ view: { card: 'generic' } })
+    expect(JSON.stringify(patchUpdate.value)).toContain('src/live.ts')
+    expect(JSON.stringify(patchUpdate.value)).not.toContain('must not cross')
+
+    client.emit('thr_1', {
+      method: 'item/started',
+      params: { turnId: 'turn_2', item: {
+        id: 'mcp_2', type: 'mcpToolCall', server: 'demo', tool: 'scan', arguments: {}, status: 'inProgress',
+      } },
+    })
+    await iterator.next()
+    client.emit('thr_1', {
+      method: 'item/mcpToolCall/progress',
+      params: { turnId: 'turn_2', itemId: 'mcp_2', message: 'Scanning repository' },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: {
+      event: { type: 'tool/result' },
+      view: { view: { title: 'CodeX MCP tool in progress', content: [{ text: 'Scanning repository' }] } },
+    } })
+
+    client.emit('thr_1', {
+      method: 'thread/status/changed',
+      params: { threadId: 'thr_1', status: { type: 'active', activeFlags: ['waitingOnApproval'] } },
+    })
+    await expect(eventsIterator.next()).resolves.toMatchObject({ value: {
+      type: 'emit', event: 'api-session/status', args: ['codex:thr_1', true],
+    } })
+    client.emit('thr_1', {
+      method: 'thread/status/changed',
+      params: { threadId: 'thr_1', status: { type: 'idle' } },
+    })
+    await expect(eventsIterator.next()).resolves.toMatchObject({ value: {
+      type: 'emit', event: 'api-session/status', args: ['codex:thr_1', false],
+    } })
+
+    client.emit('thr_1', {
+      method: 'model/rerouted',
+      params: { threadId: 'thr_1', turnId: 'turn_2', fromModel: 'gpt-5.6-sol', toModel: 'gpt-5.6-terra', reason: 'highRiskCyberActivity' },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { event: {
+      type: 'request/context', data: { provider: 'codex', model: 'gpt-5.6-terra' },
+    } } })
+    await expect(controlIterator.next()).resolves.toMatchObject({ value: {
+      type: 'projection', sessionId: 'codex:thr_1', key: 'modelSelection',
+      value: { next: { provider: 'codex', model: 'gpt-5.6-terra' } },
+    } })
+
+    client.emit('thr_1', {
+      method: 'item/completed',
+      params: { turnId: 'turn_2', item: { id: 'search_2', type: 'webSearch', query: 'DSH events', results: [{ title: 'Result' }] } },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: {
+      event: { type: 'tool/call', data: { name: 'codex.webSearch' } },
+      view: { view: { kind: 'search', title: 'DSH events' } },
+    } })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { event: {
+      type: 'tool/result', data: { message: { content: [{ content: [{ text: 'Web search returned 1 result.' }] }] } },
+    } } })
+
+    const extendedItems = [
+      {
+        item: {
+          id: 'subagent_2', type: 'collabAgentToolCall', tool: 'spawnAgent', status: 'completed',
+          senderThreadId: 'thr_1', receiverThreadIds: ['thr_child'], agentsStates: {}, model: 'gpt-5.6-luna',
+        },
+        name: 'codex.subagent', title: 'Subagent: spawnAgent',
+      },
+      {
+        item: { id: 'image_2', type: 'imageGeneration', status: 'completed', result: 'private-base64-image', savedPath: '/tmp/image.png' },
+        name: 'codex.image', title: 'Generate image',
+      },
+      {
+        item: { id: 'compact_2', type: 'contextCompaction' },
+        name: 'codex.compaction', title: 'Compact conversation context',
+      },
+      {
+        item: { id: 'review_2', type: 'enteredReviewMode', review: 'Review current changes' },
+        name: 'codex.reviewMode', title: 'Enter review mode',
+      },
+    ]
+    for (const value of extendedItems) {
+      client.emit('thr_1', { method: 'item/completed', params: { turnId: 'turn_2', item: value.item } })
+      await expect(iterator.next()).resolves.toMatchObject({ value: {
+        event: { type: 'tool/call', data: { name: value.name } },
+        view: { view: { title: value.title } },
+      } })
+      const result = await iterator.next()
+      expect(result.value).toMatchObject({ event: { type: 'tool/result' } })
+      expect(JSON.stringify(result.value)).not.toContain('private-base64-image')
+    }
+
+    controller.abort()
+    controlController.abort()
+    eventsController.abort()
+    await iterator.return?.()
+    await controlIterator.return?.()
+    await eventsIterator.return?.()
+    await target.close()
+  })
+
   it('routes the native composer prompt back to CodeX resume and turn/start', async () => {
     const client = fakeCodex()
     const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
@@ -214,6 +411,37 @@ describe('CodexVirtualHarness', () => {
     await expect(iterator.next()).resolves.toMatchObject({
       value: { payload: { type: 'session/event', sessionId: 'codex:thr_1', event: { type: 'turn/start', seq: 10 } } },
     })
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { payload: { type: 'session/event', event: { type: 'step/start', seq: 11 } } },
+    })
+    client.emit('thr_1', {
+      method: 'item/started',
+      params: { turnId: 'turn_2', item: {
+        id: 'command_2', type: 'commandExecution', command: 'pnpm test', status: 'inProgress',
+      } },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { payload: {
+      type: 'session/event', event: { type: 'tool/call', seq: 12 },
+    } } })
+    client.emit('thr_1', {
+      method: 'item/commandExecution/outputDelta',
+      params: { turnId: 'turn_2', itemId: 'command_2', delta: 'one' },
+    })
+    const firstResult = await iterator.next()
+    expect(firstResult.value).toMatchObject({ payload: {
+      type: 'session/event', event: { type: 'tool/result', seq: 13, surfaceOp: 'append' },
+    } })
+    client.emit('thr_1', {
+      method: 'item/commandExecution/outputDelta',
+      params: { turnId: 'turn_2', itemId: 'command_2', delta: ' two' },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { payload: {
+      type: 'session/event', event: {
+        type: 'tool/result', seq: 14,
+        surfaceOp: { op: 'replace', start: 13, end: 13 },
+        sourceEventSeqs: [13],
+      },
+    } } })
 
     controller.abort()
     await iterator.return?.()

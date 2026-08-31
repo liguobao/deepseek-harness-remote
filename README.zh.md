@@ -121,6 +121,11 @@ CodeX Thread 以 Session 形式出现，History 与实时 frame 被投影成 DSH
 DSH 原生工作区列表、Conversation Renderer、Composer、工具卡片和审批组件负责，不再提供独立
 CodeX 页面。
 
+实时投影覆盖 assistant/reasoning/plan 增量、命令与文件输出、文件变更摘要、MCP progress、Thread
+运行状态和 model reroute；Web Search、Subagent、Image、Compaction 与 Review Mode 等 Item 复用
+原生工具卡片展示。大段实时工具输出只保留有界的内存窗口，文件 patch 只传递路径和变更类型，
+不会把原始 diff 写入或透传为 Workspace 文件内容。
+
 这只是展示适配，不是导入。虚拟 Workspace/Session 不会写入 DSH SessionStore、工作区存储或
 Harness 日志；CodeX App Server 始终是唯一数据源，新建、改名、归档、Prompt、停止和审批操作都
 路由回其白名单方法。Host carrier 继续复用账号 membership、Host identity 固定、Noise 安全通道和

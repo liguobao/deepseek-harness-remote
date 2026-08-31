@@ -126,6 +126,12 @@ and their history and live frames are projected into native DSH Session events. 
 workspace list, conversation renderer, composer, tool cards, and approval UI remain responsible for
 the interface; there is no separate CodeX page.
 
+The live projection covers assistant/reasoning/plan deltas, command and file output, file-change
+summaries, MCP progress, thread status, and model reroutes. Web Search, Subagent, Image, Compaction,
+and Review Mode items reuse native tool cards. Large live tool output is kept in a bounded in-memory
+window, while file patch events expose only paths and change kinds rather than forwarding raw diffs as
+Workspace file content.
+
 This is a presentation adapter, not an import. The virtual Workspace/Session records are never written
 to DSH SessionStore, workspace storage, or Harness logs. CodeX App Server remains the source of truth,
 and create, rename, archive, prompt, interrupt, and approval actions are routed back to its allowlisted

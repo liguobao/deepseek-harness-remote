@@ -612,7 +612,7 @@ const zh: Record<keyof typeof en, string> = {
   accountPasswordLogin: '账号密码',
   qrLoginExpired: '二维码已过期，请刷新后重试。',
   refreshQrCode: '刷新二维码',
-  codexVirtualWorkspace: 'CodeX 虚拟工作区',
+  codexVirtualWorkspace: 'CodeX 工作区',
   codexVirtualSessions: 'Sessions',
 }
 
