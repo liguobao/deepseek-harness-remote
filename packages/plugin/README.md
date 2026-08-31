@@ -119,6 +119,30 @@ Settings are written to `$DSH_HOME/settings.yaml` under `ds-harness-remote` (res
 
 配置写入 `$DSH_HOME/settings.yaml` 的 `ds-harness-remote`（重启后生效）。
 
+Codex Session/History is an experimental optional domain inside this same plugin. It is disabled by
+default and requires Host-local absolute roots. The current release includes the Host carrier,
+shared Client Core, Desktop Plugin Web history/live UI with create/rename/archive/restore, dynamic
+capability re-probing, and bounded App Server restart. Opening history is read-only and resume is
+deferred until the user continues work. Current stdio/list/read compatibility is smoke-tested; encrypted cross-machine
+turn/approval testing remains pending. Android is outside the current Plugin-only scope.
+
+Codex Session/History 是当前插件内部的实验性可选领域，默认关闭，必须由 Host 本机配置绝对根目录。
+当前已完成 Host carrier、共享 Client Core、Desktop Plugin Web History/live UI（包括新建、改名、
+归档/恢复）、动态 capability 重探测与 App Server 有界重启。打开 History 仅执行只读，继续操作时
+才 resume。当前 stdio/list/read 已完成真实冒烟验证；加密跨机 turn/approval
+联调仍待完成。Android 不属于当前仅 Plugin 的交付范围。
+
+```yaml
+ds-harness-remote:
+  codex:
+    enabled: true
+    binary: codex
+    allowedRoots:
+      - /absolute/path/to/project
+```
+
+`binary` 必须指向支持 `codex app-server` 的当前 Codex CLI；必要时请配置绝对路径。
+
 ```sh
 export DSH_REMOTE_SERVER=https://dsh.r2049.cn
 ```

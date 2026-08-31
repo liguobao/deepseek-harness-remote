@@ -10,6 +10,7 @@ import type { RemoteFileViewerBridge } from './file-viewer-bridge.js'
 import type { HarnessApiBridge } from './harness-api-bridge.js'
 import type { HarnessRemoteBridge } from './harness-remote-bridge.js'
 import type { SafeLogger } from './logging.js'
+import type { CodexPeerBridge } from './codex/peer-bridge.js'
 import { RpcError, safeErrorCode } from './safe-error.js'
 
 export { RpcError } from './safe-error.js'
@@ -36,6 +37,15 @@ const apiMethods = new Set([
   'harness.remote.stream.open',
   'harness.remote.stream.close',
   'fileviewer.call',
+  'codex.app.call',
+  'codex.app.respond',
+  'codex.app.stream.open',
+  'codex.app.stream.close',
+  'codex.app.transfer.open',
+  'codex.app.transfer.chunk',
+  'codex.app.transfer.commit',
+  'codex.app.transfer.read',
+  'codex.app.transfer.close',
 ])
 
 export const HOST_CAPABILITIES = [
@@ -44,6 +54,8 @@ export const HOST_CAPABILITIES = [
   'harness.remote.v1',
   'harness.remote.transfer.v1',
   'fileviewer.read.v1',
+  'codex.appserver.v1',
+  'codex.appserver.transfer.v1',
 ] as const
 
 export class RpcRouter {
@@ -56,12 +68,14 @@ export class RpcRouter {
     private readonly fileViewer?: RemoteFileViewerBridge,
     private readonly harnessRemote?: HarnessRemoteBridge,
     private readonly capabilities: () => readonly string[] = () => HOST_CAPABILITIES,
+    private readonly codex?: CodexPeerBridge,
   ) {}
 
   async closePeerStreams(): Promise<void> {
     await Promise.all([
       this.harnessApi?.closeAll(),
       this.harnessRemote?.closeAll(),
+      this.codex?.closeAll(),
     ])
   }
 
@@ -130,6 +144,15 @@ export class RpcRouter {
         }
         return this.fileViewer.call(params)
       }
+      case 'codex.app.call': return this.requireCodex().call(params)
+      case 'codex.app.respond': return this.requireCodex().respond(params)
+      case 'codex.app.stream.open': return this.requireCodex().openStream(params)
+      case 'codex.app.stream.close': return this.requireCodex().closeStream(params)
+      case 'codex.app.transfer.open': return this.requireCodex().openTransfer(params)
+      case 'codex.app.transfer.chunk': return this.requireCodex().appendTransfer(params)
+      case 'codex.app.transfer.commit': return this.requireCodex().commitTransfer(params)
+      case 'codex.app.transfer.read': return this.requireCodex().readTransfer(params)
+      case 'codex.app.transfer.close': return this.requireCodex().closeTransfer(params)
       default: throw new RpcError('METHOD_NOT_FOUND', 'The requested method does not exist.')
     }
   }
@@ -146,6 +169,13 @@ export class RpcRouter {
       throw new RpcError('FEATURE_NOT_SUPPORTED', 'This Harness version does not provide the Remote Gateway transport.')
     }
     return this.harnessRemote
+  }
+
+  private requireCodex(): CodexPeerBridge {
+    if (this.codex === undefined) {
+      throw new RpcError('FEATURE_NOT_SUPPORTED', 'Codex Remote is disabled or unavailable on this Host.')
+    }
+    return this.codex
   }
 }
 

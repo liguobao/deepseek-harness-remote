@@ -7,12 +7,15 @@ export const SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024
 export const MAX_SECURE_MESSAGE_BYTES = 4 * 1024 * 1024
 /** Decoded bytes carried by one authenticated Harness business transfer chunk. */
 export const HARNESS_API_TRANSFER_CHUNK_BYTES = 512 * 1024
+/** Decoded bytes carried by one authenticated Codex domain transfer chunk. */
+export const CODEX_APP_TRANSFER_CHUNK_BYTES = 512 * 1024
 /**
  * Bounded transfer size for Harness image prompts. The upstream default admits
  * up to 200 MiB of source images; their base64 JSON envelope needs roughly
  * 267 MiB, so 288 MiB leaves room for the native request structure.
  */
 export const MAX_HARNESS_API_TRANSFER_BYTES = 288 * 1024 * 1024
+export const MAX_CODEX_APP_TRANSFER_BYTES = 288 * 1024 * 1024
 
 const SECURE_FRAGMENT_MAGIC = new Uint8Array([0x44, 0x53, 0x48, 0x46]) // DSHF
 const SECURE_FRAGMENT_VERSION = 1
@@ -64,6 +67,15 @@ export const rpcMethods = [
   'harness.remote.stream.open',
   'harness.remote.stream.close',
   'fileviewer.call',
+  'codex.app.call',
+  'codex.app.respond',
+  'codex.app.stream.open',
+  'codex.app.stream.close',
+  'codex.app.transfer.open',
+  'codex.app.transfer.chunk',
+  'codex.app.transfer.commit',
+  'codex.app.transfer.read',
+  'codex.app.transfer.close',
 ] as const
 
 export const remoteEvents = [
@@ -82,6 +94,8 @@ export const remoteEvents = [
   'harness.api.stream.closed',
   'harness.remote.frame',
   'harness.remote.stream.closed',
+  'codex.app.frame',
+  'codex.app.stream.closed',
 ] as const
 
 export type MessageType = typeof messageTypes[number]
@@ -426,6 +440,65 @@ export interface HarnessRemoteStreamClosedData {
 
 export interface HarnessTransportDescription {
   capabilities: string[]
+}
+
+/** Fixed allowlisted Codex App Server call carried inside Remote. */
+export interface CodexAppCallParams {
+  method: string
+  params: unknown
+}
+
+export interface CodexAppRespondParams {
+  requestHandle: string
+  decision: 'accept' | 'decline' | 'cancel'
+}
+
+export interface CodexAppStreamOpenParams {
+  streamId: string
+  threadId: string
+}
+
+export interface CodexAppStreamCloseParams {
+  streamId: string
+}
+
+export interface CodexAppFrameData {
+  streamId: string
+  frame: {
+    method: string
+    params: unknown
+  }
+}
+
+export interface CodexAppStreamClosedData {
+  streamId: string
+  reason: 'cancelled' | 'completed' | 'failed' | 'peer-disconnected'
+}
+
+export interface CodexAppTransferOpenParams {
+  transferId: string
+  totalBytes: number
+  totalChunks: number
+}
+
+export interface CodexAppTransferChunkParams {
+  transferId: string
+  index: number
+  data: string
+}
+
+export interface CodexAppTransferCommitParams { transferId: string }
+export interface CodexAppTransferReadParams { transferId: string; index: number }
+export interface CodexAppTransferCloseParams { transferId: string }
+
+export type CodexAppTransferCommitResult =
+  | { kind: 'inline'; response: unknown }
+  | { kind: 'chunked'; transferId: string; totalBytes: number; totalChunks: number }
+
+export interface CodexAppTransferReadResult {
+  transferId: string
+  index: number
+  data: string
 }
 
 const rpcMethodSchema = z.enum(rpcMethods)

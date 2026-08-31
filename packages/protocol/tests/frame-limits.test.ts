@@ -5,6 +5,8 @@ import {
   MAX_SECURE_MESSAGE_BYTES,
   HARNESS_API_TRANSFER_CHUNK_BYTES,
   MAX_HARNESS_API_TRANSFER_BYTES,
+  CODEX_APP_TRANSFER_CHUNK_BYTES,
+  MAX_CODEX_APP_TRANSFER_BYTES,
   SecureMessageCodec,
 } from '../src/index.js'
 
@@ -27,6 +29,12 @@ describe('protocol limit constants', () => {
     expect(HARNESS_API_TRANSFER_CHUNK_BYTES).toBe(512 * 1024)
     expect(MAX_HARNESS_API_TRANSFER_BYTES).toBe(288 * 1024 * 1024)
     expect(HARNESS_API_TRANSFER_CHUNK_BYTES).toBeLessThan(MAX_SECURE_MESSAGE_BYTES)
+  })
+
+  it('keeps Codex history transfers in an independent bounded domain', () => {
+    expect(CODEX_APP_TRANSFER_CHUNK_BYTES).toBe(512 * 1024)
+    expect(MAX_CODEX_APP_TRANSFER_BYTES).toBe(288 * 1024 * 1024)
+    expect(CODEX_APP_TRANSFER_CHUNK_BYTES).toBeLessThan(MAX_SECURE_MESSAGE_BYTES)
   })
 })
 

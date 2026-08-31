@@ -12,6 +12,11 @@ export interface Config {
     maxDelayMs?: number
     jitter?: number
   }
+  codex?: {
+    enabled?: boolean
+    binary?: string
+    allowedRoots?: string[]
+  }
 }
 
 export declare const name: 'ds-harness-remote'

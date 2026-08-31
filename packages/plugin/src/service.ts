@@ -20,6 +20,7 @@ import { HarnessRemoteBridge } from './harness-remote-bridge.js'
 import type { LocalTypertGateway } from './typert-gateway-contract.js'
 import { loadNodeRtcFactory } from './werift-rtc.js'
 import type { AuthenticatedPeerChannel } from './types.js'
+import { CodexRemoteDomain } from './codex/domain.js'
 
 export interface HostRemoteStatus {
   deviceId?: string
@@ -40,6 +41,7 @@ export class HostPluginRuntime {
   private serverConnection?: HostServerConnection
   private harnessVersion?: string
   private closed = false
+  private readonly codex: CodexRemoteDomain
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -49,7 +51,8 @@ export class HostPluginRuntime {
     private readonly localGateway?: LocalTypertGateway,
     private readonly fileViewerHost?: () => FileViewerHostServiceLike | undefined,
   ) {
-    this.connections = new ConnectionController(this.identities, (_context, send) => {
+    this.codex = new CodexRemoteDomain(config.codex, logger)
+    this.connections = new ConnectionController(this.identities, (context, send) => {
       const harnessApi = this.apiProxy === undefined
         ? undefined
         : new HarnessApiBridge(
@@ -71,7 +74,19 @@ export class HostPluginRuntime {
         () => this.fileViewerHost?.(),
         this.logger,
       )
-      return new RpcRouter(harnessApi, undefined, this.logger, fileViewer, harnessRemote, () => this.hostCapabilities())
+      const codex = this.codex.createPeer(
+        context,
+        (event, data) => send(createEvent(event, data)),
+      )
+      return new RpcRouter(
+        harnessApi,
+        undefined,
+        this.logger,
+        fileViewer,
+        harnessRemote,
+        () => this.hostCapabilities(),
+        codex,
+      )
     }, this.logger)
     if (config.serverUrl !== undefined) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory))
@@ -86,6 +101,7 @@ export class HostPluginRuntime {
       fingerprint: this.identity.fingerprint,
       server: this.config.serverUrl ?? 'not configured',
     })
+    await this.codex.start()
     if (this.serverApi !== undefined) {
       this.harnessVersion = await this.readHarnessVersion()
       this.serverApi.setHarnessVersion(this.harnessVersion)
@@ -192,6 +208,7 @@ export class HostPluginRuntime {
     this.closed = true
     await this.serverConnection?.stop()
     await this.connections.close()
+    await this.codex.close()
     this.logger.info('host runtime stopped')
   }
 
@@ -208,6 +225,7 @@ export class HostPluginRuntime {
       peerDeviceId: this.connections.peerDeviceId() === undefined ? undefined : shortId(this.connections.peerDeviceId()!),
       peerDeviceIds: this.connections.peerDeviceIds().map(shortId),
       trustedPeers: this.identities.listTrustedPeers().length,
+      codex: this.codex.status(),
     }
   }
 
@@ -258,6 +276,7 @@ export class HostPluginRuntime {
       capabilities.push('harness.remote.v1', 'harness.remote.transfer.v1')
     }
     if (this.fileViewerHost?.() !== undefined) capabilities.push('fileviewer.read.v1')
+    if (this.codex.isAvailable()) capabilities.push('codex.appserver.v1', 'codex.appserver.transfer.v1')
     return capabilities
   }
 }

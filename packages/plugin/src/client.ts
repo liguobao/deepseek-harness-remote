@@ -1,5 +1,11 @@
 import QRCode from 'qrcode'
 import {
+  createCodexTimelineState,
+  reduceCodexTimelineFrame,
+  type CodexTimelineState,
+  type DisplayHistoryItem,
+} from '@dsh-remote/client-core'
+import {
   REMOTE_FILE_SAVE_AS_MAX_BYTES,
   createRemoteFileContentProvider,
   remoteFileSaveAsMaxBytes,
@@ -46,7 +52,7 @@ interface RemoteStatus {
   connected?: boolean
   transport?: 'LAN' | 'P2P' | 'TURN' | 'Relay' | 'Disconnected'
   preferredTransports?: RemoteTransportPreference[]
-  remoteFeatures?: { commandList: boolean; fileViewer: boolean }
+  remoteFeatures?: { commandList: boolean; fileViewer: boolean; codex?: boolean }
   network?: RemoteNetworkDetails
   hostAuthorizationAvailable: boolean
   host?: {
@@ -384,6 +390,44 @@ const en = {
   accountPasswordLogin: 'Password',
   qrLoginExpired: 'This QR code expired. Refresh it to continue.',
   refreshQrCode: 'Refresh QR code',
+  codexEntry: 'Codex',
+  codexTitle: 'Codex sessions',
+  codexDescription: 'Threads on the connected Host. Data stays in Codex and is shown here as a separate view.',
+  codexLoading: 'Loading Codex sessions…',
+  codexEmpty: 'No Codex threads are available in the Host allowed roots.',
+  codexBack: 'Back to sessions',
+  codexRefresh: 'Refresh',
+  codexLoadMore: 'Load more',
+  codexNewThread: 'New thread',
+  codexNewPath: 'Absolute Host project path',
+  codexRename: 'Rename',
+  codexRenamePrompt: 'New Codex thread name',
+  codexArchive: 'Archive',
+  codexUnarchive: 'Restore',
+  codexShowArchived: 'Archived',
+  codexShowActive: 'Active',
+  codexPromptPlaceholder: 'Continue this Codex session…',
+  codexSend: 'Send',
+  codexSending: 'Sending…',
+  codexStop: 'Stop',
+  codexLive: 'Live',
+  codexReconnecting: 'Reconnecting to Codex…',
+  codexApproval: 'Codex needs a one-time approval',
+  codexAllowOnce: 'Allow once',
+  codexDeny: 'Deny',
+  codexUnknownItem: 'Unsupported Codex item: {type}',
+  codexNoMessages: 'This thread has no displayable history yet.',
+  codexUnavailable: 'Codex is disabled or unavailable on the connected Host.',
+  codexYou: 'You',
+  codexCommand: 'Command',
+  codexFiles: 'Files',
+  codexTool: 'Tool',
+  codexStatus: 'Status',
+  codexRunning: 'Running',
+  codexWaiting: 'Waiting for approval',
+  codexFailed: 'Failed',
+  codexIdle: 'Idle',
+  codexPinned: 'Pinned',
 } as const
 
 const zh: Record<keyof typeof en, string> = {
@@ -583,6 +627,44 @@ const zh: Record<keyof typeof en, string> = {
   accountPasswordLogin: '账号密码',
   qrLoginExpired: '二维码已过期，请刷新后重试。',
   refreshQrCode: '刷新二维码',
+  codexEntry: 'Codex',
+  codexTitle: 'Codex 会话',
+  codexDescription: '展示已连接 Host 上的 Codex Thread。数据仍由 Codex 保存，并在这里作为独立视图呈现。',
+  codexLoading: '正在加载 Codex 会话…',
+  codexEmpty: 'Host 允许的根目录中没有可展示的 Codex Thread。',
+  codexBack: '返回会话列表',
+  codexRefresh: '刷新',
+  codexLoadMore: '加载更多',
+  codexNewThread: '新建 Thread',
+  codexNewPath: 'Host 上的项目绝对路径',
+  codexRename: '改名',
+  codexRenamePrompt: '新的 Codex Thread 名称',
+  codexArchive: '归档',
+  codexUnarchive: '恢复',
+  codexShowArchived: '已归档',
+  codexShowActive: '进行中',
+  codexPromptPlaceholder: '继续这个 Codex 会话…',
+  codexSend: '发送',
+  codexSending: '正在发送…',
+  codexStop: '停止',
+  codexLive: '实时',
+  codexReconnecting: '正在重新连接 Codex…',
+  codexApproval: 'Codex 需要一次性授权',
+  codexAllowOnce: '仅允许一次',
+  codexDeny: '拒绝',
+  codexUnknownItem: '暂不支持的 Codex 项目：{type}',
+  codexNoMessages: '这个 Thread 还没有可展示的历史。',
+  codexUnavailable: '已连接的 Host 未启用 Codex，或 Codex 当前不可用。',
+  codexYou: '你',
+  codexCommand: '命令',
+  codexFiles: '文件',
+  codexTool: '工具',
+  codexStatus: '状态',
+  codexRunning: '运行中',
+  codexWaiting: '等待授权',
+  codexFailed: '失败',
+  codexIdle: '空闲',
+  codexPinned: '已置顶',
 }
 
 type LocaleKey = keyof typeof en
@@ -1620,6 +1702,522 @@ window.__ModuleLoader__.load({
             error === undefined ? null : React.createElement('p', { className: 'dshRemoteError', role: 'alert' }, error)))))
     }
 
+    interface CodexThreadRow {
+      id: string
+      name?: string
+      preview?: string
+      cwd?: string
+      status?: unknown
+      createdAt?: number
+      updatedAt?: number
+      archived?: boolean
+      isPinned?: boolean
+      turns?: unknown[]
+    }
+
+    function CodexSessionAction(props: {
+      wide: boolean
+      control: <T>(endpoint: string, payload?: unknown) => Promise<T>
+      t: Translate
+    }): unknown {
+      const { t } = props
+      const [supported, setSupported] = React.useState(false)
+      const [open, setOpen] = React.useState(false)
+      const [threads, setThreads] = React.useState<CodexThreadRow[]>([])
+      const [nextCursor, setNextCursor] = React.useState<string | undefined>(undefined)
+      const [showArchived, setShowArchived] = React.useState(false)
+      const [selected, setSelected] = React.useState<CodexThreadRow | undefined>(undefined)
+      const [timelineState, setTimelineState] = React.useState<CodexTimelineState | undefined>(undefined)
+      const [prompt, setPrompt] = React.useState('')
+      const [newThreadPath, setNewThreadPath] = React.useState('')
+      const [busy, setBusy] = React.useState(false)
+      const [loading, setLoading] = React.useState(false)
+      const [reconnecting, setReconnecting] = React.useState(false)
+      const [error, setError] = React.useState<string | undefined>(undefined)
+      const streamRef = React.useRef<{ id: string; run: number; threadId: string } | undefined>(undefined)
+      const runRef = React.useRef(0)
+
+      const syncSupport = async (): Promise<void> => {
+        try {
+          const status = await props.control<RemoteStatus>('status')
+          if (status.connected !== true) {
+            setSupported(false)
+            return
+          }
+          const result = await props.control<{ supported: boolean }>('codex.probe')
+          setSupported(result.supported)
+        } catch {
+          setSupported(false)
+        }
+      }
+
+      React.useEffect(() => {
+        let active = true
+        const sync = async () => { if (active) await syncSupport() }
+        void sync()
+        const timer = window.setInterval(() => { void sync() }, 3_000)
+        return () => { active = false; window.clearInterval(timer) }
+      }, [])
+
+      const closeActiveStream = async (): Promise<void> => {
+        runRef.current += 1
+        const stream = streamRef.current
+        streamRef.current = undefined
+        if (stream !== undefined) {
+          await props.control('codex.stream.close', { streamId: stream.id }).catch(() => undefined)
+        }
+      }
+
+      React.useEffect(() => () => { void closeActiveStream() }, [])
+
+      const loadThreads = async (cursor?: string, archived = showArchived): Promise<void> => {
+        setLoading(true)
+        setError(undefined)
+        try {
+          const result = await props.control<unknown>('codex.call', {
+            method: 'thread/list',
+            params: {
+              limit: 50,
+              sortKey: 'updated_at',
+              sortDirection: 'desc',
+              sourceKinds: ['cli', 'vscode', 'exec', 'appServer', 'unknown'],
+              archived,
+              ...(cursor === undefined ? {} : { cursor }),
+            },
+          })
+          const page = codexThreadPage(result, archived)
+          setThreads(previous => cursor === undefined ? page.rows : mergeCodexThreads(previous, page.rows))
+          setNextCursor(page.nextCursor)
+        } catch (reason) {
+          setError(messageOf(reason))
+        } finally {
+          setLoading(false)
+        }
+      }
+
+      const loadHistory = async (threadId: string): Promise<CodexTimelineState> => {
+        const result = await props.control<unknown>('codex.call', {
+          method: 'thread/read', params: { threadId, includeTurns: true },
+        })
+        const thread = codexResultThread(result)
+        if (thread === undefined) throw new Error('The Host returned an invalid Codex thread.')
+        const baseline = createCodexTimelineState(thread)
+        if (baseline === undefined) throw new Error('The Host returned an invalid Codex history baseline.')
+        setTimelineState(baseline)
+        setSelected(previous => previous?.id === threadId ? { ...previous, ...thread } : previous)
+        return baseline
+      }
+
+      const poll = async (streamId: string, threadId: string, run: number): Promise<void> => {
+        while (runRef.current === run) {
+          const batch = await props.control<unknown>('codex.stream.next', { streamId })
+          if (runRef.current !== run || !codexFrameBatch(batch)) return
+          let completed = false
+          for (const frame of batch.frames) {
+            setTimelineState(previous => previous === undefined ? previous : reduceCodexTimelineFrame(previous, frame))
+            if (frame.method === 'turn/completed') completed = true
+          }
+          // The persisted baseline is authoritative after a completed turn and
+          // replaces any partial delta state without replaying a mutation.
+          if (completed) await loadHistory(threadId)
+          if (batch.closed) return
+        }
+      }
+
+      const runThreadSession = async (threadId: string, run: number): Promise<void> => {
+        let attempt = 0
+        while (runRef.current === run) {
+          const streamId = `codex-web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+          try {
+            await props.control('codex.stream.open', { streamId, threadId })
+            if (runRef.current !== run) {
+              await props.control('codex.stream.close', { streamId }).catch(() => undefined)
+              return
+            }
+            streamRef.current = { id: streamId, run, threadId }
+            // History viewing stays side-effect free: the Host stream is a
+            // Remote observation filter, while the persisted baseline comes
+            // from thread/read. thread/resume is reserved for explicit work.
+            await loadHistory(threadId)
+            setLoading(false)
+            setReconnecting(false)
+            setError(undefined)
+            attempt = 0
+            await poll(streamId, threadId, run)
+          } catch (reason) {
+            if (runRef.current === run) setError(messageOf(reason))
+          } finally {
+            if (streamRef.current?.id === streamId) streamRef.current = undefined
+            await props.control('codex.stream.close', { streamId }).catch(() => undefined)
+          }
+          if (runRef.current !== run) return
+          attempt += 1
+          setReconnecting(true)
+          await waitForCodexReconnect(Math.min(10_000, 500 * 2 ** Math.min(attempt - 1, 5)))
+        }
+      }
+
+      const openThread = async (thread: CodexThreadRow): Promise<void> => {
+        setLoading(true)
+        setError(undefined)
+        setSelected(thread)
+        setTimelineState(undefined)
+        setReconnecting(false)
+        await closeActiveStream()
+        const run = runRef.current + 1
+        runRef.current = run
+        void runThreadSession(thread.id, run).finally(() => setLoading(false))
+      }
+
+      const createThread = async (): Promise<void> => {
+        const cwd = newThreadPath.trim()
+        if (cwd === '') return
+        setBusy(true)
+        setError(undefined)
+        try {
+          const result = await props.control<unknown>('codex.call', { method: 'thread/start', params: { cwd } })
+          const thread = codexResultThread(result)
+          if (thread === undefined) throw new Error('The Host returned an invalid Codex thread.')
+          setThreads(previous => mergeCodexThreads([thread], previous))
+          setNewThreadPath('')
+          await openThread(thread)
+        } catch (reason) {
+          setError(messageOf(reason))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const renameThread = async (): Promise<void> => {
+        if (selected === undefined) return
+        const name = window.prompt(t('codexRenamePrompt'), selected.name ?? selected.preview ?? '')?.trim()
+        if (name === undefined || name === '') return
+        setBusy(true)
+        setError(undefined)
+        try {
+          await props.control('codex.call', { method: 'thread/name/set', params: { threadId: selected.id, name } })
+          setSelected(previous => previous === undefined ? previous : { ...previous, name })
+          setThreads(previous => previous.map(thread => thread.id === selected.id ? { ...thread, name } : thread))
+          setTimelineState(previous => previous === undefined ? previous : {
+            ...previous,
+            session: { ...previous.session, title: name },
+          })
+        } catch (reason) {
+          setError(messageOf(reason))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const archiveThread = async (): Promise<void> => {
+        if (selected === undefined) return
+        setBusy(true)
+        setError(undefined)
+        try {
+          await props.control('codex.call', {
+            method: selected.archived ? 'thread/unarchive' : 'thread/archive',
+            params: { threadId: selected.id },
+          })
+          const archivedId = selected.id
+          await closeActiveStream()
+          setThreads(previous => previous.filter(thread => thread.id !== archivedId))
+          setSelected(undefined)
+          setTimelineState(undefined)
+          setReconnecting(false)
+        } catch (reason) {
+          setError(messageOf(reason))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const show = async (): Promise<void> => {
+        setOpen(true)
+        setShowArchived(false)
+        setSelected(undefined)
+        setTimelineState(undefined)
+        await loadThreads(undefined, false)
+      }
+
+      const switchArchiveView = async (): Promise<void> => {
+        const archived = !showArchived
+        await closeActiveStream()
+        setShowArchived(archived)
+        setSelected(undefined)
+        setTimelineState(undefined)
+        setThreads([])
+        setNextCursor(undefined)
+        await loadThreads(undefined, archived)
+      }
+
+      const close = async (): Promise<void> => {
+        setOpen(false)
+        setSelected(undefined)
+        setTimelineState(undefined)
+        setReconnecting(false)
+        await closeActiveStream()
+      }
+
+      const send = async (): Promise<void> => {
+        if (selected === undefined || selected.archived || prompt.trim() === '') return
+        setBusy(true)
+        setError(undefined)
+        try {
+          await props.control('codex.call', { method: 'thread/resume', params: { threadId: selected.id } })
+          const result = await props.control<unknown>('codex.call', {
+            method: 'turn/start',
+            params: { threadId: selected.id, input: [{ type: 'text', text: prompt.trim() }] },
+          })
+          const turn = codexRecord(codexRecord(result)?.turn)
+          if (typeof turn?.id === 'string') {
+            setTimelineState(previous => previous === undefined ? previous : {
+              ...previous,
+              activeTurnId: turn.id as string,
+              session: { ...previous.session, status: 'running' },
+            })
+          }
+          setPrompt('')
+        } catch (reason) {
+          setError(messageOf(reason))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const interrupt = async (): Promise<void> => {
+        const activeTurnId = timelineState?.activeTurnId
+        if (selected === undefined || activeTurnId === undefined) return
+        setBusy(true)
+        try {
+          await props.control('codex.call', {
+            method: 'turn/interrupt', params: { threadId: selected.id, turnId: activeTurnId },
+          })
+        } catch (reason) {
+          setError(messageOf(reason))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const respond = async (decision: 'accept' | 'decline'): Promise<void> => {
+        const approval = timelineState?.approval
+        if (approval === undefined) return
+        setBusy(true)
+        try {
+          await props.control('codex.respond', { requestHandle: approval.requestHandle, decision })
+          setTimelineState(previous => {
+            if (previous === undefined) return previous
+            const items = previous.items.map(item => item.nativeRef.requestHandle === approval.requestHandle
+              ? { ...item, status: decision === 'accept' ? 'completed' as const : 'declined' as const }
+              : item)
+            return { ...previous, items, approval: undefined, session: { ...previous.session, status: 'running' } }
+          })
+        } catch (reason) {
+          setError(messageOf(reason))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      if (!supported) return null
+      const timeline = timelineState?.items ?? []
+      const approval = timelineState?.approval
+      const activeTurnId = timelineState?.activeTurnId
+      return React.createElement(React.Fragment, null,
+        React.createElement('div', { className: `dshRemoteSidebarEntry dshCodexSidebar${props.wide ? ' isWide' : ' isRail'}` },
+          React.createElement('button', {
+            type: 'button', className: 'dshRemoteModeButton', title: t('codexEntry'), 'aria-label': t('codexEntry'),
+            onClick: () => void show(),
+          }, React.createElement('svg', {
+            className: 'dshRemoteComputerIcon', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+            strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
+          }, React.createElement('path', { d: 'M8 5h8M6 9h12M5 13h14M8 17h8' })),
+          props.wide ? React.createElement('span', { className: 'dshRemoteSidebarLabel' }, t('codexEntry')) : null)),
+        !open ? null : React.createElement('div', {
+          className: 'dshRemoteBackdrop', role: 'presentation',
+          onMouseDown: (event: MouseEvent) => { if (event.target === event.currentTarget) void close() },
+        }, React.createElement('section', {
+          className: 'dshRemotePage dshCodexPage', role: 'dialog', 'aria-modal': true, 'aria-label': t('codexTitle'),
+        }, React.createElement('header', { className: 'dshRemotePageHeader' },
+          React.createElement('div', { className: 'dshRemotePageIntro' },
+            React.createElement('strong', null, t('codexTitle')),
+            React.createElement('p', null, t('codexDescription'))),
+          React.createElement('div', { className: 'dshRemotePageActions' },
+            React.createElement('button', {
+              type: 'button', disabled: loading || busy,
+              onClick: () => selected === undefined ? void loadThreads() : void loadHistory(selected.id),
+            }, t('codexRefresh')),
+            React.createElement('button', { type: 'button', onClick: () => void close(), 'aria-label': t('close') }, '×'))),
+        React.createElement('main', { className: 'dshRemotePageBody dshCodexBody' },
+          selected === undefined
+            ? React.createElement('div', { className: 'dshCodexThreadList' },
+              React.createElement('div', { className: 'dshCodexListActions' },
+                showArchived ? null : React.createElement('div', { className: 'dshCodexNewThread' },
+                  React.createElement('input', {
+                    value: newThreadPath,
+                    disabled: busy,
+                    placeholder: t('codexNewPath'),
+                    onChange: (event: Event) => setNewThreadPath((event.target as HTMLInputElement).value),
+                  }),
+                  React.createElement('button', {
+                    type: 'button', disabled: busy || newThreadPath.trim() === '', onClick: () => void createThread(),
+                  }, t('codexNewThread'))),
+                React.createElement('button', {
+                  type: 'button', className: 'dshCodexArchiveView', disabled: loading || busy,
+                  onClick: () => void switchArchiveView(),
+                }, t(showArchived ? 'codexShowActive' : 'codexShowArchived'))),
+              loading && threads.length === 0 ? React.createElement('p', null, t('codexLoading'))
+                : threads.length === 0 ? React.createElement('p', null, t('codexEmpty'))
+                  : threads.map(thread => React.createElement('button', {
+                    type: 'button', key: thread.id, onClick: () => void openThread(thread),
+                  }, React.createElement('span', null,
+                    React.createElement('strong', null, `${thread.isPinned ? '★ ' : ''}${thread.name ?? thread.preview ?? thread.id}`),
+                    React.createElement('small', null, thread.cwd ?? thread.id)),
+                  React.createElement('small', null, [
+                    thread.isPinned ? t('codexPinned') : '',
+                    codexStatusLabel(thread.status, t),
+                    codexTimestampLabel(thread.updatedAt),
+                  ].filter(Boolean).join(' · ')))),
+              nextCursor === undefined ? null : React.createElement('button', {
+                type: 'button', className: 'dshCodexLoadMore', disabled: loading,
+                onClick: () => void loadThreads(nextCursor),
+              }, t('codexLoadMore')))
+            : React.createElement(React.Fragment, null,
+              React.createElement('button', {
+                type: 'button', className: 'dshRemoteLocalLink',
+                onClick: () => { void closeActiveStream(); setSelected(undefined); setTimelineState(undefined); setReconnecting(false) },
+              }, t('codexBack')),
+              React.createElement('div', { className: 'dshCodexThreadHeader' },
+                React.createElement('strong', null, selected.name ?? selected.preview ?? selected.id),
+                React.createElement('span', null, selected.cwd ?? selected.id),
+                reconnecting ? React.createElement('small', null, t('codexReconnecting'))
+                  : streamRef.current === undefined ? null : React.createElement('small', null, t('codexLive')),
+                React.createElement('button', { type: 'button', disabled: busy, onClick: () => void renameThread() }, t('codexRename')),
+                React.createElement('button', { type: 'button', disabled: busy, onClick: () => void archiveThread() },
+                  t(selected.archived ? 'codexUnarchive' : 'codexArchive'))),
+              React.createElement('div', { className: 'dshCodexTimeline' },
+                loading && timelineState === undefined ? React.createElement('p', null, t('codexLoading'))
+                  : timeline.length === 0 ? React.createElement('p', null, t('codexNoMessages'))
+                    : timeline.map(item => {
+                      const view = codexDisplayItem(item, t)
+                      return React.createElement('article', {
+                        key: item.id, className: `dshCodexItem is${view.kind}`,
+                      }, React.createElement('small', null, view.label), React.createElement('pre', null, view.text))
+                    })),
+              approval === undefined ? null : React.createElement('section', { className: 'dshCodexApproval' },
+                React.createElement('strong', null, t('codexApproval')),
+                approval.command === undefined ? null : React.createElement('code', null, approval.command),
+                approval.reason === undefined ? null : React.createElement('p', null, approval.reason),
+                React.createElement('div', null,
+                  React.createElement('button', { type: 'button', disabled: busy, onClick: () => void respond('decline') }, t('codexDeny')),
+                  React.createElement('button', { type: 'button', disabled: busy, onClick: () => void respond('accept') }, t('codexAllowOnce')))),
+              selected.archived ? null : React.createElement('footer', { className: 'dshCodexComposer' },
+                React.createElement('textarea', {
+                  value: prompt, disabled: busy, rows: 3, placeholder: t('codexPromptPlaceholder'),
+                  onChange: (event: Event) => setPrompt((event.target as HTMLTextAreaElement).value),
+                }),
+                activeTurnId === undefined
+                  ? React.createElement('button', { type: 'button', disabled: busy || prompt.trim() === '', onClick: () => void send() }, t(busy ? 'codexSending' : 'codexSend'))
+                  : React.createElement('button', { type: 'button', disabled: busy, onClick: () => void interrupt() }, t('codexStop')))),
+          error === undefined ? null : React.createElement('p', { className: 'dshRemoteError', role: 'alert' }, error)))))
+    }
+
+    function codexRecord(value: unknown): Record<string, unknown> | undefined {
+      return typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : undefined
+    }
+
+    function codexThreadPage(value: unknown, archivedView = false): { rows: CodexThreadRow[]; nextCursor?: string } {
+      const result = codexRecord(value)
+      if (!Array.isArray(result?.data)) throw new Error('The Host returned an invalid Codex thread list.')
+      const rows = result.data.flatMap(item => {
+        const row = codexRecord(item)
+        if (typeof row?.id !== 'string') return []
+        return [{
+          id: row.id,
+          ...(typeof row.name === 'string' ? { name: row.name } : {}),
+          ...(typeof row.preview === 'string' ? { preview: row.preview } : {}),
+          ...(typeof row.cwd === 'string' ? { cwd: row.cwd } : {}),
+          ...(typeof row.createdAt === 'number' ? { createdAt: row.createdAt } : {}),
+          ...(typeof row.updatedAt === 'number' ? { updatedAt: row.updatedAt } : {}),
+          archived: typeof row.archived === 'boolean' ? row.archived : archivedView,
+          ...(typeof row.isPinned === 'boolean' ? { isPinned: row.isPinned } : {}),
+          status: row.status,
+        }]
+      })
+      return { rows, ...(typeof result.nextCursor === 'string' ? { nextCursor: result.nextCursor } : {}) }
+    }
+
+    function mergeCodexThreads(current: CodexThreadRow[], incoming: CodexThreadRow[]): CodexThreadRow[] {
+      const merged = [...current]
+      for (const thread of incoming) {
+        const index = merged.findIndex(value => value.id === thread.id)
+        if (index < 0) merged.push(thread)
+        else merged[index] = thread
+      }
+      return merged
+    }
+
+    function codexResultThread(value: unknown): CodexThreadRow | undefined {
+      const thread = codexRecord(codexRecord(value)?.thread)
+      if (typeof thread?.id !== 'string') return undefined
+      return thread as unknown as CodexThreadRow
+    }
+
+    function codexFrameBatch(value: unknown): value is {
+      frames: Array<{ method: string; params: unknown }>
+      closed: boolean
+    } {
+      const batch = codexRecord(value)
+      return Array.isArray(batch?.frames) && batch.frames.every(frame => typeof codexRecord(frame)?.method === 'string')
+        && typeof batch.closed === 'boolean'
+    }
+
+    function codexDisplayItem(item: DisplayHistoryItem, t: Translate): { kind: string; label: string; text: string } {
+      if (item.kind === 'message') {
+        return {
+          kind: item.role === 'user' ? 'User' : 'Assistant',
+          label: item.role === 'user' ? t('codexYou') : 'Codex',
+          text: item.text ?? '',
+        }
+      }
+      if (item.kind === 'file-change') return { kind: 'Tool', label: t('codexFiles'), text: item.text ?? t('codexFiles') }
+      if (item.kind === 'tool') {
+        return {
+          kind: 'Tool',
+          label: item.details?.type === 'commandExecution' ? t('codexCommand') : t('codexTool'),
+          text: item.text ?? t('codexTool'),
+        }
+      }
+      if (item.kind === 'approval') return { kind: 'Tool', label: t('codexApproval'), text: item.text ?? t('codexApproval') }
+      if (item.kind === 'error') return { kind: 'Unknown', label: t('codexStatus'), text: item.text ?? 'Codex error' }
+      if (item.kind === 'status') return { kind: 'Unknown', label: t('codexStatus'), text: item.text ?? '' }
+      const type = typeof item.details?.type === 'string' ? item.details.type : 'unknown'
+      return { kind: 'Unknown', label: 'Codex', text: item.text ?? t('codexUnknownItem', { type }) }
+    }
+
+    function waitForCodexReconnect(delayMs: number): Promise<void> {
+      return new Promise(resolve => window.setTimeout(resolve, delayMs))
+    }
+
+    function codexStatusLabel(value: unknown, t: Translate): string {
+      const status = codexRecord(value)
+      if (status?.type === 'active') {
+        return Array.isArray(status.activeFlags) && status.activeFlags.includes('waitingOnApproval')
+          ? t('codexWaiting')
+          : t('codexRunning')
+      }
+      if (status?.type === 'systemError') return t('codexFailed')
+      return t('codexIdle')
+    }
+
+    function codexTimestampLabel(timestamp: number | undefined): string {
+      if (timestamp === undefined || !Number.isFinite(timestamp)) return ''
+      const milliseconds = timestamp < 100_000_000_000 ? timestamp * 1_000 : timestamp
+      return new Date(milliseconds).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
+    }
+
     function RemoteModeAction(props: {
       wide: boolean
       control: <T>(endpoint: string, payload?: unknown) => Promise<T>
@@ -2036,6 +2634,7 @@ window.__ModuleLoader__.load({
         '.dshRemotePage{width:min(720px,100%);max-height:min(760px,calc(100vh - 40px));display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:14px;overflow:hidden;animation:dshRemotePageIn .18s cubic-bezier(.25,1,.5,1)}',
         '.dshRemotePageHeader{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshRemotePageIntro{min-width:0;flex:1}.dshRemotePageHeader strong{display:block;font-size:18px;line-height:1.4}.dshRemotePageHeader p{min-width:0;max-width:70ch;margin:3px 0 0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5}.dshRemotePageActions{flex:0 0 auto;display:flex;align-items:center;gap:4px}.dshRemotePageActions>button{height:40px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;border:0;border-radius:8px;background:transparent;color:inherit;line-height:1;cursor:pointer}.dshRemotePageActions>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemotePageActions>button:disabled{opacity:.45;cursor:default}.dshRemotePageRefresh{min-width:48px;padding:0 10px;font:inherit;font-size:13px}.dshRemotePageActions>button:not(.dshRemotePageRefresh){width:40px;padding:0;font-size:24px}',
         '.dshRemotePageBody{padding:24px;overflow:auto;display:flex;flex-direction:column;gap:24px}.dshRemotePageBody button{font:inherit;color:inherit}',
+        '.dshCodexPage{width:min(920px,100%)}.dshCodexBody{min-height:min(560px,calc(100vh - 180px));gap:14px}.dshCodexThreadList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshCodexListActions{display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshCodexNewThread{min-width:0;flex:1;display:flex;gap:8px}.dshCodexNewThread input{min-width:0;flex:1;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:8px 10px;font:inherit}.dshCodexNewThread button,.dshCodexArchiveView,.dshCodexThreadHeader button{min-height:34px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:inherit;padding:6px 10px;cursor:pointer}.dshCodexNewThread button:disabled,.dshCodexArchiveView:disabled,.dshCodexThreadHeader button:disabled{opacity:.45;cursor:default}.dshCodexThreadList>button{min-height:62px;display:flex;align-items:center;justify-content:space-between;gap:18px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 6px;text-align:left;cursor:pointer}.dshCodexThreadList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexThreadList>button>span{min-width:0;display:flex;flex-direction:column;gap:4px}.dshCodexThreadList>.dshCodexLoadMore{min-height:40px;justify-content:center;color:var(--dsw-alias-label-secondary);text-align:center}.dshCodexThreadList strong,.dshCodexThreadList small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexThreadList small,.dshCodexThreadHeader span,.dshCodexThreadHeader small{color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexThreadHeader{display:flex;align-items:center;gap:8px;min-width:0}.dshCodexThreadHeader strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexThreadHeader span{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexTimeline{min-height:220px;display:flex;flex-direction:column;gap:12px;padding:2px 0}.dshCodexTimeline>p{color:var(--dsw-alias-label-secondary)}.dshCodexItem{max-width:86%;align-self:flex-start;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);padding:10px 12px}.dshCodexItem.isUser{align-self:flex-end;background:var(--dsw-alias-bg-layer-3)}.dshCodexItem.isUnknown{color:var(--dsw-alias-label-secondary)}.dshCodexItem>small{display:block;margin-bottom:5px;color:var(--dsw-alias-label-secondary)}.dshCodexItem>pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.55}.dshCodexItem.isTool>pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}.dshCodexApproval{display:grid;gap:10px;border:1px solid var(--dsw-alias-state-warn-primary,var(--dsw-alias-border-l1));border-radius:10px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2)}.dshCodexApproval code{white-space:pre-wrap;overflow-wrap:anywhere}.dshCodexApproval p{margin:0;color:var(--dsw-alias-label-secondary)}.dshCodexApproval>div{display:flex;justify-content:flex-end;gap:8px}.dshCodexApproval button,.dshCodexComposer button{min-height:38px;border:0;border-radius:8px;padding:7px 14px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);cursor:pointer}.dshCodexApproval button:first-child{background:transparent;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2)}.dshCodexComposer{position:sticky;bottom:-24px;display:flex;align-items:flex-end;gap:10px;margin-top:auto;padding:12px 0 0;background:var(--dsw-alias-bg-layer-1);border-top:1px solid var(--dsw-alias-border-l2)}.dshCodexComposer textarea{box-sizing:border-box;min-height:74px;flex:1;resize:vertical;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:10px 12px;font:inherit;line-height:1.5}.dshCodexComposer button:disabled,.dshCodexApproval button:disabled{opacity:.45;cursor:default}@media(max-width:620px){.dshCodexBody{min-height:calc(100vh - 150px)}.dshCodexListActions,.dshCodexNewThread{align-items:stretch;flex-direction:column}.dshCodexThreadHeader{align-items:stretch;flex-wrap:wrap}.dshCodexThreadHeader span{flex-basis:100%}.dshCodexItem{max-width:96%}.dshCodexComposer{bottom:-20px;flex-direction:column;align-items:stretch}.dshCodexComposer button{min-height:44px}}',
         '.dshRemoteSectionHeading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.dshRemoteSectionTitle{min-width:0;display:flex;align-items:center;gap:10px}.dshRemoteSectionTitle>strong{font-size:14px}.dshRemoteSectionActions{display:flex;align-items:center;gap:14px}.dshRemoteSectionActions>button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:5px 0;font-size:12px}.dshRemoteSectionActions>button:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}',
         '.dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}',
         '.dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList>button>span{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteHostList>button strong{font-size:14px;font-weight:500}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary);font-size:12px}',
@@ -2220,6 +2819,13 @@ window.__ModuleLoader__.load({
           preferredQrProvider: ctx.locale.getLocale().active === 'zh' ? 'zhihu' : 'github',
         }),
       }, RemoteWorkspaceAction))
+      ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+        name: 'sidebar.footer.action',
+        id: 'ds-harness-remote-codex',
+        order: -19,
+        locale: localeNamespace,
+        inject: () => ({ control }),
+      }, CodexSessionAction))
       ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
         name: 'settings.plugin.item',
         key: 'ds-harness-remote',

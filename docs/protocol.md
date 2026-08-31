@@ -643,7 +643,9 @@ Plugin Host 的业务路由只接受 capability 对应的官方 Harness tunnel�
 `harness.remote.stream.open`、`harness.remote.stream.close`。所有新旧 Host 都可接受只读的
 `harness.transport.describe` capability 探测；旧 Host 对此返回 `METHOD_NOT_FOUND`。
 此外只允许在
-`fileviewer.read.v1` capability 下的 `fileviewer.call`。
+`fileviewer.read.v1` capability 下的 `fileviewer.call`。可选 Codex 领域仍属于同一个 Remote Plugin，
+但使用独立的 `codex.appserver.v1` / `codex.appserver.transfer.v1` capability、`codex.app.*` RPC
+和 event namespace，不得伪装成 Harness Session carrier。
 旧 `system.info`、`workspace.get`、`sessions.*`、`session.*`、
 `permissions.respond`、`connection.ping` 与 `sync.from` 已退出 Plugin 协议，Host 必须返回
 `METHOD_NOT_FOUND`。Android 旧原型不是兼容目标。
@@ -717,7 +719,9 @@ Host handshake 的 capability 例子：
   "harness.api.transfer.v1",
   "harness.remote.v1",
   "harness.remote.transfer.v1",
-  "fileviewer.read.v1"
+  "fileviewer.read.v1",
+  "codex.appserver.v1",
+  "codex.appserver.transfer.v1"
 ]
 ```
 
@@ -1143,10 +1147,66 @@ Host 必须调用 `fileViewerHost` 服务，让被选中的 File Viewer provider
 重命名、执行和任意 endpoint。Host 未安装 File Viewer、请求超限、provider 拒绝或返回异常时
 必须 fail closed。错误不得回显 Host 内部路径或原始 filesystem 异常。
 
+### Codex App Server domain
+
+Codex 是现有 Remote Plugin 内部的可选独立业务领域，不是第二个 Plugin，也不是 Harness
+Session adapter。Host 本机配置 `codex.enabled: true` 且至少一个绝对 `allowedRoots` 后，Plugin
+才可使用配置的 `codex.binary` 启动 `codex app-server`。Plugin 与 App Server 只使用默认 stdio
+JSONL；App Server 不监听 Remote/公网端口。初始化、账户状态和 canonical root policy 全部成功后，
+Host 才宣告 `codex.appserver.v1` 与 `codex.appserver.transfer.v1`。
+
+业务 RPC 固定为：
+
+- `codex.app.call`、`codex.app.respond`；
+- `codex.app.stream.open`、`codex.app.stream.close`；
+- `codex.app.transfer.open|chunk|commit|read|close`。
+
+`codex.app.call` envelope 为 `{ "method": string, "params": unknown }`，但它不是通用 JSON-RPC
+代理。Host 编译期 allowlist 仅包含 `account/read`、`model/list`、`thread/list`、`thread/read`、
+`thread/start`、`thread/resume`、`thread/fork`、`thread/name/set`、`thread/archive`、
+`thread/unarchive`、`thread/unsubscribe`、`turn/start`、`turn/steer` 与 `turn/interrupt`，且每个
+params 都必须通过严格 schema。`thread/delete`、`thread/shellCommand`、`thread/inject_items`、
+`thread/rollback`、background terminal、`command/*`、`process/*`、`config/*`、登录写接口和实验
+API 一律返回 `METHOD_NOT_ALLOWED`。
+
+`thread/list` 响应必须按 canonical `cwd` 过滤；没有合法 `cwd`、路径不存在、symlink 越界、
+相似字符串前缀或不属于任一 `allowedRoots` 的 Thread 不得返回。其它带 `threadId` 的调用必须先
+用只读 `thread/read(includeTurns:false)` 重新验证归属。Remote 创建 Thread 时 Host 固定使用单次
+审批语义与 workspace sandbox，不接受 Client 提交的任意 sandbox、writable roots 或持久授权。
+对 `thread/resume` 与 `thread/fork`，Host 同样重新注入已验证的 canonical cwd、单次审批与
+workspace sandbox，不使用 Remote Client 提供的越界覆盖。
+当前 App Server wire 中 Thread 级覆盖固定为 `approvalPolicy: "on-request"` 与
+`sandbox: "workspace-write"`；每次 `turn/start` 还必须由 Host 注入 canonical cwd、
+`approvalPolicy: "on-request"` 以及 `sandboxPolicy.type: "workspaceWrite"`，不能依赖 Client 或
+Thread 历史里保存的旧策略。
+
+每条认证连接拥有独立的 `streamId -> threadId` 订阅与 transfer 容器。一个 Thread 同时只允许
+一个 connection 持有 active turn mutation lease。`codex.app.frame` 只发送给订阅该 Thread 的
+connection；`codex.app.stream.closed` 结束对应虚拟 stream。命令执行和文件变更审批只路由给
+active turn owner，并以 Host 生成的 opaque `requestHandle` 暴露。`codex.app.respond` 只接受
+`accept|decline|cancel`，错误 connection、重复、过期或伪造 handle 必须 fail closed；断线时未决
+审批自动 decline。`acceptForSession`、execpolicy amendment 和额外 permission grant 不得进入
+Remote frame。
+
+`codex.appserver.transfer.v1` 使用独立的 512 KiB chunk、288 MiB 总上限、canonical base64、
+严格有序/恰好一次、每连接输入/输出各两个 transfer 和 2 分钟 idle 清理。重组后的内容必须再次
+解析为 `codex.app.call` 并经过同一 allowlist/root policy，不能借分块扩权。
+
+App Server 意外退出或 stdio 失效时，Host 立即撤回动态 capability、清空 active-turn lease 与审批
+handle，并以 `failed` 结束全部旧 Codex stream。Host 按 `1s -> 2s -> 4s -> 8s -> 15s` 最多五次
+重启 App Server；重启只重新执行 initialize/account probe，禁止重放任何 call/mutation。Desktop
+Client 必须重新探测 capability，重新打开 stream，并以 `thread/read(includeTurns:true)` 替换本地
+baseline 后继续归并 live event。
+
+Desktop 打开 Thread 时只用 `thread/read(includeTurns:true)` 建立持久化 baseline，Remote stream
+只是 Host 侧的事件过滤器，不得因纯查看自动调用 `thread/resume`。用户明确继续发送前才
+resume；不确定结果的 resume、turn、rename 或 archive 不自动重放。
+
 ## 20. Events
 
 Plugin 按 Harness 代际发送 `harness.api.frame` / `harness.api.stream.closed`，或
-`harness.remote.frame` / `harness.remote.stream.closed`。本节其余 Remote Event 名称属于
+`harness.remote.frame` / `harness.remote.stream.closed`。可选 Codex 领域发送
+`codex.app.frame` / `codex.app.stream.closed`。本节其余 Remote Event 名称属于
 冻结 Android 原型，不得据此恢复 Host 事件投影层。
 
 Event envelope：
@@ -1379,6 +1439,7 @@ pong 回显 nonce。Heartbeat 不能携带业务数据。
 | Reassembled secure message | 4 MiB |
 | Harness business transfer chunk（解码后） | 512 KiB |
 | Harness ApiProxy / Typert Remote transfer | 288 MiB；每连接输入/输出各 2 个；2 min idle |
+| Codex App Server transfer | 512 KiB chunk；288 MiB；每连接输入/输出各 2 个；2 min idle |
 | File Viewer range / RPC | 512 KiB |
 | File Viewer directory entries / RPC | 1,000 |
 | RPC text input | 64 KiB |
@@ -1401,7 +1462,7 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 4. TLS/WSS 不能替代 Noise secure channel。
 5. Client 不能请求通用 shell/filesystem RPC 绕过 Harness。
 6. Permission 只能映射 Harness 当前 request，默认 fail closed。
-7. `harness.api.call.method` 与 `harness.remote.call.endpoint` 必须命中各自编译期固定 allowlist；禁止通过对象反射、Typert/Cordis registry、service 名或任意 endpoint 扩权。
+7. `harness.api.call.method`、`harness.remote.call.endpoint` 与 `codex.app.call.method` 必须命中各自编译期固定 allowlist；禁止通过对象反射、Typert/Cordis registry、service 名或任意 endpoint 扩权。
 8. 当前 Harness v1 只允许 Remote `allow_once`/`deny`，不得伪造 session grant。
 9. Device revoke 使 token、membership 和现有 connection 失效。
 10. 重放/乱序/身份不匹配的 secure frame 必须拒绝。
@@ -1411,6 +1472,7 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 12. 日志禁止记录 token、code 明文、key、prompt、source、workspace 和 tool output。
 13. Admin 无法从数据库或 API 获取 E2EE conversation。
 14. 未协商 capability 的功能不得调用或展示为可用。
+15. Codex Thread 继续归 Codex App Server 所有；Remote 只能投影显示，不得写入或伪装成 Harness Session。
 
 ## 26. Conformance 测试
 

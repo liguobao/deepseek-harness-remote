@@ -197,6 +197,10 @@ export { HARNESS_REMOTE_ALLOWLIST, HarnessRemoteBridge } from './harness-remote-
 export { RemoteHarnessApiProxy } from './remote-api-proxy.js'
 export { RemoteTypertGateway } from './remote-typert-gateway.js'
 export { RemoteFileViewerBridge } from './file-viewer-bridge.js'
+export { CodexRemoteDomain } from './codex/domain.js'
+export { CodexPeerBridge } from './codex/peer-bridge.js'
+export { CodexAppServerClient, CodexAppServerError } from './codex/app-server.js'
+export { CODEX_APP_ALLOWLIST } from './codex/method-policy.js'
 export { createRemoteFileContentProvider } from './remote-file-content-provider.js'
 export { TypertGatewaySwitch } from './typert-gateway-switch.js'
 export type {

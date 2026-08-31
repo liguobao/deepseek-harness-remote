@@ -4,6 +4,7 @@ import type { HarnessApiBridge } from '../src/harness-api-bridge.js'
 import type { RemoteFileViewerBridge } from '../src/file-viewer-bridge.js'
 import type { SafeLogger } from '../src/logging.js'
 import { RpcRouter } from '../src/rpc-router.js'
+import type { CodexPeerBridge } from '../src/codex/peer-bridge.js'
 
 describe('RpcRouter', () => {
   it('forwards only native ApiProxy traffic', async () => {
@@ -97,6 +98,27 @@ describe('RpcRouter', () => {
     }))
     expect(JSON.stringify(vi.mocked(logger.warn).mock.calls)).not.toContain(secret)
   })
+
+  it('routes Codex only through the optional independent domain bridge', async () => {
+    const call = vi.fn(async () => ({ data: [] }))
+    const closeAll = vi.fn(async () => undefined)
+    const codex = { call, closeAll } as unknown as CodexPeerBridge
+    const router = createRouter({}, undefined, undefined, () => ['codex.appserver.v1'], codex)
+
+    const response = await router.handle(createRpcRequest('codex.app.call', {
+      method: 'thread/list', params: {},
+    }))
+    expect(call).toHaveBeenCalledWith({ method: 'thread/list', params: {} })
+    expect(response).toMatchObject({ type: 'rpc.response', payload: { result: { data: [] } } })
+    await router.closePeerStreams()
+    expect(closeAll).toHaveBeenCalledOnce()
+
+    const disabled = createRouter()
+    const unavailable = await disabled.handle(createRpcRequest('codex.app.call', {
+      method: 'thread/list', params: {},
+    }))
+    expect(unavailable).toMatchObject({ type: 'rpc.error', payload: { code: 'FEATURE_NOT_SUPPORTED' } })
+  })
 })
 
 function createRouter(
@@ -104,6 +126,7 @@ function createRouter(
   fileViewer?: RemoteFileViewerBridge,
   logger?: SafeLogger,
   capabilities?: () => readonly string[],
+  codex?: CodexPeerBridge,
 ): RpcRouter {
   return new RpcRouter({
     call: vi.fn(),
@@ -117,5 +140,5 @@ function createRouter(
     closeTransfer: vi.fn(),
     closeAll: vi.fn(async () => undefined),
     ...overrides,
-  } as unknown as HarnessApiBridge, undefined, logger, fileViewer, undefined, capabilities)
+  } as unknown as HarnessApiBridge, undefined, logger, fileViewer, undefined, capabilities, codex)
 }

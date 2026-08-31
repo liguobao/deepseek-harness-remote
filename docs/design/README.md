@@ -1,7 +1,7 @@
 # DSH Remote 设计文档
 
 状态：Draft v0.2
-更新时间：2026-08-28
+更新时间：2026-08-31
 上游需求：[vibe-coding.md](../../vibe-coding.md)
 
 本目录定义当前仓库内以 rc.2 ApiProxy / alpha.1/alpha.2 Typert Remote Gateway 为 Harness 业务面、以可选 File Viewer bridge 为只读预览面的双角色 Desktop Plugin、Android/VS Code Client 和共享基础包的产品与功能。
@@ -14,6 +14,7 @@ Server 的设计约束以 [../server.md](../server.md) 为准，Host/Server/Clie
 | 项目 | 交付物 | 产品设计 | 功能设计 |
 | --- | --- | --- | --- |
 | Harness Remote Plugin | `packages/plugin` | [plugin/product-design.md](plugin/product-design.md) | [plugin/functional-design.md](plugin/functional-design.md) |
+| Codex Remote 展示领域 | `packages/plugin/src/codex`、`packages/client-core` | 不迁移数据，只投影展示 | [codex-session-history-projection-prompt.md](codex-session-history-projection-prompt.md) |
 
 跨项目协议、身份、加密、连接降级和错误语义统一定义在 [shared-foundation.md](shared-foundation.md)。`protocol`、`crypto`、`client-core`、`webrtc` 属于当前仓库的共享基础包。
 

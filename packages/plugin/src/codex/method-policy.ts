@@ -1,0 +1,79 @@
+import { z } from 'zod'
+import { RpcError } from '../safe-error.js'
+
+const id = z.string().min(1).max(256)
+const cursor = z.string().min(1).max(4096).nullable().optional()
+const textInput = z.object({
+  type: z.literal('text'),
+  text: z.string().min(1).max(256 * 1024),
+}).strict()
+const input = z.array(textInput).min(1).max(16)
+
+const schemas = {
+  'account/read': z.object({ refreshToken: z.literal(false).optional() }).strict(),
+  'model/list': z.object({
+    cursor,
+    limit: z.number().int().min(1).max(100).optional(),
+    includeHidden: z.boolean().optional(),
+  }).strict(),
+  'thread/list': z.object({
+    cursor,
+    limit: z.number().int().min(1).max(100).optional(),
+    sortKey: z.enum(['created_at', 'updated_at', 'recency_at']).optional(),
+    sortDirection: z.enum(['asc', 'desc']).optional(),
+    modelProviders: z.array(z.string().min(1).max(128)).max(32).nullable().optional(),
+    sourceKinds: z.array(z.enum(['cli', 'vscode', 'exec', 'appServer', 'unknown'])).max(8).optional(),
+    archived: z.boolean().optional(),
+    isPinned: z.boolean().optional(),
+    cwd: z.union([z.string().min(1).max(4096), z.array(z.string().min(1).max(4096)).min(1).max(32)]).optional(),
+    useStateDbOnly: z.boolean().optional(),
+    searchTerm: z.string().max(1024).optional(),
+  }).strict(),
+  'thread/read': z.object({ threadId: id, includeTurns: z.boolean().optional() }).strict(),
+  'thread/start': z.object({
+    cwd: z.string().min(1).max(4096),
+    model: z.string().min(1).max(128).optional(),
+    personality: z.string().min(1).max(64).optional(),
+  }).strict(),
+  'thread/resume': z.object({
+    threadId: id,
+    model: z.string().min(1).max(128).optional(),
+  }).strict(),
+  'thread/fork': z.object({
+    threadId: id,
+    lastTurnId: id.optional(),
+  }).strict(),
+  'thread/name/set': z.object({ threadId: id, name: z.string().trim().min(1).max(256) }).strict(),
+  'thread/archive': z.object({ threadId: id }).strict(),
+  'thread/unarchive': z.object({ threadId: id }).strict(),
+  'thread/unsubscribe': z.object({ threadId: id }).strict(),
+  'turn/start': z.object({
+    threadId: id,
+    input,
+    model: z.string().min(1).max(128).optional(),
+    effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']).optional(),
+    summary: z.enum(['auto', 'concise', 'detailed', 'none']).optional(),
+    personality: z.string().min(1).max(64).optional(),
+  }).strict(),
+  'turn/steer': z.object({ threadId: id, input, expectedTurnId: id }).strict(),
+  'turn/interrupt': z.object({ threadId: id, turnId: id }).strict(),
+} as const
+
+export type AllowedCodexAppMethod = keyof typeof schemas
+export const CODEX_APP_ALLOWLIST = Object.freeze(Object.keys(schemas) as AllowedCodexAppMethod[])
+
+export function parseCodexCall(method: string, params: unknown): { method: AllowedCodexAppMethod; params: Record<string, unknown> } {
+  if (!Object.prototype.hasOwnProperty.call(schemas, method)) {
+    throw new RpcError('METHOD_NOT_ALLOWED', 'The requested Codex method is not available over Remote.')
+  }
+  const schema = schemas[method as AllowedCodexAppMethod] as z.ZodType<Record<string, unknown>>
+  return { method: method as AllowedCodexAppMethod, params: schema.parse(params) }
+}
+
+export function isThreadMutation(method: AllowedCodexAppMethod): boolean {
+  return method === 'turn/start' || method === 'turn/steer' || method === 'turn/interrupt'
+}
+
+export function threadIdFromParams(params: Record<string, unknown>): string | undefined {
+  return typeof params.threadId === 'string' ? params.threadId : undefined
+}

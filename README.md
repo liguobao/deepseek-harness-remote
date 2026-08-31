@@ -117,6 +117,35 @@ Remote Plugin on the Host
 Harness sessions, tools, and workspaces
 ```
 
+## Experimental Codex session view
+
+Codex support is an optional, independent business domain inside the same Remote Plugin. It reuses
+the existing account membership, pinned Host identity, Noise channel, and adaptive transport, but it
+does not convert Codex threads into Harness sessions. The Host starts the local official Codex App
+Server over stdio and exposes only a fixed thread/turn allowlist under the separate `codex.app.*`
+namespace. Codex is disabled by default and requires explicit Host-local allowed roots.
+
+The Host carrier, bounded history transfer, per-connection event streams, approval isolation, shared
+Client Core projection, and the Desktop Plugin Web view are implemented. The view supports paginated
+thread lists, create, rename, archive/restore, persisted history plus live item updates, text prompts,
+turn interruption, one-time approvals, and baseline reconstruction after stream or App Server recovery.
+Opening history only performs a read; `thread/resume` is deferred until the user continues work. The Host uses bounded
+exponential restart without replaying mutations. Current App Server stdio/list/read compatibility has
+been smoke-tested; real encrypted cross-machine turn/approval testing is still pending. Android is
+outside the current Plugin-only scope.
+
+```yaml
+ds-harness-remote:
+  codex:
+    enabled: true
+    binary: codex
+    allowedRoots:
+      - /absolute/path/to/project
+```
+
+`binary` must resolve to a Codex CLI that provides `codex app-server`. If an older CLI appears first
+on `PATH`, configure the absolute path to a current Codex binary instead.
+
 The Harness Host does not need a public listening port. You can connect from
 anywhere with internet access, and Remote communicates over a bidirectional end-to-end encrypted channel.
 It switches the client to the selected Host's native Harness API, so the original workspace,
@@ -150,6 +179,7 @@ validation status.
 - The workspace picker lists folders only and returns bounded, read-only directory metadata.
 - Optional File Viewer access is limited to authenticated, encrypted range reads and continues to enforce provider root and locator authorization.
 - Remote file preview cannot write, delete, upload, execute, or open a path in an external application.
+- Codex Remote is opt-in, root-scoped, and rejects raw shell/process/config App Server methods.
 - Removing a device revokes its credentials, membership, and active Remote connections.
 
 ## Compatibility

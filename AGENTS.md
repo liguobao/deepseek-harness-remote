@@ -64,6 +64,7 @@ docs/
 | Relay Transport | Protocol v1 control/relay 已实现 | 心跳、限制协商、断线状态传播 |
 | WebRTC | signaling、ICE、TURN、LAN/P2P/Relay 自适应路径基础已实现 | 真实跨网互操作、网络切换恢复和长期稳定性 |
 | Client Core | ApiProxy tunnel RPC/Event 关联基础已实现 | reconnect、pending call/stream 恢复 |
+| Codex Remote 领域 | 作为现有 Remote Plugin 内部可选领域：Host stdio App Server、显式开关/根目录、固定 allowlist、独立 capability/RPC/event/transfer、连接隔离 stream/approval、Client Core reducer、Desktop Plugin Web 分页/History/live/新建/改名/归档/恢复、只读查看与按需 resume、动态 capability 重探测、App Server 有界重启与 baseline 重建已实现；当前 v2 stdio/list/read 已真实冒烟 | 两台真实 DSH Desktop 的加密跨机 turn/event/approval/interrupt、大 History 与多 Client E2E；Android 不在当前 Plugin-only 范围 |
 | Mock Host | 旧 Android Remote RPC 联调工具，当前冻结 | 若恢复 Android 再迁移或替换 |
 | Desktop | Host 设置、Remote 工作区模态框、远程 Header、连接链路与加密状态已接入 Harness Web UI | 完成原生窗口跨机 E2E |
 | Server/Remote Web/Admin | 本仓库仅保留文档；独立 Server 仓库已有实现 | runtime 变更只在独立 Server 仓库完成，并同步跨仓库契约 |
@@ -118,6 +119,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 7. Token、私钥、主机匹配码、prompt、源码和工具输出不得写日志。
 8. Harness rc.2 业务层只使用官方 `ApiProxy`，alpha.1/alpha.2 业务层只使用官方 `TypertGateway` Remote carrier；可选文件预览只使用 dsh-file-viewer 的 provider 授权服务。禁止恢复 session/agent/workspace/permission adapter、另一套 Harness wire format 或通用文件系统协议。
 9. 不修改用户已有变更，不提交 `node_modules`、Expo cache、Android build 产物或个人 Agent 配置；唯一允许提交的 `dist` 是根 DSH GitHub Bundle 所需的 `packages/plugin/dist/index.js` 与 `client.github.js`，另需保留根 Host 入口 `index.js`。
+10. Codex 支持必须保留在现有 Remote Plugin 内，但作为 `packages/plugin/src/codex/` 独立业务领域实现；默认关闭，使用独立 capability/RPC/event/state，不得把 Codex Thread 写入或伪装成 Harness Session。远端只允许编译期固定 App Server allowlist 和 Host 本机 canonical `allowedRoots`。
 
 ## Test Policy
 

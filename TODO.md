@@ -41,6 +41,26 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [ ] 完善账号过期、`DEVICE_OWNERSHIP_REQUIRED` 和 legacy owner 的显式恢复体验
 - [x] transport 关闭后 pending unary/stream 立即返回稳定错误，并清理 timer 和 abort listener
 
+## Codex Remote Session / History（开发预览）
+
+Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域；它只把 Codex
+`Thread -> Turn -> Item` 投影为 DSH 展示层，不迁移或伪装成 Harness Session。
+
+- [x] 增加默认关闭的 `codex.enabled`、本机 `binary` 与 canonical `allowedRoots` 配置
+- [x] 增加 Host 单例 stdio App Server 生命周期、initialize/account probe 与动态 capability
+- [x] 增加独立 `codex.app.*` RPC/event/transfer、固定 method schema allowlist 与大 History 分块
+- [x] 增加按 connection 隔离的 stream、active-turn owner、opaque approval handle 与断线 fail-closed
+- [x] 增加共享 Client Core Codex client、`DisplaySession` / `DisplayHistoryItem` 纯展示投影
+- [x] 接入 Desktop Plugin Web Client face 的 Codex Thread 列表、新建/改名/归档/恢复、History、Prompt、停止与审批 UI
+- [x] 完善 Desktop Codex Timeline 的 Item 增量 reducer、Thread 分页与断线 baseline/live 重建
+- [x] 增加 App Server crash 后有界指数退避重启；关闭旧 stream 且不自动重放 mutation
+- [x] 使用当前 v2 schema 与真实 Codex App Server 完成 stdio initialize/account/list/read/root-filter 冒烟
+- [ ] 用两台真实 DSH Desktop 跑通加密跨机 resume/turn/event/approval/interrupt 与大 History 传输
+- [ ] 验证 App Server crash、Host transport 重连和多 Desktop Web Client 同时观察同一 Thread
+
+Android Codex navigation/store/screens 已按用户要求移出当前 Plugin-only 交付范围；未来恢复时必须
+复用 Client Core，且不得修改现有 Harness reducer。
+
 ## P0：协议与安全
 
 - [ ] 将 `packages/protocol` 与 `docs/protocol.md` 的 Control、Account Authorization、Connect、Relay、ApiProxy tunnel、Error 和 Limits schema 逐项对齐

@@ -14,6 +14,18 @@ export interface Config {
     maxDelayMs?: number
     jitter?: number
   }
+  /** Optional Codex domain carried by the existing authenticated Remote Plugin. */
+  codex?: {
+    enabled?: boolean
+    binary?: string
+    allowedRoots?: string[]
+  }
+}
+
+export interface ResolvedCodexConfig {
+  enabled: boolean
+  binary: string
+  allowedRoots: string[]
 }
 
 export interface ResolvedConfig {
@@ -29,6 +41,7 @@ export interface ResolvedConfig {
     maxDelayMs: number
     jitter: number
   }
+  codex: ResolvedCodexConfig
 }
 
 /** Cordis-facing configuration shape; runtime bounds are enforced by resolveConfig. */
@@ -47,6 +60,11 @@ export const Config: s<Config> = s.object({
       jitter: s.number(),
     }),
   ]),
+  codex: s.object({
+    enabled: s.boolean(),
+    binary: s.string(),
+    allowedRoots: s.array(s.string()),
+  }),
 })
 
 const reconnectSchema = z.union([
@@ -66,6 +84,11 @@ const configSchema = z.object({
   forceRelay: z.boolean().optional(),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
   reconnect: reconnectSchema.optional(),
+  codex: z.object({
+    enabled: z.boolean().optional(),
+    binary: z.string().trim().min(1).max(4096).optional(),
+    allowedRoots: z.array(z.string().trim().min(1).max(4096)).max(32).optional(),
+  }).strict().optional(),
 }).strict()
 
 export function resolveConfig(input: Config = {}, env: NodeJS.ProcessEnv = process.env): ResolvedConfig {
@@ -90,6 +113,11 @@ export function resolveConfig(input: Config = {}, env: NodeJS.ProcessEnv = proce
       initialDelayMs,
       maxDelayMs,
       jitter: reconnect.jitter ?? 0.2,
+    },
+    codex: {
+      enabled: parsed.codex?.enabled ?? false,
+      binary: parsed.codex?.binary ?? 'codex',
+      allowedRoots: [...new Set(parsed.codex?.allowedRoots ?? [])],
     },
   }
 }

@@ -38,6 +38,14 @@ describe('protocol envelope', () => {
     expect(remoteEvents).toContain('harness.api.stream.closed')
   })
 
+  it('keeps Codex as an explicit Remote domain instead of a Harness session method', () => {
+    expect(rpcMethods).toContain('codex.app.call')
+    expect(rpcMethods).toContain('codex.app.transfer.commit')
+    expect(remoteEvents).toContain('codex.app.frame')
+    expect(remoteEvents).toContain('codex.app.stream.closed')
+    expect(rpcMethods).not.toContain('harness.api.codex')
+  })
+
   it('rejects unsupported protocol versions', () => {
     expect(() => parseRemoteMessage({ v: 2, id: 'x', type: 'rpc.request', timestamp: Date.now(), payload: {} })).toThrow()
   })

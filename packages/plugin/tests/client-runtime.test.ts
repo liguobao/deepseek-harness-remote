@@ -25,18 +25,18 @@ afterEach(async () => {
 
 describe('ClientModeRuntime Host account control', () => {
   it('uses a conservative compatibility profile for legacy and unknown Hosts', () => {
-    expect(remoteHostFeatures()).toEqual({ commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false })
-    expect(remoteHostFeatures('not-semver')).toEqual({ commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false })
-    expect(remoteHostFeatures('0.3.15')).toEqual({ commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false })
-    expect(remoteHostFeatures('0.3.16')).toEqual({ commandList: true, fileViewer: false, apiProxy: true, remoteGateway: false })
-    expect(remoteHostFeatures('v0.3.17')).toEqual({ commandList: true, fileViewer: true, apiProxy: true, remoteGateway: false })
-    expect(remoteHostFeatures('0.3.99-beta.1')).toEqual({ commandList: true, fileViewer: true, apiProxy: true, remoteGateway: false })
+    expect(remoteHostFeatures()).toEqual({ commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false, codex: false })
+    expect(remoteHostFeatures('not-semver')).toEqual({ commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false, codex: false })
+    expect(remoteHostFeatures('0.3.15')).toEqual({ commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false, codex: false })
+    expect(remoteHostFeatures('0.3.16')).toEqual({ commandList: true, fileViewer: false, apiProxy: true, remoteGateway: false, codex: false })
+    expect(remoteHostFeatures('v0.3.17')).toEqual({ commandList: true, fileViewer: true, apiProxy: true, remoteGateway: false, codex: false })
+    expect(remoteHostFeatures('0.3.99-beta.1')).toEqual({ commandList: true, fileViewer: true, apiProxy: true, remoteGateway: false, codex: false })
   })
 
   it('prefers encrypted Host capability discovery while retaining the legacy fallback', async () => {
     const alphaClient = {
       rpc: vi.fn(async () => ({
-        capabilities: ['transport.relay', 'harness.remote.v1', 'harness.remote.transfer.v1'],
+        capabilities: ['transport.relay', 'harness.remote.v1', 'harness.remote.transfer.v1', 'codex.appserver.v1'],
       })),
     }
     await expect(probeRemoteHostFeatures(alphaClient as never, '0.3.15')).resolves.toEqual({
@@ -44,6 +44,7 @@ describe('ClientModeRuntime Host account control', () => {
       fileViewer: false,
       apiProxy: false,
       remoteGateway: true,
+      codex: true,
     })
 
     const legacyClient = {
@@ -56,6 +57,7 @@ describe('ClientModeRuntime Host account control', () => {
       fileViewer: true,
       apiProxy: true,
       remoteGateway: false,
+      codex: false,
     })
   })
 
@@ -140,7 +142,7 @@ describe('ClientModeRuntime Host account control', () => {
         trustedAt: 1,
       },
       transport: { connectionDetails },
-      features: { commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false },
+      features: { commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false, codex: false },
     }
 
     await expect(runtime.handleControl('status', {}, new AbortController().signal)).resolves.toMatchObject({
@@ -148,7 +150,7 @@ describe('ClientModeRuntime Host account control', () => {
       value: {
         connected: true,
         transport: 'LAN',
-        remoteFeatures: { commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false },
+        remoteFeatures: { commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false, codex: false },
         network: {
           connectionId: 'connection-1',
           local: { deviceId, platform: process.platform },
@@ -206,7 +208,7 @@ describe('ClientModeRuntime Host account control', () => {
         trustedAt: 1,
       },
       transport: {},
-      features: { commandList: true, fileViewer: true, apiProxy: true, remoteGateway: false },
+      features: { commandList: true, fileViewer: true, apiProxy: true, remoteGateway: false, codex: false },
     }
 
     await expect(runtime.openRemoteWorkspace('host-device-1', '/srv/project')).resolves.toMatchObject({
@@ -226,6 +228,75 @@ describe('ClientModeRuntime Host account control', () => {
       targetDeviceId: 'host-device-1', workspaceId: 'workspace-remote-1',
     }, signal)
     expect(runtime.status()).not.toHaveProperty('workspaceSelection')
+    await runtime.close()
+  })
+
+  it('exposes the independent Codex domain to Web through bounded loopback calls and event polling', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-client-codex-loopback-'))
+    directories.push(directory)
+    const runtime = new ClientModeRuntime(
+      config(),
+      new IdentityStore({ directory }),
+      { bindIdentity: vi.fn() } as unknown as ClientServerApi,
+      apiProxy(),
+      gateway(),
+      logger(),
+    )
+    await runtime.start()
+    let eventHandler: ((event: { event: string; data: unknown }) => void) | undefined
+    const rpc = vi.fn(async (method: string, params: unknown) => {
+      if (method === 'harness.transport.describe') return {
+        capabilities: ['harness.api.v1', 'harness.api.transfer.v1', 'codex.appserver.v1'],
+      }
+      if (method === 'codex.app.call') return { data: [{ id: 'thr_1', cwd: '/srv/project' }] }
+      if (method === 'codex.app.stream.open') {
+        const streamId = (params as { streamId: string }).streamId
+        eventHandler?.({
+          event: 'codex.app.frame',
+          data: { streamId, frame: { method: 'item/agentMessage/delta', params: { delta: 'hello' } } },
+        })
+        return { opened: true }
+      }
+      if (method === 'codex.app.respond') return { resolved: true }
+      if (method === 'codex.app.stream.close') return { closed: true }
+      throw new Error(`unexpected method: ${method} ${JSON.stringify(params)}`)
+    })
+    const client = {
+      rpc,
+      close: vi.fn(async () => undefined),
+      getStats: () => ({ mode: 'Relay', connected: true }),
+      onEvent: (handler: typeof eventHandler) => { eventHandler = handler; return () => { eventHandler = undefined } },
+    }
+    ;(runtime as unknown as { connected: unknown }).connected = {
+      client,
+      target: {
+        deviceId: 'host-device-1', name: 'Workstation', platform: 'linux', publicKey: 'peer-key', fingerprint: 'PEER', trustedAt: 1,
+      },
+      transport: {},
+      features: { commandList: true, fileViewer: false, apiProxy: true, remoteGateway: false, codex: false },
+    }
+    const signal = new AbortController().signal
+
+    await expect(runtime.handleControl('codex.probe', {}, signal)).resolves.toMatchObject({
+      ok: true,
+      value: { supported: true },
+    })
+    expect(runtime.status()).toMatchObject({ remoteFeatures: { codex: true } })
+    await expect(runtime.handleControl('codex.call', {
+      method: 'thread/list', params: {},
+    }, signal)).resolves.toMatchObject({ ok: true, value: { data: [{ id: 'thr_1' }] } })
+    await expect(runtime.handleControl('codex.stream.open', {
+      streamId: 'web-stream-1', threadId: 'thr_1',
+    }, signal)).resolves.toMatchObject({ ok: true, value: { opened: true, streamId: 'web-stream-1' } })
+    await expect(runtime.handleControl('codex.stream.next', {
+      streamId: 'web-stream-1',
+    }, signal)).resolves.toMatchObject({
+      ok: true,
+      value: { frames: [{ method: 'item/agentMessage/delta', params: { delta: 'hello' } }], closed: false },
+    })
+    await runtime.handleControl('codex.respond', { requestHandle: 'handle-1', decision: 'decline' }, signal)
+    expect(rpc).toHaveBeenCalledWith('codex.app.respond', { requestHandle: 'handle-1', decision: 'decline' }, signal)
+    await runtime.handleControl('codex.stream.close', { streamId: 'web-stream-1' }, signal)
     await runtime.close()
   })
 
@@ -291,7 +362,7 @@ describe('ClientModeRuntime Host account control', () => {
         deviceId: 'host-device-1', name: 'Workstation', platform: 'linux', publicKey: 'peer-key', fingerprint: 'PEER', trustedAt: 1,
       },
       transport: {},
-      features: { commandList: true, fileViewer: false, apiProxy: false, remoteGateway: true },
+      features: { commandList: true, fileViewer: false, apiProxy: false, remoteGateway: true, codex: false },
     }
 
     await expect(runtime.listRemoteDirectory('host-device-1', '/srv')).resolves.toMatchObject({ path: '/srv' })
@@ -348,13 +419,13 @@ describe('ClientModeRuntime Host account control', () => {
       client: alphaClient,
       target,
       transport: {},
-      features: { commandList: true, fileViewer: false, apiProxy: true, remoteGateway: false },
+      features: { commandList: true, fileViewer: false, apiProxy: true, remoteGateway: false, codex: false },
     }
     ;(legacyRuntime as unknown as { connected: unknown }).connected = {
       client: legacyClient,
       target,
       transport: {},
-      features: { commandList: true, fileViewer: false, apiProxy: false, remoteGateway: true },
+      features: { commandList: true, fileViewer: false, apiProxy: false, remoteGateway: true, codex: false },
     }
 
     await expect(alphaRuntime.openRemoteWorkspace('host-device-1', '/srv/project'))
@@ -484,6 +555,7 @@ function config(): ResolvedConfig {
     forceRelay: false,
     logLevel: 'error',
     reconnect: { enabled: true, initialDelayMs: 100, maxDelayMs: 1_000, jitter: 0 },
+    codex: { enabled: false, binary: 'codex', allowedRoots: [] },
   }
 }
 

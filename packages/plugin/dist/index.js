@@ -663,41 +663,41 @@ var ZodType = class {
   get description() {
     return this._def.description;
   }
-  _getType(input) {
-    return getParsedType(input.data);
+  _getType(input2) {
+    return getParsedType(input2.data);
   }
-  _getOrReturnCtx(input, ctx) {
+  _getOrReturnCtx(input2, ctx) {
     return ctx || {
-      common: input.parent.common,
-      data: input.data,
-      parsedType: getParsedType(input.data),
+      common: input2.parent.common,
+      data: input2.data,
+      parsedType: getParsedType(input2.data),
       schemaErrorMap: this._def.errorMap,
-      path: input.path,
-      parent: input.parent
+      path: input2.path,
+      parent: input2.parent
     };
   }
-  _processInputParams(input) {
+  _processInputParams(input2) {
     return {
       status: new ParseStatus(),
       ctx: {
-        common: input.parent.common,
-        data: input.data,
-        parsedType: getParsedType(input.data),
+        common: input2.parent.common,
+        data: input2.data,
+        parsedType: getParsedType(input2.data),
         schemaErrorMap: this._def.errorMap,
-        path: input.path,
-        parent: input.parent
+        path: input2.path,
+        parent: input2.parent
       }
     };
   }
-  _parseSync(input) {
-    const result = this._parse(input);
+  _parseSync(input2) {
+    const result = this._parse(input2);
     if (isAsync(result)) {
       throw new Error("Synchronous parse encountered promise.");
     }
     return result;
   }
-  _parseAsync(input) {
-    const result = this._parse(input);
+  _parseAsync(input2) {
+    const result = this._parse(input2);
     return Promise.resolve(result);
   }
   parse(data, params) {
@@ -1023,13 +1023,13 @@ function isValidCidr(ip, version) {
   return false;
 }
 var ZodString = class _ZodString extends ZodType {
-  _parse(input) {
+  _parse(input2) {
     if (this._def.coerce) {
-      input.data = String(input.data);
+      input2.data = String(input2.data);
     }
-    const parsedType = this._getType(input);
+    const parsedType = this._getType(input2);
     if (parsedType !== ZodParsedType.string) {
-      const ctx2 = this._getOrReturnCtx(input);
+      const ctx2 = this._getOrReturnCtx(input2);
       addIssueToContext(ctx2, {
         code: ZodIssueCode.invalid_type,
         expected: ZodParsedType.string,
@@ -1041,8 +1041,8 @@ var ZodString = class _ZodString extends ZodType {
     let ctx = void 0;
     for (const check of this._def.checks) {
       if (check.kind === "min") {
-        if (input.data.length < check.value) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (input2.data.length < check.value) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_small,
             minimum: check.value,
@@ -1054,8 +1054,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "max") {
-        if (input.data.length > check.value) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (input2.data.length > check.value) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_big,
             maximum: check.value,
@@ -1067,10 +1067,10 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "length") {
-        const tooBig = input.data.length > check.value;
-        const tooSmall = input.data.length < check.value;
+        const tooBig = input2.data.length > check.value;
+        const tooSmall = input2.data.length < check.value;
         if (tooBig || tooSmall) {
-          ctx = this._getOrReturnCtx(input, ctx);
+          ctx = this._getOrReturnCtx(input2, ctx);
           if (tooBig) {
             addIssueToContext(ctx, {
               code: ZodIssueCode.too_big,
@@ -1093,8 +1093,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "email") {
-        if (!emailRegex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!emailRegex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "email",
             code: ZodIssueCode.invalid_string,
@@ -1106,8 +1106,8 @@ var ZodString = class _ZodString extends ZodType {
         if (!emojiRegex) {
           emojiRegex = new RegExp(_emojiRegex, "u");
         }
-        if (!emojiRegex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!emojiRegex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "emoji",
             code: ZodIssueCode.invalid_string,
@@ -1116,8 +1116,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "uuid") {
-        if (!uuidRegex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!uuidRegex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "uuid",
             code: ZodIssueCode.invalid_string,
@@ -1126,8 +1126,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "nanoid") {
-        if (!nanoidRegex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!nanoidRegex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "nanoid",
             code: ZodIssueCode.invalid_string,
@@ -1136,8 +1136,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "cuid") {
-        if (!cuidRegex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!cuidRegex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "cuid",
             code: ZodIssueCode.invalid_string,
@@ -1146,8 +1146,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "cuid2") {
-        if (!cuid2Regex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!cuid2Regex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "cuid2",
             code: ZodIssueCode.invalid_string,
@@ -1156,8 +1156,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "ulid") {
-        if (!ulidRegex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!ulidRegex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "ulid",
             code: ZodIssueCode.invalid_string,
@@ -1167,9 +1167,9 @@ var ZodString = class _ZodString extends ZodType {
         }
       } else if (check.kind === "url") {
         try {
-          new URL(input.data);
+          new URL(input2.data);
         } catch {
-          ctx = this._getOrReturnCtx(input, ctx);
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "url",
             code: ZodIssueCode.invalid_string,
@@ -1179,9 +1179,9 @@ var ZodString = class _ZodString extends ZodType {
         }
       } else if (check.kind === "regex") {
         check.regex.lastIndex = 0;
-        const testResult = check.regex.test(input.data);
+        const testResult = check.regex.test(input2.data);
         if (!testResult) {
-          ctx = this._getOrReturnCtx(input, ctx);
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "regex",
             code: ZodIssueCode.invalid_string,
@@ -1190,10 +1190,10 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "trim") {
-        input.data = input.data.trim();
+        input2.data = input2.data.trim();
       } else if (check.kind === "includes") {
-        if (!input.data.includes(check.value, check.position)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!input2.data.includes(check.value, check.position)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_string,
             validation: { includes: check.value, position: check.position },
@@ -1202,12 +1202,12 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "toLowerCase") {
-        input.data = input.data.toLowerCase();
+        input2.data = input2.data.toLowerCase();
       } else if (check.kind === "toUpperCase") {
-        input.data = input.data.toUpperCase();
+        input2.data = input2.data.toUpperCase();
       } else if (check.kind === "startsWith") {
-        if (!input.data.startsWith(check.value)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!input2.data.startsWith(check.value)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_string,
             validation: { startsWith: check.value },
@@ -1216,8 +1216,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "endsWith") {
-        if (!input.data.endsWith(check.value)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!input2.data.endsWith(check.value)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_string,
             validation: { endsWith: check.value },
@@ -1227,8 +1227,8 @@ var ZodString = class _ZodString extends ZodType {
         }
       } else if (check.kind === "datetime") {
         const regex = datetimeRegex(check);
-        if (!regex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!regex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_string,
             validation: "datetime",
@@ -1238,8 +1238,8 @@ var ZodString = class _ZodString extends ZodType {
         }
       } else if (check.kind === "date") {
         const regex = dateRegex;
-        if (!regex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!regex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_string,
             validation: "date",
@@ -1249,8 +1249,8 @@ var ZodString = class _ZodString extends ZodType {
         }
       } else if (check.kind === "time") {
         const regex = timeRegex(check);
-        if (!regex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!regex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_string,
             validation: "time",
@@ -1259,8 +1259,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "duration") {
-        if (!durationRegex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!durationRegex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "duration",
             code: ZodIssueCode.invalid_string,
@@ -1269,8 +1269,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "ip") {
-        if (!isValidIP(input.data, check.version)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!isValidIP(input2.data, check.version)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "ip",
             code: ZodIssueCode.invalid_string,
@@ -1279,8 +1279,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "jwt") {
-        if (!isValidJWT(input.data, check.alg)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!isValidJWT(input2.data, check.alg)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "jwt",
             code: ZodIssueCode.invalid_string,
@@ -1289,8 +1289,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "cidr") {
-        if (!isValidCidr(input.data, check.version)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!isValidCidr(input2.data, check.version)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "cidr",
             code: ZodIssueCode.invalid_string,
@@ -1299,8 +1299,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "base64") {
-        if (!base64Regex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!base64Regex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "base64",
             code: ZodIssueCode.invalid_string,
@@ -1309,8 +1309,8 @@ var ZodString = class _ZodString extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "base64url") {
-        if (!base64urlRegex.test(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!base64urlRegex.test(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             validation: "base64url",
             code: ZodIssueCode.invalid_string,
@@ -1322,7 +1322,7 @@ var ZodString = class _ZodString extends ZodType {
         util.assertNever(check);
       }
     }
-    return { status: status.value, value: input.data };
+    return { status: status.value, value: input2.data };
   }
   _regex(regex, validation, message) {
     return this.refinement((data) => regex.test(data), {
@@ -1583,13 +1583,13 @@ var ZodNumber = class _ZodNumber extends ZodType {
     this.max = this.lte;
     this.step = this.multipleOf;
   }
-  _parse(input) {
+  _parse(input2) {
     if (this._def.coerce) {
-      input.data = Number(input.data);
+      input2.data = Number(input2.data);
     }
-    const parsedType = this._getType(input);
+    const parsedType = this._getType(input2);
     if (parsedType !== ZodParsedType.number) {
-      const ctx2 = this._getOrReturnCtx(input);
+      const ctx2 = this._getOrReturnCtx(input2);
       addIssueToContext(ctx2, {
         code: ZodIssueCode.invalid_type,
         expected: ZodParsedType.number,
@@ -1601,8 +1601,8 @@ var ZodNumber = class _ZodNumber extends ZodType {
     const status = new ParseStatus();
     for (const check of this._def.checks) {
       if (check.kind === "int") {
-        if (!util.isInteger(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!util.isInteger(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.invalid_type,
             expected: "integer",
@@ -1612,9 +1612,9 @@ var ZodNumber = class _ZodNumber extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "min") {
-        const tooSmall = check.inclusive ? input.data < check.value : input.data <= check.value;
+        const tooSmall = check.inclusive ? input2.data < check.value : input2.data <= check.value;
         if (tooSmall) {
-          ctx = this._getOrReturnCtx(input, ctx);
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_small,
             minimum: check.value,
@@ -1626,9 +1626,9 @@ var ZodNumber = class _ZodNumber extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "max") {
-        const tooBig = check.inclusive ? input.data > check.value : input.data >= check.value;
+        const tooBig = check.inclusive ? input2.data > check.value : input2.data >= check.value;
         if (tooBig) {
-          ctx = this._getOrReturnCtx(input, ctx);
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_big,
             maximum: check.value,
@@ -1640,8 +1640,8 @@ var ZodNumber = class _ZodNumber extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "multipleOf") {
-        if (floatSafeRemainder(input.data, check.value) !== 0) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (floatSafeRemainder(input2.data, check.value) !== 0) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.not_multiple_of,
             multipleOf: check.value,
@@ -1650,8 +1650,8 @@ var ZodNumber = class _ZodNumber extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "finite") {
-        if (!Number.isFinite(input.data)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (!Number.isFinite(input2.data)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.not_finite,
             message: check.message
@@ -1662,7 +1662,7 @@ var ZodNumber = class _ZodNumber extends ZodType {
         util.assertNever(check);
       }
     }
-    return { status: status.value, value: input.data };
+    return { status: status.value, value: input2.data };
   }
   gte(value, message) {
     return this.setLimit("min", value, true, errorUtil.toString(message));
@@ -1814,25 +1814,25 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
     this.min = this.gte;
     this.max = this.lte;
   }
-  _parse(input) {
+  _parse(input2) {
     if (this._def.coerce) {
       try {
-        input.data = BigInt(input.data);
+        input2.data = BigInt(input2.data);
       } catch {
-        return this._getInvalidInput(input);
+        return this._getInvalidInput(input2);
       }
     }
-    const parsedType = this._getType(input);
+    const parsedType = this._getType(input2);
     if (parsedType !== ZodParsedType.bigint) {
-      return this._getInvalidInput(input);
+      return this._getInvalidInput(input2);
     }
     let ctx = void 0;
     const status = new ParseStatus();
     for (const check of this._def.checks) {
       if (check.kind === "min") {
-        const tooSmall = check.inclusive ? input.data < check.value : input.data <= check.value;
+        const tooSmall = check.inclusive ? input2.data < check.value : input2.data <= check.value;
         if (tooSmall) {
-          ctx = this._getOrReturnCtx(input, ctx);
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_small,
             type: "bigint",
@@ -1843,9 +1843,9 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "max") {
-        const tooBig = check.inclusive ? input.data > check.value : input.data >= check.value;
+        const tooBig = check.inclusive ? input2.data > check.value : input2.data >= check.value;
         if (tooBig) {
-          ctx = this._getOrReturnCtx(input, ctx);
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_big,
             type: "bigint",
@@ -1856,8 +1856,8 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "multipleOf") {
-        if (input.data % check.value !== BigInt(0)) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (input2.data % check.value !== BigInt(0)) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.not_multiple_of,
             multipleOf: check.value,
@@ -1869,10 +1869,10 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
         util.assertNever(check);
       }
     }
-    return { status: status.value, value: input.data };
+    return { status: status.value, value: input2.data };
   }
-  _getInvalidInput(input) {
-    const ctx = this._getOrReturnCtx(input);
+  _getInvalidInput(input2) {
+    const ctx = this._getOrReturnCtx(input2);
     addIssueToContext(ctx, {
       code: ZodIssueCode.invalid_type,
       expected: ZodParsedType.bigint,
@@ -1981,13 +1981,13 @@ ZodBigInt.create = (params) => {
   });
 };
 var ZodBoolean = class extends ZodType {
-  _parse(input) {
+  _parse(input2) {
     if (this._def.coerce) {
-      input.data = Boolean(input.data);
+      input2.data = Boolean(input2.data);
     }
-    const parsedType = this._getType(input);
+    const parsedType = this._getType(input2);
     if (parsedType !== ZodParsedType.boolean) {
-      const ctx = this._getOrReturnCtx(input);
+      const ctx = this._getOrReturnCtx(input2);
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
         expected: ZodParsedType.boolean,
@@ -1995,7 +1995,7 @@ var ZodBoolean = class extends ZodType {
       });
       return INVALID;
     }
-    return OK(input.data);
+    return OK(input2.data);
   }
 };
 ZodBoolean.create = (params) => {
@@ -2006,13 +2006,13 @@ ZodBoolean.create = (params) => {
   });
 };
 var ZodDate = class _ZodDate extends ZodType {
-  _parse(input) {
+  _parse(input2) {
     if (this._def.coerce) {
-      input.data = new Date(input.data);
+      input2.data = new Date(input2.data);
     }
-    const parsedType = this._getType(input);
+    const parsedType = this._getType(input2);
     if (parsedType !== ZodParsedType.date) {
-      const ctx2 = this._getOrReturnCtx(input);
+      const ctx2 = this._getOrReturnCtx(input2);
       addIssueToContext(ctx2, {
         code: ZodIssueCode.invalid_type,
         expected: ZodParsedType.date,
@@ -2020,8 +2020,8 @@ var ZodDate = class _ZodDate extends ZodType {
       });
       return INVALID;
     }
-    if (Number.isNaN(input.data.getTime())) {
-      const ctx2 = this._getOrReturnCtx(input);
+    if (Number.isNaN(input2.data.getTime())) {
+      const ctx2 = this._getOrReturnCtx(input2);
       addIssueToContext(ctx2, {
         code: ZodIssueCode.invalid_date
       });
@@ -2031,8 +2031,8 @@ var ZodDate = class _ZodDate extends ZodType {
     let ctx = void 0;
     for (const check of this._def.checks) {
       if (check.kind === "min") {
-        if (input.data.getTime() < check.value) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (input2.data.getTime() < check.value) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_small,
             message: check.message,
@@ -2044,8 +2044,8 @@ var ZodDate = class _ZodDate extends ZodType {
           status.dirty();
         }
       } else if (check.kind === "max") {
-        if (input.data.getTime() > check.value) {
-          ctx = this._getOrReturnCtx(input, ctx);
+        if (input2.data.getTime() > check.value) {
+          ctx = this._getOrReturnCtx(input2, ctx);
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_big,
             message: check.message,
@@ -2062,7 +2062,7 @@ var ZodDate = class _ZodDate extends ZodType {
     }
     return {
       status: status.value,
-      value: new Date(input.data.getTime())
+      value: new Date(input2.data.getTime())
     };
   }
   _addCheck(check) {
@@ -2115,10 +2115,10 @@ ZodDate.create = (params) => {
   });
 };
 var ZodSymbol = class extends ZodType {
-  _parse(input) {
-    const parsedType = this._getType(input);
+  _parse(input2) {
+    const parsedType = this._getType(input2);
     if (parsedType !== ZodParsedType.symbol) {
-      const ctx = this._getOrReturnCtx(input);
+      const ctx = this._getOrReturnCtx(input2);
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
         expected: ZodParsedType.symbol,
@@ -2126,7 +2126,7 @@ var ZodSymbol = class extends ZodType {
       });
       return INVALID;
     }
-    return OK(input.data);
+    return OK(input2.data);
   }
 };
 ZodSymbol.create = (params) => {
@@ -2136,10 +2136,10 @@ ZodSymbol.create = (params) => {
   });
 };
 var ZodUndefined = class extends ZodType {
-  _parse(input) {
-    const parsedType = this._getType(input);
+  _parse(input2) {
+    const parsedType = this._getType(input2);
     if (parsedType !== ZodParsedType.undefined) {
-      const ctx = this._getOrReturnCtx(input);
+      const ctx = this._getOrReturnCtx(input2);
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
         expected: ZodParsedType.undefined,
@@ -2147,7 +2147,7 @@ var ZodUndefined = class extends ZodType {
       });
       return INVALID;
     }
-    return OK(input.data);
+    return OK(input2.data);
   }
 };
 ZodUndefined.create = (params) => {
@@ -2157,10 +2157,10 @@ ZodUndefined.create = (params) => {
   });
 };
 var ZodNull = class extends ZodType {
-  _parse(input) {
-    const parsedType = this._getType(input);
+  _parse(input2) {
+    const parsedType = this._getType(input2);
     if (parsedType !== ZodParsedType.null) {
-      const ctx = this._getOrReturnCtx(input);
+      const ctx = this._getOrReturnCtx(input2);
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
         expected: ZodParsedType.null,
@@ -2168,7 +2168,7 @@ var ZodNull = class extends ZodType {
       });
       return INVALID;
     }
-    return OK(input.data);
+    return OK(input2.data);
   }
 };
 ZodNull.create = (params) => {
@@ -2182,8 +2182,8 @@ var ZodAny = class extends ZodType {
     super(...arguments);
     this._any = true;
   }
-  _parse(input) {
-    return OK(input.data);
+  _parse(input2) {
+    return OK(input2.data);
   }
 };
 ZodAny.create = (params) => {
@@ -2197,8 +2197,8 @@ var ZodUnknown = class extends ZodType {
     super(...arguments);
     this._unknown = true;
   }
-  _parse(input) {
-    return OK(input.data);
+  _parse(input2) {
+    return OK(input2.data);
   }
 };
 ZodUnknown.create = (params) => {
@@ -2208,8 +2208,8 @@ ZodUnknown.create = (params) => {
   });
 };
 var ZodNever = class extends ZodType {
-  _parse(input) {
-    const ctx = this._getOrReturnCtx(input);
+  _parse(input2) {
+    const ctx = this._getOrReturnCtx(input2);
     addIssueToContext(ctx, {
       code: ZodIssueCode.invalid_type,
       expected: ZodParsedType.never,
@@ -2225,10 +2225,10 @@ ZodNever.create = (params) => {
   });
 };
 var ZodVoid = class extends ZodType {
-  _parse(input) {
-    const parsedType = this._getType(input);
+  _parse(input2) {
+    const parsedType = this._getType(input2);
     if (parsedType !== ZodParsedType.undefined) {
-      const ctx = this._getOrReturnCtx(input);
+      const ctx = this._getOrReturnCtx(input2);
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
         expected: ZodParsedType.void,
@@ -2236,7 +2236,7 @@ var ZodVoid = class extends ZodType {
       });
       return INVALID;
     }
-    return OK(input.data);
+    return OK(input2.data);
   }
 };
 ZodVoid.create = (params) => {
@@ -2246,8 +2246,8 @@ ZodVoid.create = (params) => {
   });
 };
 var ZodArray = class _ZodArray extends ZodType {
-  _parse(input) {
-    const { ctx, status } = this._processInputParams(input);
+  _parse(input2) {
+    const { ctx, status } = this._processInputParams(input2);
     const def = this._def;
     if (ctx.parsedType !== ZodParsedType.array) {
       addIssueToContext(ctx, {
@@ -2387,10 +2387,10 @@ var ZodObject = class _ZodObject extends ZodType {
     this._cached = { shape, keys };
     return this._cached;
   }
-  _parse(input) {
-    const parsedType = this._getType(input);
+  _parse(input2) {
+    const parsedType = this._getType(input2);
     if (parsedType !== ZodParsedType.object) {
-      const ctx2 = this._getOrReturnCtx(input);
+      const ctx2 = this._getOrReturnCtx(input2);
       addIssueToContext(ctx2, {
         code: ZodIssueCode.invalid_type,
         expected: ZodParsedType.object,
@@ -2398,7 +2398,7 @@ var ZodObject = class _ZodObject extends ZodType {
       });
       return INVALID;
     }
-    const { status, ctx } = this._processInputParams(input);
+    const { status, ctx } = this._processInputParams(input2);
     const { shape, keys: shapeKeys } = this._getCached();
     const extraKeys = [];
     if (!(this._def.catchall instanceof ZodNever && this._def.unknownKeys === "strip")) {
@@ -2711,8 +2711,8 @@ ZodObject.lazycreate = (shape, params) => {
   });
 };
 var ZodUnion = class extends ZodType {
-  _parse(input) {
-    const { ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { ctx } = this._processInputParams(input2);
     const options = this._def.options;
     function handleResults(results) {
       for (const result of results) {
@@ -2833,8 +2833,8 @@ var getDiscriminator = (type) => {
   }
 };
 var ZodDiscriminatedUnion = class _ZodDiscriminatedUnion extends ZodType {
-  _parse(input) {
-    const { ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { ctx } = this._processInputParams(input2);
     if (ctx.parsedType !== ZodParsedType.object) {
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
@@ -2947,8 +2947,8 @@ function mergeValues(a, b) {
   }
 }
 var ZodIntersection = class extends ZodType {
-  _parse(input) {
-    const { status, ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { status, ctx } = this._processInputParams(input2);
     const handleParsed = (parsedLeft, parsedRight) => {
       if (isAborted(parsedLeft) || isAborted(parsedRight)) {
         return INVALID;
@@ -3000,8 +3000,8 @@ ZodIntersection.create = (left, right, params) => {
   });
 };
 var ZodTuple = class _ZodTuple extends ZodType {
-  _parse(input) {
-    const { status, ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { status, ctx } = this._processInputParams(input2);
     if (ctx.parsedType !== ZodParsedType.array) {
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
@@ -3055,12 +3055,12 @@ var ZodTuple = class _ZodTuple extends ZodType {
     });
   }
 };
-ZodTuple.create = (schemas, params) => {
-  if (!Array.isArray(schemas)) {
+ZodTuple.create = (schemas2, params) => {
+  if (!Array.isArray(schemas2)) {
     throw new Error("You must pass an array of schemas to z.tuple([ ... ])");
   }
   return new ZodTuple({
-    items: schemas,
+    items: schemas2,
     typeName: ZodFirstPartyTypeKind.ZodTuple,
     rest: null,
     ...processCreateParams(params)
@@ -3073,8 +3073,8 @@ var ZodRecord = class _ZodRecord extends ZodType {
   get valueSchema() {
     return this._def.valueType;
   }
-  _parse(input) {
-    const { status, ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { status, ctx } = this._processInputParams(input2);
     if (ctx.parsedType !== ZodParsedType.object) {
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
@@ -3126,8 +3126,8 @@ var ZodMap = class extends ZodType {
   get valueSchema() {
     return this._def.valueType;
   }
-  _parse(input) {
-    const { status, ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { status, ctx } = this._processInputParams(input2);
     if (ctx.parsedType !== ZodParsedType.map) {
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
@@ -3186,8 +3186,8 @@ ZodMap.create = (keyType, valueType, params) => {
   });
 };
 var ZodSet = class _ZodSet extends ZodType {
-  _parse(input) {
-    const { status, ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { status, ctx } = this._processInputParams(input2);
     if (ctx.parsedType !== ZodParsedType.set) {
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
@@ -3275,8 +3275,8 @@ var ZodFunction = class _ZodFunction extends ZodType {
     super(...arguments);
     this.validate = this.implement;
   }
-  _parse(input) {
-    const { ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { ctx } = this._processInputParams(input2);
     if (ctx.parsedType !== ZodParsedType.function) {
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
@@ -3379,8 +3379,8 @@ var ZodLazy = class extends ZodType {
   get schema() {
     return this._def.getter();
   }
-  _parse(input) {
-    const { ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { ctx } = this._processInputParams(input2);
     const lazySchema = this._def.getter();
     return lazySchema._parse({ data: ctx.data, path: ctx.path, parent: ctx });
   }
@@ -3393,9 +3393,9 @@ ZodLazy.create = (getter, params) => {
   });
 };
 var ZodLiteral = class extends ZodType {
-  _parse(input) {
-    if (input.data !== this._def.value) {
-      const ctx = this._getOrReturnCtx(input);
+  _parse(input2) {
+    if (input2.data !== this._def.value) {
+      const ctx = this._getOrReturnCtx(input2);
       addIssueToContext(ctx, {
         received: ctx.data,
         code: ZodIssueCode.invalid_literal,
@@ -3403,7 +3403,7 @@ var ZodLiteral = class extends ZodType {
       });
       return INVALID;
     }
-    return { status: "valid", value: input.data };
+    return { status: "valid", value: input2.data };
   }
   get value() {
     return this._def.value;
@@ -3424,9 +3424,9 @@ function createZodEnum(values, params) {
   });
 }
 var ZodEnum = class _ZodEnum extends ZodType {
-  _parse(input) {
-    if (typeof input.data !== "string") {
-      const ctx = this._getOrReturnCtx(input);
+  _parse(input2) {
+    if (typeof input2.data !== "string") {
+      const ctx = this._getOrReturnCtx(input2);
       const expectedValues = this._def.values;
       addIssueToContext(ctx, {
         expected: util.joinValues(expectedValues),
@@ -3438,8 +3438,8 @@ var ZodEnum = class _ZodEnum extends ZodType {
     if (!this._cache) {
       this._cache = new Set(this._def.values);
     }
-    if (!this._cache.has(input.data)) {
-      const ctx = this._getOrReturnCtx(input);
+    if (!this._cache.has(input2.data)) {
+      const ctx = this._getOrReturnCtx(input2);
       const expectedValues = this._def.values;
       addIssueToContext(ctx, {
         received: ctx.data,
@@ -3448,7 +3448,7 @@ var ZodEnum = class _ZodEnum extends ZodType {
       });
       return INVALID;
     }
-    return OK(input.data);
+    return OK(input2.data);
   }
   get options() {
     return this._def.values;
@@ -3489,9 +3489,9 @@ var ZodEnum = class _ZodEnum extends ZodType {
 };
 ZodEnum.create = createZodEnum;
 var ZodNativeEnum = class extends ZodType {
-  _parse(input) {
+  _parse(input2) {
     const nativeEnumValues = util.getValidEnumValues(this._def.values);
-    const ctx = this._getOrReturnCtx(input);
+    const ctx = this._getOrReturnCtx(input2);
     if (ctx.parsedType !== ZodParsedType.string && ctx.parsedType !== ZodParsedType.number) {
       const expectedValues = util.objectValues(nativeEnumValues);
       addIssueToContext(ctx, {
@@ -3504,7 +3504,7 @@ var ZodNativeEnum = class extends ZodType {
     if (!this._cache) {
       this._cache = new Set(util.getValidEnumValues(this._def.values));
     }
-    if (!this._cache.has(input.data)) {
+    if (!this._cache.has(input2.data)) {
       const expectedValues = util.objectValues(nativeEnumValues);
       addIssueToContext(ctx, {
         received: ctx.data,
@@ -3513,7 +3513,7 @@ var ZodNativeEnum = class extends ZodType {
       });
       return INVALID;
     }
-    return OK(input.data);
+    return OK(input2.data);
   }
   get enum() {
     return this._def.values;
@@ -3530,8 +3530,8 @@ var ZodPromise = class extends ZodType {
   unwrap() {
     return this._def.type;
   }
-  _parse(input) {
-    const { ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { ctx } = this._processInputParams(input2);
     if (ctx.parsedType !== ZodParsedType.promise && ctx.common.async === false) {
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
@@ -3563,8 +3563,8 @@ var ZodEffects = class extends ZodType {
   sourceType() {
     return this._def.schema._def.typeName === ZodFirstPartyTypeKind.ZodEffects ? this._def.schema.sourceType() : this._def.schema;
   }
-  _parse(input) {
-    const { status, ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { status, ctx } = this._processInputParams(input2);
     const effect = this._def.effect || null;
     const checkCtx = {
       addIssue: (arg) => {
@@ -3696,12 +3696,12 @@ ZodEffects.createWithPreprocess = (preprocess, schema, params) => {
   });
 };
 var ZodOptional = class extends ZodType {
-  _parse(input) {
-    const parsedType = this._getType(input);
+  _parse(input2) {
+    const parsedType = this._getType(input2);
     if (parsedType === ZodParsedType.undefined) {
       return OK(void 0);
     }
-    return this._def.innerType._parse(input);
+    return this._def.innerType._parse(input2);
   }
   unwrap() {
     return this._def.innerType;
@@ -3715,12 +3715,12 @@ ZodOptional.create = (type, params) => {
   });
 };
 var ZodNullable = class extends ZodType {
-  _parse(input) {
-    const parsedType = this._getType(input);
+  _parse(input2) {
+    const parsedType = this._getType(input2);
     if (parsedType === ZodParsedType.null) {
       return OK(null);
     }
-    return this._def.innerType._parse(input);
+    return this._def.innerType._parse(input2);
   }
   unwrap() {
     return this._def.innerType;
@@ -3734,8 +3734,8 @@ ZodNullable.create = (type, params) => {
   });
 };
 var ZodDefault = class extends ZodType {
-  _parse(input) {
-    const { ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { ctx } = this._processInputParams(input2);
     let data = ctx.data;
     if (ctx.parsedType === ZodParsedType.undefined) {
       data = this._def.defaultValue();
@@ -3759,8 +3759,8 @@ ZodDefault.create = (type, params) => {
   });
 };
 var ZodCatch = class extends ZodType {
-  _parse(input) {
-    const { ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { ctx } = this._processInputParams(input2);
     const newCtx = {
       ...ctx,
       common: {
@@ -3812,10 +3812,10 @@ ZodCatch.create = (type, params) => {
   });
 };
 var ZodNaN = class extends ZodType {
-  _parse(input) {
-    const parsedType = this._getType(input);
+  _parse(input2) {
+    const parsedType = this._getType(input2);
     if (parsedType !== ZodParsedType.nan) {
-      const ctx = this._getOrReturnCtx(input);
+      const ctx = this._getOrReturnCtx(input2);
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
         expected: ZodParsedType.nan,
@@ -3823,7 +3823,7 @@ var ZodNaN = class extends ZodType {
       });
       return INVALID;
     }
-    return { status: "valid", value: input.data };
+    return { status: "valid", value: input2.data };
   }
 };
 ZodNaN.create = (params) => {
@@ -3834,8 +3834,8 @@ ZodNaN.create = (params) => {
 };
 var BRAND = Symbol("zod_brand");
 var ZodBranded = class extends ZodType {
-  _parse(input) {
-    const { ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { ctx } = this._processInputParams(input2);
     const data = ctx.data;
     return this._def.type._parse({
       data,
@@ -3848,8 +3848,8 @@ var ZodBranded = class extends ZodType {
   }
 };
 var ZodPipeline = class _ZodPipeline extends ZodType {
-  _parse(input) {
-    const { status, ctx } = this._processInputParams(input);
+  _parse(input2) {
+    const { status, ctx } = this._processInputParams(input2);
     if (ctx.common.async) {
       const handleAsync = async () => {
         const inResult = await this._def.in._parseAsync({
@@ -3903,8 +3903,8 @@ var ZodPipeline = class _ZodPipeline extends ZodType {
   }
 };
 var ZodReadonly = class extends ZodType {
-  _parse(input) {
-    const result = this._def.innerType._parse(input);
+  _parse(input2) {
+    const result = this._def.innerType._parse(input2);
     const freeze = (data) => {
       if (isValid(data)) {
         data.value = Object.freeze(data.value);
@@ -4052,7 +4052,9 @@ var MAX_RELAY_FRAME_BYTES = 1024 * 1024;
 var SECURE_FRAGMENT_CHUNK_BYTES = 48 * 1024;
 var MAX_SECURE_MESSAGE_BYTES = 4 * 1024 * 1024;
 var HARNESS_API_TRANSFER_CHUNK_BYTES = 512 * 1024;
+var CODEX_APP_TRANSFER_CHUNK_BYTES = 512 * 1024;
 var MAX_HARNESS_API_TRANSFER_BYTES = 288 * 1024 * 1024;
+var MAX_CODEX_APP_TRANSFER_BYTES = 288 * 1024 * 1024;
 var SECURE_FRAGMENT_MAGIC = new Uint8Array([68, 83, 72, 70]);
 var SECURE_FRAGMENT_VERSION = 1;
 var SECURE_FRAGMENT_HEADER_BYTES = 17;
@@ -4099,7 +4101,16 @@ var rpcMethods = [
   "harness.remote.transfer.close",
   "harness.remote.stream.open",
   "harness.remote.stream.close",
-  "fileviewer.call"
+  "fileviewer.call",
+  "codex.app.call",
+  "codex.app.respond",
+  "codex.app.stream.open",
+  "codex.app.stream.close",
+  "codex.app.transfer.open",
+  "codex.app.transfer.chunk",
+  "codex.app.transfer.commit",
+  "codex.app.transfer.read",
+  "codex.app.transfer.close"
 ];
 var selectedTransports = ["lan", "p2p", "turn", "relay"];
 function normalizeSdpMLineIndex(value) {
@@ -4255,26 +4266,26 @@ var rpcErrorPayloadSchema = external_exports.object({
   retryable: external_exports.boolean().optional(),
   details: external_exports.unknown().optional()
 });
-function createMessage(type, payload, id = cryptoRandomId()) {
+function createMessage(type, payload, id2 = cryptoRandomId()) {
   return {
     v: PROTOCOL_VERSION,
-    id,
+    id: id2,
     type,
     timestamp: Date.now(),
     payload
   };
 }
-function createControlFrame(type, payload, id = cryptoRandomId()) {
+function createControlFrame(type, payload, id2 = cryptoRandomId()) {
   return {
     v: PROTOCOL_VERSION,
-    id,
+    id: id2,
     type,
     timestamp: Date.now(),
     payload
   };
 }
-function createRpcRequest(method, params, id) {
-  return createMessage("rpc.request", { method, params }, id);
+function createRpcRequest(method, params, id2) {
+  return createMessage("rpc.request", { method, params }, id2);
 }
 function createRpcResponse(requestId, result) {
   return createMessage("rpc.response", { requestId, result });
@@ -4285,11 +4296,11 @@ function createRpcError(requestId, code, message, details, retryable) {
 function createEvent(event, data, options = {}) {
   return createMessage("event", { event, data, ...options });
 }
-function parseRemoteMessage(input) {
-  return remoteMessageSchema.parse(input);
+function parseRemoteMessage(input2) {
+  return remoteMessageSchema.parse(input2);
 }
-function parseControlFrame(input) {
-  const frame = controlFrameSchema.parse(input);
+function parseControlFrame(input2) {
+  const frame = controlFrameSchema.parse(input2);
   const payloadSchema = controlFramePayloadSchemas[frame.type];
   if (payloadSchema) {
     return { ...frame, payload: payloadSchema.parse(frame.payload) };
@@ -4424,6 +4435,364 @@ function cryptoRandomId() {
 
 // ../client-core/dist/remote-gateway.js
 var DIRECT_REMOTE_CALL_BYTES = 2 * 1024 * 1024;
+var RemoteGatewayError = class extends Error {
+  code;
+  details;
+  constructor(code, message, details = {}, options) {
+    super(message, options);
+    this.code = code;
+    this.details = details;
+    this.name = "RemoteGatewayError";
+  }
+};
+function createRemoteId() {
+  const crypto3 = globalThis.crypto;
+  if (crypto3?.randomUUID !== void 0)
+    return crypto3.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// ../client-core/dist/codex-client.js
+var MAX_DISPLAY_ITEM_TEXT = 256 * 1024;
+var CodexRemoteClient = class {
+  core;
+  constructor(core) {
+    this.core = core;
+  }
+  /** Low-level allowlisted request used by the Desktop Web loopback facade. */
+  request(method, params, signal) {
+    const largeHistory = method === "thread/read" && isRecord(params) && params.includeTurns === true;
+    return this.call(method, params, largeHistory, signal);
+  }
+  async account(signal) {
+    return this.call("account/read", { refreshToken: false }, false, signal);
+  }
+  async models(signal) {
+    return this.call("model/list", {}, false, signal);
+  }
+  async threads(params = {}, signal) {
+    const result = await this.call("thread/list", params, false, signal);
+    if (!isRecord(result) || !Array.isArray(result.data))
+      throw invalidResponse("thread list");
+    return {
+      sessions: result.data.map(projectCodexThread).filter((value) => value !== void 0),
+      ...typeof result.nextCursor === "string" ? { nextCursor: result.nextCursor } : {}
+    };
+  }
+  async history(threadId, signal) {
+    const result = await this.call("thread/read", { threadId, includeTurns: true }, true, signal);
+    if (!isRecord(result) || !isRecord(result.thread))
+      throw invalidResponse("thread history");
+    const session = projectCodexThread(result.thread);
+    if (session === void 0)
+      throw invalidResponse("thread history");
+    return { session, items: projectCodexHistory(result.thread) };
+  }
+  async start(cwd, model, signal) {
+    const result = await this.call("thread/start", { cwd, ...model === void 0 ? {} : { model } }, false, signal);
+    return requireProjectedThread(result);
+  }
+  async resume(threadId, signal) {
+    return requireProjectedThread(await this.call("thread/resume", { threadId }, false, signal));
+  }
+  async fork(threadId, lastTurnId, signal) {
+    return requireProjectedThread(await this.call("thread/fork", {
+      threadId,
+      ...lastTurnId === void 0 ? {} : { lastTurnId }
+    }, false, signal));
+  }
+  async rename(threadId, name2, signal) {
+    await this.call("thread/name/set", { threadId, name: name2 }, false, signal);
+  }
+  async prompt(threadId, text, signal) {
+    return this.call("turn/start", { threadId, input: [{ type: "text", text }] }, false, signal);
+  }
+  async steer(threadId, expectedTurnId, text, signal) {
+    return this.call("turn/steer", {
+      threadId,
+      expectedTurnId,
+      input: [{ type: "text", text }]
+    }, false, signal);
+  }
+  async interrupt(threadId, turnId, signal) {
+    await this.call("turn/interrupt", { threadId, turnId }, false, signal);
+  }
+  async respond(requestHandle, decision, signal) {
+    await this.core.rpc("codex.app.respond", { requestHandle, decision }, signal);
+  }
+  async subscribe(threadId, onFrame, signal) {
+    const streamId = createRemoteId();
+    const unsubscribe = this.core.onEvent((event) => {
+      if (event.event !== "codex.app.frame" || !isRecord(event.data) || event.data.streamId !== streamId || !isRecord(event.data.frame) || typeof event.data.frame.method !== "string")
+        return;
+      onFrame(event.data.frame);
+    });
+    try {
+      await this.core.rpc("codex.app.stream.open", { streamId, threadId }, signal);
+    } catch (error) {
+      unsubscribe();
+      throw error;
+    }
+    let closed = false;
+    return {
+      streamId,
+      close: async () => {
+        if (closed)
+          return;
+        closed = true;
+        unsubscribe();
+        await this.core.rpc("codex.app.stream.close", { streamId }).catch(() => void 0);
+      }
+    };
+  }
+  async call(method, params, transfer, signal) {
+    const envelope = { method, params };
+    if (!transfer)
+      return this.core.rpc("codex.app.call", envelope, signal);
+    return this.callTransferred(new TextEncoder().encode(JSON.stringify(envelope)), signal);
+  }
+  async callTransferred(encoded, signal) {
+    if (encoded.byteLength === 0 || encoded.byteLength > MAX_CODEX_APP_TRANSFER_BYTES) {
+      throw new RemoteGatewayError("INVALID_MESSAGE", "The Codex request exceeds the transfer limit.");
+    }
+    const transferId = createCodexTransferId();
+    const totalChunks = Math.ceil(encoded.byteLength / CODEX_APP_TRANSFER_CHUNK_BYTES);
+    let opened = false;
+    try {
+      await this.core.rpc("codex.app.transfer.open", { transferId, totalBytes: encoded.byteLength, totalChunks }, signal);
+      opened = true;
+      for (let index = 0; index < totalChunks; index += 1) {
+        const start = index * CODEX_APP_TRANSFER_CHUNK_BYTES;
+        const chunk = encoded.subarray(start, Math.min(start + CODEX_APP_TRANSFER_CHUNK_BYTES, encoded.byteLength));
+        await this.core.rpc("codex.app.transfer.chunk", { transferId, index, data: bytesToBase64(chunk) }, signal);
+      }
+      const committed = await this.core.rpc("codex.app.transfer.commit", { transferId }, signal);
+      if (committed.kind === "inline")
+        return committed.response;
+      if (committed.transferId !== transferId || committed.totalBytes <= 0 || committed.totalBytes > MAX_CODEX_APP_TRANSFER_BYTES || committed.totalChunks !== Math.ceil(committed.totalBytes / CODEX_APP_TRANSFER_CHUNK_BYTES)) {
+        throw invalidResponse("transfer descriptor");
+      }
+      const response = new Uint8Array(committed.totalBytes);
+      let offset = 0;
+      for (let index = 0; index < committed.totalChunks; index += 1) {
+        const result = await this.core.rpc("codex.app.transfer.read", { transferId, index }, signal);
+        if (result.transferId !== transferId || result.index !== index)
+          throw invalidResponse("transfer ordering");
+        const chunk = base64ToBytes(result.data);
+        const expected = Math.min(CODEX_APP_TRANSFER_CHUNK_BYTES, committed.totalBytes - offset);
+        if (chunk.byteLength !== expected)
+          throw invalidResponse("transfer chunk");
+        response.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(response));
+    } finally {
+      if (opened)
+        await this.core.rpc("codex.app.transfer.close", { transferId }).catch(() => void 0);
+    }
+  }
+};
+function projectCodexThread(value) {
+  if (!isRecord(value) || typeof value.id !== "string")
+    return void 0;
+  const createdAt = normalizeTimestamp(value.createdAt);
+  const updatedAt = normalizeTimestamp(value.updatedAt) || createdAt;
+  return {
+    id: `codex:${value.id}`,
+    backend: "codex",
+    nativeId: value.id,
+    ...typeof value.sessionId === "string" ? { sessionTreeId: value.sessionId } : {},
+    ...typeof value.name === "string" && value.name.length > 0 ? { title: value.name } : {},
+    ...typeof value.preview === "string" && value.preview.length > 0 ? { preview: value.preview } : {},
+    ...typeof value.cwd === "string" ? { cwd: value.cwd } : {},
+    createdAt,
+    updatedAt,
+    status: projectThreadStatus(value.status),
+    ...typeof value.archived === "boolean" ? { archived: value.archived } : {},
+    ...typeof value.isPinned === "boolean" ? { pinned: value.isPinned } : {}
+  };
+}
+function projectCodexHistory(thread) {
+  if (!isRecord(thread) || typeof thread.id !== "string" || !Array.isArray(thread.turns))
+    return [];
+  const sessionId = `codex:${thread.id}`;
+  const output = [];
+  for (const turn of thread.turns) {
+    if (!isRecord(turn) || typeof turn.id !== "string" || !Array.isArray(turn.items))
+      continue;
+    for (let index = 0; index < turn.items.length; index += 1) {
+      const item = turn.items[index];
+      output.push(projectCodexItem(item, thread.id, turn.id, sessionId, index));
+    }
+  }
+  return output;
+}
+function projectCodexItem(value, threadId, turnId, sessionId, index) {
+  const item = isRecord(value) ? value : {};
+  const itemId = typeof item.id === "string" ? item.id : `${turnId}:${index}`;
+  const type = typeof item.type === "string" ? item.type : "unknown";
+  const base = {
+    id: `codex:${threadId}:${turnId}:${itemId}`,
+    sessionId,
+    backend: "codex",
+    nativeRef: { threadId, turnId, ...typeof item.id === "string" ? { itemId: item.id } : {} },
+    ...normalizeTimestamp(item.createdAt) > 0 ? { createdAt: normalizeTimestamp(item.createdAt) } : {}
+  };
+  if (type === "userMessage")
+    return { ...base, kind: "message", role: "user", text: itemText(item) };
+  if (type === "agentMessage")
+    return { ...base, kind: "message", role: "assistant", text: itemText(item), status: projectItemStatus(item.status) };
+  if (type === "commandExecution") {
+    return { ...base, kind: "tool", text: commandExecutionText(item), status: projectItemStatus(item.status), details: { type } };
+  }
+  if (type === "mcpToolCall" || type === "dynamicToolCall") {
+    return { ...base, kind: "tool", text: toolCallText(item), status: projectItemStatus(item.status), details: { type } };
+  }
+  if (type === "fileChange") {
+    return { ...base, kind: "file-change", text: fileChangeText(item.changes), status: projectItemStatus(item.status), details: { type } };
+  }
+  if (type === "plan" || type === "reasoning") {
+    return { ...base, kind: "status", text: itemText(item) ?? textArray(item.summary) ?? type, details: { type } };
+  }
+  if (type === "error")
+    return { ...base, kind: "error", text: itemText(item), status: "failed", details: { type } };
+  return { ...base, kind: "unknown", text: `Unsupported Codex item: ${type}`, details: { type } };
+}
+function requireProjectedThread(result) {
+  if (!isRecord(result))
+    throw invalidResponse("thread");
+  const session = projectCodexThread(result.thread);
+  if (session === void 0)
+    throw invalidResponse("thread");
+  return session;
+}
+function projectThreadStatus(value) {
+  if (!isRecord(value) || typeof value.type !== "string")
+    return "idle";
+  if (value.type === "systemError")
+    return "failed";
+  if (value.type !== "active")
+    return "idle";
+  return Array.isArray(value.activeFlags) && value.activeFlags.includes("waitingOnApproval") ? "waiting" : "running";
+}
+function projectItemStatus(value) {
+  if (value === "inProgress")
+    return "running";
+  if (value === "failed")
+    return "failed";
+  if (value === "declined")
+    return "declined";
+  return "completed";
+}
+function itemText(item) {
+  if (typeof item.text === "string")
+    return boundedText(item.text);
+  if (!Array.isArray(item.content))
+    return void 0;
+  const parts = item.content.flatMap((value) => isRecord(value) && value.type === "text" && typeof value.text === "string" ? [value.text] : []);
+  return parts.length > 0 ? boundedText(parts.join("\n")) : void 0;
+}
+function toolLabel(item) {
+  if (typeof item.tool === "string")
+    return item.tool;
+  if (typeof item.server === "string" && typeof item.name === "string")
+    return `${item.server}: ${item.name}`;
+  if (typeof item.command === "string")
+    return item.command;
+  if (Array.isArray(item.command) && item.command.every((value) => typeof value === "string"))
+    return item.command.join(" ");
+  return typeof item.type === "string" ? item.type : void 0;
+}
+function commandExecutionText(item) {
+  const command = toolLabel(item);
+  const output = typeof item.aggregatedOutput === "string" ? item.aggregatedOutput : void 0;
+  if (command === void 0)
+    return output === void 0 ? void 0 : boundedText(output);
+  return boundedText(output === void 0 || output === "" ? command : `${command}
+
+${output}`);
+}
+function toolCallText(item) {
+  const label = toolLabel(item);
+  const error = compactUnknown(item.error);
+  const result = compactUnknown(item.result ?? item.contentItems);
+  return boundedText([label, error, result].filter((value) => value !== void 0 && value !== "").join("\n\n")) || void 0;
+}
+function fileChangeText(value) {
+  if (!Array.isArray(value))
+    return "File changes";
+  const changes = value.flatMap((change) => {
+    if (!isRecord(change) || typeof change.path !== "string")
+      return [];
+    const kind = typeof change.kind === "string" ? change.kind : "update";
+    return [`[${kind}] ${change.path}`];
+  });
+  return boundedText(changes.length === 0 ? "File changes" : changes.join("\n"));
+}
+function textArray(value) {
+  return Array.isArray(value) && value.every((part) => typeof part === "string") ? boundedText(value.join("\n")) : void 0;
+}
+function compactUnknown(value) {
+  if (value === void 0 || value === null)
+    return void 0;
+  if (typeof value === "string")
+    return boundedText(value);
+  try {
+    return boundedText(JSON.stringify(value, void 0, 2));
+  } catch {
+    return void 0;
+  }
+}
+function boundedText(value) {
+  return value.length <= MAX_DISPLAY_ITEM_TEXT ? value : `${value.slice(0, MAX_DISPLAY_ITEM_TEXT)}
+\u2026`;
+}
+function normalizeTimestamp(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
+    return 0;
+  return value < 1e10 ? value * 1e3 : value;
+}
+function bytesToBase64(value) {
+  let binary = "";
+  for (let index = 0; index < value.length; index += 1)
+    binary += String.fromCharCode(value[index]);
+  return btoa(binary);
+}
+function base64ToBytes(value) {
+  let binary;
+  try {
+    binary = atob(value);
+  } catch {
+    throw invalidResponse("transfer data");
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1)
+    bytes[index] = binary.charCodeAt(index);
+  if (bytesToBase64(bytes) !== value)
+    throw invalidResponse("transfer data");
+  return bytes;
+}
+function invalidResponse(part) {
+  return new RemoteGatewayError("INVALID_MESSAGE", `The Host returned an invalid Codex ${part}.`);
+}
+function createCodexTransferId() {
+  if (globalThis.crypto?.randomUUID !== void 0)
+    return globalThis.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues !== void 0) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1)
+      bytes[index] = Math.floor(Math.random() * 256);
+  }
+  bytes[6] = bytes[6] & 15 | 64;
+  bytes[8] = bytes[8] & 63 | 128;
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 // ../client-core/dist/index.js
 var RemoteClientError = class extends Error {
@@ -5452,7 +5821,7 @@ function inspectSelectedPath(stats) {
     }
   }
   const pairs = [
-    ...[...selectedPairIds].map((id) => candidatePairs.get(id)).filter((pair) => pair !== void 0),
+    ...[...selectedPairIds].map((id2) => candidatePairs.get(id2)).filter((pair) => pair !== void 0),
     ...selectedPairs
   ];
   for (const pair of pairs) {
@@ -13433,7 +13802,7 @@ var RemoteHarnessApiProxy = class {
         await this.client.rpc("harness.api.transfer.chunk", {
           transferId,
           index,
-          data: bytesToBase64(chunk)
+          data: bytesToBase642(chunk)
         }, signal);
       }
       const committed = await this.client.rpc(
@@ -13456,7 +13825,7 @@ var RemoteHarnessApiProxy = class {
         if (result.transferId !== transferId || result.index !== index) {
           throw new Error("The remote Host returned an out-of-order Harness API transfer chunk.");
         }
-        const chunk = base64ToBytes(result.data);
+        const chunk = base64ToBytes2(result.data);
         const expectedBytes = Math.min(HARNESS_API_TRANSFER_CHUNK_BYTES, committed.totalBytes - offset);
         if (chunk.byteLength !== expectedBytes) {
           throw new Error("The remote Host returned an invalid Harness API transfer chunk.");
@@ -13559,14 +13928,14 @@ function routeStreamEvent(event, streamId, queue) {
     if (data.streamId === streamId) queue.close();
   }
 }
-function bytesToBase64(bytes) {
+function bytesToBase642(bytes) {
   let binary = "";
   for (let offset = 0; offset < bytes.byteLength; offset += 32768) {
     binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 32768, bytes.byteLength)));
   }
   return btoa(binary);
 }
-function base64ToBytes(value) {
+function base64ToBytes2(value) {
   let binary;
   try {
     binary = atob(value);
@@ -13575,7 +13944,7 @@ function base64ToBytes(value) {
   }
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  if (bytesToBase64(bytes) !== value) {
+  if (bytesToBase642(bytes) !== value) {
     throw new Error("The remote Host returned a non-canonical Harness API transfer chunk.");
   }
   return bytes;
@@ -13662,7 +14031,7 @@ var RemoteTypertGateway2 = class {
         await this.client.rpc("harness.remote.transfer.chunk", {
           transferId,
           index,
-          data: bytesToBase642(chunk)
+          data: bytesToBase643(chunk)
         }, signal);
       }
       const committed = await this.client.rpc(
@@ -13685,7 +14054,7 @@ var RemoteTypertGateway2 = class {
         if (result.transferId !== transferId || result.index !== index) {
           throw new Error("The remote Host returned an out-of-order Harness Remote transfer chunk.");
         }
-        const chunk = base64ToBytes2(result.data);
+        const chunk = base64ToBytes3(result.data);
         const expectedBytes = Math.min(HARNESS_API_TRANSFER_CHUNK_BYTES, committed.totalBytes - offset);
         if (chunk.byteLength !== expectedBytes) {
           throw new Error("The remote Host returned an invalid Harness Remote transfer chunk.");
@@ -13753,16 +14122,16 @@ function routeStreamEvent2(event, streamId, queue) {
     queue.fail(remoteFailure({
       code: typeof failure?.code === "string" ? failure.code : "internal",
       message: typeof failure?.message === "string" ? failure.message : "The remote Harness stream failed.",
-      details: isRecord(failure?.details) ? failure.details : {}
+      details: isRecord2(failure?.details) ? failure.details : {}
     }));
   } else {
     queue.close();
   }
 }
 function parseRpcResult(value) {
-  if (!isRecord(value)) throw new Error("The remote Host returned an invalid Gateway result.");
+  if (!isRecord2(value)) throw new Error("The remote Host returned an invalid Gateway result.");
   if (value.ok === true) return Object.hasOwn(value, "value") ? { ok: true, value: value.value } : { ok: true };
-  if (value.ok !== false || !isRecord(value.error) || typeof value.error.code !== "string" || typeof value.error.message !== "string" || !isRecord(value.error.details)) {
+  if (value.ok !== false || !isRecord2(value.error) || typeof value.error.code !== "string" || typeof value.error.message !== "string" || !isRecord2(value.error.details)) {
     throw new Error("The remote Host returned an invalid Gateway failure.");
   }
   return {
@@ -13777,14 +14146,14 @@ function remoteFailure(failure) {
     details: failure.details
   });
 }
-function bytesToBase642(bytes) {
+function bytesToBase643(bytes) {
   let binary = "";
   for (let offset = 0; offset < bytes.byteLength; offset += 32768) {
     binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 32768, bytes.byteLength)));
   }
   return btoa(binary);
 }
-function base64ToBytes2(value) {
+function base64ToBytes3(value) {
   let binary;
   try {
     binary = atob(value);
@@ -13793,10 +14162,10 @@ function base64ToBytes2(value) {
   }
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  if (bytesToBase642(bytes) !== value) throw new Error("The remote Host returned non-canonical Harness Remote transfer data.");
+  if (bytesToBase643(bytes) !== value) throw new Error("The remote Host returned non-canonical Harness Remote transfer data.");
   return bytes;
 }
-function isRecord(value) {
+function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function hasErrorCode(error, code) {
@@ -13823,7 +14192,12 @@ var Config = s.object({
       maxDelayMs: s.number(),
       jitter: s.number()
     })
-  ])
+  ]),
+  codex: s.object({
+    enabled: s.boolean(),
+    binary: s.string(),
+    allowedRoots: s.array(s.string())
+  })
 });
 var reconnectSchema = external_exports.union([
   external_exports.boolean(),
@@ -13840,10 +14214,15 @@ var configSchema = external_exports.object({
   deviceName: external_exports.string().trim().min(1).max(80).optional(),
   forceRelay: external_exports.boolean().optional(),
   logLevel: external_exports.enum(["debug", "info", "warn", "error"]).optional(),
-  reconnect: reconnectSchema.optional()
+  reconnect: reconnectSchema.optional(),
+  codex: external_exports.object({
+    enabled: external_exports.boolean().optional(),
+    binary: external_exports.string().trim().min(1).max(4096).optional(),
+    allowedRoots: external_exports.array(external_exports.string().trim().min(1).max(4096)).max(32).optional()
+  }).strict().optional()
 }).strict();
-function resolveConfig(input = {}, env = process.env) {
-  const parsed = configSchema.parse(input);
+function resolveConfig(input2 = {}, env = process.env) {
+  const parsed = configSchema.parse(input2);
   const reconnect = typeof parsed.reconnect === "object" ? parsed.reconnect : {};
   const configuredServerUrl = parsed.serverUrl ?? env.DSH_REMOTE_SERVER;
   const serverUrl = configuredServerUrl === void 0 ? void 0 : normalizeServerUrl(configuredServerUrl);
@@ -13864,6 +14243,11 @@ function resolveConfig(input = {}, env = process.env) {
       initialDelayMs,
       maxDelayMs,
       jitter: reconnect.jitter ?? 0.2
+    },
+    codex: {
+      enabled: parsed.codex?.enabled ?? false,
+      binary: parsed.codex?.binary ?? "codex",
+      allowedRoots: [...new Set(parsed.codex?.allowedRoots ?? [])]
     }
   };
 }
@@ -14393,7 +14777,7 @@ var TypertGatewaySwitch = class {
     if (normalized !== void 0) return normalized;
     const source = error instanceof Error ? error : new Error("The Harness Gateway rejected the request.");
     const code = "code" in source && typeof source.code === "string" ? source.code : "internal";
-    const details = "details" in source && isRecord2(source.details) ? source.details : {};
+    const details = "details" in source && isRecord3(source.details) ? source.details : {};
     return { code, message: source.message, details };
   }
 };
@@ -14402,7 +14786,7 @@ function requestFromCarrier(endpoint, payload, signal) {
   if (segments.length !== 2 || segments.some((segment) => segment.length === 0)) {
     throw new Error("The Harness Gateway endpoint is invalid.");
   }
-  if (!isRecord2(payload) || !isRecord2(payload.args)) {
+  if (!isRecord3(payload) || !isRecord3(payload.args)) {
     throw new Error("The Harness Gateway payload is invalid.");
   }
   return { namespace: segments[0], method: segments[1], args: payload.args, signal };
@@ -14417,7 +14801,7 @@ function isLocalOnlyEndpoint(endpoint) {
 function isRemoteCommandMethod(method) {
   return REMOTE_COMMAND_METHODS.includes(method);
 }
-function isRecord2(value) {
+function isRecord3(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -14524,10 +14908,10 @@ function isUsableExternalNode(candidate, requireFrom) {
 }
 function isExecutableFile(candidate) {
   try {
-    const stat4 = statSync(candidate);
-    if (!stat4.isFile()) return false;
+    const stat5 = statSync(candidate);
+    if (!stat5.isFile()) return false;
     if (process.platform === "win32") return true;
-    return (stat4.mode & 73) !== 0;
+    return (stat5.mode & 73) !== 0;
   } catch {
     return false;
   }
@@ -14615,11 +14999,11 @@ var ExternalNativePeerConnection = class {
   }
   request(method, payload) {
     if (this.closed) return Promise.reject(new Error("native rtc helper is closed"));
-    const id = this.nextRequestId++;
+    const id2 = this.nextRequestId++;
     const promise = new Promise((resolve2, reject) => {
-      this.pending.set(id, { resolve: resolve2, reject });
+      this.pending.set(id2, { resolve: resolve2, reject });
     });
-    this.write({ id, method, payload });
+    this.write({ id: id2, method, payload });
     return promise;
   }
   notify(method, payload) {
@@ -15504,6 +15888,7 @@ var ClientModeRuntime = class {
   pendingWorkspaceSelection;
   proxySwitch;
   gatewaySwitch;
+  codexStreams = /* @__PURE__ */ new Map();
   closed = false;
   async start() {
     if (this.closed) throw new Error("client remote-mode runtime is closed");
@@ -15603,6 +15988,7 @@ var ClientModeRuntime = class {
     this.pendingWorkspaceSelection = void 0;
     this.proxySwitch?.selectLocal();
     this.gatewaySwitch.selectLocal();
+    await this.closeCodexStreams(previous?.client);
     await previous?.client.close().catch(() => void 0);
     await this.server.revokeCurrentDevice();
     this.identity = await this.identities.reset(this.config.deviceName);
@@ -15625,6 +16011,7 @@ var ClientModeRuntime = class {
       const previous2 = this.connected;
       this.connected = void 0;
       this.pendingWorkspaceSelection = void 0;
+      await this.closeCodexStreams(previous2?.client);
       await previous2?.client.close().catch(() => void 0);
       this.logger.info("Harness target switched", { mode: "local" });
       return this.status();
@@ -15643,6 +16030,7 @@ var ClientModeRuntime = class {
     this.connected = next;
     this.pendingWorkspaceSelection = void 0;
     this.selectRemoteTarget(next);
+    await this.closeCodexStreams(previous?.client);
     await previous?.client.close().catch(() => void 0);
     this.logger.info("Harness target switched", { mode: "remote", targetDeviceId: shortId(next.target.deviceId) });
     return this.status();
@@ -15717,6 +16105,7 @@ var ClientModeRuntime = class {
     this.proxySwitch?.selectLocal();
     this.gatewaySwitch.selectLocal();
     this.pendingWorkspaceSelection = void 0;
+    await this.closeCodexStreams(this.connected?.client);
     await this.connected?.client.close().catch(() => void 0);
     this.connected = void 0;
     this.proxySwitch?.restore();
@@ -15731,6 +16120,88 @@ var ClientModeRuntime = class {
       throw new ClientModeError("FEATURE_NOT_SUPPORTED", "The selected Remote Host does not support remote file viewing.");
     }
     return remote.client.rpc("fileviewer.call", { endpoint, payload }, signal);
+  }
+  requireCodexRemote() {
+    const remote = this.connected;
+    if (remote === void 0) {
+      throw new ClientModeError("REMOTE_NOT_CONNECTED", "No Remote Host is selected.", true);
+    }
+    if (!remote.features.codex) {
+      throw new ClientModeError("FEATURE_NOT_SUPPORTED", "The selected Remote Host does not provide Codex sessions.");
+    }
+    return remote;
+  }
+  async openCodexStream(payload, signal) {
+    const remote = this.requireCodexRemote();
+    const value = record(payload);
+    if (typeof value.streamId !== "string" || value.streamId.length === 0 || value.streamId.length > 128 || typeof value.threadId !== "string" || value.threadId.length === 0) {
+      throw new ClientModeError("INVALID_MESSAGE", "A Codex stream and thread are required.");
+    }
+    if (this.codexStreams.has(value.streamId)) throw new ClientModeError("REQUEST_CONFLICT", "The Codex stream is already open.");
+    let wake = () => void 0;
+    const stream = {
+      client: remote.client,
+      frames: [],
+      unsubscribe: () => void 0,
+      wake: () => wake()
+    };
+    stream.unsubscribe = remote.client.onEvent((event) => {
+      if (event.event === "codex.app.frame" && isRecord4(event.data) && event.data.streamId === value.streamId && isRecord4(event.data.frame) && typeof event.data.frame.method === "string") {
+        if (stream.frames.length >= 256) {
+          stream.closed = "overflow";
+        } else {
+          stream.frames.push({ method: event.data.frame.method, params: event.data.frame.params });
+        }
+        stream.wake();
+      }
+      if (event.event === "codex.app.stream.closed" && isRecord4(event.data) && event.data.streamId === value.streamId) {
+        stream.closed = typeof event.data.reason === "string" ? event.data.reason : "closed";
+        stream.wake();
+      }
+    });
+    try {
+      await remote.client.rpc("codex.app.stream.open", { streamId: value.streamId, threadId: value.threadId }, signal);
+    } catch (error) {
+      stream.unsubscribe();
+      throw error;
+    }
+    this.codexStreams.set(value.streamId, stream);
+    return { opened: true, streamId: value.streamId, threadId: value.threadId };
+  }
+  async nextCodexFrames(payload, signal) {
+    const value = record(payload);
+    if (typeof value.streamId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Codex stream is required.");
+    const stream = this.codexStreams.get(value.streamId);
+    if (stream === void 0) throw new ClientModeError("STREAM_NOT_FOUND", "The Codex stream is not open.");
+    if (stream.frames.length === 0 && stream.closed === void 0) await waitForCodexFrames(stream, signal);
+    const frames = stream.frames.splice(0, 100);
+    return {
+      streamId: value.streamId,
+      frames,
+      closed: stream.closed !== void 0,
+      ...stream.closed === void 0 ? {} : { reason: stream.closed }
+    };
+  }
+  async closeCodexStream(payload) {
+    const value = record(payload);
+    if (typeof value.streamId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Codex stream is required.");
+    const stream = this.codexStreams.get(value.streamId);
+    if (stream === void 0) return { closed: false, streamId: value.streamId };
+    this.codexStreams.delete(value.streamId);
+    stream.unsubscribe();
+    stream.wake();
+    await stream.client.rpc("codex.app.stream.close", { streamId: value.streamId }).catch(() => void 0);
+    return { closed: true, streamId: value.streamId };
+  }
+  async closeCodexStreams(client) {
+    const targets = [...this.codexStreams.entries()].filter(([, stream]) => client === void 0 || stream.client === client);
+    await Promise.all(targets.map(async ([streamId, stream]) => {
+      this.codexStreams.delete(streamId);
+      stream.unsubscribe();
+      stream.closed = "peer-disconnected";
+      stream.wake();
+      await stream.client.rpc("codex.app.stream.close", { streamId }).catch(() => void 0);
+    }));
   }
   selectRemoteTarget(remote) {
     const target = { deviceId: remote.target.deviceId, name: remote.target.name };
@@ -15852,7 +16323,13 @@ var ClientModeRuntime = class {
         });
       }
       const features = await probeRemoteHostFeatures(connectedClient, serverDevice.clientVersion);
-      return { client: connectedClient, target, transport: connectedTransport, features };
+      return {
+        client: connectedClient,
+        target,
+        transport: connectedTransport,
+        features,
+        ...serverDevice.clientVersion === void 0 ? {} : { clientVersion: serverDevice.clientVersion }
+      };
     } catch (error) {
       await client?.close().catch(() => void 0);
       throw error;
@@ -15927,6 +16404,28 @@ var ClientModeRuntime = class {
         const method = endpoint === "fileviewer.stat" ? "stat" : endpoint === "fileviewer.readRange" ? "readRange" : "list";
         return ok(await this.callRemoteFileViewer(method, payload, signal));
       }
+      if (endpoint === "codex.call") {
+        const remote = this.requireCodexRemote();
+        const value = record(payload);
+        if (typeof value.method !== "string" || !("params" in value)) {
+          throw new ClientModeError("INVALID_MESSAGE", "A Codex method and params are required.");
+        }
+        return ok(await new CodexRemoteClient(remote.client).request(value.method, value.params, signal));
+      }
+      if (endpoint === "codex.probe") {
+        const remote = this.connected;
+        if (remote === void 0) return ok({ supported: false });
+        remote.features = await probeRemoteHostFeatures(remote.client, remote.clientVersion);
+        return ok({ supported: remote.features.codex });
+      }
+      if (endpoint === "codex.respond") {
+        const remote = this.requireCodexRemote();
+        const value = record(payload);
+        return ok(await remote.client.rpc("codex.app.respond", value, signal));
+      }
+      if (endpoint === "codex.stream.open") return ok(await this.openCodexStream(payload, signal));
+      if (endpoint === "codex.stream.next") return ok(await this.nextCodexFrames(payload, signal));
+      if (endpoint === "codex.stream.close") return ok(await this.closeCodexStream(payload));
       if (endpoint === "host.account.login") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
         const value = record(payload);
@@ -16021,7 +16520,7 @@ function record(value) {
   }
   return value;
 }
-function isRecord3(value) {
+function isRecord4(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function ok(value) {
@@ -16046,11 +16545,11 @@ async function readRemoteWorkspaceBaseline(gateway, signal) {
   const iterator = source[Symbol.asyncIterator]();
   try {
     const first = await iterator.next();
-    if (first.done || !isRecord3(first.value) || first.value.type !== "baseline" || !isRecord3(first.value.value) || !Array.isArray(first.value.value.items)) {
+    if (first.done || !isRecord4(first.value) || first.value.type !== "baseline" || !isRecord4(first.value.value) || !Array.isArray(first.value.value.items)) {
       throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid Workspace baseline.");
     }
     return first.value.value.items.map((item) => {
-      if (!isRecord3(item) || typeof item.workspaceId !== "string" || typeof item.path !== "string" || typeof item.title !== "string") {
+      if (!isRecord4(item) || typeof item.workspaceId !== "string" || typeof item.path !== "string" || typeof item.title !== "string") {
         throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid Workspace row.");
       }
       return { workspaceId: item.workspaceId, path: item.path, title: item.title };
@@ -16098,7 +16597,8 @@ function remoteHostFeatures(clientVersion) {
     commandList: isVersionAtLeast(clientVersion, REMOTE_COMMAND_LIST_MIN_VERSION),
     fileViewer: isVersionAtLeast(clientVersion, REMOTE_FILE_VIEWER_MIN_VERSION),
     apiProxy: true,
-    remoteGateway: false
+    remoteGateway: false,
+    codex: false
   };
 }
 async function probeRemoteHostFeatures(client, clientVersion) {
@@ -16110,7 +16610,7 @@ async function probeRemoteHostFeatures(client, clientVersion) {
     if (error instanceof Error && "code" in error && error.code === "METHOD_NOT_FOUND") return fallback;
     throw error;
   }
-  if (!isRecord3(value) || !Array.isArray(value.capabilities) || value.capabilities.some((capability) => typeof capability !== "string")) {
+  if (!isRecord4(value) || !Array.isArray(value.capabilities) || value.capabilities.some((capability) => typeof capability !== "string")) {
     throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned invalid transport capabilities.");
   }
   const capabilities = new Set(value.capabilities);
@@ -16123,8 +16623,34 @@ async function probeRemoteHostFeatures(client, clientVersion) {
     commandList: remoteGateway || apiProxy && fallback.commandList,
     fileViewer: capabilities.has("fileviewer.read.v1"),
     apiProxy,
-    remoteGateway
+    remoteGateway,
+    codex: capabilities.has("codex.appserver.v1")
   };
+}
+async function waitForCodexFrames(stream, signal) {
+  if (signal?.aborted) throw new ClientModeError("RPC_ABORTED", "The Codex event poll was cancelled.");
+  await new Promise((resolve2, reject) => {
+    const previousWake = stream.wake;
+    const timer = setTimeout(done, 25e3);
+    const onAbort = () => {
+      cleanup();
+      reject(new ClientModeError("RPC_ABORTED", "The Codex event poll was cancelled."));
+    };
+    function cleanup() {
+      clearTimeout(timer);
+      stream.wake = previousWake;
+      signal?.removeEventListener("abort", onAbort);
+    }
+    function done() {
+      cleanup();
+      resolve2();
+    }
+    stream.wake = () => {
+      previousWake();
+      done();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 function isVersionAtLeast(value, minimum) {
   const match = value?.match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
@@ -16247,11 +16773,11 @@ var IdentityStore = class {
   isTrusted(deviceId, publicKey) {
     return this.peers.get(deviceId)?.publicKey === publicKey;
   }
-  async trustPeer(input) {
+  async trustPeer(input2) {
     this.current();
     const peer = {
-      ...input,
-      fingerprint: fingerprint(input.publicKey),
+      ...input2,
+      fingerprint: fingerprint(input2.publicKey),
       trustedAt: Date.now()
     };
     this.peers.set(peer.deviceId, peer);
@@ -16604,11 +17130,11 @@ function editableConfig(config) {
     } : false
   };
 }
-function isRecord4(value) {
+function isRecord5(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function record2(value) {
-  if (!isRecord4(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
+  if (!isRecord5(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
   return value;
 }
 function ok2(value) {
@@ -16661,7 +17187,7 @@ function redact(value, key = "") {
 }
 
 // src/service.ts
-import { randomUUID } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
 
 // src/connection-controller.ts
 var ConnectionController = class {
@@ -16898,29 +17424,42 @@ var apiMethods = /* @__PURE__ */ new Set([
   "harness.remote.transfer.close",
   "harness.remote.stream.open",
   "harness.remote.stream.close",
-  "fileviewer.call"
+  "fileviewer.call",
+  "codex.app.call",
+  "codex.app.respond",
+  "codex.app.stream.open",
+  "codex.app.stream.close",
+  "codex.app.transfer.open",
+  "codex.app.transfer.chunk",
+  "codex.app.transfer.commit",
+  "codex.app.transfer.read",
+  "codex.app.transfer.close"
 ]);
 var HOST_CAPABILITIES = [
   "harness.api.v1",
   "harness.api.transfer.v1",
   "harness.remote.v1",
   "harness.remote.transfer.v1",
-  "fileviewer.read.v1"
+  "fileviewer.read.v1",
+  "codex.appserver.v1",
+  "codex.appserver.transfer.v1"
 ];
 var RpcRouter = class {
-  constructor(harnessApi, maxPending = 128, logger, fileViewer, harnessRemote, capabilities = () => HOST_CAPABILITIES) {
+  constructor(harnessApi, maxPending = 128, logger, fileViewer, harnessRemote, capabilities = () => HOST_CAPABILITIES, codex) {
     this.harnessApi = harnessApi;
     this.maxPending = maxPending;
     this.logger = logger;
     this.fileViewer = fileViewer;
     this.harnessRemote = harnessRemote;
     this.capabilities = capabilities;
+    this.codex = codex;
   }
   active = 0;
   async closePeerStreams() {
     await Promise.all([
       this.harnessApi?.closeAll(),
-      this.harnessRemote?.closeAll()
+      this.harnessRemote?.closeAll(),
+      this.codex?.closeAll()
     ]);
   }
   async handle(message) {
@@ -17004,6 +17543,24 @@ var RpcRouter = class {
         }
         return this.fileViewer.call(params);
       }
+      case "codex.app.call":
+        return this.requireCodex().call(params);
+      case "codex.app.respond":
+        return this.requireCodex().respond(params);
+      case "codex.app.stream.open":
+        return this.requireCodex().openStream(params);
+      case "codex.app.stream.close":
+        return this.requireCodex().closeStream(params);
+      case "codex.app.transfer.open":
+        return this.requireCodex().openTransfer(params);
+      case "codex.app.transfer.chunk":
+        return this.requireCodex().appendTransfer(params);
+      case "codex.app.transfer.commit":
+        return this.requireCodex().commitTransfer(params);
+      case "codex.app.transfer.read":
+        return this.requireCodex().readTransfer(params);
+      case "codex.app.transfer.close":
+        return this.requireCodex().closeTransfer(params);
       default:
         throw new RpcError("METHOD_NOT_FOUND", "The requested method does not exist.");
     }
@@ -17019,6 +17576,12 @@ var RpcRouter = class {
       throw new RpcError("FEATURE_NOT_SUPPORTED", "This Harness version does not provide the Remote Gateway transport.");
     }
     return this.harnessRemote;
+  }
+  requireCodex() {
+    if (this.codex === void 0) {
+      throw new RpcError("FEATURE_NOT_SUPPORTED", "Codex Remote is disabled or unavailable on this Host.");
+    }
+    return this.codex;
   }
 };
 function errorResponse(requestId, error) {
@@ -17088,8 +17651,8 @@ var RemoteFileViewerBridge = class {
     this.service = service;
     this.logger = logger;
   }
-  async call(input) {
-    const params = callSchema.parse(input);
+  async call(input2) {
+    const params = callSchema.parse(input2);
     const service = this.service();
     if (service === void 0) {
       throw new RpcError("FILE_VIEWER_UNAVAILABLE", "The Remote Host does not have DSH File Viewer available.");
@@ -17125,11 +17688,11 @@ var RemoteFileViewerBridge = class {
     }
   }
 };
-function parseHostResult(input) {
-  if (typeof input !== "object" || input === null || !("ok" in input) || typeof input.ok !== "boolean") {
+function parseHostResult(input2) {
+  if (typeof input2 !== "object" || input2 === null || !("ok" in input2) || typeof input2.ok !== "boolean") {
     throw new RpcError("FILE_VIEWER_INVALID_RESPONSE", "The Remote Host File Viewer returned an invalid response.");
   }
-  return input;
+  return input2;
 }
 function hostFailure(result) {
   const message = result.error?.message ?? "";
@@ -18235,8 +18798,8 @@ var HarnessApiBridge = class {
   mux;
   host;
   answer;
-  async call(input) {
-    const params = callSchema2.parse(input);
+  async call(input2) {
+    const params = callSchema2.parse(input2);
     const method = this.methods.get(params.method);
     if (method === void 0) throw deniedMethod(params.method);
     const startedAt = performance.now();
@@ -18276,9 +18839,9 @@ var HarnessApiBridge = class {
       throw error;
     }
   }
-  openTransfer(input) {
+  openTransfer(input2) {
     this.pruneTransfers();
-    const params = transferOpenSchema.parse(input);
+    const params = transferOpenSchema.parse(input2);
     if (params.totalChunks !== Math.ceil(params.totalBytes / HARNESS_API_TRANSFER_CHUNK_BYTES)) {
       throw new RpcError("INVALID_MESSAGE", "The Harness API transfer chunk count is invalid.");
     }
@@ -18297,9 +18860,9 @@ var HarnessApiBridge = class {
     });
     return { opened: true, transferId: params.transferId };
   }
-  appendTransfer(input) {
+  appendTransfer(input2) {
     this.pruneTransfers();
-    const params = transferChunkSchema.parse(input);
+    const params = transferChunkSchema.parse(input2);
     const transfer = this.incomingTransfers.get(params.transferId);
     if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness API transfer is not active.");
     if (params.index !== transfer.chunks.length || params.index >= transfer.totalChunks) {
@@ -18326,9 +18889,9 @@ var HarnessApiBridge = class {
     transfer.touchedAt = Date.now();
     return { accepted: true, transferId: params.transferId, index: params.index };
   }
-  async commitTransfer(input) {
+  async commitTransfer(input2) {
     this.pruneTransfers();
-    const params = transferCommitSchema.parse(input);
+    const params = transferCommitSchema.parse(input2);
     const transfer = this.incomingTransfers.get(params.transferId);
     if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness API transfer is not active.");
     this.incomingTransfers.delete(params.transferId);
@@ -18364,9 +18927,9 @@ var HarnessApiBridge = class {
     });
     return { kind: "chunked", transferId: params.transferId, totalBytes: responseBytes.byteLength, totalChunks };
   }
-  readTransfer(input) {
+  readTransfer(input2) {
     this.pruneTransfers();
-    const params = transferReadSchema.parse(input);
+    const params = transferReadSchema.parse(input2);
     const transfer = this.outgoingTransfers.get(params.transferId);
     if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness API response transfer is not active.");
     if (params.index !== transfer.nextIndex || params.index >= transfer.totalChunks) {
@@ -18383,14 +18946,14 @@ var HarnessApiBridge = class {
       data: Buffer.from(transfer.bytes.subarray(start, end)).toString("base64")
     };
   }
-  closeTransfer(input) {
-    const params = transferCloseSchema.parse(input);
+  closeTransfer(input2) {
+    const params = transferCloseSchema.parse(input2);
     const incoming = this.incomingTransfers.delete(params.transferId);
     const outgoing = this.outgoingTransfers.delete(params.transferId);
     return { closed: incoming || outgoing, transferId: params.transferId };
   }
-  async respond(input) {
-    const params = respondSchema.parse(input);
+  async respond(input2) {
+    const params = respondSchema.parse(input2);
     this.logger?.debug("harness api respond", { rpcId: shortId4(params.message.rpcId) });
     if (!this.respondable.has(params.message.rpcId)) {
       throw new RpcError("PERMISSION_NOT_PENDING", "The response id was not emitted on this peer connection.");
@@ -18399,8 +18962,8 @@ var HarnessApiBridge = class {
     if (receipt.accepted || receipt.reason === "not-pending") this.respondable.delete(params.message.rpcId);
     return receipt;
   }
-  openStream(input) {
-    const params = streamOpenSchema.parse(input);
+  openStream(input2) {
+    const params = streamOpenSchema.parse(input2);
     if (this.streams.has(params.streamId)) throw new RpcError("REQUEST_CONFLICT", "The Harness event stream is already open.");
     if (this.streams.size >= this.maxStreams) throw new RpcError("RATE_LIMITED", "Too many Harness event streams are open.", void 0, true);
     const controller = new AbortController();
@@ -18416,8 +18979,8 @@ var HarnessApiBridge = class {
     });
     return { opened: true, streamId: params.streamId };
   }
-  closeStream(input) {
-    const params = streamCloseSchema.parse(input);
+  closeStream(input2) {
+    const params = streamCloseSchema.parse(input2);
     const active = this.streams.get(params.streamId);
     if (active !== void 0) {
       this.streams.delete(params.streamId);
@@ -18906,8 +19469,8 @@ var HarnessRemoteBridge = class {
   streams = /* @__PURE__ */ new Map();
   incomingTransfers = /* @__PURE__ */ new Map();
   outgoingTransfers = /* @__PURE__ */ new Map();
-  async call(input) {
-    const params = callSchema3.parse(input);
+  async call(input2) {
+    const params = callSchema3.parse(input2);
     this.assertAllowed(params.endpoint);
     const startedAt = performance.now();
     try {
@@ -18926,9 +19489,9 @@ var HarnessRemoteBridge = class {
       throw error;
     }
   }
-  openTransfer(input) {
+  openTransfer(input2) {
     this.pruneTransfers();
-    const params = transferOpenSchema2.parse(input);
+    const params = transferOpenSchema2.parse(input2);
     if (params.totalChunks !== Math.ceil(params.totalBytes / HARNESS_API_TRANSFER_CHUNK_BYTES)) {
       throw new RpcError("INVALID_MESSAGE", "The Harness Remote transfer chunk count is invalid.");
     }
@@ -18947,9 +19510,9 @@ var HarnessRemoteBridge = class {
     });
     return { opened: true, transferId: params.transferId };
   }
-  appendTransfer(input) {
+  appendTransfer(input2) {
     this.pruneTransfers();
-    const params = transferChunkSchema2.parse(input);
+    const params = transferChunkSchema2.parse(input2);
     const transfer = this.incomingTransfers.get(params.transferId);
     if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness Remote transfer is not active.");
     if (params.index !== transfer.chunks.length || params.index >= transfer.totalChunks) {
@@ -18970,9 +19533,9 @@ var HarnessRemoteBridge = class {
     transfer.touchedAt = Date.now();
     return { accepted: true, transferId: params.transferId, index: params.index };
   }
-  async commitTransfer(input) {
+  async commitTransfer(input2) {
     this.pruneTransfers();
-    const params = transferIdSchema2.parse(input);
+    const params = transferIdSchema2.parse(input2);
     const transfer = this.incomingTransfers.get(params.transferId);
     if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness Remote transfer is not active.");
     this.incomingTransfers.delete(params.transferId);
@@ -19003,9 +19566,9 @@ var HarnessRemoteBridge = class {
     });
     return { kind: "chunked", transferId: params.transferId, totalBytes: responseBytes.byteLength, totalChunks };
   }
-  readTransfer(input) {
+  readTransfer(input2) {
     this.pruneTransfers();
-    const params = transferReadSchema2.parse(input);
+    const params = transferReadSchema2.parse(input2);
     const transfer = this.outgoingTransfers.get(params.transferId);
     if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Harness Remote response transfer is not active.");
     if (params.index !== transfer.nextIndex || params.index >= transfer.totalChunks) {
@@ -19022,13 +19585,13 @@ var HarnessRemoteBridge = class {
       data: Buffer.from(transfer.bytes.subarray(start, end)).toString("base64")
     };
   }
-  closeTransfer(input) {
-    const params = transferIdSchema2.parse(input);
+  closeTransfer(input2) {
+    const params = transferIdSchema2.parse(input2);
     const closed = this.incomingTransfers.delete(params.transferId) || this.outgoingTransfers.delete(params.transferId);
     return { closed, transferId: params.transferId };
   }
-  async openStream(input) {
-    const params = streamOpenSchema2.parse(input);
+  async openStream(input2) {
+    const params = streamOpenSchema2.parse(input2);
     this.assertAllowed(params.endpoint);
     if (this.streams.has(params.streamId)) throw new RpcError("REQUEST_CONFLICT", "The Harness Remote stream is already open.");
     if (this.streams.size >= MAX_ACTIVE_STREAMS) {
@@ -19040,8 +19603,8 @@ var HarnessRemoteBridge = class {
     void this.pump(params.streamId, source, controller.signal);
     return { opened: true, streamId: params.streamId };
   }
-  closeStream(input) {
-    const params = streamCloseSchema2.parse(input);
+  closeStream(input2) {
+    const params = streamCloseSchema2.parse(input2);
     const active = this.streams.get(params.streamId);
     if (active !== void 0) {
       this.streams.delete(params.streamId);
@@ -19091,8 +19654,8 @@ var HarnessRemoteBridge = class {
   }
   pruneTransfers() {
     const cutoff = Date.now() - TRANSFER_IDLE_MS;
-    for (const [id, transfer] of this.incomingTransfers) if (transfer.touchedAt < cutoff) this.incomingTransfers.delete(id);
-    for (const [id, transfer] of this.outgoingTransfers) if (transfer.touchedAt < cutoff) this.outgoingTransfers.delete(id);
+    for (const [id2, transfer] of this.incomingTransfers) if (transfer.touchedAt < cutoff) this.incomingTransfers.delete(id2);
+    for (const [id2, transfer] of this.outgoingTransfers) if (transfer.touchedAt < cutoff) this.outgoingTransfers.delete(id2);
   }
 };
 function decodeCanonicalBase642(value) {
@@ -19110,6 +19673,1102 @@ function concatChunks2(chunks, totalBytes) {
   return result;
 }
 
+// src/codex/domain.ts
+import { randomUUID } from "node:crypto";
+
+// src/codex/app-server.ts
+import { spawn as spawn2 } from "node:child_process";
+import { Buffer as Buffer2 } from "node:buffer";
+var APP_SERVER_REQUEST_TIMEOUT_MS = 6e4;
+var APP_SERVER_START_TIMEOUT_MS = 15e3;
+var MAX_APP_SERVER_LINE_BYTES = 288 * 1024 * 1024;
+var MAX_STDERR_CAPTURE_BYTES = 4 * 1024;
+var CodexAppServerError = class extends Error {
+  constructor(code, message, options) {
+    super(message, options);
+    this.code = code;
+    this.name = "CodexAppServerError";
+  }
+};
+var CodexAppServerClient = class {
+  constructor(binary, logger, spawnAppServer = (binary2) => spawn2(binary2, ["app-server"], {
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true
+  })) {
+    this.binary = binary;
+    this.logger = logger;
+    this.spawnAppServer = spawnAppServer;
+  }
+  process;
+  nextId = 1;
+  pending = /* @__PURE__ */ new Map();
+  inboundHandlers = /* @__PURE__ */ new Set();
+  unavailableHandlers = /* @__PURE__ */ new Set();
+  stdoutBuffer = Buffer2.alloc(0);
+  stderrBytes = 0;
+  ready = false;
+  closed = false;
+  failureNotified = false;
+  startPromise;
+  start() {
+    if (this.closed) return Promise.reject(new CodexAppServerError("CODEX_CLOSED", "The Codex domain is closed."));
+    if (this.ready) return Promise.resolve();
+    this.startPromise ??= this.startOnce().finally(() => {
+      this.startPromise = void 0;
+    });
+    return this.startPromise;
+  }
+  isReady() {
+    return this.ready;
+  }
+  async call(method, params, timeoutMs = APP_SERVER_REQUEST_TIMEOUT_MS) {
+    if (!this.ready) throw new CodexAppServerError("CODEX_UNAVAILABLE", "Codex App Server is not ready.");
+    return this.request(method, params, timeoutMs);
+  }
+  async respond(id2, result) {
+    this.write({ id: id2, result });
+  }
+  async respondError(id2, code, message) {
+    this.write({ id: id2, error: { code, message } });
+  }
+  onInbound(handler) {
+    this.inboundHandlers.add(handler);
+    return () => this.inboundHandlers.delete(handler);
+  }
+  onUnavailable(handler) {
+    this.unavailableHandlers.add(handler);
+    return () => this.unavailableHandlers.delete(handler);
+  }
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.ready = false;
+    this.failPending(new CodexAppServerError("CODEX_CLOSED", "Codex App Server was closed."));
+    const child = this.process;
+    this.process = void 0;
+    if (child === void 0 || child.exitCode !== null || child.killed) return;
+    await new Promise((resolve2) => {
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        resolve2();
+      }, 2e3);
+      timer.unref?.();
+      child.once("exit", () => {
+        clearTimeout(timer);
+        resolve2();
+      });
+      child.kill("SIGTERM");
+    });
+  }
+  async startOnce() {
+    if (this.process !== void 0) {
+      throw new CodexAppServerError("CODEX_STARTING", "Codex App Server is already starting.");
+    }
+    const child = this.spawnAppServer(this.binary);
+    this.process = child;
+    this.failureNotified = false;
+    this.stdoutBuffer = Buffer2.alloc(0);
+    this.stderrBytes = 0;
+    child.stdout.on("data", (chunk) => this.consumeStdout(Buffer2.from(chunk)));
+    child.stderr.on("data", (chunk) => {
+      this.stderrBytes = Math.min(MAX_STDERR_CAPTURE_BYTES, this.stderrBytes + Buffer2.byteLength(chunk));
+    });
+    child.on("error", (error) => this.handleProcessFailure("CODEX_BINARY_UNAVAILABLE", error));
+    child.on("exit", (code, signal) => {
+      if (this.process !== child) return;
+      this.process = void 0;
+      this.ready = false;
+      this.failPending(new CodexAppServerError("CODEX_APP_SERVER_EXITED", "Codex App Server exited unexpectedly."));
+      if (!this.closed) {
+        this.logger?.warn("Codex App Server exited", {
+          code: code ?? "none",
+          signal: signal ?? "none",
+          stderrBytes: this.stderrBytes
+        });
+        this.notifyUnavailable("CODEX_APP_SERVER_EXITED");
+      }
+    });
+    try {
+      await this.request("initialize", {
+        clientInfo: {
+          name: "deepseek_harness_remote",
+          title: "DeepSeek Harness Remote",
+          version: "0.4.2"
+        },
+        capabilities: {
+          experimentalApi: false,
+          mcpServerOpenaiFormElicitation: false
+        }
+      }, APP_SERVER_START_TIMEOUT_MS);
+      this.write({ method: "initialized", params: {} });
+      this.ready = true;
+      this.logger?.info("Codex App Server ready");
+    } catch (error) {
+      child.kill("SIGTERM");
+      if (error instanceof CodexAppServerError) throw error;
+      throw new CodexAppServerError("CODEX_INITIALIZE_FAILED", "Codex App Server initialization failed.", { cause: error });
+    }
+  }
+  request(method, params, timeoutMs) {
+    const id2 = this.nextId++;
+    const result = new Promise((resolve2, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id2);
+        reject(new CodexAppServerError("CODEX_REQUEST_TIMEOUT", "Codex App Server request timed out."));
+      }, timeoutMs);
+      timer.unref?.();
+      this.pending.set(id2, { resolve: resolve2, reject, timer });
+    });
+    try {
+      this.write({ id: id2, method, params });
+    } catch (error) {
+      const pending = this.takePending(id2);
+      pending?.reject(error instanceof Error ? error : new Error("Codex App Server write failed."));
+    }
+    return result;
+  }
+  write(message) {
+    const child = this.process;
+    if (child === void 0 || child.stdin.destroyed || !child.stdin.writable) {
+      throw new CodexAppServerError("CODEX_UNAVAILABLE", "Codex App Server is not available.");
+    }
+    child.stdin.write(`${JSON.stringify(message)}
+`);
+  }
+  consumeStdout(chunk) {
+    this.stdoutBuffer = this.stdoutBuffer.length === 0 ? chunk : Buffer2.concat([this.stdoutBuffer, chunk]);
+    if (this.stdoutBuffer.length > MAX_APP_SERVER_LINE_BYTES) {
+      this.handleProcessFailure(
+        "CODEX_RESPONSE_TOO_LARGE",
+        new Error("Codex App Server emitted an oversized JSONL message.")
+      );
+      return;
+    }
+    let newline = this.stdoutBuffer.indexOf(10);
+    while (newline >= 0) {
+      const line = this.stdoutBuffer.subarray(0, newline);
+      this.stdoutBuffer = this.stdoutBuffer.subarray(newline + 1);
+      if (line.length > 0) this.handleLine(line);
+      newline = this.stdoutBuffer.indexOf(10);
+    }
+  }
+  handleLine(line) {
+    let value;
+    try {
+      value = JSON.parse(line.toString("utf8"));
+    } catch {
+      this.handleProcessFailure("CODEX_INVALID_RESPONSE", new Error("Codex App Server emitted invalid JSON."));
+      return;
+    }
+    if (!isRecord6(value)) {
+      this.handleProcessFailure("CODEX_INVALID_RESPONSE", new Error("Codex App Server emitted an invalid message."));
+      return;
+    }
+    if ((typeof value.id === "number" || typeof value.id === "string") && ("result" in value || "error" in value)) {
+      const pending = this.takePending(value.id);
+      if (pending === void 0) return;
+      if ("error" in value && value.error !== void 0) {
+        pending.reject(new CodexAppServerError("CODEX_UPSTREAM_ERROR", safeUpstreamError(value.error)));
+      } else {
+        pending.resolve(value.result);
+      }
+      return;
+    }
+    if (typeof value.method !== "string" || value.method.length === 0 || value.method.length > 160) return;
+    const params = value.params ?? {};
+    const inbound = typeof value.id === "string" || typeof value.id === "number" ? { kind: "request", id: value.id, method: value.method, params } : { kind: "notification", method: value.method, params };
+    for (const handler of this.inboundHandlers) handler(inbound);
+  }
+  handleProcessFailure(code, cause) {
+    this.ready = false;
+    this.failPending(new CodexAppServerError(code, "Codex App Server communication failed.", { cause }));
+    const child = this.process;
+    this.process = void 0;
+    child?.kill("SIGTERM");
+    this.logger?.warn("Codex App Server communication failed", { code });
+    if (!this.closed) this.notifyUnavailable(code);
+  }
+  notifyUnavailable(code) {
+    if (this.failureNotified) return;
+    this.failureNotified = true;
+    for (const handler of this.unavailableHandlers) handler(code);
+  }
+  takePending(id2) {
+    const pending = this.pending.get(id2);
+    if (pending === void 0) return void 0;
+    this.pending.delete(id2);
+    clearTimeout(pending.timer);
+    return pending;
+  }
+  failPending(error) {
+    for (const id2 of [...this.pending.keys()]) this.takePending(id2)?.reject(error);
+  }
+};
+function safeUpstreamError(value) {
+  if (!isRecord6(value) || typeof value.message !== "string") return "Codex App Server rejected the request.";
+  return value.message.toLowerCase().includes("not initialized") ? "Codex App Server is not initialized." : "Codex App Server rejected the request.";
+}
+function isRecord6(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// src/codex/method-policy.ts
+var id = external_exports.string().min(1).max(256);
+var cursor = external_exports.string().min(1).max(4096).nullable().optional();
+var textInput = external_exports.object({
+  type: external_exports.literal("text"),
+  text: external_exports.string().min(1).max(256 * 1024)
+}).strict();
+var input = external_exports.array(textInput).min(1).max(16);
+var schemas = {
+  "account/read": external_exports.object({ refreshToken: external_exports.literal(false).optional() }).strict(),
+  "model/list": external_exports.object({
+    cursor,
+    limit: external_exports.number().int().min(1).max(100).optional(),
+    includeHidden: external_exports.boolean().optional()
+  }).strict(),
+  "thread/list": external_exports.object({
+    cursor,
+    limit: external_exports.number().int().min(1).max(100).optional(),
+    sortKey: external_exports.enum(["created_at", "updated_at", "recency_at"]).optional(),
+    sortDirection: external_exports.enum(["asc", "desc"]).optional(),
+    modelProviders: external_exports.array(external_exports.string().min(1).max(128)).max(32).nullable().optional(),
+    sourceKinds: external_exports.array(external_exports.enum(["cli", "vscode", "exec", "appServer", "unknown"])).max(8).optional(),
+    archived: external_exports.boolean().optional(),
+    isPinned: external_exports.boolean().optional(),
+    cwd: external_exports.union([external_exports.string().min(1).max(4096), external_exports.array(external_exports.string().min(1).max(4096)).min(1).max(32)]).optional(),
+    useStateDbOnly: external_exports.boolean().optional(),
+    searchTerm: external_exports.string().max(1024).optional()
+  }).strict(),
+  "thread/read": external_exports.object({ threadId: id, includeTurns: external_exports.boolean().optional() }).strict(),
+  "thread/start": external_exports.object({
+    cwd: external_exports.string().min(1).max(4096),
+    model: external_exports.string().min(1).max(128).optional(),
+    personality: external_exports.string().min(1).max(64).optional()
+  }).strict(),
+  "thread/resume": external_exports.object({
+    threadId: id,
+    model: external_exports.string().min(1).max(128).optional()
+  }).strict(),
+  "thread/fork": external_exports.object({
+    threadId: id,
+    lastTurnId: id.optional()
+  }).strict(),
+  "thread/name/set": external_exports.object({ threadId: id, name: external_exports.string().trim().min(1).max(256) }).strict(),
+  "thread/archive": external_exports.object({ threadId: id }).strict(),
+  "thread/unarchive": external_exports.object({ threadId: id }).strict(),
+  "thread/unsubscribe": external_exports.object({ threadId: id }).strict(),
+  "turn/start": external_exports.object({
+    threadId: id,
+    input,
+    model: external_exports.string().min(1).max(128).optional(),
+    effort: external_exports.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]).optional(),
+    summary: external_exports.enum(["auto", "concise", "detailed", "none"]).optional(),
+    personality: external_exports.string().min(1).max(64).optional()
+  }).strict(),
+  "turn/steer": external_exports.object({ threadId: id, input, expectedTurnId: id }).strict(),
+  "turn/interrupt": external_exports.object({ threadId: id, turnId: id }).strict()
+};
+var CODEX_APP_ALLOWLIST = Object.freeze(Object.keys(schemas));
+function parseCodexCall(method, params) {
+  if (!Object.prototype.hasOwnProperty.call(schemas, method)) {
+    throw new RpcError("METHOD_NOT_ALLOWED", "The requested Codex method is not available over Remote.");
+  }
+  const schema = schemas[method];
+  return { method, params: schema.parse(params) };
+}
+function isThreadMutation(method) {
+  return method === "turn/start" || method === "turn/steer" || method === "turn/interrupt";
+}
+function threadIdFromParams(params) {
+  return typeof params.threadId === "string" ? params.threadId : void 0;
+}
+
+// src/codex/path-policy.ts
+import { realpath, stat as stat4 } from "node:fs/promises";
+import { isAbsolute as isAbsolute3, relative } from "node:path";
+var CodexPathPolicy = class _CodexPathPolicy {
+  constructor(roots) {
+    this.roots = roots;
+  }
+  static async create(configuredRoots) {
+    const roots = [];
+    for (const configured of configuredRoots) {
+      if (!isAbsolute3(configured)) {
+        throw new RpcError("CODEX_ROOT_INVALID", "Codex allowed roots must be absolute directories.");
+      }
+      const canonical = await realpath(configured);
+      if (!(await stat4(canonical)).isDirectory()) {
+        throw new RpcError("CODEX_ROOT_INVALID", "Codex allowed roots must be directories.");
+      }
+      if (!roots.includes(canonical)) roots.push(canonical);
+    }
+    if (roots.length === 0) {
+      throw new RpcError("CODEX_ROOTS_REQUIRED", "Codex Remote requires at least one allowed root.");
+    }
+    return new _CodexPathPolicy(roots);
+  }
+  list() {
+    return this.roots;
+  }
+  async canonicalizeAllowed(path) {
+    if (!isAbsolute3(path)) throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The Codex working directory is not allowed.");
+    let canonical;
+    try {
+      canonical = await realpath(path);
+    } catch {
+      throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The Codex working directory is not available.");
+    }
+    if (!(await stat4(canonical)).isDirectory() || !this.roots.some((root) => contains(root, canonical))) {
+      throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The Codex working directory is not allowed.");
+    }
+    return canonical;
+  }
+  async allows(path) {
+    if (typeof path !== "string") return false;
+    try {
+      await this.canonicalizeAllowed(path);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+};
+function contains(root, candidate) {
+  const child = relative(root, candidate);
+  return child === "" || child !== ".." && !child.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute3(child);
+}
+
+// src/codex/peer-bridge.ts
+import { Buffer as Buffer3 } from "node:buffer";
+var streamOpenSchema3 = external_exports.object({
+  streamId: external_exports.string().min(1).max(128),
+  threadId: external_exports.string().min(1).max(256)
+}).strict();
+var streamCloseSchema3 = external_exports.object({ streamId: external_exports.string().min(1).max(128) }).strict();
+var transferOpenSchema3 = external_exports.object({
+  transferId: external_exports.string().uuid(),
+  totalBytes: external_exports.number().int().positive().max(MAX_CODEX_APP_TRANSFER_BYTES),
+  totalChunks: external_exports.number().int().positive()
+}).strict();
+var transferChunkSchema3 = external_exports.object({
+  transferId: external_exports.string().uuid(),
+  index: external_exports.number().int().nonnegative(),
+  data: external_exports.string().min(1).max(Math.ceil(CODEX_APP_TRANSFER_CHUNK_BYTES / 3) * 4)
+}).strict();
+var transferIdSchema3 = external_exports.object({ transferId: external_exports.string().uuid() }).strict();
+var transferReadSchema3 = external_exports.object({ transferId: external_exports.string().uuid(), index: external_exports.number().int().nonnegative() }).strict();
+var MAX_ACTIVE_STREAMS2 = 16;
+var MAX_ACTIVE_TRANSFERS2 = 2;
+var TRANSFER_IDLE_MS2 = 2 * 6e4;
+var INLINE_TRANSFER_RESPONSE_BYTES3 = 2 * 1024 * 1024;
+var CodexPeerBridge = class {
+  constructor(domain, context, publish, logger) {
+    this.domain = domain;
+    this.context = context;
+    this.publish = publish;
+    this.logger = logger;
+  }
+  streams = /* @__PURE__ */ new Map();
+  incomingTransfers = /* @__PURE__ */ new Map();
+  outgoingTransfers = /* @__PURE__ */ new Map();
+  closed = false;
+  call(input2) {
+    this.requireOpen();
+    return this.domain.call(this.context.connectionId, input2);
+  }
+  respond(input2) {
+    this.requireOpen();
+    return this.domain.respond(this.context.connectionId, input2);
+  }
+  async openStream(input2) {
+    this.requireOpen();
+    const params = streamOpenSchema3.parse(input2);
+    if (this.streams.has(params.streamId)) throw new RpcError("REQUEST_CONFLICT", "The Codex stream id is already active.");
+    if (this.streams.size >= MAX_ACTIVE_STREAMS2) {
+      throw new RpcError("RATE_LIMITED", "Too many Codex streams are active for this connection.", void 0, true);
+    }
+    await this.domain.call(this.context.connectionId, {
+      method: "thread/read",
+      params: { threadId: params.threadId, includeTurns: false }
+    });
+    this.streams.set(params.streamId, params.threadId);
+    return { opened: true, streamId: params.streamId, threadId: params.threadId };
+  }
+  closeStream(input2) {
+    const params = streamCloseSchema3.parse(input2);
+    this.streams.delete(params.streamId);
+    return { closed: true, streamId: params.streamId };
+  }
+  openTransfer(input2) {
+    this.requireOpen();
+    this.pruneTransfers();
+    const params = transferOpenSchema3.parse(input2);
+    if (params.totalChunks !== Math.ceil(params.totalBytes / CODEX_APP_TRANSFER_CHUNK_BYTES)) {
+      throw new RpcError("INVALID_MESSAGE", "The Codex transfer chunk count is invalid.");
+    }
+    if (this.incomingTransfers.has(params.transferId) || this.outgoingTransfers.has(params.transferId)) {
+      throw new RpcError("REQUEST_CONFLICT", "The Codex transfer id is already active.");
+    }
+    if (this.incomingTransfers.size >= MAX_ACTIVE_TRANSFERS2) {
+      throw new RpcError("RATE_LIMITED", "Too many Codex transfers are active.", void 0, true);
+    }
+    this.incomingTransfers.set(params.transferId, {
+      totalBytes: params.totalBytes,
+      totalChunks: params.totalChunks,
+      chunks: [],
+      receivedBytes: 0,
+      touchedAt: Date.now()
+    });
+    return { opened: true, transferId: params.transferId };
+  }
+  appendTransfer(input2) {
+    this.requireOpen();
+    this.pruneTransfers();
+    const params = transferChunkSchema3.parse(input2);
+    const transfer = this.incomingTransfers.get(params.transferId);
+    if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Codex transfer is not active.");
+    if (params.index !== transfer.chunks.length || params.index >= transfer.totalChunks) {
+      this.incomingTransfers.delete(params.transferId);
+      throw new RpcError("INVALID_MESSAGE", "Codex transfer chunks must arrive exactly once and in order.");
+    }
+    const chunk = decodeCanonicalBase643(params.data);
+    const expectedBytes = Math.min(
+      CODEX_APP_TRANSFER_CHUNK_BYTES,
+      transfer.totalBytes - params.index * CODEX_APP_TRANSFER_CHUNK_BYTES
+    );
+    if (chunk.byteLength !== expectedBytes) {
+      this.incomingTransfers.delete(params.transferId);
+      throw new RpcError("INVALID_MESSAGE", "The Codex transfer chunk size is invalid.");
+    }
+    transfer.chunks.push(chunk);
+    transfer.receivedBytes += chunk.byteLength;
+    transfer.touchedAt = Date.now();
+    return { accepted: true, transferId: params.transferId, index: params.index };
+  }
+  async commitTransfer(input2) {
+    this.requireOpen();
+    this.pruneTransfers();
+    const params = transferIdSchema3.parse(input2);
+    const transfer = this.incomingTransfers.get(params.transferId);
+    if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Codex transfer is not active.");
+    this.incomingTransfers.delete(params.transferId);
+    if (transfer.chunks.length !== transfer.totalChunks || transfer.receivedBytes !== transfer.totalBytes) {
+      throw new RpcError("INVALID_MESSAGE", "The Codex transfer is incomplete.");
+    }
+    let request;
+    try {
+      request = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(concatChunks3(transfer.chunks, transfer.totalBytes)));
+    } catch {
+      throw new RpcError("INVALID_MESSAGE", "The Codex transfer does not contain a valid request.");
+    }
+    const response = await this.call(request);
+    const responseBytes = new TextEncoder().encode(JSON.stringify(response));
+    if (responseBytes.byteLength <= INLINE_TRANSFER_RESPONSE_BYTES3) return { kind: "inline", response };
+    if (responseBytes.byteLength > MAX_CODEX_APP_TRANSFER_BYTES) {
+      throw new RpcError("RESPONSE_TOO_LARGE", "The Codex response exceeds the bounded transfer limit.");
+    }
+    if (this.outgoingTransfers.size >= MAX_ACTIVE_TRANSFERS2) {
+      throw new RpcError("RATE_LIMITED", "Too many Codex response transfers are active.", void 0, true);
+    }
+    const totalChunks = Math.ceil(responseBytes.byteLength / CODEX_APP_TRANSFER_CHUNK_BYTES);
+    this.outgoingTransfers.set(params.transferId, {
+      bytes: responseBytes,
+      totalChunks,
+      nextIndex: 0,
+      touchedAt: Date.now()
+    });
+    return { kind: "chunked", transferId: params.transferId, totalBytes: responseBytes.byteLength, totalChunks };
+  }
+  readTransfer(input2) {
+    this.requireOpen();
+    this.pruneTransfers();
+    const params = transferReadSchema3.parse(input2);
+    const transfer = this.outgoingTransfers.get(params.transferId);
+    if (transfer === void 0) throw new RpcError("TRANSFER_NOT_FOUND", "The Codex response transfer is not active.");
+    if (params.index !== transfer.nextIndex || params.index >= transfer.totalChunks) {
+      this.outgoingTransfers.delete(params.transferId);
+      throw new RpcError("INVALID_MESSAGE", "Codex response chunks must be read exactly once and in order.");
+    }
+    const start = params.index * CODEX_APP_TRANSFER_CHUNK_BYTES;
+    const end = Math.min(start + CODEX_APP_TRANSFER_CHUNK_BYTES, transfer.bytes.byteLength);
+    transfer.nextIndex += 1;
+    transfer.touchedAt = Date.now();
+    return {
+      transferId: params.transferId,
+      index: params.index,
+      data: Buffer3.from(transfer.bytes.subarray(start, end)).toString("base64")
+    };
+  }
+  closeTransfer(input2) {
+    const params = transferIdSchema3.parse(input2);
+    const closed = this.incomingTransfers.delete(params.transferId) || this.outgoingTransfers.delete(params.transferId);
+    return { closed, transferId: params.transferId };
+  }
+  hasThreadSubscription(threadId) {
+    return [...this.streams.values()].includes(threadId);
+  }
+  removeThreadSubscriptions(threadId) {
+    for (const [streamId, targetThreadId] of this.streams) {
+      if (targetThreadId === threadId) this.streams.delete(streamId);
+    }
+  }
+  async publishInbound(threadId, frame) {
+    if (this.closed) return;
+    const streamIds = [...this.streams.entries()].filter(([, targetThreadId]) => targetThreadId === threadId).map(([streamId]) => streamId);
+    for (const streamId of streamIds) {
+      const data = { streamId, frame };
+      if (new TextEncoder().encode(JSON.stringify(data)).byteLength > MAX_SECURE_MESSAGE_BYTES) {
+        this.streams.delete(streamId);
+        await this.publish("codex.app.stream.closed", { streamId, reason: "failed" });
+        this.logger?.warn("Codex stream closed after oversized frame", { streamId });
+        continue;
+      }
+      await this.publish("codex.app.frame", data);
+    }
+  }
+  async failStreams(reason = "failed") {
+    if (this.closed) return;
+    const streamIds = [...this.streams.keys()];
+    this.streams.clear();
+    this.incomingTransfers.clear();
+    this.outgoingTransfers.clear();
+    await Promise.all(streamIds.map((streamId) => this.publish("codex.app.stream.closed", {
+      streamId,
+      reason
+    }).catch(() => void 0)));
+  }
+  async closeAll() {
+    if (this.closed) return;
+    this.closed = true;
+    const streamIds = [...this.streams.keys()];
+    this.streams.clear();
+    this.incomingTransfers.clear();
+    this.outgoingTransfers.clear();
+    await Promise.all(streamIds.map((streamId) => this.publish("codex.app.stream.closed", {
+      streamId,
+      reason: "peer-disconnected"
+    }).catch(() => void 0)));
+    await this.domain.detachPeer(this.context.connectionId);
+  }
+  pruneTransfers() {
+    const staleBefore = Date.now() - TRANSFER_IDLE_MS2;
+    for (const [id2, transfer] of this.incomingTransfers) {
+      if (transfer.touchedAt < staleBefore) this.incomingTransfers.delete(id2);
+    }
+    for (const [id2, transfer] of this.outgoingTransfers) {
+      if (transfer.touchedAt < staleBefore) this.outgoingTransfers.delete(id2);
+    }
+  }
+  requireOpen() {
+    if (this.closed) throw new RpcError("CODEX_CONNECTION_CLOSED", "The Codex connection is closed.");
+  }
+};
+function decodeCanonicalBase643(value) {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new RpcError("INVALID_MESSAGE", "The Codex transfer chunk is not canonical base64.");
+  }
+  const decoded = Buffer3.from(value, "base64");
+  if (decoded.toString("base64") !== value) {
+    throw new RpcError("INVALID_MESSAGE", "The Codex transfer chunk is not canonical base64.");
+  }
+  return decoded;
+}
+function concatChunks3(chunks, totalBytes) {
+  const output = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+// src/codex/domain.ts
+var APPROVAL_TTL_MS = 5 * 6e4;
+var DEFAULT_RESTART_DELAYS_MS = [1e3, 2e3, 4e3, 8e3, 15e3];
+var CodexRemoteDomain = class {
+  constructor(config, logger, createAppServer = (binary, targetLogger) => new CodexAppServerClient(binary, targetLogger), restartDelaysMs = DEFAULT_RESTART_DELAYS_MS) {
+    this.config = config;
+    this.logger = logger;
+    this.createAppServer = createAppServer;
+    this.restartDelaysMs = restartDelaysMs;
+  }
+  appServer;
+  pathPolicy;
+  unsubscribeInbound;
+  unsubscribeUnavailable;
+  peers = /* @__PURE__ */ new Map();
+  turnOwners = /* @__PURE__ */ new Map();
+  approvals = /* @__PURE__ */ new Map();
+  approvalExpiryTimer;
+  restartTimer;
+  restartAttempt = 0;
+  available = false;
+  closed = false;
+  state = "disabled";
+  unavailableCode;
+  async start() {
+    if (this.closed) throw new RpcError("CODEX_CLOSED", "The Codex Remote domain is closed.");
+    if (!this.config.enabled) return;
+    try {
+      this.pathPolicy = await CodexPathPolicy.create(this.config.allowedRoots);
+      this.state = "starting";
+      await this.launchAppServer();
+    } catch (error) {
+      this.available = false;
+      this.state = "unavailable";
+      this.unavailableCode = errorCode2(error);
+      await this.disposeAppServer(this.appServer);
+      this.logger.warn("Codex Remote domain unavailable", { code: this.unavailableCode });
+    }
+  }
+  isAvailable() {
+    return this.available && this.appServer?.isReady() === true;
+  }
+  status() {
+    return {
+      enabled: this.config.enabled,
+      available: this.isAvailable(),
+      state: this.state,
+      restartAttempt: this.restartAttempt,
+      ...this.unavailableCode === void 0 ? {} : { error: this.unavailableCode },
+      allowedRootCount: this.pathPolicy?.list().length ?? 0
+    };
+  }
+  createPeer(context, publish) {
+    if (!this.config.enabled || this.pathPolicy === void 0) return void 0;
+    const bridge = new CodexPeerBridge(this, context, publish, this.logger);
+    this.peers.set(context.connectionId, bridge);
+    return bridge;
+  }
+  async call(connectionId, input2) {
+    const envelope = parseCallEnvelope(input2);
+    const call = parseCodexCall(envelope.method, envelope.params);
+    this.requireAppServer();
+    if (call.method === "account/read") {
+      return sanitizeAccount(await this.callUpstream(call.method, call.params));
+    }
+    if (call.method === "thread/list") {
+      const params = await this.normalizeThreadList(call.params);
+      return this.filterThreadList(await this.callUpstream(call.method, params));
+    }
+    if (call.method === "thread/start") {
+      const cwd = await this.requirePathPolicy().canonicalizeAllowed(call.params.cwd);
+      const result = await this.callUpstream(call.method, {
+        ...call.params,
+        cwd,
+        approvalPolicy: "on-request",
+        sandbox: "workspace-write",
+        serviceName: "deepseek_harness_remote"
+      });
+      if (extractThread(result)?.id === void 0) {
+        throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread.");
+      }
+      return result;
+    }
+    const threadId = threadIdFromParams(call.params);
+    const allowedThread = threadId === void 0 ? void 0 : await this.readAllowedThread(threadId);
+    if (call.method === "thread/read") {
+      return this.callUpstream(call.method, call.params);
+    }
+    if (call.method === "thread/unsubscribe") {
+      const bridge = this.peers.get(connectionId);
+      bridge?.removeThreadSubscriptions(threadId);
+      if (this.hasSubscriber(threadId)) return { status: "unsubscribed" };
+      return this.callUpstream(call.method, call.params);
+    }
+    let claimed = false;
+    if (isThreadMutation(call.method) && threadId !== void 0) {
+      claimed = this.claimTurn(threadId, connectionId, call.method);
+    }
+    try {
+      const upstreamParams = call.method === "thread/resume" && allowedThread !== void 0 ? {
+        ...call.params,
+        cwd: allowedThread.cwd,
+        approvalPolicy: "on-request",
+        sandbox: "workspace-write"
+      } : call.method === "thread/fork" && allowedThread !== void 0 ? {
+        ...call.params,
+        cwd: allowedThread.cwd,
+        approvalPolicy: "on-request",
+        sandbox: "workspace-write"
+      } : call.method === "turn/start" && allowedThread !== void 0 ? {
+        ...call.params,
+        cwd: allowedThread.cwd,
+        approvalPolicy: "on-request",
+        sandboxPolicy: {
+          type: "workspaceWrite",
+          writableRoots: [allowedThread.cwd],
+          networkAccess: false
+        }
+      } : call.params;
+      const result = await this.callUpstream(call.method, upstreamParams);
+      if (call.method === "thread/resume" || call.method === "thread/fork" || call.method === "thread/unarchive") {
+        await this.assertResultThreadAllowed(result);
+      }
+      return result;
+    } catch (error) {
+      if (claimed && threadId !== void 0) this.turnOwners.delete(threadId);
+      throw mapAppServerError(error);
+    }
+  }
+  async respond(connectionId, input2) {
+    await this.expireApprovals();
+    const params = parseRespond(input2);
+    const approval = this.approvals.get(params.requestHandle);
+    if (approval === void 0 || approval.connectionId !== connectionId) {
+      throw new RpcError("CODEX_APPROVAL_NOT_FOUND", "The Codex approval is missing, expired, or belongs to another connection.");
+    }
+    this.approvals.delete(params.requestHandle);
+    this.scheduleApprovalExpiry();
+    await this.requireAppServer().respond(approval.upstreamId, { decision: params.decision });
+    return { resolved: true };
+  }
+  async detachPeer(connectionId) {
+    const bridge = this.peers.get(connectionId);
+    if (bridge !== void 0) this.peers.delete(connectionId);
+    for (const [threadId, owner] of this.turnOwners) {
+      if (owner === connectionId) this.turnOwners.delete(threadId);
+    }
+    const appServer = this.appServer;
+    const pending = [...this.approvals.entries()].filter(([, approval]) => approval.connectionId === connectionId);
+    for (const [handle, approval] of pending) {
+      this.approvals.delete(handle);
+      await appServer?.respond(approval.upstreamId, { decision: "decline" }).catch(() => void 0);
+    }
+    this.scheduleApprovalExpiry();
+  }
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    this.available = false;
+    this.state = this.config.enabled ? "unavailable" : "disabled";
+    if (this.restartTimer !== void 0) clearTimeout(this.restartTimer);
+    this.restartTimer = void 0;
+    for (const bridge of [...this.peers.values()]) await bridge.closeAll();
+    this.peers.clear();
+    this.turnOwners.clear();
+    if (this.approvalExpiryTimer !== void 0) clearTimeout(this.approvalExpiryTimer);
+    this.approvalExpiryTimer = void 0;
+    this.approvals.clear();
+    this.unsubscribeInbound?.();
+    this.unsubscribeInbound = void 0;
+    this.unsubscribeUnavailable?.();
+    this.unsubscribeUnavailable = void 0;
+    await this.appServer?.close();
+    this.appServer = void 0;
+  }
+  async launchAppServer() {
+    const appServer = this.createAppServer(this.config.binary, this.logger);
+    this.appServer = appServer;
+    this.unsubscribeInbound = appServer.onInbound((message) => {
+      void this.handleInbound(message).catch((error) => {
+        this.logger.warn("Codex inbound handling failed", { code: errorCode2(error) });
+      });
+    });
+    this.unsubscribeUnavailable = appServer.onUnavailable((code) => {
+      if (this.available && this.appServer === appServer) {
+        void this.handleAppServerUnavailable(appServer, code);
+      }
+    });
+    try {
+      await appServer.start();
+      const account = await appServer.call("account/read", { refreshToken: false }, 15e3);
+      if (!accountCanRun(account)) {
+        throw new RpcError("CODEX_AUTH_REQUIRED", "Codex is not signed in on this Host.");
+      }
+      if (this.closed || this.appServer !== appServer) {
+        await appServer.close().catch(() => void 0);
+        return;
+      }
+      this.available = true;
+      this.state = "ready";
+      this.restartAttempt = 0;
+      this.unavailableCode = void 0;
+      this.logger.info("Codex Remote domain ready", { allowedRootCount: this.requirePathPolicy().list().length });
+    } catch (error) {
+      await this.disposeAppServer(appServer);
+      throw error;
+    }
+  }
+  async handleAppServerUnavailable(appServer, code) {
+    if (this.closed || this.appServer !== appServer) return;
+    this.available = false;
+    this.state = "restarting";
+    this.unavailableCode = code;
+    this.turnOwners.clear();
+    this.approvals.clear();
+    if (this.approvalExpiryTimer !== void 0) clearTimeout(this.approvalExpiryTimer);
+    this.approvalExpiryTimer = void 0;
+    await Promise.all([...this.peers.values()].map((peer) => peer.failStreams("failed")));
+    await this.disposeAppServer(appServer);
+    this.scheduleRestart();
+  }
+  scheduleRestart() {
+    if (this.closed || this.restartTimer !== void 0) return;
+    if (this.restartAttempt >= this.restartDelaysMs.length) {
+      this.state = "unavailable";
+      this.logger.warn("Codex App Server restart attempts exhausted", { attempts: this.restartAttempt });
+      return;
+    }
+    const delayMs = Math.max(0, this.restartDelaysMs[this.restartAttempt] ?? 0);
+    this.restartAttempt += 1;
+    this.state = "restarting";
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = void 0;
+      void this.restartAfterFailure();
+    }, delayMs);
+    this.restartTimer.unref?.();
+    this.logger.warn("Codex App Server restart scheduled", { attempt: this.restartAttempt, delayMs });
+  }
+  async restartAfterFailure() {
+    if (this.closed) return;
+    try {
+      await this.launchAppServer();
+    } catch (error) {
+      this.available = false;
+      this.state = "restarting";
+      this.unavailableCode = errorCode2(error);
+      this.logger.warn("Codex App Server restart failed", {
+        attempt: this.restartAttempt,
+        code: this.unavailableCode
+      });
+      this.scheduleRestart();
+    }
+  }
+  async disposeAppServer(appServer) {
+    if (appServer === void 0 || this.appServer !== appServer) return;
+    this.unsubscribeInbound?.();
+    this.unsubscribeInbound = void 0;
+    this.unsubscribeUnavailable?.();
+    this.unsubscribeUnavailable = void 0;
+    this.appServer = void 0;
+    await appServer.close().catch(() => void 0);
+  }
+  async handleInbound(message) {
+    if (!this.available) return;
+    if (message.kind === "request") {
+      await this.handleServerRequest(message);
+      return;
+    }
+    const threadId = extractThreadId(message.params);
+    if (message.method === "turn/completed" && threadId !== void 0) this.turnOwners.delete(threadId);
+    if (message.method === "serverRequest/resolved") this.resolveUpstreamApproval(message.params);
+    if (threadId === void 0) return;
+    await Promise.all([...this.peers.values()].map((peer) => peer.publishInbound(threadId, {
+      method: message.method,
+      params: message.params
+    })));
+  }
+  async handleServerRequest(message) {
+    const appServer = this.requireAppServer();
+    await this.expireApprovals();
+    if (message.method !== "item/commandExecution/requestApproval" && message.method !== "item/fileChange/requestApproval") {
+      await appServer.respondError(message.id, -32601, "This Remote client does not support the server request.");
+      return;
+    }
+    const threadId = extractThreadId(message.params);
+    const owner = threadId === void 0 ? void 0 : this.turnOwners.get(threadId);
+    const peer = owner === void 0 ? void 0 : this.peers.get(owner);
+    if (threadId === void 0 || owner === void 0 || peer === void 0 || !peer.hasThreadSubscription(threadId)) {
+      await appServer.respond(message.id, { decision: "decline" });
+      return;
+    }
+    const requestHandle = randomUUID();
+    this.approvals.set(requestHandle, {
+      upstreamId: message.id,
+      connectionId: owner,
+      threadId,
+      method: message.method,
+      expiresAt: Date.now() + APPROVAL_TTL_MS
+    });
+    this.scheduleApprovalExpiry();
+    try {
+      await peer.publishInbound(threadId, {
+        method: message.method,
+        params: sanitizeApprovalParams(message.params, requestHandle)
+      });
+    } catch (error) {
+      this.approvals.delete(requestHandle);
+      this.scheduleApprovalExpiry();
+      await appServer.respond(message.id, { decision: "decline" }).catch(() => void 0);
+      throw error;
+    }
+  }
+  async readAllowedThread(threadId) {
+    const result = await this.callUpstream("thread/read", { threadId, includeTurns: false });
+    const thread = extractThread(result);
+    if (thread === void 0 || thread.id !== threadId || typeof thread.cwd !== "string") {
+      throw new RpcError("CODEX_THREAD_NOT_ALLOWED", "The Codex thread is not available through this Remote Host.");
+    }
+    try {
+      return { thread, cwd: await this.requirePathPolicy().canonicalizeAllowed(thread.cwd) };
+    } catch {
+      throw new RpcError("CODEX_THREAD_NOT_ALLOWED", "The Codex thread is not available through this Remote Host.");
+    }
+  }
+  async assertResultThreadAllowed(result) {
+    const thread = extractThread(result);
+    if (thread === void 0 || typeof thread.id !== "string") {
+      throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread.");
+    }
+    if (thread.cwd === void 0) {
+      await this.readAllowedThread(thread.id);
+      return;
+    }
+    if (!await this.requirePathPolicy().allows(thread.cwd)) {
+      throw new RpcError("CODEX_THREAD_NOT_ALLOWED", "The Codex thread is outside the configured Remote roots.");
+    }
+  }
+  async normalizeThreadList(params) {
+    if (params.cwd === void 0) return params;
+    const values = Array.isArray(params.cwd) ? params.cwd : [params.cwd];
+    const cwd = await Promise.all(values.map((value) => this.requirePathPolicy().canonicalizeAllowed(value)));
+    return { ...params, cwd: Array.isArray(params.cwd) ? cwd : cwd[0] };
+  }
+  async filterThreadList(result) {
+    if (!isRecord7(result) || !Array.isArray(result.data)) {
+      throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread list.");
+    }
+    const allowed = [];
+    for (const value of result.data) {
+      if (!isRecord7(value) || typeof value.id !== "string") continue;
+      if (await this.requirePathPolicy().allows(value.cwd)) allowed.push(value);
+    }
+    return { ...result, data: allowed };
+  }
+  claimTurn(threadId, connectionId, method) {
+    const owner = this.turnOwners.get(threadId);
+    if (method === "turn/interrupt") {
+      if (owner === void 0) {
+        this.turnOwners.set(threadId, connectionId);
+        return true;
+      }
+      if (owner !== connectionId) throw new RpcError("CODEX_TURN_OWNED", "Only the connection that started this Codex turn can interrupt it.");
+      return false;
+    }
+    if (owner !== void 0 && owner !== connectionId) {
+      throw new RpcError("CODEX_TURN_OWNED", "Another Remote connection owns the active Codex turn.");
+    }
+    if (owner === connectionId) return false;
+    this.turnOwners.set(threadId, connectionId);
+    return true;
+  }
+  hasSubscriber(threadId) {
+    return [...this.peers.values()].some((peer) => peer.hasThreadSubscription(threadId));
+  }
+  resolveUpstreamApproval(params) {
+    if (!isRecord7(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return;
+    for (const [handle, approval] of this.approvals) {
+      if (approval.upstreamId === params.requestId) this.approvals.delete(handle);
+    }
+  }
+  async expireApprovals() {
+    const now = Date.now();
+    const appServer = this.appServer;
+    for (const [handle, approval] of this.approvals) {
+      if (approval.expiresAt > now) continue;
+      this.approvals.delete(handle);
+      await appServer?.respond(approval.upstreamId, { decision: "decline" }).catch(() => void 0);
+    }
+    this.scheduleApprovalExpiry();
+  }
+  scheduleApprovalExpiry() {
+    if (this.approvalExpiryTimer !== void 0) clearTimeout(this.approvalExpiryTimer);
+    this.approvalExpiryTimer = void 0;
+    const nextExpiry = Math.min(...[...this.approvals.values()].map((approval) => approval.expiresAt));
+    if (!Number.isFinite(nextExpiry)) return;
+    this.approvalExpiryTimer = setTimeout(() => {
+      this.approvalExpiryTimer = void 0;
+      void this.expireApprovals().catch((error) => {
+        this.logger.warn("Codex approval expiry failed", { code: errorCode2(error) });
+      });
+    }, Math.max(0, nextExpiry - Date.now()));
+    this.approvalExpiryTimer.unref?.();
+  }
+  requireAppServer() {
+    if (!this.isAvailable() || this.appServer === void 0) {
+      throw new RpcError("CODEX_UNAVAILABLE", "Codex Remote is disabled or unavailable on this Host.");
+    }
+    return this.appServer;
+  }
+  async callUpstream(method, params) {
+    try {
+      return await this.requireAppServer().call(method, params);
+    } catch (error) {
+      throw mapAppServerError(error);
+    }
+  }
+  requirePathPolicy() {
+    if (this.pathPolicy === void 0) throw new RpcError("CODEX_UNAVAILABLE", "Codex Remote path policy is unavailable.");
+    return this.pathPolicy;
+  }
+};
+function parseCallEnvelope(input2) {
+  if (!isRecord7(input2) || typeof input2.method !== "string" || !("params" in input2) || Object.keys(input2).some((key) => key !== "method" && key !== "params")) {
+    throw new RpcError("INVALID_MESSAGE", "The Codex call envelope is invalid.");
+  }
+  return { method: input2.method, params: input2.params };
+}
+function parseRespond(input2) {
+  if (!isRecord7(input2) || typeof input2.requestHandle !== "string" || !["accept", "decline", "cancel"].includes(String(input2.decision)) || Object.keys(input2).some((key) => key !== "requestHandle" && key !== "decision")) {
+    throw new RpcError("INVALID_MESSAGE", "The Codex approval response is invalid.");
+  }
+  return input2;
+}
+function accountCanRun(result) {
+  if (!isRecord7(result) || typeof result.requiresOpenaiAuth !== "boolean") return false;
+  return result.requiresOpenaiAuth === false || isRecord7(result.account);
+}
+function sanitizeAccount(result) {
+  if (!isRecord7(result)) throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid account state.");
+  const account = isRecord7(result.account) ? result.account : void 0;
+  return {
+    authenticated: account !== void 0 || result.requiresOpenaiAuth === false,
+    requiresOpenaiAuth: result.requiresOpenaiAuth === true,
+    ...account === void 0 ? {} : {
+      account: {
+        ...typeof account.type === "string" ? { type: account.type } : {},
+        ...typeof account.planType === "string" ? { planType: account.planType } : {}
+      }
+    }
+  };
+}
+function extractThread(result) {
+  return isRecord7(result) && isRecord7(result.thread) ? result.thread : void 0;
+}
+function extractThreadId(params) {
+  if (!isRecord7(params)) return void 0;
+  if (typeof params.threadId === "string") return params.threadId;
+  if (isRecord7(params.thread) && typeof params.thread.id === "string") return params.thread.id;
+  if (isRecord7(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
+  return void 0;
+}
+function sanitizeApprovalParams(params, requestHandle) {
+  if (!isRecord7(params)) return { requestHandle };
+  const safe = { ...params };
+  delete safe.proposedExecpolicyAmendment;
+  delete safe.additionalPermissions;
+  safe.availableDecisions = ["accept", "decline", "cancel"];
+  safe.requestHandle = requestHandle;
+  return safe;
+}
+function mapAppServerError(error) {
+  if (error instanceof RpcError) return error;
+  if (error instanceof CodexAppServerError) {
+    return new RpcError(error.code, error.message, void 0, error.code === "CODEX_REQUEST_TIMEOUT");
+  }
+  return new RpcError("CODEX_UPSTREAM_ERROR", "Codex App Server could not complete the request.");
+}
+function errorCode2(error) {
+  if (error instanceof RpcError || error instanceof CodexAppServerError) return error.code;
+  return "CODEX_START_FAILED";
+}
+function isRecord7(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 // src/service.ts
 var HostPluginRuntime = class {
   constructor(config, identities, apiProxy, logger, localGateway, fileViewerHost) {
@@ -19119,7 +20778,8 @@ var HostPluginRuntime = class {
     this.logger = logger;
     this.localGateway = localGateway;
     this.fileViewerHost = fileViewerHost;
-    this.connections = new ConnectionController(this.identities, (_context, send) => {
+    this.codex = new CodexRemoteDomain(config.codex, logger);
+    this.connections = new ConnectionController(this.identities, (context, send) => {
       const harnessApi = this.apiProxy === void 0 ? void 0 : new HarnessApiBridge(
         this.apiProxy,
         (event, data) => send(createEvent(event, data)),
@@ -19137,7 +20797,19 @@ var HostPluginRuntime = class {
         () => this.fileViewerHost?.(),
         this.logger
       );
-      return new RpcRouter(harnessApi, void 0, this.logger, fileViewer, harnessRemote, () => this.hostCapabilities());
+      const codex = this.codex.createPeer(
+        context,
+        (event, data) => send(createEvent(event, data))
+      );
+      return new RpcRouter(
+        harnessApi,
+        void 0,
+        this.logger,
+        fileViewer,
+        harnessRemote,
+        () => this.hostCapabilities(),
+        codex
+      );
     }, this.logger);
     if (config.serverUrl !== void 0) {
       this.serverApi = new HostServerApi(config.serverUrl, new ServerCredentialStore(identities.directory));
@@ -19149,6 +20821,7 @@ var HostPluginRuntime = class {
   serverConnection;
   harnessVersion;
   closed = false;
+  codex;
   async start() {
     if (this.closed) throw new Error("remote runtime is closed");
     this.identity = await this.identities.loadOrCreate(this.config.deviceName);
@@ -19157,6 +20830,7 @@ var HostPluginRuntime = class {
       fingerprint: this.identity.fingerprint,
       server: this.config.serverUrl ?? "not configured"
     });
+    await this.codex.start();
     if (this.serverApi !== void 0) {
       this.harnessVersion = await this.readHarnessVersion();
       this.serverApi.setHarnessVersion(this.harnessVersion);
@@ -19251,6 +20925,7 @@ var HostPluginRuntime = class {
     this.closed = true;
     await this.serverConnection?.stop();
     await this.connections.close();
+    await this.codex.close();
     this.logger.info("host runtime stopped");
   }
   diagnostics() {
@@ -19265,7 +20940,8 @@ var HostPluginRuntime = class {
       activeConnections: this.connections.connectionCount(),
       peerDeviceId: this.connections.peerDeviceId() === void 0 ? void 0 : shortId5(this.connections.peerDeviceId()),
       peerDeviceIds: this.connections.peerDeviceIds().map(shortId5),
-      trustedPeers: this.identities.listTrustedPeers().length
+      trustedPeers: this.identities.listTrustedPeers().length,
+      codex: this.codex.status()
     };
   }
   createServerConnection(identity) {
@@ -19284,12 +20960,12 @@ var HostPluginRuntime = class {
   }
   async readHarnessVersion() {
     let reportedVersion;
-    let errorCode2;
+    let errorCode3;
     try {
-      const response = await this.apiProxy?.host.describe({ rpcId: randomUUID(), payload: {} });
+      const response = await this.apiProxy?.host.describe({ rpcId: randomUUID2(), payload: {} });
       if (response === void 0) throw new Error("ApiProxy is unavailable");
       if (!response.result.ok) {
-        errorCode2 = response.result.error.code;
+        errorCode3 = response.result.error.code;
       } else {
         reportedVersion = normalizeHarnessVersion(response.result.value.version);
       }
@@ -19298,7 +20974,7 @@ var HostPluginRuntime = class {
     const distributionVersion = reportedVersion === void 0 || reportedVersion === "0.0.1" ? await readHarnessDistributionVersion() : void 0;
     const version = selectHarnessVersion(reportedVersion, distributionVersion);
     if (version !== void 0) return version;
-    this.logger.warn("Harness version is unavailable", errorCode2 === void 0 ? void 0 : { code: errorCode2 });
+    this.logger.warn("Harness version is unavailable", errorCode3 === void 0 ? void 0 : { code: errorCode3 });
     return void 0;
   }
   hostCapabilities() {
@@ -19308,6 +20984,7 @@ var HostPluginRuntime = class {
       capabilities.push("harness.remote.v1", "harness.remote.transfer.v1");
     }
     if (this.fileViewerHost?.() !== void 0) capabilities.push("fileviewer.read.v1");
+    if (this.codex.isAvailable()) capabilities.push("codex.appserver.v1", "codex.appserver.transfer.v1");
     return capabilities;
   }
 };
@@ -19356,10 +21033,10 @@ function createRemoteFileContentProvider(call, options = {}) {
         if (range.eof || bytes.byteLength === 0) break;
       }
       const merged = new Uint8Array(received);
-      let cursor = 0;
+      let cursor2 = 0;
       for (const chunk of chunks) {
-        merged.set(chunk, cursor);
-        cursor += chunk.byteLength;
+        merged.set(chunk, cursor2);
+        cursor2 += chunk.byteLength;
       }
       return merged;
     },
@@ -19392,25 +21069,25 @@ function decodeBase64(value) {
 var name = "ds-harness-remote";
 var legacyLoaderModuleNames = /* @__PURE__ */ new Set(["dsh-remote", "@dsh-remote/plugin"]);
 var pluginSettingsNamespace = "ds-harness-remote";
-function apply(ctx, input = {}) {
+function apply(ctx, input2 = {}) {
   ctx.inject(["settings", "connection", "typertGateway"], (runtimeContext) => {
     const gateway = runtimeContext.get("typertGateway");
     if (runtimeContext.get("apiProxy") !== void 0 || new TypertGatewaySwitch(gateway).supportsCarrier()) {
-      return activate(runtimeContext, input);
+      return activate(runtimeContext, input2);
     }
-    runtimeContext.inject(["apiProxy"], (legacyContext) => activate(legacyContext, input));
+    runtimeContext.inject(["apiProxy"], (legacyContext) => activate(legacyContext, input2));
   });
 }
-async function activate(ctx, input) {
+async function activate(ctx, input2) {
   const settings = ctx.get("settings");
   const settingsScope = settings?.register(pluginSettingsNamespace, Config, {
-    base: input,
+    base: input2,
     applies: "restart",
     validate: (value) => {
       resolveConfig(value);
     }
   });
-  const config = resolveConfig(settingsScope?.get() ?? input);
+  const config = resolveConfig(settingsScope?.get() ?? input2);
   if (!config.enabled) return;
   const logger = new SafeLogger({
     debug: (message) => {
@@ -19518,10 +21195,15 @@ function isLoaderLike(value) {
 }
 export {
   ApiProxySwitch,
+  CODEX_APP_ALLOWLIST,
   ClientModeError,
   ClientModeRuntime,
   ClientSecureTransport,
   ClientServerApi,
+  CodexAppServerClient,
+  CodexAppServerError,
+  CodexPeerBridge,
+  CodexRemoteDomain,
   Config,
   ConnectionController,
   ConnectionRejectedError,

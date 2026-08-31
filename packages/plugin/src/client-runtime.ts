@@ -1,5 +1,5 @@
 import type { ApiProxy, RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { RemoteClientCore } from '@dsh-remote/client-core'
+import { CodexRemoteClient, RemoteClientCore } from '@dsh-remote/client-core'
 import {
   AdaptiveTransport,
   stunOnlyIceServers,
@@ -33,6 +33,7 @@ interface ConnectedRemote {
   target: TrustedPeer
   transport: AdaptiveTransport
   features: RemoteHostFeatures
+  clientVersion?: string
 }
 
 export interface RemoteHostFeatures {
@@ -40,6 +41,15 @@ export interface RemoteHostFeatures {
   fileViewer: boolean
   apiProxy: boolean
   remoteGateway: boolean
+  codex: boolean
+}
+
+interface CodexLoopbackStream {
+  client: RemoteClientCore
+  frames: Array<{ method: string; params: unknown }>
+  closed?: string
+  unsubscribe: () => void
+  wake: () => void
 }
 
 const REMOTE_COMMAND_LIST_MIN_VERSION = [0, 3, 16] as const
@@ -119,6 +129,7 @@ export class ClientModeRuntime {
   private pendingWorkspaceSelection?: RemoteWorkspaceSelection
   private readonly proxySwitch?: ApiProxySwitch
   private readonly gatewaySwitch: TypertGatewaySwitch
+  private readonly codexStreams = new Map<string, CodexLoopbackStream>()
   private closed = false
 
   constructor(
@@ -245,6 +256,7 @@ export class ClientModeRuntime {
     this.pendingWorkspaceSelection = undefined
     this.proxySwitch?.selectLocal()
     this.gatewaySwitch.selectLocal()
+    await this.closeCodexStreams(previous?.client)
     await previous?.client.close().catch(() => undefined)
     await this.server.revokeCurrentDevice()
     this.identity = await this.identities.reset(this.config.deviceName)
@@ -269,6 +281,7 @@ export class ClientModeRuntime {
       const previous = this.connected
       this.connected = undefined
       this.pendingWorkspaceSelection = undefined
+      await this.closeCodexStreams(previous?.client)
       await previous?.client.close().catch(() => undefined)
       this.logger.info('Harness target switched', { mode: 'local' })
       return this.status()
@@ -287,6 +300,7 @@ export class ClientModeRuntime {
     this.connected = next
     this.pendingWorkspaceSelection = undefined
     this.selectRemoteTarget(next)
+    await this.closeCodexStreams(previous?.client)
     await previous?.client.close().catch(() => undefined)
     this.logger.info('Harness target switched', { mode: 'remote', targetDeviceId: shortId(next.target.deviceId) })
     return this.status()
@@ -366,6 +380,7 @@ export class ClientModeRuntime {
     this.proxySwitch?.selectLocal()
     this.gatewaySwitch.selectLocal()
     this.pendingWorkspaceSelection = undefined
+    await this.closeCodexStreams(this.connected?.client)
     await this.connected?.client.close().catch(() => undefined)
     this.connected = undefined
     this.proxySwitch?.restore()
@@ -385,6 +400,97 @@ export class ClientModeRuntime {
       throw new ClientModeError('FEATURE_NOT_SUPPORTED', 'The selected Remote Host does not support remote file viewing.')
     }
     return remote.client.rpc('fileviewer.call', { endpoint, payload }, signal)
+  }
+
+  private requireCodexRemote(): ConnectedRemote {
+    const remote = this.connected
+    if (remote === undefined) {
+      throw new ClientModeError('REMOTE_NOT_CONNECTED', 'No Remote Host is selected.', true)
+    }
+    if (!remote.features.codex) {
+      throw new ClientModeError('FEATURE_NOT_SUPPORTED', 'The selected Remote Host does not provide Codex sessions.')
+    }
+    return remote
+  }
+
+  private async openCodexStream(payload: unknown, signal?: AbortSignal): Promise<unknown> {
+    const remote = this.requireCodexRemote()
+    const value = record(payload)
+    if (typeof value.streamId !== 'string' || value.streamId.length === 0 || value.streamId.length > 128
+      || typeof value.threadId !== 'string' || value.threadId.length === 0) {
+      throw new ClientModeError('INVALID_MESSAGE', 'A Codex stream and thread are required.')
+    }
+    if (this.codexStreams.has(value.streamId)) throw new ClientModeError('REQUEST_CONFLICT', 'The Codex stream is already open.')
+    let wake = () => undefined
+    const stream: CodexLoopbackStream = {
+      client: remote.client,
+      frames: [],
+      unsubscribe: () => undefined,
+      wake: () => wake(),
+    }
+    stream.unsubscribe = remote.client.onEvent(event => {
+      if (event.event === 'codex.app.frame' && isRecord(event.data) && event.data.streamId === value.streamId
+        && isRecord(event.data.frame) && typeof event.data.frame.method === 'string') {
+        if (stream.frames.length >= 256) {
+          stream.closed = 'overflow'
+        } else {
+          stream.frames.push({ method: event.data.frame.method, params: event.data.frame.params })
+        }
+        stream.wake()
+      }
+      if (event.event === 'codex.app.stream.closed' && isRecord(event.data) && event.data.streamId === value.streamId) {
+        stream.closed = typeof event.data.reason === 'string' ? event.data.reason : 'closed'
+        stream.wake()
+      }
+    })
+    try {
+      // Subscribe before opening the Host stream so the first App Server
+      // notification cannot race past the loopback listener.
+      await remote.client.rpc('codex.app.stream.open', { streamId: value.streamId, threadId: value.threadId }, signal)
+    } catch (error) {
+      stream.unsubscribe()
+      throw error
+    }
+    this.codexStreams.set(value.streamId, stream)
+    return { opened: true, streamId: value.streamId, threadId: value.threadId }
+  }
+
+  private async nextCodexFrames(payload: unknown, signal?: AbortSignal): Promise<unknown> {
+    const value = record(payload)
+    if (typeof value.streamId !== 'string') throw new ClientModeError('INVALID_MESSAGE', 'A Codex stream is required.')
+    const stream = this.codexStreams.get(value.streamId)
+    if (stream === undefined) throw new ClientModeError('STREAM_NOT_FOUND', 'The Codex stream is not open.')
+    if (stream.frames.length === 0 && stream.closed === undefined) await waitForCodexFrames(stream, signal)
+    const frames = stream.frames.splice(0, 100)
+    return {
+      streamId: value.streamId,
+      frames,
+      closed: stream.closed !== undefined,
+      ...(stream.closed === undefined ? {} : { reason: stream.closed }),
+    }
+  }
+
+  private async closeCodexStream(payload: unknown): Promise<unknown> {
+    const value = record(payload)
+    if (typeof value.streamId !== 'string') throw new ClientModeError('INVALID_MESSAGE', 'A Codex stream is required.')
+    const stream = this.codexStreams.get(value.streamId)
+    if (stream === undefined) return { closed: false, streamId: value.streamId }
+    this.codexStreams.delete(value.streamId)
+    stream.unsubscribe()
+    stream.wake()
+    await stream.client.rpc('codex.app.stream.close', { streamId: value.streamId }).catch(() => undefined)
+    return { closed: true, streamId: value.streamId }
+  }
+
+  private async closeCodexStreams(client?: RemoteClientCore): Promise<void> {
+    const targets = [...this.codexStreams.entries()].filter(([, stream]) => client === undefined || stream.client === client)
+    await Promise.all(targets.map(async ([streamId, stream]) => {
+      this.codexStreams.delete(streamId)
+      stream.unsubscribe()
+      stream.closed = 'peer-disconnected'
+      stream.wake()
+      await stream.client.rpc('codex.app.stream.close', { streamId }).catch(() => undefined)
+    }))
   }
 
   private selectRemoteTarget(remote: ConnectedRemote): void {
@@ -518,7 +624,13 @@ export class ClientModeRuntime {
         })
       }
       const features = await probeRemoteHostFeatures(connectedClient, serverDevice.clientVersion)
-      return { client: connectedClient, target, transport: connectedTransport, features }
+      return {
+        client: connectedClient,
+        target,
+        transport: connectedTransport,
+        features,
+        ...(serverDevice.clientVersion === undefined ? {} : { clientVersion: serverDevice.clientVersion }),
+      }
     } catch (error) {
       await client?.close().catch(() => undefined)
       throw error
@@ -597,6 +709,28 @@ export class ClientModeRuntime {
           : endpoint === 'fileviewer.readRange' ? 'readRange' : 'list'
         return ok(await this.callRemoteFileViewer(method, payload, signal))
       }
+      if (endpoint === 'codex.call') {
+        const remote = this.requireCodexRemote()
+        const value = record(payload)
+        if (typeof value.method !== 'string' || !('params' in value)) {
+          throw new ClientModeError('INVALID_MESSAGE', 'A Codex method and params are required.')
+        }
+        return ok(await new CodexRemoteClient(remote.client).request(value.method, value.params, signal))
+      }
+      if (endpoint === 'codex.probe') {
+        const remote = this.connected
+        if (remote === undefined) return ok({ supported: false })
+        remote.features = await probeRemoteHostFeatures(remote.client, remote.clientVersion)
+        return ok({ supported: remote.features.codex })
+      }
+      if (endpoint === 'codex.respond') {
+        const remote = this.requireCodexRemote()
+        const value = record(payload)
+        return ok(await remote.client.rpc('codex.app.respond', value, signal))
+      }
+      if (endpoint === 'codex.stream.open') return ok(await this.openCodexStream(payload, signal))
+      if (endpoint === 'codex.stream.next') return ok(await this.nextCodexFrames(payload, signal))
+      if (endpoint === 'codex.stream.close') return ok(await this.closeCodexStream(payload))
       if (endpoint === 'host.account.login') {
         if (this.host === undefined) throw new ClientModeError('METHOD_NOT_ALLOWED', 'This plugin is not running as a Host.')
         const value = record(payload)
@@ -800,6 +934,7 @@ export function remoteHostFeatures(clientVersion?: string): RemoteHostFeatures {
     fileViewer: isVersionAtLeast(clientVersion, REMOTE_FILE_VIEWER_MIN_VERSION),
     apiProxy: true,
     remoteGateway: false,
+    codex: false,
   }
 }
 
@@ -830,7 +965,34 @@ export async function probeRemoteHostFeatures(
     fileViewer: capabilities.has('fileviewer.read.v1'),
     apiProxy,
     remoteGateway,
+    codex: capabilities.has('codex.appserver.v1'),
   }
+}
+
+async function waitForCodexFrames(stream: CodexLoopbackStream, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new ClientModeError('RPC_ABORTED', 'The Codex event poll was cancelled.')
+  await new Promise<void>((resolve, reject) => {
+    const previousWake = stream.wake
+    const timer = setTimeout(done, 25_000)
+    const onAbort = () => {
+      cleanup()
+      reject(new ClientModeError('RPC_ABORTED', 'The Codex event poll was cancelled.'))
+    }
+    function cleanup() {
+      clearTimeout(timer)
+      stream.wake = previousWake
+      signal?.removeEventListener('abort', onAbort)
+    }
+    function done() {
+      cleanup()
+      resolve()
+    }
+    stream.wake = () => {
+      previousWake()
+      done()
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 function isVersionAtLeast(value: string | undefined, minimum: readonly [number, number, number]): boolean {
