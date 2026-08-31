@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   CodexVirtualHarness,
   discoverCodexVirtualWorkspaces,
+  paginateCodexNativeHistory,
+  projectCodexNativeHistory,
 } from '../src/codex/virtual-harness.js'
 
 describe('CodexVirtualHarness', () => {
@@ -381,6 +383,67 @@ describe('CodexVirtualHarness', () => {
     await target.close()
   })
 
+  it('creates a blank Thread in the selected CodeX Workspace and searches visible Sessions locally', async () => {
+    const client = fakeCodex()
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const workspace = (await target.workspaces())[0]!
+    await target.selectWorkspace(workspace.workspaceId)
+
+    const created = await target.api.sessions.create({
+      rpcId: 'create-1' as never,
+      payload: { workspaceId: workspace.workspaceId as never },
+    })
+    expect(created.result).toMatchObject({ ok: true, value: { sessionId: 'codex:new_1' } })
+    expect(client.request).toHaveBeenCalledWith('thread/start', {
+      cwd: '/workspace/repo',
+      model: 'gpt-5.6-sol',
+    }, expect.any(AbortSignal))
+
+    const listed = await target.api.workspace.list({ rpcId: 'workspace-1' as never, payload: {} })
+    expect(listed.result).toMatchObject({ ok: true, value: { items: [{
+      workspaceId: workspace.workspaceId,
+      sessionIds: expect.arrayContaining(['codex:new_1']),
+    }] } })
+    const sessions = await target.api.sessions.list({ rpcId: 'sessions-1' as never, payload: {} })
+    expect(sessions.result).toMatchObject({ ok: true, value: { items: expect.arrayContaining([
+      expect.objectContaining({ sessionId: 'codex:new_1', cwd: '/workspace/repo', blank: true }),
+    ]) } })
+
+    const search = await target.api.sessions.search(
+      { rpcId: 'search-1' as never, payload: { query: 'native renderer' } },
+      new AbortController().signal,
+    )
+    expect(search.result).toMatchObject({ ok: true, value: {
+      items: [{ sessionId: 'codex:thr_1', snippet: 'Native renderer' }],
+      hasMore: false,
+    } })
+    await target.close()
+  })
+
+  it('serves rc.2 and alpha History as message-aligned backwards pages', async () => {
+    const client = fakeCodex()
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const tail = await target.api.sessions.history({
+      rpcId: 'history-tail' as never,
+      payload: { sessionId: 'codex:thr_1' as never, maxMessages: 3 },
+    })
+    expect(tail.result).toMatchObject({ ok: true, value: { hasMore: true } })
+    if (!tail.result.ok) throw new Error('tail history failed')
+    expect(tail.result.value.events.map(entry => entry.event.seq)).toEqual([3, 4, 5, 6, 7, 8, 9])
+
+    const older = await target.dispatch('session/page', { args: { request: {
+      address: { kind: 'session', sessionId: 'codex:thr_1' },
+      throughSeq: 9,
+      beforeSeq: 3,
+      maxMessages: 3,
+    } } }, new AbortController().signal)
+    expect(older).toMatchObject({ ok: true, value: { hasMore: false } })
+    if (!older.ok) throw new Error('older history failed')
+    expect((older.value as { records: Array<{ event: { seq: number } }> }).records.map(entry => entry.event.seq))
+      .toEqual([0, 1, 2])
+    await target.close()
+  })
+
   it('attaches rc.2 live updates when the native client reads session history', async () => {
     const client = fakeCodex()
     const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
@@ -536,7 +599,9 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = []): {
       ],
     }],
   }
-  const request = vi.fn(async (method: string) => {
+  const threads = [thread, ...extraThreads]
+  let nextThread = 1
+  const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
     if (method === 'model/list') return { data: [
       {
         id: 'gpt-5.6-sol',
@@ -562,9 +627,27 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = []): {
         isDefault: false,
       },
     ], nextCursor: null }
-    if (method === 'thread/list') return { data: [thread, ...extraThreads] }
-    if (method === 'thread/read') return { thread }
-    if (method === 'thread/resume') return { thread }
+    if (method === 'thread/list') return { data: threads }
+    if (method === 'thread/read') {
+      return { thread: threads.find(item => item.id === params?.threadId) ?? thread }
+    }
+    if (method === 'dsh/sessionHistory') {
+      const source = threads.find(item => item.id === params?.threadId) ?? thread
+      return paginateCodexNativeHistory(
+        projectCodexNativeHistory(source, `codex:${String(source.id)}`),
+        {
+          beforeSeq: typeof params?.beforeSeq === 'number' ? params.beforeSeq : undefined,
+          throughSeq: typeof params?.throughSeq === 'number' ? params.throughSeq : undefined,
+          maxMessages: typeof params?.maxMessages === 'number' ? params.maxMessages : undefined,
+        },
+      )
+    }
+    if (method === 'thread/start') {
+      const created = codexThread(`new_${nextThread++}`, String(params?.cwd), '')
+      threads.push(created)
+      return { thread: created }
+    }
+    if (method === 'thread/resume') return { thread: threads.find(item => item.id === params?.threadId) ?? thread }
     if (method === 'turn/start') return { turn: { id: 'turn_2', status: 'inProgress', items: [] } }
     return {}
   })

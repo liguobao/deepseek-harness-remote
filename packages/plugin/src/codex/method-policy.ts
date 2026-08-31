@@ -30,6 +30,12 @@ const schemas = {
     searchTerm: z.string().max(1024).optional(),
   }).strict(),
   'thread/read': z.object({ threadId: id, includeTurns: z.boolean().optional() }).strict(),
+  'dsh/sessionHistory': z.object({
+    threadId: id,
+    beforeSeq: z.number().int().nonnegative().optional(),
+    throughSeq: z.number().int().min(-1).optional(),
+    maxMessages: z.number().int().min(1).max(200).optional(),
+  }).strict(),
   'thread/start': z.object({
     cwd: z.string().min(1).max(4096),
     model: z.string().min(1).max(128).optional(),

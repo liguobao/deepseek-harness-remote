@@ -105,6 +105,37 @@ describe('CodexRemoteDomain', () => {
     await domain.close()
   })
 
+  it('projects and paginates CodeX History on the Host before returning it to the Client', async () => {
+    const { root } = await directories()
+    const app = new FakeAppServer(root)
+    const domain = new CodexRemoteDomain(
+      { enabled: true, binary: 'codex', allowedRoots: [root] },
+      logger(),
+      () => app,
+    )
+    await domain.start()
+
+    const tail = await domain.call('connection-1', {
+      method: 'dsh/sessionHistory',
+      params: { threadId: 'allowed-thread', maxMessages: 1 },
+    })
+    expect(tail).toMatchObject({ cursor: 5, hasMore: true })
+    expect((tail as { records: Array<{ event: { seq: number } }> }).records.map(entry => entry.event.seq))
+      .toEqual([3, 4, 5])
+    expect(app.calls.at(-1)).toEqual({
+      method: 'thread/read',
+      params: { threadId: 'allowed-thread', includeTurns: true },
+    })
+
+    const older = await domain.call('connection-1', {
+      method: 'dsh/sessionHistory',
+      params: { threadId: 'allowed-thread', beforeSeq: 3, throughSeq: 5, maxMessages: 1 },
+    })
+    expect((older as { records: Array<{ event: { seq: number } }> }).records.map(entry => entry.event.seq))
+      .toEqual([2])
+    await domain.close()
+  })
+
   it('treats resume as idempotent when App Server already has the allowed thread loaded', async () => {
     const { root } = await directories()
     const app = new FakeAppServer(root)
@@ -280,7 +311,19 @@ class FakeAppServer implements CodexAppServerLike {
     }
     if (method === 'thread/read') {
       const threadId = isRecord(params) ? params.threadId : undefined
-      return { thread: { id: threadId, cwd: threadId === 'outside-thread' ? this.outside : this.root, turns: [] } }
+      const includeTurns = isRecord(params) && params.includeTurns === true
+      return { thread: {
+        id: threadId,
+        cwd: threadId === 'outside-thread' ? this.outside : this.root,
+        turns: includeTurns ? [{
+          id: 'turn-1',
+          status: 'completed',
+          items: [
+            { id: 'user-1', type: 'userMessage', text: 'First' },
+            { id: 'assistant-1', type: 'agentMessage', text: 'Second' },
+          ],
+        }] : [],
+      } }
     }
     if (method === 'thread/start') return { thread: { id: 'new-thread', cwd: isRecord(params) ? params.cwd : undefined } }
     if (method === 'thread/resume' && this.rejectResume) {

@@ -4461,7 +4461,7 @@ var CodexRemoteClient = class {
   }
   /** Low-level allowlisted request used by the Desktop Web loopback facade. */
   request(method, params, signal) {
-    const largeHistory = method === "thread/read" && isRecord(params) && params.includeTurns === true;
+    const largeHistory = method === "dsh/sessionHistory" || method === "thread/read" && isRecord(params) && params.includeTurns === true;
     return this.call(method, params, largeHistory, signal);
   }
   async account(signal) {
@@ -14180,6 +14180,9 @@ var CODEX_MODEL = "codex";
 var CODEX_PAGE_LIMIT = 100;
 var MAX_CODEX_PAGES = 32;
 var MAX_LIVE_TOOL_OUTPUT = 128 * 1024;
+var DEFAULT_HISTORY_MESSAGES = 50;
+var SESSION_SEARCH_RESULT_LIMIT = 20;
+var SESSION_SEARCH_SNIPPET_CODE_POINTS = 240;
 async function discoverCodexVirtualWorkspaces(client, signal) {
   return (await loadCatalog(client, signal)).workspaces;
 }
@@ -14199,7 +14202,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   follows = /* @__PURE__ */ new Set();
   pendingRequestIds = /* @__PURE__ */ new Map();
   pendingApprovals = /* @__PURE__ */ new Map();
-  threadHistoryCache = /* @__PURE__ */ new Map();
+  pendingThreads = /* @__PURE__ */ new Map();
+  blankThreads = /* @__PURE__ */ new Set();
   selectedModels = /* @__PURE__ */ new Map();
   modelDirectory;
   modelDirectoryPromise;
@@ -14232,7 +14236,6 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       const threadId = nativeThreadId(sessionId);
       try {
         const thread = await this.fetchThread(threadId, signal);
-        this.threadHistoryCache.set(threadId, thread);
         return sessionId;
       } catch {
       }
@@ -14278,7 +14281,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         case "session/list":
           return business(success({ items: await this.sessionSummaries(signal) }));
         case "session/search":
-          return business(success({ items: [], hasMore: false }));
+          return business(await this.searchSessions(requestArg(args), signal));
         case "session/create":
           return business(await this.createSession(requestArg(args), signal));
         case "session/fork":
@@ -14286,7 +14289,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         case "session/history":
           return business(await this.sessionHistory(requestArg(args), signal));
         case "session/page":
-          return business(success({ records: [], hasMore: false }));
+          return business(await this.sessionPage(requestArg(args), signal));
         case "session/prompt":
           return business(await this.prompt(requestArg(args), signal));
         case "session/cancel":
@@ -14358,10 +14361,12 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     }
     this.pendingApprovals.clear();
     this.pendingRequestIds.clear();
+    this.pendingThreads.clear();
+    this.blankThreads.clear();
     this.selectedModels.clear();
   }
   async refreshCatalog(signal) {
-    const catalog = await loadCatalog(this.client, signal);
+    const catalog = await loadCatalog(this.client, signal, this.pendingThreads);
     if (this.selectedWorkspaceId !== void 0 && !catalog.workspaces.some((workspace) => workspace.workspaceId === this.selectedWorkspaceId)) {
       this.selectedWorkspaceId = void 0;
     }
@@ -14383,6 +14388,10 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   }
   modelSelection(sessionId, directory) {
     return this.selectedModels.get(sessionId) ?? directory?.default ?? modelSelection();
+  }
+  sessionTitle(sessionId) {
+    const session = this.catalog?.sessions.find((item) => item.id === sessionId);
+    return session === void 0 ? null : displayTitle(session);
   }
   async selectModel(request, signal) {
     const sessionId = requiredString(request.sessionId, "sessionId");
@@ -14416,21 +14425,46 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   async sessionSummaries(signal) {
     const catalog = await this.refreshCatalog(signal);
     const directory = await this.models(signal).catch(() => void 0);
-    return catalog.sessions.map((session) => ({
-      sessionId: session.id,
-      updatedAt: session.updatedAt,
-      running: session.status === "running" || session.status === "waiting",
-      blank: false,
-      ...session.cwd === void 0 ? {} : { cwd: session.cwd },
-      projections: {
-        asOfSeq: 0,
-        values: {
-          title: displayTitle(session),
-          sessionListMetadata: { blank: false, lastPromptAt: session.updatedAt || null },
-          modelSelection: modelSelectionProjection(this.modelSelection(session.id, directory))
+    const threadById = new Map(catalog.threads.map((thread) => [string(thread.id), thread]));
+    return catalog.sessions.map((session) => {
+      const turns = threadById.get(session.nativeId)?.turns;
+      const blank = this.blankThreads.has(session.nativeId) || this.pendingThreads.has(session.nativeId) || Array.isArray(turns) && turns.length === 0;
+      return {
+        sessionId: session.id,
+        updatedAt: session.updatedAt,
+        running: session.status === "running" || session.status === "waiting",
+        blank,
+        ...session.cwd === void 0 ? {} : { cwd: session.cwd },
+        projections: {
+          asOfSeq: 0,
+          values: {
+            title: displayTitle(session),
+            sessionListMetadata: { blank, lastPromptAt: session.updatedAt || null },
+            modelSelection: modelSelectionProjection(this.modelSelection(session.id, directory))
+          }
         }
-      }
-    }));
+      };
+    });
+  }
+  async searchSessions(request, signal) {
+    const query = requiredString(request.query, "query").trim();
+    if (query.length === 0 || query.length > 500 || query.includes("\0")) {
+      return failure("bad-request", "The CodeX Session search query is invalid.");
+    }
+    const catalog = await this.currentCatalog(signal);
+    const needle = query.toLocaleLowerCase();
+    const matches = catalog.threads.flatMap((thread) => {
+      const session = projectCodexThread(thread);
+      if (session === void 0) return [];
+      const candidates = [session.title, session.preview, session.cwd, session.nativeId].filter((value) => value !== void 0 && value.length > 0);
+      const snippet = candidates.find((value) => value.toLocaleLowerCase().includes(needle));
+      if (snippet === void 0) return [];
+      return [{ sessionId: session.id, snippet: truncateCodePoints(snippet, SESSION_SEARCH_SNIPPET_CODE_POINTS) }];
+    });
+    return success({
+      items: matches.slice(0, SESSION_SEARCH_RESULT_LIMIT),
+      hasMore: matches.length > SESSION_SEARCH_RESULT_LIMIT
+    });
   }
   async workspaceFollow(signal) {
     const queue = new AsyncValueQueue2(signal);
@@ -14462,15 +14496,16 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   async sessionFollow(request, signal) {
     const sessionId = sessionIdFromAddress(record(request.address));
     const threadId = nativeThreadId(sessionId);
-    const raw = await this.readThread(threadId, signal);
-    const history = nativeHistory(raw, sessionId);
+    const history = await this.readHistoryPage(threadId, {
+      maxMessages: optionalPositiveInteger(request.maxMessages)
+    }, signal);
     const directory = await this.models(signal).catch(() => void 0);
     const queue = new AsyncValueQueue2(signal);
     const follow = {
       sessionId,
       threadId,
       queue,
-      nextSeq: history.lastSeq + 1,
+      nextSeq: history.cursor + 1,
       turn: history.nextTurn,
       stepOpen: false,
       startedItems: /* @__PURE__ */ new Set(),
@@ -14487,14 +14522,14 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     queue.push({
       type: "snapshot",
       header: history.header,
-      cursor: history.lastSeq,
-      records: history.entries,
-      hasMore: false,
+      cursor: history.cursor,
+      records: history.records,
+      hasMore: history.hasMore,
       projections: {
-        asOfSeq: history.lastSeq,
+        asOfSeq: history.cursor,
         values: {
-          title: threadTitle(raw),
-          sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: lastPromptAt(raw) },
+          title: this.sessionTitle(sessionId),
+          sessionListMetadata: { blank: history.cursor < 0, lastPromptAt: null },
           modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory))
         }
       }
@@ -14879,15 +14914,17 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   }
   async createSession(request, signal) {
     const catalog = await this.currentCatalog(signal);
-    const workspaceId = string(request.workspaceId);
-    const cwd = workspaceId === void 0 ? string(request.cwd) : catalog.workspaces.find((item) => item.workspaceId === workspaceId)?.path;
+    const workspaceId = string(request.workspaceId) ?? this.selectedWorkspaceId;
+    const cwd = string(request.cwd) ?? (workspaceId === void 0 ? void 0 : catalog.workspaces.find((item) => item.workspaceId === workspaceId)?.path);
     if (cwd === void 0) return failure("workspace-not-found", "The CodeX virtual Workspace was not found.");
     const directory = await this.models(signal);
     const selection = directory.default;
     const result = record(await this.client.request("thread/start", { cwd, model: selection.model }, signal));
-    const thread = record(result.thread);
+    const thread = { ...record(result.thread), cwd, turns: array(record(result.thread).turns) };
     const projected = projectCodexThread(thread);
     if (projected === void 0) return failure("internal", "CodeX returned an invalid Thread.");
+    this.pendingThreads.set(projected.nativeId, thread);
+    this.blankThreads.add(projected.nativeId);
     this.selectedModels.set(projected.id, selection);
     await this.refreshAndPublishWorkspaces();
     this.emitRemoteEvent("api-session/added", [{
@@ -14932,6 +14969,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         ...codexModelParams(selection)
       }, signal);
     }
+    this.blankThreads.delete(threadId);
     return success({ accepted: true });
   }
   async cancel(request, signal) {
@@ -14950,44 +14988,65 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     await this.refreshAndPublishWorkspaces();
     return success({ title, seq });
   }
+  async sessionPage(request, signal) {
+    const sessionId = sessionIdFromAddress(record(request.address));
+    const page = await this.readHistoryPage(nativeThreadId(sessionId), {
+      beforeSeq: optionalNonNegativeInteger(request.beforeSeq),
+      throughSeq: optionalInteger(request.throughSeq),
+      maxMessages: optionalPositiveInteger(request.maxMessages)
+    }, signal);
+    return success({ records: page.records, hasMore: page.hasMore });
+  }
   activeTurnId(threadId) {
     for (const follow of this.follows) if (follow.threadId === threadId && follow.stepOpen) return follow.activeTurnId;
     return void 0;
   }
-  async readThread(threadId, signal) {
-    const cached = this.threadHistoryCache.get(threadId);
-    if (cached !== void 0) return cached;
-    return this.fetchThread(threadId, signal);
-  }
   async fetchThread(threadId, signal) {
-    const result = record(await this.client.request("thread/read", { threadId, includeTurns: true }, signal));
+    const result = record(await this.client.request("thread/read", { threadId, includeTurns: false }, signal));
     const thread = record(result.thread);
     if (string(thread.id) !== threadId) throw new Error("CodeX returned an invalid Thread history.");
     return thread;
   }
+  async readHistoryPage(threadId, page, signal) {
+    const value = record(await this.client.request("dsh/sessionHistory", {
+      threadId,
+      ...page.beforeSeq === void 0 ? {} : { beforeSeq: page.beforeSeq },
+      ...page.throughSeq === void 0 ? {} : { throughSeq: page.throughSeq },
+      ...page.maxMessages === void 0 ? {} : { maxMessages: page.maxMessages }
+    }, signal));
+    if (!isCodexNativeHistoryPage(value, `codex:${threadId}`)) {
+      throw new Error("CodeX Remote returned an invalid paginated History.");
+    }
+    return value;
+  }
   async sessionHistory(request, signal) {
     const sessionId = requiredString(request.sessionId, "sessionId");
-    const thread = await this.readThread(nativeThreadId(sessionId), signal);
-    const history = nativeHistory(thread, sessionId);
+    const beforeSeq = optionalNonNegativeInteger(request.beforeSeq);
+    const history = await this.readHistoryPage(nativeThreadId(sessionId), {
+      beforeSeq,
+      maxMessages: optionalPositiveInteger(request.maxMessages)
+    }, signal);
     const directory = await this.models(signal).catch(() => void 0);
-    await this.ensureRcFollow(sessionId, thread);
+    if (beforeSeq === void 0) await this.ensureRcFollow(sessionId, history);
     return success({
-      events: history.entries.map((entry) => ({
+      events: history.records.map((entry) => ({
         event: entry.event,
         ...entry.view === void 0 ? {} : { view: entry.view }
       })),
-      hasMore: false,
-      projections: {
-        asOfSeq: history.lastSeq,
-        values: {
-          title: threadTitle(thread),
-          sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: null },
-          modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory))
+      hasMore: history.hasMore,
+      ...beforeSeq !== void 0 ? {} : {
+        projections: {
+          asOfSeq: history.cursor,
+          values: {
+            title: this.sessionTitle(sessionId),
+            sessionListMetadata: { blank: history.cursor < 0, lastPromptAt: null },
+            modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory))
+          }
         }
       }
     });
   }
-  async ensureRcFollow(sessionId, seedThread) {
+  async ensureRcFollow(sessionId, seedHistory) {
     if (this.followsHas(sessionId)) return;
     const threadId = nativeThreadId(sessionId);
     const stale = [...this.follows].filter((follow2) => follow2.rcOnly && follow2.sessionId !== sessionId);
@@ -14996,13 +15055,13 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       follow2.queue.close();
       await follow2.close?.().catch(() => void 0);
     }
-    const history = nativeHistory(seedThread ?? await this.readThread(threadId), sessionId);
+    const history = seedHistory ?? await this.readHistoryPage(threadId, {}, void 0);
     const controller = new AbortController();
     const follow = {
       sessionId,
       threadId,
       queue: new AsyncValueQueue2(controller.signal),
-      nextSeq: history.lastSeq + 1,
+      nextSeq: history.cursor + 1,
       turn: history.nextTurn,
       stepOpen: false,
       startedItems: /* @__PURE__ */ new Set(),
@@ -15135,7 +15194,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     for (const queue of this.rcHostStreams) queue.push(frame);
   }
 };
-async function loadCatalog(client, signal) {
+async function loadCatalog(client, signal, pendingThreads) {
   const threads = [];
   let cursor2;
   for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
@@ -15152,6 +15211,13 @@ async function loadCatalog(client, signal) {
     }
     cursor2 = typeof result.nextCursor === "string" && result.nextCursor.length > 0 ? result.nextCursor : void 0;
     if (cursor2 === void 0) break;
+  }
+  if (pendingThreads !== void 0) {
+    const listedIds = new Set(threads.map((thread) => string(thread.id)).filter((id2) => id2 !== void 0));
+    for (const [threadId, thread] of pendingThreads) {
+      if (listedIds.has(threadId)) pendingThreads.delete(threadId);
+      else threads.unshift(thread);
+    }
   }
   const sessions = threads.map(projectCodexThread).filter((value) => value !== void 0);
   const workspaceByPath = /* @__PURE__ */ new Map();
@@ -15237,22 +15303,25 @@ async function loadModelDirectory(client, signal) {
     models
   };
 }
-function nativeHistory(thread, sessionId) {
+function projectCodexNativeHistory(thread, sessionId) {
   const entries = [];
   let seq = 0;
   let turnNumber = 0;
-  const append = (type, data, time = Date.now(), view) => {
+  const append = (type, data, time = Date.now(), view, sourceEventSeqs) => {
+    const eventSeq = seq++;
     entries.push({
       type: "event",
       event: {
         type,
-        seq: seq++,
+        seq: eventSeq,
         time,
         data,
+        ...sourceEventSeqs === void 0 ? {} : { sourceEventSeqs },
         ...isSurfaceEvent(type) ? { surfaceOp: "append" } : {}
       },
       ...view === void 0 ? {} : { view }
     });
+    return eventSeq;
   };
   for (const rawTurn of array(thread.turns)) {
     const turn = record(rawTurn);
@@ -15262,8 +15331,16 @@ function nativeHistory(thread, sessionId) {
     append("step/start", { turn: turnNumber, step: 1 }, time);
     for (const rawItem of array(turn.items)) {
       const item = record(rawItem);
+      let toolCallSeq;
       for (const event of itemEvents(item, turnNumber, 1)) {
-        append(event.type, event.data, normalizeTime(item.createdAt) || time, event.view);
+        const eventSeq = append(
+          event.type,
+          event.data,
+          normalizeTime(item.createdAt) || time,
+          event.view,
+          event.type === "tool/result" && toolCallSeq !== void 0 ? [toolCallSeq] : void 0
+        );
+        if (event.type === "tool/call") toolCallSeq = eventSeq;
       }
     }
     append("step/end", { turn: turnNumber, step: 1 }, normalizeTime(turn.updatedAt) || time);
@@ -15283,6 +15360,30 @@ function nativeHistory(thread, sessionId) {
     entries,
     lastSeq: seq - 1,
     nextTurn: turnNumber
+  };
+}
+function paginateCodexNativeHistory(history, request) {
+  const throughSeq = Math.min(request.throughSeq ?? history.lastSeq, history.lastSeq);
+  const endSeq = Math.min(throughSeq, request.beforeSeq === void 0 ? throughSeq : request.beforeSeq - 1);
+  const window = endSeq < 0 ? [] : history.entries.filter((entry) => entry.event.seq <= endSeq);
+  const maxMessages = request.maxMessages ?? DEFAULT_HISTORY_MESSAGES;
+  let messages = 0;
+  let cut = 0;
+  for (let index = window.length - 1; index >= 0; index -= 1) {
+    const event = window[index].event;
+    if (!isSurfaceEvent(event.type) || event.surfaceOp !== "append") continue;
+    messages += 1;
+    if (messages >= maxMessages) {
+      cut = Math.min(event.seq, ...event.sourceEventSeqs ?? []);
+      break;
+    }
+  }
+  return {
+    header: history.header,
+    cursor: history.lastSeq,
+    nextTurn: history.nextTurn,
+    records: window.filter((entry) => entry.event.seq >= cut),
+    hasMore: window.some((entry) => entry.event.seq < cut)
   };
 }
 function itemEvents(item, turn, step, requestId, selection = modelSelection()) {
@@ -15524,25 +15625,6 @@ function displayTitle(session) {
   const value = session.title ?? session.preview;
   return value === void 0 || value.trim() === "" ? null : value.slice(0, 256);
 }
-function threadTitle(thread) {
-  return displayTitle(projectCodexThread(thread) ?? {
-    id: "",
-    backend: "codex",
-    nativeId: "",
-    createdAt: 0,
-    updatedAt: 0,
-    status: "idle"
-  });
-}
-function lastPromptAt(thread) {
-  let value = 0;
-  for (const turn of array(thread.turns).map(record)) {
-    for (const item of array(turn.items).map(record)) {
-      if (item.type === "userMessage") value = Math.max(value, normalizeTime(item.createdAt));
-    }
-  }
-  return value || null;
-}
 function itemText2(value) {
   if (typeof value.text === "string") return value.text;
   if (typeof value.content === "string") return value.content;
@@ -15700,6 +15782,29 @@ function string(value) {
 }
 function integer(value) {
   return typeof value === "number" && Number.isSafeInteger(value) ? value : void 0;
+}
+function optionalInteger(value) {
+  if (value === void 0) return void 0;
+  const parsed = integer(value);
+  if (parsed === void 0) throw new Error("The CodeX History cursor is invalid.");
+  return parsed;
+}
+function optionalNonNegativeInteger(value) {
+  const parsed = optionalInteger(value);
+  if (parsed !== void 0 && parsed < 0) throw new Error("The CodeX History cursor is invalid.");
+  return parsed;
+}
+function optionalPositiveInteger(value) {
+  const parsed = optionalInteger(value);
+  if (parsed !== void 0 && parsed <= 0) throw new Error("The CodeX History page size is invalid.");
+  return parsed;
+}
+function isCodexNativeHistoryPage(value, sessionId) {
+  const header = record(value.header);
+  return header.id === sessionId && integer(value.cursor) !== void 0 && integer(value.nextTurn) !== void 0 && Array.isArray(value.records) && typeof value.hasMore === "boolean";
+}
+function truncateCodePoints(value, maximum) {
+  return [...value].slice(0, maximum).join("");
 }
 function requiredString(value, field) {
   if (typeof value !== "string" || value.length === 0) throw new Error(`The CodeX ${field} is required.`);
@@ -21680,6 +21785,12 @@ var schemas = {
     searchTerm: external_exports.string().max(1024).optional()
   }).strict(),
   "thread/read": external_exports.object({ threadId: id, includeTurns: external_exports.boolean().optional() }).strict(),
+  "dsh/sessionHistory": external_exports.object({
+    threadId: id,
+    beforeSeq: external_exports.number().int().nonnegative().optional(),
+    throughSeq: external_exports.number().int().min(-1).optional(),
+    maxMessages: external_exports.number().int().min(1).max(200).optional()
+  }).strict(),
   "thread/start": external_exports.object({
     cwd: external_exports.string().min(1).max(4096),
     model: external_exports.string().min(1).max(128).optional(),
@@ -22122,6 +22233,21 @@ var CodexRemoteDomain = class {
     if (call.method === "thread/read") {
       return this.callUpstream(call.method, call.params);
     }
+    if (call.method === "dsh/sessionHistory") {
+      const result = await this.callUpstream("thread/read", { threadId, includeTurns: true });
+      const thread = extractThread(result);
+      if (thread === void 0 || thread.id !== threadId) {
+        throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Thread history.");
+      }
+      return paginateCodexNativeHistory(
+        projectCodexNativeHistory(thread, `codex:${threadId}`),
+        {
+          beforeSeq: optionalInteger2(call.params.beforeSeq),
+          throughSeq: optionalInteger2(call.params.throughSeq),
+          maxMessages: optionalInteger2(call.params.maxMessages)
+        }
+      );
+    }
     if (call.method === "thread/unsubscribe") {
       const bridge = this.peers.get(connectionId);
       bridge?.removeThreadSubscriptions(threadId);
@@ -22525,6 +22651,9 @@ function extractThreadId(params) {
   if (isRecord9(params.thread) && typeof params.thread.id === "string") return params.thread.id;
   if (isRecord9(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
   return void 0;
+}
+function optionalInteger2(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : void 0;
 }
 function sanitizeApprovalParams(params, requestHandle) {
   if (!isRecord9(params)) return { requestHandle };

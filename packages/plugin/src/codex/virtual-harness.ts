@@ -17,6 +17,9 @@ const CODEX_MODEL = 'codex'
 const CODEX_PAGE_LIMIT = 100
 const MAX_CODEX_PAGES = 32
 const MAX_LIVE_TOOL_OUTPUT = 128 * 1024
+const DEFAULT_HISTORY_MESSAGES = 50
+const SESSION_SEARCH_RESULT_LIMIT = 20
+const SESSION_SEARCH_SNIPPET_CODE_POINTS = 240
 
 type JsonRecord = Record<string, unknown>
 
@@ -77,7 +80,7 @@ interface NativeEvent {
   surfaceOp?: 'append' | { op: 'replace'; start: number; end: number }
 }
 
-interface NativeHistory {
+export interface CodexNativeHistory {
   header: {
     version: number
     id: string
@@ -87,6 +90,14 @@ interface NativeHistory {
   entries: Array<{ type: 'event'; event: NativeEvent; view?: ToolEventView }>
   lastSeq: number
   nextTurn: number
+}
+
+export interface CodexNativeHistoryPage {
+  header: CodexNativeHistory['header']
+  cursor: number
+  nextTurn: number
+  records: CodexNativeHistory['entries']
+  hasMore: boolean
 }
 
 interface StreamedBlock {
@@ -158,7 +169,8 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private readonly follows = new Set<FollowState>()
   private readonly pendingRequestIds = new Map<string, string>()
   private readonly pendingApprovals = new Map<string, PendingApproval>()
-  private readonly threadHistoryCache = new Map<string, JsonRecord>()
+  private readonly pendingThreads = new Map<string, JsonRecord>()
+  private readonly blankThreads = new Set<string>()
   private readonly selectedModels = new Map<string, CodexModelSelection>()
   private modelDirectory?: CodexModelDirectory
   private modelDirectoryPromise?: Promise<CodexModelDirectory>
@@ -210,7 +222,6 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       const threadId = nativeThreadId(sessionId)
       try {
         const thread = await this.fetchThread(threadId, signal)
-        this.threadHistoryCache.set(threadId, thread)
         return sessionId
       } catch {
         // A currently active or concurrently changing CodeX Thread may reject
@@ -251,11 +262,11 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         case 'workspace/insertSessionBefore': return business(await this.workspaceForSession(requestArg(args), signal))
         case 'workspace/archiveSession': return business(await this.archiveSession(requestArg(args), signal))
         case 'session/list': return business(success({ items: await this.sessionSummaries(signal) }))
-        case 'session/search': return business(success({ items: [], hasMore: false }))
+        case 'session/search': return business(await this.searchSessions(requestArg(args), signal))
         case 'session/create': return business(await this.createSession(requestArg(args), signal))
         case 'session/fork': return business(await this.forkSession(requestArg(args), signal))
         case 'session/history': return business(await this.sessionHistory(requestArg(args), signal))
-        case 'session/page': return business(success({ records: [], hasMore: false }))
+        case 'session/page': return business(await this.sessionPage(requestArg(args), signal))
         case 'session/prompt': return business(await this.prompt(requestArg(args), signal))
         case 'session/cancel': return business(await this.cancel(requestArg(args), signal))
         case 'session/rename': return business(await this.renameSession(requestArg(args), signal))
@@ -318,11 +329,13 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     }
     this.pendingApprovals.clear()
     this.pendingRequestIds.clear()
+    this.pendingThreads.clear()
+    this.blankThreads.clear()
     this.selectedModels.clear()
   }
 
   private async refreshCatalog(signal?: AbortSignal): Promise<CatalogState> {
-    const catalog = await loadCatalog(this.client, signal)
+    const catalog = await loadCatalog(this.client, signal, this.pendingThreads)
     if (this.selectedWorkspaceId !== undefined
       && !catalog.workspaces.some(workspace => workspace.workspaceId === this.selectedWorkspaceId)) {
       this.selectedWorkspaceId = undefined
@@ -348,6 +361,11 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
 
   private modelSelection(sessionId: string, directory?: CodexModelDirectory): CodexModelSelection {
     return this.selectedModels.get(sessionId) ?? directory?.default ?? modelSelection()
+  }
+
+  private sessionTitle(sessionId: string): string | null {
+    const session = this.catalog?.sessions.find(item => item.id === sessionId)
+    return session === undefined ? null : displayTitle(session)
   }
 
   private async selectModel(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
@@ -384,21 +402,50 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private async sessionSummaries(signal?: AbortSignal): Promise<unknown[]> {
     const catalog = await this.refreshCatalog(signal)
     const directory = await this.models(signal).catch(() => undefined)
-    return catalog.sessions.map(session => ({
-      sessionId: session.id,
-      updatedAt: session.updatedAt,
-      running: session.status === 'running' || session.status === 'waiting',
-      blank: false,
-      ...(session.cwd === undefined ? {} : { cwd: session.cwd }),
-      projections: {
-        asOfSeq: 0,
-        values: {
-          title: displayTitle(session),
-          sessionListMetadata: { blank: false, lastPromptAt: session.updatedAt || null },
-          modelSelection: modelSelectionProjection(this.modelSelection(session.id, directory)),
+    const threadById = new Map(catalog.threads.map(thread => [string(thread.id), thread]))
+    return catalog.sessions.map(session => {
+      const turns = threadById.get(session.nativeId)?.turns
+      const blank = this.blankThreads.has(session.nativeId)
+        || this.pendingThreads.has(session.nativeId)
+        || Array.isArray(turns) && turns.length === 0
+      return {
+        sessionId: session.id,
+        updatedAt: session.updatedAt,
+        running: session.status === 'running' || session.status === 'waiting',
+        blank,
+        ...(session.cwd === undefined ? {} : { cwd: session.cwd }),
+        projections: {
+          asOfSeq: 0,
+          values: {
+            title: displayTitle(session),
+            sessionListMetadata: { blank, lastPromptAt: session.updatedAt || null },
+            modelSelection: modelSelectionProjection(this.modelSelection(session.id, directory)),
+          },
         },
-      },
-    }))
+      }
+    })
+  }
+
+  private async searchSessions(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
+    const query = requiredString(request.query, 'query').trim()
+    if (query.length === 0 || query.length > 500 || query.includes('\0')) {
+      return failure('bad-request', 'The CodeX Session search query is invalid.')
+    }
+    const catalog = await this.currentCatalog(signal)
+    const needle = query.toLocaleLowerCase()
+    const matches = catalog.threads.flatMap(thread => {
+      const session = projectCodexThread(thread)
+      if (session === undefined) return []
+      const candidates = [session.title, session.preview, session.cwd, session.nativeId]
+        .filter((value): value is string => value !== undefined && value.length > 0)
+      const snippet = candidates.find(value => value.toLocaleLowerCase().includes(needle))
+      if (snippet === undefined) return []
+      return [{ sessionId: session.id, snippet: truncateCodePoints(snippet, SESSION_SEARCH_SNIPPET_CODE_POINTS) }]
+    })
+    return success({
+      items: matches.slice(0, SESSION_SEARCH_RESULT_LIMIT),
+      hasMore: matches.length > SESSION_SEARCH_RESULT_LIMIT,
+    })
   }
 
   private async workspaceFollow(signal: AbortSignal): Promise<AsyncIterable<unknown>> {
@@ -434,15 +481,16 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private async sessionFollow(request: JsonRecord, signal: AbortSignal): Promise<AsyncIterable<unknown>> {
     const sessionId = sessionIdFromAddress(record(request.address))
     const threadId = nativeThreadId(sessionId)
-    const raw = await this.readThread(threadId, signal)
-    const history = nativeHistory(raw, sessionId)
+    const history = await this.readHistoryPage(threadId, {
+      maxMessages: optionalPositiveInteger(request.maxMessages),
+    }, signal)
     const directory = await this.models(signal).catch(() => undefined)
     const queue = new AsyncValueQueue(signal)
     const follow: FollowState = {
       sessionId,
       threadId,
       queue,
-      nextSeq: history.lastSeq + 1,
+      nextSeq: history.cursor + 1,
       turn: history.nextTurn,
       stepOpen: false,
       startedItems: new Set(),
@@ -459,14 +507,14 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     queue.push({
       type: 'snapshot',
       header: history.header,
-      cursor: history.lastSeq,
-      records: history.entries,
-      hasMore: false,
+      cursor: history.cursor,
+      records: history.records,
+      hasMore: history.hasMore,
       projections: {
-        asOfSeq: history.lastSeq,
+        asOfSeq: history.cursor,
         values: {
-          title: threadTitle(raw),
-          sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: lastPromptAt(raw) },
+          title: this.sessionTitle(sessionId),
+          sessionListMetadata: { blank: history.cursor < 0, lastPromptAt: null },
           modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory)),
         },
       },
@@ -917,17 +965,18 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
 
   private async createSession(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
     const catalog = await this.currentCatalog(signal)
-    const workspaceId = string(request.workspaceId)
-    const cwd = workspaceId === undefined
-      ? string(request.cwd)
-      : catalog.workspaces.find(item => item.workspaceId === workspaceId)?.path
+    const workspaceId = string(request.workspaceId) ?? this.selectedWorkspaceId
+    const cwd = string(request.cwd)
+      ?? (workspaceId === undefined ? undefined : catalog.workspaces.find(item => item.workspaceId === workspaceId)?.path)
     if (cwd === undefined) return failure('workspace-not-found', 'The CodeX virtual Workspace was not found.')
     const directory = await this.models(signal)
     const selection = directory.default
     const result = record(await this.client.request('thread/start', { cwd, model: selection.model }, signal))
-    const thread = record(result.thread)
+    const thread = { ...record(result.thread), cwd, turns: array(record(result.thread).turns) }
     const projected = projectCodexThread(thread)
     if (projected === undefined) return failure('internal', 'CodeX returned an invalid Thread.')
+    this.pendingThreads.set(projected.nativeId, thread)
+    this.blankThreads.add(projected.nativeId)
     this.selectedModels.set(projected.id, selection)
     await this.refreshAndPublishWorkspaces()
     this.emitRemoteEvent('api-session/added', [{
@@ -974,6 +1023,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         ...codexModelParams(selection),
       }, signal)
     }
+    this.blankThreads.delete(threadId)
     return success({ accepted: true })
   }
 
@@ -995,51 +1045,77 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     return success({ title, seq })
   }
 
+  private async sessionPage(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
+    const sessionId = sessionIdFromAddress(record(request.address))
+    const page = await this.readHistoryPage(nativeThreadId(sessionId), {
+      beforeSeq: optionalNonNegativeInteger(request.beforeSeq),
+      throughSeq: optionalInteger(request.throughSeq),
+      maxMessages: optionalPositiveInteger(request.maxMessages),
+    }, signal)
+    return success({ records: page.records, hasMore: page.hasMore })
+  }
+
   private activeTurnId(threadId: string): string | undefined {
     for (const follow of this.follows) if (follow.threadId === threadId && follow.stepOpen) return follow.activeTurnId
     return undefined
   }
 
-  private async readThread(threadId: string, signal?: AbortSignal): Promise<JsonRecord> {
-    const cached = this.threadHistoryCache.get(threadId)
-    if (cached !== undefined) return cached
-    return this.fetchThread(threadId, signal)
-  }
-
   private async fetchThread(threadId: string, signal?: AbortSignal): Promise<JsonRecord> {
-    const result = record(await this.client.request('thread/read', { threadId, includeTurns: true }, signal))
+    const result = record(await this.client.request('thread/read', { threadId, includeTurns: false }, signal))
     const thread = record(result.thread)
     if (string(thread.id) !== threadId) throw new Error('CodeX returned an invalid Thread history.')
     return thread
   }
 
+  private async readHistoryPage(
+    threadId: string,
+    page: { beforeSeq?: number; throughSeq?: number; maxMessages?: number },
+    signal?: AbortSignal,
+  ): Promise<CodexNativeHistoryPage> {
+    const value = record(await this.client.request('dsh/sessionHistory', {
+      threadId,
+      ...(page.beforeSeq === undefined ? {} : { beforeSeq: page.beforeSeq }),
+      ...(page.throughSeq === undefined ? {} : { throughSeq: page.throughSeq }),
+      ...(page.maxMessages === undefined ? {} : { maxMessages: page.maxMessages }),
+    }, signal))
+    if (!isCodexNativeHistoryPage(value, `codex:${threadId}`)) {
+      throw new Error('CodeX Remote returned an invalid paginated History.')
+    }
+    return value
+  }
+
   private async sessionHistory(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
     const sessionId = requiredString(request.sessionId, 'sessionId')
-    const thread = await this.readThread(nativeThreadId(sessionId), signal)
-    const history = nativeHistory(thread, sessionId)
+    const beforeSeq = optionalNonNegativeInteger(request.beforeSeq)
+    const history = await this.readHistoryPage(nativeThreadId(sessionId), {
+      beforeSeq,
+      maxMessages: optionalPositiveInteger(request.maxMessages),
+    }, signal)
     const directory = await this.models(signal).catch(() => undefined)
     // rc.2 has one global mux rather than the alpha session/follow stream. A
     // history read is the reliable signal that the native client has opened a
     // Session, so attach the CodeX live stream here before returning its tail.
-    await this.ensureRcFollow(sessionId, thread)
+    if (beforeSeq === undefined) await this.ensureRcFollow(sessionId, history)
     return success({
-      events: history.entries.map(entry => ({
+      events: history.records.map(entry => ({
         event: entry.event,
         ...(entry.view === undefined ? {} : { view: entry.view }),
       })),
-      hasMore: false,
-      projections: {
-        asOfSeq: history.lastSeq,
-        values: {
-          title: threadTitle(thread),
-          sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: null },
-          modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory)),
+      hasMore: history.hasMore,
+      ...(beforeSeq !== undefined ? {} : {
+        projections: {
+          asOfSeq: history.cursor,
+          values: {
+            title: this.sessionTitle(sessionId),
+            sessionListMetadata: { blank: history.cursor < 0, lastPromptAt: null },
+            modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory)),
+          },
         },
-      },
+      }),
     })
   }
 
-  private async ensureRcFollow(sessionId: string, seedThread?: JsonRecord): Promise<void> {
+  private async ensureRcFollow(sessionId: string, seedHistory?: CodexNativeHistoryPage): Promise<void> {
     if (this.followsHas(sessionId)) return
     const threadId = nativeThreadId(sessionId)
     // The Host bounds CodeX streams per connection. rc.2 only renders one
@@ -1051,13 +1127,13 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       follow.queue.close()
       await follow.close?.().catch(() => undefined)
     }
-    const history = nativeHistory(seedThread ?? await this.readThread(threadId), sessionId)
+    const history = seedHistory ?? await this.readHistoryPage(threadId, {}, undefined)
     const controller = new AbortController()
     const follow: FollowState = {
       sessionId,
       threadId,
       queue: new AsyncValueQueue(controller.signal),
-      nextSeq: history.lastSeq + 1,
+      nextSeq: history.cursor + 1,
       turn: history.nextTurn,
       stepOpen: false,
       startedItems: new Set(),
@@ -1203,7 +1279,11 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   }
 }
 
-async function loadCatalog(client: CodexClientLike, signal?: AbortSignal): Promise<CatalogState> {
+async function loadCatalog(
+  client: CodexClientLike,
+  signal?: AbortSignal,
+  pendingThreads?: Map<string, JsonRecord>,
+): Promise<CatalogState> {
   const threads: JsonRecord[] = []
   let cursor: string | null | undefined
   for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
@@ -1220,6 +1300,13 @@ async function loadCatalog(client: CodexClientLike, signal?: AbortSignal): Promi
     }
     cursor = typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? result.nextCursor : undefined
     if (cursor === undefined) break
+  }
+  if (pendingThreads !== undefined) {
+    const listedIds = new Set(threads.map(thread => string(thread.id)).filter((id): id is string => id !== undefined))
+    for (const [threadId, thread] of pendingThreads) {
+      if (listedIds.has(threadId)) pendingThreads.delete(threadId)
+      else threads.unshift(thread)
+    }
   }
   const sessions = threads.map(projectCodexThread).filter((value): value is DisplaySession => value !== undefined)
   const workspaceByPath = new Map<string, CodexVirtualWorkspaceView>()
@@ -1309,22 +1396,31 @@ async function loadModelDirectory(client: CodexClientLike, signal?: AbortSignal)
   }
 }
 
-function nativeHistory(thread: JsonRecord, sessionId: string): NativeHistory {
-  const entries: NativeHistory['entries'] = []
+export function projectCodexNativeHistory(thread: JsonRecord, sessionId: string): CodexNativeHistory {
+  const entries: CodexNativeHistory['entries'] = []
   let seq = 0
   let turnNumber = 0
-  const append = (type: string, data: unknown, time = Date.now(), view?: ToolEventView): void => {
+  const append = (
+    type: string,
+    data: unknown,
+    time = Date.now(),
+    view?: ToolEventView,
+    sourceEventSeqs?: number[],
+  ): number => {
+    const eventSeq = seq++
     entries.push({
       type: 'event',
       event: {
         type,
-        seq: seq++,
+        seq: eventSeq,
         time,
         data,
+        ...(sourceEventSeqs === undefined ? {} : { sourceEventSeqs }),
         ...(isSurfaceEvent(type) ? { surfaceOp: 'append' as const } : {}),
       },
       ...(view === undefined ? {} : { view }),
     })
+    return eventSeq
   }
   for (const rawTurn of array(thread.turns)) {
     const turn = record(rawTurn)
@@ -1334,8 +1430,16 @@ function nativeHistory(thread: JsonRecord, sessionId: string): NativeHistory {
     append('step/start', { turn: turnNumber, step: 1 }, time)
     for (const rawItem of array(turn.items)) {
       const item = record(rawItem)
+      let toolCallSeq: number | undefined
       for (const event of itemEvents(item, turnNumber, 1)) {
-        append(event.type, event.data, normalizeTime(item.createdAt) || time, event.view)
+        const eventSeq = append(
+          event.type,
+          event.data,
+          normalizeTime(item.createdAt) || time,
+          event.view,
+          event.type === 'tool/result' && toolCallSeq !== undefined ? [toolCallSeq] : undefined,
+        )
+        if (event.type === 'tool/call') toolCallSeq = eventSeq
       }
     }
     append('step/end', { turn: turnNumber, step: 1 }, normalizeTime(turn.updatedAt) || time)
@@ -1357,6 +1461,34 @@ function nativeHistory(thread: JsonRecord, sessionId: string): NativeHistory {
     entries,
     lastSeq: seq - 1,
     nextTurn: turnNumber,
+  }
+}
+
+export function paginateCodexNativeHistory(
+  history: CodexNativeHistory,
+  request: { beforeSeq?: number; throughSeq?: number; maxMessages?: number },
+): CodexNativeHistoryPage {
+  const throughSeq = Math.min(request.throughSeq ?? history.lastSeq, history.lastSeq)
+  const endSeq = Math.min(throughSeq, request.beforeSeq === undefined ? throughSeq : request.beforeSeq - 1)
+  const window = endSeq < 0 ? [] : history.entries.filter(entry => entry.event.seq <= endSeq)
+  const maxMessages = request.maxMessages ?? DEFAULT_HISTORY_MESSAGES
+  let messages = 0
+  let cut = 0
+  for (let index = window.length - 1; index >= 0; index -= 1) {
+    const event = window[index]!.event
+    if (!isSurfaceEvent(event.type) || event.surfaceOp !== 'append') continue
+    messages += 1
+    if (messages >= maxMessages) {
+      cut = Math.min(event.seq, ...(event.sourceEventSeqs ?? []))
+      break
+    }
+  }
+  return {
+    header: history.header,
+    cursor: history.lastSeq,
+    nextTurn: history.nextTurn,
+    records: window.filter(entry => entry.event.seq >= cut),
+    hasMore: window.some(entry => entry.event.seq < cut),
   }
 }
 
@@ -1654,22 +1786,6 @@ function displayTitle(session: DisplaySession): string | null {
   return value === undefined || value.trim() === '' ? null : value.slice(0, 256)
 }
 
-function threadTitle(thread: JsonRecord): string | null {
-  return displayTitle(projectCodexThread(thread) ?? {
-    id: '', backend: 'codex', nativeId: '', createdAt: 0, updatedAt: 0, status: 'idle',
-  })
-}
-
-function lastPromptAt(thread: JsonRecord): number | null {
-  let value = 0
-  for (const turn of array(thread.turns).map(record)) {
-    for (const item of array(turn.items).map(record)) {
-      if (item.type === 'userMessage') value = Math.max(value, normalizeTime(item.createdAt))
-    }
-  }
-  return value || null
-}
-
 function itemText(value: JsonRecord): string | undefined {
   if (typeof value.text === 'string') return value.text
   if (typeof value.content === 'string') return value.content
@@ -1848,6 +1964,38 @@ function string(value: unknown): string | undefined {
 
 function integer(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined
+}
+
+function optionalInteger(value: unknown): number | undefined {
+  if (value === undefined) return undefined
+  const parsed = integer(value)
+  if (parsed === undefined) throw new Error('The CodeX History cursor is invalid.')
+  return parsed
+}
+
+function optionalNonNegativeInteger(value: unknown): number | undefined {
+  const parsed = optionalInteger(value)
+  if (parsed !== undefined && parsed < 0) throw new Error('The CodeX History cursor is invalid.')
+  return parsed
+}
+
+function optionalPositiveInteger(value: unknown): number | undefined {
+  const parsed = optionalInteger(value)
+  if (parsed !== undefined && parsed <= 0) throw new Error('The CodeX History page size is invalid.')
+  return parsed
+}
+
+function isCodexNativeHistoryPage(value: JsonRecord, sessionId: string): value is JsonRecord & CodexNativeHistoryPage {
+  const header = record(value.header)
+  return header.id === sessionId
+    && integer(value.cursor) !== undefined
+    && integer(value.nextTurn) !== undefined
+    && Array.isArray(value.records)
+    && typeof value.hasMore === 'boolean'
+}
+
+function truncateCodePoints(value: string, maximum: number): string {
+  return [...value].slice(0, maximum).join('')
 }
 
 function requiredString(value: unknown, field: string): string {

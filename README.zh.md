@@ -126,6 +126,10 @@ CodeX 页面。
 原生工具卡片展示。大段实时工具输出只保留有界的内存窗口，文件 patch 只传递路径和变更类型，
 不会把原始 diff 写入或透传为 Workspace 文件内容。
 
+原生 Workspace 的“新建会话”会在对应工作目录执行 `thread/start`，空 Thread 在 App Server 列表可见前
+由 Plugin 临时保留。History 由 Host 按 DSH 消息边界处理 `beforeSeq` / `maxMessages` 分页后再传输，
+Session 搜索则在 Client 端针对当前可见的 Thread 标题、预览、目录和标识执行。
+
 这只是展示适配，不是导入。虚拟 Workspace/Session 不会写入 DSH SessionStore、工作区存储或
 Harness 日志；CodeX App Server 始终是唯一数据源，新建、改名、归档、Prompt、停止和审批操作都
 路由回其白名单方法。Host carrier 继续复用账号 membership、Host identity 固定、Noise 安全通道和

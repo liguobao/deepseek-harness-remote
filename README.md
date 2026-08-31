@@ -132,6 +132,11 @@ and Review Mode items reuse native tool cards. Large live tool output is kept in
 window, while file patch events expose only paths and change kinds rather than forwarding raw diffs as
 Workspace file content.
 
+Native Workspace creation starts a Thread in that Workspace directory and keeps an empty Thread attached
+until it becomes visible in the App Server listing. The Host pages History on DSH message boundaries with
+`beforeSeq` / `maxMessages` before transfer; the Client searches the visible Thread title, preview, directory,
+and identifier locally.
+
 This is a presentation adapter, not an import. The virtual Workspace/Session records are never written
 to DSH SessionStore, workspace storage, or Harness logs. CodeX App Server remains the source of truth,
 and create, rename, archive, prompt, interrupt, and approval actions are routed back to its allowlisted

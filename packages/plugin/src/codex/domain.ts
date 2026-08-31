@@ -20,6 +20,7 @@ import {
 } from './method-policy.js'
 import { CodexPathPolicy } from './path-policy.js'
 import { CodexPeerBridge, type PublishCodexFrame } from './peer-bridge.js'
+import { paginateCodexNativeHistory, projectCodexNativeHistory } from './virtual-harness.js'
 
 const APPROVAL_TTL_MS = 5 * 60_000
 const DEFAULT_RESTART_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const
@@ -139,6 +140,21 @@ export class CodexRemoteDomain {
       // assertThreadAllowed already produced a bounded summary, but make the
       // requested read again so includeTurns has its official semantics.
       return this.callUpstream(call.method, call.params)
+    }
+    if (call.method === 'dsh/sessionHistory') {
+      const result = await this.callUpstream('thread/read', { threadId: threadId!, includeTurns: true })
+      const thread = extractThread(result)
+      if (thread === undefined || thread.id !== threadId) {
+        throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid Thread history.')
+      }
+      return paginateCodexNativeHistory(
+        projectCodexNativeHistory(thread, `codex:${threadId}`),
+        {
+          beforeSeq: optionalInteger(call.params.beforeSeq),
+          throughSeq: optionalInteger(call.params.throughSeq),
+          maxMessages: optionalInteger(call.params.maxMessages),
+        },
+      )
     }
     if (call.method === 'thread/unsubscribe') {
       const bridge = this.peers.get(connectionId)
@@ -605,6 +621,10 @@ function extractThreadId(params: unknown): string | undefined {
   if (isRecord(params.thread) && typeof params.thread.id === 'string') return params.thread.id
   if (isRecord(params.turn) && typeof params.turn.threadId === 'string') return params.turn.threadId
   return undefined
+}
+
+function optionalInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined
 }
 
 function sanitizeApprovalParams(params: unknown, requestHandle: string): unknown {

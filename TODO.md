@@ -55,6 +55,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 - [x] 在 Remote 工作区选择器中增加 CodeX 虚拟工作区入口，不增加本地入口或独立页面
 - [x] 增加 rc.2 ApiProxy / alpha Typert 内存虚拟载体，将 CodeX History/live 映射为原生 Session 事件
 - [x] 将 reasoning/plan delta、command/file/MCP progress、Thread status、model reroute 与 Web Search/Subagent/Image/Compaction/Review Mode Item 投影到原生 chunk、状态、projection 和工具卡片
+- [x] 将新建空 Thread 稳定挂载到当前 CodeX Workspace，并增加 Host 端消息边界 History 分页与 Client 端 Session 元数据搜索
 - [x] 复用 DSH 原生 Workspace/Session 列表、Conversation Renderer、Composer、工具与审批 UI
 - [x] 增加 App Server crash 后有界指数退避重启；关闭旧 stream 且不自动重放 mutation
 - [x] 使用当前 v2 schema 与真实 Codex App Server 完成 stdio initialize/account/list/read/root-filter 冒烟

@@ -82,7 +82,8 @@ export class CodexRemoteClient {
 
   /** Low-level allowlisted request used by the Desktop Web loopback facade. */
   request(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
-    const largeHistory = method === 'thread/read' && isRecord(params) && params.includeTurns === true
+    const largeHistory = method === 'dsh/sessionHistory'
+      || method === 'thread/read' && isRecord(params) && params.includeTurns === true
     return this.call(method, params, largeHistory, signal)
   }
 
