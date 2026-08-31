@@ -452,8 +452,14 @@ export class ClientModeRuntime {
             targetDeviceId: shortId(target.deviceId),
             attempt,
             reason: diagnosticReason(error),
-            ...webrtcDiagnosticsLogFields(diagnostics),
           })
+          if (diagnostics !== undefined) {
+            this.logger.debug('remote Harness WebRTC fallback diagnostics', {
+              targetDeviceId: shortId(target.deviceId),
+              attempt,
+              ...webrtcDiagnosticsLogFields(diagnostics),
+            })
+          }
         },
       },
     )
@@ -504,8 +510,13 @@ export class ClientModeRuntime {
           negotiatedCapabilities: connectionDetails.negotiatedCapabilities,
           webRtcEnabled: connectionDetails.webRtcEnabled,
         }),
-        ...webrtcDiagnosticsLogFields(connectionDetails?.webRtc?.diagnostics),
       })
+      if (connectionDetails?.webRtc?.diagnostics !== undefined) {
+        this.logger.debug('remote Harness transport diagnostics', {
+          targetDeviceId: shortId(target.deviceId),
+          ...webrtcDiagnosticsLogFields(connectionDetails.webRtc.diagnostics),
+        })
+      }
       const features = await probeRemoteHostFeatures(connectedClient, serverDevice.clientVersion)
       return { client: connectedClient, target, transport: connectedTransport, features }
     } catch (error) {

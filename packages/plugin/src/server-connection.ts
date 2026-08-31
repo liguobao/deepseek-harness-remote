@@ -314,11 +314,13 @@ export class HostServerConnection {
         this.socket?.close(4004, 'device revoked')
       } else if (payload.connectionId !== undefined) {
         await this.dropTunnel(payload.connectionId, payload.code)
-        this.logger.warn('server closed a remote connection', {
+        const fields = {
           code: payload.code,
           connectionId: shortId(payload.connectionId),
           retryable: payload.retryable,
-        })
+        }
+        if (payload.retryable) this.logger.debug('server closed a remote connection', fields)
+        else this.logger.warn('server closed a remote connection', fields)
       } else {
         this.terminalError = payload.code
         this.logger.warn('server returned a control error', { code: payload.code, retryable: payload.retryable })
@@ -659,12 +661,18 @@ export class HostServerConnection {
     tunnel.transport = wireSelected
     tunnel.transportMode = tunnel.rtc.selectedPathMode()
     this.sendTransportSelected(tunnel, wireSelected)
+    const diagnostics = rtcDiagnostics(tunnel.rtc)
     this.logger.info('webrtc data channel ready', {
       connectionId: shortId(tunnel.connectionId),
       peerDeviceId: shortId(tunnel.peer.deviceId),
       transport: tunnel.transportMode ?? wireSelected,
-      ...webrtcDiagnosticsLogFields(rtcDiagnostics(tunnel.rtc)),
     })
+    if (diagnostics !== undefined) {
+      this.logger.debug('webrtc data channel diagnostics', {
+        connectionId: shortId(tunnel.connectionId),
+        ...webrtcDiagnosticsLogFields(diagnostics),
+      })
+    }
     void this.resumePendingHandshake(tunnel).catch(error => {
       this.logger.warn('pending secure handshake failed', {
         connectionId: shortId(tunnel.connectionId),
@@ -680,12 +688,18 @@ export class HostServerConnection {
     error: Error,
   ): Promise<void> {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc !== rtc) return
+    const diagnostics = rtcDiagnostics(rtc)
     if (tunnel.transport === 'lan' || tunnel.transport === 'p2p' || tunnel.transport === 'turn') {
       this.logger.warn('webrtc data channel failed; disconnecting peer', {
         connectionId: shortId(tunnel.connectionId),
         reason: diagnosticReason(error),
-        ...webrtcDiagnosticsLogFields(rtcDiagnostics(rtc)),
       })
+      if (diagnostics !== undefined) {
+        this.logger.debug('webrtc data channel failure diagnostics', {
+          connectionId: shortId(tunnel.connectionId),
+          ...webrtcDiagnosticsLogFields(diagnostics),
+        })
+      }
       await this.dropTunnel(tunnel.connectionId, 'CONNECTION_FAILED')
       return
     }
@@ -695,8 +709,13 @@ export class HostServerConnection {
     this.logger.warn('webrtc negotiation failed; falling back to relay', {
       connectionId: shortId(tunnel.connectionId),
       reason: diagnosticReason(error),
-      ...webrtcDiagnosticsLogFields(rtcDiagnostics(rtc)),
     })
+    if (diagnostics !== undefined) {
+      this.logger.debug('webrtc negotiation failure diagnostics', {
+        connectionId: shortId(tunnel.connectionId),
+        ...webrtcDiagnosticsLogFields(diagnostics),
+      })
+    }
     await this.resumePendingHandshake(tunnel)
   }
 

@@ -15787,9 +15787,15 @@ var ClientModeRuntime = class {
           this.logger.warn(attempt === "direct" ? "remote Harness direct WebRTC failed; trying TURN" : "remote Harness TURN WebRTC failed; using relay", {
             targetDeviceId: shortId(target.deviceId),
             attempt,
-            reason: diagnosticReason(error),
-            ...webrtcDiagnosticsLogFields(diagnostics)
+            reason: diagnosticReason(error)
           });
+          if (diagnostics !== void 0) {
+            this.logger.debug("remote Harness WebRTC fallback diagnostics", {
+              targetDeviceId: shortId(target.deviceId),
+              attempt,
+              ...webrtcDiagnosticsLogFields(diagnostics)
+            });
+          }
         }
       }
     );
@@ -15837,9 +15843,14 @@ var ClientModeRuntime = class {
           preferredTransports: connectionDetails.preferredTransports,
           negotiatedCapabilities: connectionDetails.negotiatedCapabilities,
           webRtcEnabled: connectionDetails.webRtcEnabled
-        },
-        ...webrtcDiagnosticsLogFields(connectionDetails?.webRtc?.diagnostics)
+        }
       });
+      if (connectionDetails?.webRtc?.diagnostics !== void 0) {
+        this.logger.debug("remote Harness transport diagnostics", {
+          targetDeviceId: shortId(target.deviceId),
+          ...webrtcDiagnosticsLogFields(connectionDetails.webRtc.diagnostics)
+        });
+      }
       const features = await probeRemoteHostFeatures(connectedClient, serverDevice.clientVersion);
       return { client: connectedClient, target, transport: connectedTransport, features };
     } catch (error) {
@@ -17386,11 +17397,13 @@ var HostServerConnection = class {
         this.socket?.close(4004, "device revoked");
       } else if (payload.connectionId !== void 0) {
         await this.dropTunnel(payload.connectionId, payload.code);
-        this.logger.warn("server closed a remote connection", {
+        const fields = {
           code: payload.code,
           connectionId: shortId3(payload.connectionId),
           retryable: payload.retryable
-        });
+        };
+        if (payload.retryable) this.logger.debug("server closed a remote connection", fields);
+        else this.logger.warn("server closed a remote connection", fields);
       } else {
         this.terminalError = payload.code;
         this.logger.warn("server returned a control error", { code: payload.code, retryable: payload.retryable });
@@ -17674,12 +17687,18 @@ var HostServerConnection = class {
     tunnel.transport = wireSelected;
     tunnel.transportMode = tunnel.rtc.selectedPathMode();
     this.sendTransportSelected(tunnel, wireSelected);
+    const diagnostics = rtcDiagnostics(tunnel.rtc);
     this.logger.info("webrtc data channel ready", {
       connectionId: shortId3(tunnel.connectionId),
       peerDeviceId: shortId3(tunnel.peer.deviceId),
-      transport: tunnel.transportMode ?? wireSelected,
-      ...webrtcDiagnosticsLogFields2(rtcDiagnostics(tunnel.rtc))
+      transport: tunnel.transportMode ?? wireSelected
     });
+    if (diagnostics !== void 0) {
+      this.logger.debug("webrtc data channel diagnostics", {
+        connectionId: shortId3(tunnel.connectionId),
+        ...webrtcDiagnosticsLogFields2(diagnostics)
+      });
+    }
     void this.resumePendingHandshake(tunnel).catch((error) => {
       this.logger.warn("pending secure handshake failed", {
         connectionId: shortId3(tunnel.connectionId),
@@ -17690,12 +17709,18 @@ var HostServerConnection = class {
   }
   async handleRtcFailed(tunnel, rtc, error) {
     if (this.tunnels.get(tunnel.connectionId) !== tunnel || tunnel.rtc !== rtc) return;
+    const diagnostics = rtcDiagnostics(rtc);
     if (tunnel.transport === "lan" || tunnel.transport === "p2p" || tunnel.transport === "turn") {
       this.logger.warn("webrtc data channel failed; disconnecting peer", {
         connectionId: shortId3(tunnel.connectionId),
-        reason: diagnosticReason3(error),
-        ...webrtcDiagnosticsLogFields2(rtcDiagnostics(rtc))
+        reason: diagnosticReason3(error)
       });
+      if (diagnostics !== void 0) {
+        this.logger.debug("webrtc data channel failure diagnostics", {
+          connectionId: shortId3(tunnel.connectionId),
+          ...webrtcDiagnosticsLogFields2(diagnostics)
+        });
+      }
       await this.dropTunnel(tunnel.connectionId, "CONNECTION_FAILED");
       return;
     }
@@ -17704,9 +17729,14 @@ var HostServerConnection = class {
     await rtc.close();
     this.logger.warn("webrtc negotiation failed; falling back to relay", {
       connectionId: shortId3(tunnel.connectionId),
-      reason: diagnosticReason3(error),
-      ...webrtcDiagnosticsLogFields2(rtcDiagnostics(rtc))
+      reason: diagnosticReason3(error)
     });
+    if (diagnostics !== void 0) {
+      this.logger.debug("webrtc negotiation failure diagnostics", {
+        connectionId: shortId3(tunnel.connectionId),
+        ...webrtcDiagnosticsLogFields2(diagnostics)
+      });
+    }
     await this.resumePendingHandshake(tunnel);
   }
   sendTransportSelected(tunnel, transport) {
