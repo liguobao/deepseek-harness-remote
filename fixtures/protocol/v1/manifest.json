@@ -1,0 +1,19 @@
+{
+  "fixtureFormat": "dsh-remote.protocol-conformance",
+  "fixtureFormatVersion": 1,
+  "protocolVersion": 1,
+  "suites": [
+    {
+      "name": "control-envelope",
+      "path": "control/envelope.json"
+    },
+    {
+      "name": "control-hello",
+      "path": "control/hello.json"
+    },
+    {
+      "name": "capability-negotiation",
+      "path": "negotiation/capabilities.json"
+    }
+  ]
+}
