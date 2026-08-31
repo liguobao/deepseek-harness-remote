@@ -37,10 +37,13 @@
       "inject": [
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-sidebar",
         "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-settings-plugins"
+        "@deepseek-ai/dsh-client-ui-settings-plugins",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ],
       "platform": "web"
     }
@@ -64,10 +67,13 @@
     "@deepseek-ai/dsh-api-gateway": ">=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0",
     "@deepseek-ai/dsh-client-connection": ">=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0",
     "@deepseek-ai/dsh-client-locale": ">=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-chat": ">=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0",
     "@deepseek-ai/dsh-client-ui-settings": ">=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0",
     "@deepseek-ai/dsh-client-ui-settings-plugins": ">=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0",
     "@deepseek-ai/dsh-client-ui-sidebar": ">=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0",
     "@deepseek-ai/dsh-client-ui-slots": ">=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-workspace": ">=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0",
     "@deepseek-ai/dsh-settings": ">=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0",
     "react": ">=18.2.0 <19"
   },
@@ -76,6 +82,12 @@
       "optional": true
     },
     "@deepseek-ai/dsh-client-locale": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-chat": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-conversation": {
       "optional": true
     },
     "@deepseek-ai/dsh-client-ui-sidebar": {
@@ -88,6 +100,9 @@
       "optional": true
     },
     "@deepseek-ai/dsh-client-ui-settings-plugins": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-workspace": {
       "optional": true
     }
   },

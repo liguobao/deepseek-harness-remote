@@ -21,6 +21,8 @@ import type { LocalTypertGateway } from './typert-gateway-contract.js'
 import { loadNodeRtcFactory } from './werift-rtc.js'
 import type { AuthenticatedPeerChannel } from './types.js'
 import { CodexRemoteDomain } from './codex/domain.js'
+import type { CodexPeerBridge, PublishCodexFrame } from './codex/peer-bridge.js'
+import { RpcError } from './safe-error.js'
 
 export interface HostRemoteStatus {
   deviceId?: string
@@ -42,6 +44,8 @@ export class HostPluginRuntime {
   private harnessVersion?: string
   private closed = false
   private readonly codex: CodexRemoteDomain
+  private localCodexPeer?: CodexPeerBridge
+  private localCodexPublish: PublishCodexFrame = async () => undefined
 
   constructor(
     private readonly config: ResolvedConfig,
@@ -203,11 +207,38 @@ export class HostPluginRuntime {
     return revoked
   }
 
+  codexStatus(): ReturnType<CodexRemoteDomain['status']> {
+    return this.codex.status()
+  }
+
+  codexCall(input: unknown): Promise<unknown> {
+    return this.requireLocalCodexPeer().call(input)
+  }
+
+  codexRespond(input: unknown): Promise<{ resolved: true }> {
+    return this.requireLocalCodexPeer().respond(input)
+  }
+
+  codexOpenStream(input: unknown, publish: PublishCodexFrame): Promise<unknown> {
+    this.localCodexPublish = publish
+    return this.requireLocalCodexPeer().openStream(input)
+  }
+
+  async codexCloseStream(input: unknown): Promise<unknown> {
+    const peer = this.localCodexPeer
+    if (peer !== undefined) return peer.closeStream(input)
+    const streamId = isPlainRecord(input) && typeof input.streamId === 'string' ? input.streamId : undefined
+    if (streamId === undefined) throw new RpcError('INVALID_MESSAGE', 'A Codex stream is required.')
+    return { closed: false, streamId }
+  }
+
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
     await this.serverConnection?.stop()
     await this.connections.close()
+    await this.localCodexPeer?.closeAll()
+    this.localCodexPeer = undefined
     await this.codex.close()
     this.logger.info('host runtime stopped')
   }
@@ -279,6 +310,27 @@ export class HostPluginRuntime {
     if (this.codex.isAvailable()) capabilities.push('codex.appserver.v1', 'codex.appserver.transfer.v1')
     return capabilities
   }
+
+  private requireLocalCodexPeer(): CodexPeerBridge {
+    if (!this.codex.isAvailable()) {
+      throw new RpcError('CODEX_UNAVAILABLE', 'Local CodeX is disabled or unavailable on this Host.')
+    }
+    if (this.localCodexPeer !== undefined) return this.localCodexPeer
+    const identity = this.currentIdentity()
+    const peer = this.codex.createPeer({
+      connectionId: `loopback:${identity.deviceId}`,
+      peerDeviceId: identity.deviceId,
+    }, (event, data) => this.localCodexPublish(event, data))
+    if (peer === undefined) {
+      throw new RpcError('CODEX_UNAVAILABLE', 'Local CodeX is disabled or unavailable on this Host.')
+    }
+    this.localCodexPeer = peer
+    return peer
+  }
 }
 
 function shortId(value: string): string { return value.length <= 12 ? value : `${value.slice(0, 8)}…${value.slice(-4)}` }
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}

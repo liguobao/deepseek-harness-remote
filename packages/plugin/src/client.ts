@@ -390,8 +390,8 @@ const en = {
   accountPasswordLogin: 'Password',
   qrLoginExpired: 'This QR code expired. Refresh it to continue.',
   refreshQrCode: 'Refresh QR code',
-  codexEntry: 'Codex',
-  codexTitle: 'Codex sessions',
+  codexEntry: 'CodeX',
+  codexTitle: 'CodeX',
   codexDescription: 'Threads on the connected Host. Data stays in Codex and is shown here as a separate view.',
   codexLoading: 'Loading Codex sessions…',
   codexEmpty: 'No Codex threads are available in the Host allowed roots.',
@@ -418,6 +418,9 @@ const en = {
   codexUnknownItem: 'Unsupported Codex item: {type}',
   codexNoMessages: 'This thread has no displayable history yet.',
   codexUnavailable: 'Codex is disabled or unavailable on the connected Host.',
+  codexImagesUnsupported: 'CodeX image attachments are not supported in this bridge yet.',
+  codexFileOpenUnavailable: 'Opening CodeX-produced files from this view is not available yet.',
+  codexRequestCancelled: 'CodeX request was cancelled.',
   codexYou: 'You',
   codexCommand: 'Command',
   codexFiles: 'Files',
@@ -627,8 +630,8 @@ const zh: Record<keyof typeof en, string> = {
   accountPasswordLogin: '账号密码',
   qrLoginExpired: '二维码已过期，请刷新后重试。',
   refreshQrCode: '刷新二维码',
-  codexEntry: 'Codex',
-  codexTitle: 'Codex 会话',
+  codexEntry: 'CodeX',
+  codexTitle: 'CodeX',
   codexDescription: '展示已连接 Host 上的 Codex Thread。数据仍由 Codex 保存，并在这里作为独立视图呈现。',
   codexLoading: '正在加载 Codex 会话…',
   codexEmpty: 'Host 允许的根目录中没有可展示的 Codex Thread。',
@@ -655,6 +658,9 @@ const zh: Record<keyof typeof en, string> = {
   codexUnknownItem: '暂不支持的 Codex 项目：{type}',
   codexNoMessages: '这个 Thread 还没有可展示的历史。',
   codexUnavailable: '已连接的 Host 未启用 Codex，或 Codex 当前不可用。',
+  codexImagesUnsupported: '这个桥接视图暂不支持 CodeX 图片附件。',
+  codexFileOpenUnavailable: '暂不能从这个视图直接打开 CodeX 产出的文件。',
+  codexRequestCancelled: 'CodeX 请求已取消。',
   codexYou: '你',
   codexCommand: '命令',
   codexFiles: '文件',
@@ -837,10 +843,33 @@ window.__ModuleLoader__.load({
       Fragment: unknown
       createElement(type: unknown, props?: Record<string, unknown> | null, ...children: unknown[]): unknown
       useEffect(effect: () => void | (() => void), deps: unknown[]): void
+      useCallback<T>(callback: T, deps: unknown[]): T
+      useMemo<T>(factory: () => T, deps: unknown[]): T
       useRef<T>(initial: T): { current: T }
-      useState<T>(initial: T): [T, (value: T | ((previous: T) => T)) => void]
+      useState<T>(initial: T | (() => T)): [T, (value: T | ((previous: T) => T)) => void]
     }
-    const inject = ['connection', 'slots', 'locale', 'workspaces', 'sessions']
+    const {
+      AssistantNodeView,
+      ChatSnapshotBuilder,
+      ChatView,
+      UnknownNodeView,
+      UserMessageNodeView,
+      createChatStore,
+    } = require('@deepseek-ai/dsh-client-ui-chat/client') as {
+      AssistantNodeView: unknown
+      ChatSnapshotBuilder: new () => CodexChatSnapshotBuilder
+      ChatView: unknown
+      UnknownNodeView: unknown
+      UserMessageNodeView: unknown
+      createChatStore: () => { create(scopeKey?: string): CodexStoreInstance }
+    }
+    const { InputBar, SessionInputShell } = require('@deepseek-ai/dsh-client-ui-conversation/client') as {
+      InputBar: unknown
+      SessionInputShell: new (deps: CodexSessionInputDeps) => CodexInputShell
+    }
+    const inject = [
+      'connection', 'slots', 'locale', 'workspaces', 'sessions', 'conversationSurfaces',
+    ]
 
     function RemoteProgressView(props: {
       progress: RemoteConnectionProgress | undefined
@@ -1715,49 +1744,341 @@ window.__ModuleLoader__.load({
       turns?: unknown[]
     }
 
-    function CodexSessionAction(props: {
+    interface CodexObservable<T> {
+      getSnapshot(): T
+      subscribe(listener: () => void): () => void
+    }
+
+    interface CodexSidebarState {
+      expanded: boolean
+      selectedThread?: CodexThreadRow
+    }
+
+    interface CodexSidebarStore extends CodexObservable<CodexSidebarState> {
+      setExpanded(expanded: boolean): void
+      selectThread(thread: CodexThreadRow | undefined): void
+    }
+
+    interface CodexWorkspaceVirtualSession {
+      id: string
+      title: string
+      blank?: boolean
+      pendingInteraction?: 'approval' | 'plan-review' | 'question'
+      running?: boolean
+      runningSubagentCount?: number
+      completed?: boolean
+      updatedAt: number
+      onOpen: () => void
+      onRename?: () => void
+      onFork?: () => void
+      onArchive?: () => void
+    }
+
+    interface CodexWorkspaceVirtualGroup {
+      key: string
+      label: string
+      cwd?: string
+      createdAt?: number
+      expanded: boolean
+      containsCurrent?: boolean
+      selectedSessionId?: string
+      sessions?: readonly CodexWorkspaceVirtualSession[]
+      onToggle: () => void
+      onCreate?: () => void
+      onRename?: () => void
+      onDelete?: () => void
+    }
+
+    interface CodexWorkspaceGroupOwnerProps {
       wide: boolean
+      expandSidebar: () => void
+      renderGroup: (group: CodexWorkspaceVirtualGroup) => unknown
+    }
+
+    interface CodexStoreInstance extends CodexObservable<unknown> {
+      actions: Record<string, unknown>
+    }
+
+    interface CodexChatSnapshotBuilder {
+      readonly empty: unknown
+      replace(input: {
+        readonly nodes: readonly CodexChatNode[]
+        readonly timeline: CodexTimelineSnapshotLike
+      }): unknown
+    }
+
+    interface CodexInputShell {
+      readonly state: CodexObservable<unknown>
+      readonly notices: CodexObservable<unknown>
+      readonly actions: unknown
+      readonly editor: unknown
+      readonly snapshot: unknown
+      dispose(): readonly unknown[]
+      submit(mode?: 'queue' | 'steer'): void
+      notify(level: 'info' | 'error', text: string): void
+    }
+
+    interface CodexSessionInputDeps {
+      actx: unknown
+      defaultSink(
+        text: string,
+        imageIds: readonly unknown[],
+        mode: 'queue' | 'steer',
+        signal: AbortSignal,
+      ): Promise<{ kind: 'success' | 'error'; text?: string }>
+      commandImages: {
+        serialize(ids: readonly unknown[]): Promise<readonly unknown[]>
+        release(ids: readonly unknown[]): void
+        unsupportedNotice(token: string): string
+      }
+    }
+
+    interface CodexConversationSurfacesLike {
+      open(id: string): void
+      close(): void
+    }
+
+    interface CodexChatNode {
+      readonly key: string
+      readonly kind: string
+      readonly id: string
+      readonly target: 'chat'
+      readonly anchorSeq: number
+      readonly location: CodexConversationLocation
+      readonly visibility: 'visible' | 'hidden'
+      readonly data: unknown
+    }
+
+    interface CodexLocationDataStore {
+      get(key: string): undefined
+    }
+
+    interface CodexSessionEventLike {
+      readonly type: string
+      readonly seq: number
+      readonly time: number
+      readonly data: Record<string, unknown>
+    }
+
+    interface CodexStepLocationLike {
+      readonly turn: number
+      readonly step: number
+      readonly start: CodexSessionEventLike | undefined
+      readonly end: CodexSessionEventLike | undefined
+      readonly status: 'open' | 'closed' | 'unknown'
+      readonly data: CodexLocationDataStore
+    }
+
+    interface CodexTurnLocationLike {
+      readonly turn: number
+      readonly start: CodexSessionEventLike | undefined
+      readonly end: CodexSessionEventLike | undefined
+      readonly status: 'open' | 'closed' | 'unknown'
+      readonly steps: readonly CodexStepLocationLike[]
+      readonly data: CodexLocationDataStore
+    }
+
+    type CodexConversationLocation =
+      | { readonly kind: 'session' }
+      | { readonly kind: 'turn'; readonly turn: CodexTurnLocationLike }
+      | { readonly kind: 'step'; readonly turn: CodexTurnLocationLike; readonly step: CodexStepLocationLike }
+      | { readonly kind: 'unresolved' }
+
+    interface CodexTimelineSnapshotLike {
+      readonly turnOrder: readonly number[]
+      readonly turns: ReadonlyMap<number, CodexTurnLocationLike>
+    }
+
+    interface CodexTurnRecord {
+      readonly id: string
+      readonly turn: number
+      readonly records: readonly { readonly item: DisplayHistoryItem; readonly seq: number }[]
+    }
+
+    const CODEX_EMPTY_LOCATION_DATA: CodexLocationDataStore = { get: () => undefined }
+    const CODEX_EMPTY_MENU_SOURCE = codexConstantSource<string | null>(null)
+    const CODEX_COMPACT_TRANSCRIPT_SOURCE = codexConstantSource<'compact'>('compact')
+    const codexSidebar = createCodexSidebarStore()
+
+    function CodexWorkspaceGroup(props: CodexWorkspaceGroupOwnerProps & {
       control: <T>(endpoint: string, payload?: unknown) => Promise<T>
+      openSurface: () => void
       t: Translate
     }): unknown {
       const { t } = props
       const [supported, setSupported] = React.useState(false)
-      const [open, setOpen] = React.useState(false)
       const [threads, setThreads] = React.useState<CodexThreadRow[]>([])
-      const [nextCursor, setNextCursor] = React.useState<string | undefined>(undefined)
-      const [showArchived, setShowArchived] = React.useState(false)
+      const [busy, setBusy] = React.useState(false)
+      const nav = useCodexSource(codexSidebar, snapshot => snapshot)
+
+      const syncSupport = async (): Promise<void> => {
+        try {
+          const result = await props.control<{ supported: boolean }>('codex.probe')
+          setSupported(result.supported)
+          if (result.supported && codexSidebar.getSnapshot().expanded) await loadThreads()
+        } catch {
+          setSupported(false)
+        }
+      }
+
+      const loadThreads = async (): Promise<void> => {
+        setBusy(true)
+        try {
+          const result = await props.control<unknown>('codex.call', {
+            method: 'thread/list',
+            params: {
+              limit: 50,
+              sortKey: 'updated_at',
+              sortDirection: 'desc',
+              sourceKinds: ['cli', 'vscode', 'exec', 'appServer', 'unknown'],
+              archived: false,
+            },
+          })
+          setThreads(codexThreadPage(result, false).rows)
+        } catch (reason) {
+          console.warn('[ds-harness-remote] failed to load Codex threads:', reason)
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      React.useEffect(() => {
+        let active = true
+        const sync = async (): Promise<void> => {
+          if (!active) return
+          await syncSupport()
+        }
+        void sync()
+        const timer = window.setInterval(() => { void sync() }, 3_000)
+        return () => {
+          active = false
+          window.clearInterval(timer)
+        }
+      }, [])
+
+      React.useEffect(() => {
+        if (!supported || !nav.expanded || threads.length > 0 || busy) return
+        void loadThreads()
+      }, [supported, nav.expanded, threads.length, busy])
+
+      if (!supported || !props.wide) return null
+      const openThread = (thread: CodexThreadRow): void => {
+        codexSidebar.selectThread(thread)
+        codexSidebar.setExpanded(true)
+        props.expandSidebar()
+        props.openSurface()
+      }
+      const renameThread = async (thread: CodexThreadRow): Promise<void> => {
+        const name = window.prompt(t('codexRenamePrompt'), thread.name ?? thread.preview ?? '')?.trim()
+        if (name === undefined || name === '') return
+        setBusy(true)
+        try {
+          await props.control('codex.call', { method: 'thread/name/set', params: { threadId: thread.id, name } })
+          const renamed = { ...thread, name }
+          setThreads(previous => previous.map(item => item.id === thread.id ? renamed : item))
+          if (codexSidebar.getSnapshot().selectedThread?.id === thread.id) codexSidebar.selectThread(renamed)
+        } catch (reason) {
+          console.warn('[ds-harness-remote] failed to rename Codex thread:', reason)
+        } finally {
+          setBusy(false)
+        }
+      }
+      const forkThread = async (thread: CodexThreadRow): Promise<void> => {
+        setBusy(true)
+        try {
+          const result = await props.control<unknown>('codex.call', {
+            method: 'thread/fork',
+            params: { threadId: thread.id },
+          })
+          const forked = codexResultThread(result)
+          if (forked === undefined) throw new Error('The Host returned an invalid Codex thread.')
+          setThreads(previous => mergeCodexThreads([forked], previous))
+          openThread(forked)
+        } catch (reason) {
+          console.warn('[ds-harness-remote] failed to fork Codex thread:', reason)
+        } finally {
+          setBusy(false)
+        }
+      }
+      const archiveThread = async (thread: CodexThreadRow): Promise<void> => {
+        setBusy(true)
+        try {
+          await props.control('codex.call', { method: 'thread/archive', params: { threadId: thread.id } })
+          setThreads(previous => previous.filter(item => item.id !== thread.id))
+          if (codexSidebar.getSnapshot().selectedThread?.id === thread.id) codexSidebar.selectThread(undefined)
+        } catch (reason) {
+          console.warn('[ds-harness-remote] failed to archive Codex thread:', reason)
+        } finally {
+          setBusy(false)
+        }
+      }
+      const createThread = async (): Promise<void> => {
+        const seedPath = threads.find(thread => typeof thread.cwd === 'string')?.cwd ?? ''
+        const cwd = window.prompt(t('codexNewPath'), seedPath)?.trim()
+        if (cwd === undefined || cwd === '') return
+        setBusy(true)
+        try {
+          const result = await props.control<unknown>('codex.call', { method: 'thread/start', params: { cwd } })
+          const thread = codexResultThread(result)
+          if (thread === undefined) throw new Error('The Host returned an invalid Codex thread.')
+          setThreads(previous => mergeCodexThreads([thread], previous))
+          openThread(thread)
+        } catch (reason) {
+          console.warn('[ds-harness-remote] failed to create Codex thread:', reason)
+        } finally {
+          setBusy(false)
+        }
+      }
+      return props.renderGroup({
+        key: 'ds-harness-remote-codex',
+        label: t('codexEntry'),
+        expanded: nav.expanded,
+        containsCurrent: nav.selectedThread !== undefined,
+        selectedSessionId: nav.selectedThread === undefined ? undefined : codexSidebarSessionId(nav.selectedThread.id),
+        sessions: threads.map(thread => ({
+          id: codexSidebarSessionId(thread.id),
+          title: `${thread.isPinned ? '★ ' : ''}${thread.name ?? thread.preview ?? thread.id}`,
+          running: codexThreadRunning(thread.status),
+          pendingInteraction: codexThreadWaitingOnApproval(thread.status) ? 'approval' : undefined,
+          completed: false,
+          updatedAt: codexTimestampMs(thread.updatedAt ?? thread.createdAt),
+          onOpen: () => { openThread(thread) },
+          onRename: () => { void renameThread(thread) },
+          onFork: () => { void forkThread(thread) },
+          onArchive: () => { void archiveThread(thread) },
+        })),
+        onToggle: () => {
+          const expanded = !codexSidebar.getSnapshot().expanded
+          codexSidebar.setExpanded(expanded)
+          if (expanded) void loadThreads()
+        },
+        onCreate: () => { void createThread() },
+      })
+    }
+
+    function CodexConversationSurface(props: {
+      close: () => void
+      control: <T>(endpoint: string, payload?: unknown) => Promise<T>
+      chatT: Translate
+      conversationT: Translate
+      t: Translate
+    }): unknown {
+      const { t } = props
+      const requestedThread = useCodexSource(codexSidebar, snapshot => snapshot.selectedThread)
       const [selected, setSelected] = React.useState<CodexThreadRow | undefined>(undefined)
       const [timelineState, setTimelineState] = React.useState<CodexTimelineState | undefined>(undefined)
-      const [prompt, setPrompt] = React.useState('')
-      const [newThreadPath, setNewThreadPath] = React.useState('')
       const [busy, setBusy] = React.useState(false)
       const [loading, setLoading] = React.useState(false)
       const [reconnecting, setReconnecting] = React.useState(false)
       const [error, setError] = React.useState<string | undefined>(undefined)
       const streamRef = React.useRef<{ id: string; run: number; threadId: string } | undefined>(undefined)
       const runRef = React.useRef(0)
-
-      const syncSupport = async (): Promise<void> => {
-        try {
-          const status = await props.control<RemoteStatus>('status')
-          if (status.connected !== true) {
-            setSupported(false)
-            return
-          }
-          const result = await props.control<{ supported: boolean }>('codex.probe')
-          setSupported(result.supported)
-        } catch {
-          setSupported(false)
-        }
-      }
-
-      React.useEffect(() => {
-        let active = true
-        const sync = async () => { if (active) await syncSupport() }
-        void sync()
-        const timer = window.setInterval(() => { void sync() }, 3_000)
-        return () => { active = false; window.clearInterval(timer) }
-      }, [])
+      const selectedRef = React.useRef<CodexThreadRow | undefined>(undefined)
+      const timelineRef = React.useRef<CodexTimelineState | undefined>(undefined)
+      const controlRef = React.useRef(props.control)
+      selectedRef.current = selected
+      timelineRef.current = timelineState
+      controlRef.current = props.control
 
       const closeActiveStream = async (): Promise<void> => {
         runRef.current += 1
@@ -1770,30 +2091,56 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => () => { void closeActiveStream() }, [])
 
-      const loadThreads = async (cursor?: string, archived = showArchived): Promise<void> => {
-        setLoading(true)
-        setError(undefined)
-        try {
-          const result = await props.control<unknown>('codex.call', {
-            method: 'thread/list',
-            params: {
-              limit: 50,
-              sortKey: 'updated_at',
-              sortDirection: 'desc',
-              sourceKinds: ['cli', 'vscode', 'exec', 'appServer', 'unknown'],
-              archived,
-              ...(cursor === undefined ? {} : { cursor }),
-            },
-          })
-          const page = codexThreadPage(result, archived)
-          setThreads(previous => cursor === undefined ? page.rows : mergeCodexThreads(previous, page.rows))
-          setNextCursor(page.nextCursor)
-        } catch (reason) {
-          setError(messageOf(reason))
-        } finally {
-          setLoading(false)
-        }
-      }
+      const inputShell = React.useMemo(() => new SessionInputShell({
+        actx: {},
+        defaultSink: async (text, _imageIds, _mode, signal) => {
+          const current = selectedRef.current
+          if (current === undefined || current.archived || text.trim() === '') {
+            return { kind: 'error', text: t('codexUnavailable') }
+          }
+          if (signal.aborted) return { kind: 'error', text: t('codexRequestCancelled') }
+          setError(undefined)
+          try {
+            await controlRef.current('codex.call', {
+              method: 'thread/resume',
+              params: { threadId: current.id },
+            })
+            const activeTurnId = timelineRef.current?.activeTurnId
+            const method = activeTurnId !== undefined ? 'turn/steer' : 'turn/start'
+            const result = await controlRef.current<unknown>('codex.call', {
+              method,
+              params: method === 'turn/steer'
+                ? { threadId: current.id, expectedTurnId: activeTurnId, input: [{ type: 'text', text: text.trim() }] }
+                : { threadId: current.id, input: [{ type: 'text', text: text.trim() }] },
+            })
+            const turn = codexRecord(codexRecord(result)?.turn)
+            if (typeof turn?.id === 'string') {
+              setTimelineState(previous => previous === undefined ? previous : {
+                ...previous,
+                activeTurnId: turn.id as string,
+                session: { ...previous.session, status: 'running' },
+              })
+            } else if (method === 'turn/steer') {
+              setTimelineState(previous => previous === undefined ? previous : {
+                ...previous,
+                session: { ...previous.session, status: 'running' },
+              })
+            }
+            return { kind: 'success' }
+          } catch (reason) {
+            const message = messageOf(reason)
+            setError(message)
+            return { kind: 'error', text: message }
+          }
+        },
+        commandImages: {
+          serialize: async () => [],
+          release: () => {},
+          unsupportedNotice: () => t('codexImagesUnsupported'),
+        },
+      }), [selected?.id, t])
+
+      React.useEffect(() => () => { inputShell.dispose() }, [inputShell])
 
       const loadHistory = async (threadId: string): Promise<CodexTimelineState> => {
         const result = await props.control<unknown>('codex.call', {
@@ -1869,120 +2216,20 @@ window.__ModuleLoader__.load({
         void runThreadSession(thread.id, run).finally(() => setLoading(false))
       }
 
-      const createThread = async (): Promise<void> => {
-        const cwd = newThreadPath.trim()
-        if (cwd === '') return
-        setBusy(true)
-        setError(undefined)
-        try {
-          const result = await props.control<unknown>('codex.call', { method: 'thread/start', params: { cwd } })
-          const thread = codexResultThread(result)
-          if (thread === undefined) throw new Error('The Host returned an invalid Codex thread.')
-          setThreads(previous => mergeCodexThreads([thread], previous))
-          setNewThreadPath('')
-          await openThread(thread)
-        } catch (reason) {
-          setError(messageOf(reason))
-        } finally {
-          setBusy(false)
-        }
-      }
-
-      const renameThread = async (): Promise<void> => {
-        if (selected === undefined) return
-        const name = window.prompt(t('codexRenamePrompt'), selected.name ?? selected.preview ?? '')?.trim()
-        if (name === undefined || name === '') return
-        setBusy(true)
-        setError(undefined)
-        try {
-          await props.control('codex.call', { method: 'thread/name/set', params: { threadId: selected.id, name } })
-          setSelected(previous => previous === undefined ? previous : { ...previous, name })
-          setThreads(previous => previous.map(thread => thread.id === selected.id ? { ...thread, name } : thread))
-          setTimelineState(previous => previous === undefined ? previous : {
-            ...previous,
-            session: { ...previous.session, title: name },
-          })
-        } catch (reason) {
-          setError(messageOf(reason))
-        } finally {
-          setBusy(false)
-        }
-      }
-
-      const archiveThread = async (): Promise<void> => {
-        if (selected === undefined) return
-        setBusy(true)
-        setError(undefined)
-        try {
-          await props.control('codex.call', {
-            method: selected.archived ? 'thread/unarchive' : 'thread/archive',
-            params: { threadId: selected.id },
-          })
-          const archivedId = selected.id
-          await closeActiveStream()
-          setThreads(previous => previous.filter(thread => thread.id !== archivedId))
+      React.useEffect(() => {
+        if (requestedThread === undefined) {
           setSelected(undefined)
           setTimelineState(undefined)
           setReconnecting(false)
-        } catch (reason) {
-          setError(messageOf(reason))
-        } finally {
-          setBusy(false)
+          void closeActiveStream().then(() => { props.close() })
+          return
         }
-      }
-
-      const show = async (): Promise<void> => {
-        setOpen(true)
-        setShowArchived(false)
-        setSelected(undefined)
-        setTimelineState(undefined)
-        await loadThreads(undefined, false)
-      }
-
-      const switchArchiveView = async (): Promise<void> => {
-        const archived = !showArchived
-        await closeActiveStream()
-        setShowArchived(archived)
-        setSelected(undefined)
-        setTimelineState(undefined)
-        setThreads([])
-        setNextCursor(undefined)
-        await loadThreads(undefined, archived)
-      }
-
-      const close = async (): Promise<void> => {
-        setOpen(false)
-        setSelected(undefined)
-        setTimelineState(undefined)
-        setReconnecting(false)
-        await closeActiveStream()
-      }
-
-      const send = async (): Promise<void> => {
-        if (selected === undefined || selected.archived || prompt.trim() === '') return
-        setBusy(true)
-        setError(undefined)
-        try {
-          await props.control('codex.call', { method: 'thread/resume', params: { threadId: selected.id } })
-          const result = await props.control<unknown>('codex.call', {
-            method: 'turn/start',
-            params: { threadId: selected.id, input: [{ type: 'text', text: prompt.trim() }] },
-          })
-          const turn = codexRecord(codexRecord(result)?.turn)
-          if (typeof turn?.id === 'string') {
-            setTimelineState(previous => previous === undefined ? previous : {
-              ...previous,
-              activeTurnId: turn.id as string,
-              session: { ...previous.session, status: 'running' },
-            })
-          }
-          setPrompt('')
-        } catch (reason) {
-          setError(messageOf(reason))
-        } finally {
-          setBusy(false)
+        if (selectedRef.current?.id === requestedThread.id) {
+          setSelected(previous => previous === undefined ? requestedThread : { ...previous, ...requestedThread })
+          return
         }
-      }
+        void openThread(requestedThread)
+      }, [requestedThread])
 
       const interrupt = async (): Promise<void> => {
         const activeTurnId = timelineState?.activeTurnId
@@ -2019,107 +2266,436 @@ window.__ModuleLoader__.load({
         }
       }
 
-      if (!supported) return null
-      const timeline = timelineState?.items ?? []
       const approval = timelineState?.approval
-      const activeTurnId = timelineState?.activeTurnId
-      return React.createElement(React.Fragment, null,
-        React.createElement('div', { className: `dshRemoteSidebarEntry dshCodexSidebar${props.wide ? ' isWide' : ' isRail'}` },
-          React.createElement('button', {
-            type: 'button', className: 'dshRemoteModeButton', title: t('codexEntry'), 'aria-label': t('codexEntry'),
-            onClick: () => void show(),
-          }, React.createElement('svg', {
-            className: 'dshRemoteComputerIcon', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
-            strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
-          }, React.createElement('path', { d: 'M8 5h8M6 9h12M5 13h14M8 17h8' })),
-          props.wide ? React.createElement('span', { className: 'dshRemoteSidebarLabel' }, t('codexEntry')) : null)),
-        !open ? null : React.createElement('div', {
-          className: 'dshRemoteBackdrop', role: 'presentation',
-          onMouseDown: (event: MouseEvent) => { if (event.target === event.currentTarget) void close() },
-        }, React.createElement('section', {
-          className: 'dshRemotePage dshCodexPage', role: 'dialog', 'aria-modal': true, 'aria-label': t('codexTitle'),
-        }, React.createElement('header', { className: 'dshRemotePageHeader' },
-          React.createElement('div', { className: 'dshRemotePageIntro' },
-            React.createElement('strong', null, t('codexTitle')),
-            React.createElement('p', null, t('codexDescription'))),
-          React.createElement('div', { className: 'dshRemotePageActions' },
-            React.createElement('button', {
-              type: 'button', disabled: loading || busy,
-              onClick: () => selected === undefined ? void loadThreads() : void loadHistory(selected.id),
-            }, t('codexRefresh')),
-            React.createElement('button', { type: 'button', onClick: () => void close(), 'aria-label': t('close') }, '×'))),
-        React.createElement('main', { className: 'dshRemotePageBody dshCodexBody' },
-          selected === undefined
-            ? React.createElement('div', { className: 'dshCodexThreadList' },
-              React.createElement('div', { className: 'dshCodexListActions' },
-                showArchived ? null : React.createElement('div', { className: 'dshCodexNewThread' },
-                  React.createElement('input', {
-                    value: newThreadPath,
-                    disabled: busy,
-                    placeholder: t('codexNewPath'),
-                    onChange: (event: Event) => setNewThreadPath((event.target as HTMLInputElement).value),
-                  }),
-                  React.createElement('button', {
-                    type: 'button', disabled: busy || newThreadPath.trim() === '', onClick: () => void createThread(),
-                  }, t('codexNewThread'))),
-                React.createElement('button', {
-                  type: 'button', className: 'dshCodexArchiveView', disabled: loading || busy,
-                  onClick: () => void switchArchiveView(),
-                }, t(showArchived ? 'codexShowActive' : 'codexShowArchived'))),
-              loading && threads.length === 0 ? React.createElement('p', null, t('codexLoading'))
-                : threads.length === 0 ? React.createElement('p', null, t('codexEmpty'))
-                  : threads.map(thread => React.createElement('button', {
-                    type: 'button', key: thread.id, onClick: () => void openThread(thread),
-                  }, React.createElement('span', null,
-                    React.createElement('strong', null, `${thread.isPinned ? '★ ' : ''}${thread.name ?? thread.preview ?? thread.id}`),
-                    React.createElement('small', null, thread.cwd ?? thread.id)),
-                  React.createElement('small', null, [
-                    thread.isPinned ? t('codexPinned') : '',
-                    codexStatusLabel(thread.status, t),
-                    codexTimestampLabel(thread.updatedAt),
-                  ].filter(Boolean).join(' · ')))),
-              nextCursor === undefined ? null : React.createElement('button', {
-                type: 'button', className: 'dshCodexLoadMore', disabled: loading,
-                onClick: () => void loadThreads(nextCursor),
-              }, t('codexLoadMore')))
-            : React.createElement(React.Fragment, null,
-              React.createElement('button', {
-                type: 'button', className: 'dshRemoteLocalLink',
-                onClick: () => { void closeActiveStream(); setSelected(undefined); setTimelineState(undefined); setReconnecting(false) },
-              }, t('codexBack')),
-              React.createElement('div', { className: 'dshCodexThreadHeader' },
-                React.createElement('strong', null, selected.name ?? selected.preview ?? selected.id),
-                React.createElement('span', null, selected.cwd ?? selected.id),
-                reconnecting ? React.createElement('small', null, t('codexReconnecting'))
-                  : streamRef.current === undefined ? null : React.createElement('small', null, t('codexLive')),
-                React.createElement('button', { type: 'button', disabled: busy, onClick: () => void renameThread() }, t('codexRename')),
-                React.createElement('button', { type: 'button', disabled: busy, onClick: () => void archiveThread() },
-                  t(selected.archived ? 'codexUnarchive' : 'codexArchive'))),
-              React.createElement('div', { className: 'dshCodexTimeline' },
-                loading && timelineState === undefined ? React.createElement('p', null, t('codexLoading'))
-                  : timeline.length === 0 ? React.createElement('p', null, t('codexNoMessages'))
-                    : timeline.map(item => {
-                      const view = codexDisplayItem(item, t)
-                      return React.createElement('article', {
-                        key: item.id, className: `dshCodexItem is${view.kind}`,
-                      }, React.createElement('small', null, view.label), React.createElement('pre', null, view.text))
-                    })),
-              approval === undefined ? null : React.createElement('section', { className: 'dshCodexApproval' },
-                React.createElement('strong', null, t('codexApproval')),
-                approval.command === undefined ? null : React.createElement('code', null, approval.command),
-                approval.reason === undefined ? null : React.createElement('p', null, approval.reason),
-                React.createElement('div', null,
-                  React.createElement('button', { type: 'button', disabled: busy, onClick: () => void respond('decline') }, t('codexDeny')),
-                  React.createElement('button', { type: 'button', disabled: busy, onClick: () => void respond('accept') }, t('codexAllowOnce')))),
-              selected.archived ? null : React.createElement('footer', { className: 'dshCodexComposer' },
-                React.createElement('textarea', {
-                  value: prompt, disabled: busy, rows: 3, placeholder: t('codexPromptPlaceholder'),
-                  onChange: (event: Event) => setPrompt((event.target as HTMLTextAreaElement).value),
-                }),
-                activeTurnId === undefined
-                  ? React.createElement('button', { type: 'button', disabled: busy || prompt.trim() === '', onClick: () => void send() }, t(busy ? 'codexSending' : 'codexSend'))
-                  : React.createElement('button', { type: 'button', disabled: busy, onClick: () => void interrupt() }, t('codexStop')))),
-          error === undefined ? null : React.createElement('p', { className: 'dshRemoteError', role: 'alert' }, error)))))
+      const sessionId = timelineState?.session.id ?? (selected === undefined ? 'codex' : `codex:${selected.id}`)
+      const chatSnapshot = React.useMemo(
+        () => timelineState === undefined
+          ? new ChatSnapshotBuilder().empty
+          : codexChatSnapshot(timelineState, ChatSnapshotBuilder, t),
+        [timelineState, t],
+      )
+      const sessionSnapshot = React.useMemo(
+        () => codexSessionSnapshot(sessionId, selected, timelineState, loading, error),
+        [sessionId, selected, timelineState, loading, error],
+      )
+      const sessionsSnapshot = React.useMemo(() => ({
+        byId: {
+          [sessionId]: {
+            cwd: timelineState?.session.cwd ?? selected?.cwd,
+          },
+        },
+      }), [sessionId, timelineState?.session.cwd, selected?.cwd])
+      const chatStore = React.useMemo(() => createChatStore().create(sessionId), [sessionId])
+      const chatScrollRef = React.useRef<unknown>(null)
+      const useSession = <S,>(selector: (snapshot: unknown) => S): S => selector(sessionSnapshot)
+      const useChat = <S,>(selector: (snapshot: unknown) => S): S => selector(chatSnapshot)
+      const useSessions = <S,>(selector: (snapshot: unknown) => S): S => selector(sessionsSnapshot)
+      const useStore = <S,>(
+        selector: (snapshot: unknown) => S,
+        equals?: (left: S, right: S) => boolean,
+      ): S => useCodexSource(chatStore, selector, equals)
+      const useInput = <S,>(
+        selector: (snapshot: unknown) => S,
+        equals?: (left: S, right: S) => boolean,
+      ): S => useCodexSource(inputShell.state, selector, equals)
+      const useNotices = <S,>(
+        selector: (snapshot: unknown) => S,
+        equals?: (left: S, right: S) => boolean,
+      ): S => useCodexSource(inputShell.notices, selector, equals)
+      const useTranscriptView = <S,>(selector: (snapshot: 'compact') => S): S =>
+        useCodexSource(CODEX_COMPACT_TRANSCRIPT_SOURCE, selector)
+      const useMenuLauncher = <S,>(selector: (snapshot: string | null) => S): S =>
+        useCodexSource(CODEX_EMPTY_MENU_SOURCE, selector)
+      const useProjection = (): undefined => undefined
+      const renderCodexChatSlot = (_name: string, owner: unknown, options?: unknown): unknown => {
+        const ownerRecord = codexRecord(owner)
+        const node = codexRecord(ownerRecord?.node)
+        const fallback = codexRecord(options)?.fallback
+        if (node === undefined) return fallback
+        const rendererProps = {
+          ...ownerRecord,
+          t: props.chatT,
+          useTurnData: () => undefined,
+        }
+        if (node.kind === 'user' || node.kind === 'steering') {
+          return React.createElement(UserMessageNodeView, rendererProps)
+        }
+        if (node.kind === 'assistant-step') {
+          return React.createElement(AssistantNodeView, rendererProps)
+        }
+        if (node.kind === 'unknown') {
+          return React.createElement(UnknownNodeView, rendererProps)
+        }
+        return fallback
+      }
+
+      return React.createElement('section', { className: 'dshCodexSurface', 'aria-label': t('codexTitle') },
+        reconnecting ? React.createElement('div', { className: 'dshCodexSurfaceStatus', role: 'status' }, t('codexReconnecting')) : null,
+        React.createElement('div', { className: 'dshCodexNativeFlow' },
+          React.createElement(ChatView, {
+            sessionId,
+            useSession,
+            useChat,
+            useSessions,
+            useStore,
+            actions: chatStore.actions,
+            useTranscriptView,
+            renderSlot: renderCodexChatSlot,
+            t: props.chatT,
+            openDetails: () => {},
+            openFile: () => Promise.reject(new Error(t('codexFileOpenUnavailable'))),
+            loadOlder: () => {},
+            loadImage: Object.assign(
+              () => Promise.reject(new Error(t('codexImagesUnsupported'))),
+              { peek: () => undefined },
+            ),
+            chatScroll: {
+              save: (position: unknown) => { chatScrollRef.current = position },
+              read: () => chatScrollRef.current,
+            },
+            forkAt: () => {},
+            fileMentions: () => undefined,
+            openView: () => {},
+          })),
+        approval === undefined ? null : React.createElement('section', { className: 'dshCodexApproval' },
+          React.createElement('strong', null, t('codexApproval')),
+          approval.command === undefined ? null : React.createElement('code', null, approval.command),
+          approval.reason === undefined ? null : React.createElement('p', null, approval.reason),
+          React.createElement('div', null,
+            React.createElement('button', { type: 'button', disabled: busy, onClick: () => void respond('decline') }, t('codexDeny')),
+            React.createElement('button', { type: 'button', disabled: busy, onClick: () => void respond('accept') }, t('codexAllowOnce')))),
+        selected?.archived ? null : React.createElement('div', { className: 'dshCodexComposerSeat', 'data-composer-seat': '' },
+          React.createElement(InputBar, {
+            sessionId,
+            variant: 'composer',
+            placeholder: t('codexPromptPlaceholder'),
+            disabled: busy || selected === undefined || selected.archived === true,
+            blocked: approval === undefined ? undefined : { reason: t('codexApproval') },
+            useSession,
+            useInput,
+            inputActions: inputShell.actions,
+            keyboard: inputShell,
+            addImages: undefined,
+            removeImage: undefined,
+            draftImages: () => [],
+            resolveSubmitMode: () => 'queue',
+            toggleCommandMenu: undefined,
+            stop: timelineState?.activeTurnId === undefined ? undefined : () => { void interrupt() },
+            command: undefined,
+            useNotices,
+            useLexicon: () => new Map(),
+            useMenuLauncher,
+            useProjection,
+            renderSlot: () => null,
+            t: props.conversationT,
+            overlay: null,
+            leftItems: null,
+            rightItems: null,
+            footer: null,
+          })),
+        error === undefined ? null : React.createElement('p', { className: 'dshRemoteError dshCodexSurfaceError', role: 'alert' }, error))
+    }
+
+    function codexConstantSource<T>(value: T): CodexObservable<T> {
+      return {
+        getSnapshot: () => value,
+        subscribe: () => () => {},
+      }
+    }
+
+    function createCodexSidebarStore(): CodexSidebarStore {
+      let snapshot: CodexSidebarState = { expanded: false }
+      const listeners = new Set<() => void>()
+      const publish = (): void => { for (const listener of listeners) listener() }
+      const replace = (next: CodexSidebarState): void => {
+        if (snapshot.expanded === next.expanded && snapshot.selectedThread?.id === next.selectedThread?.id
+          && snapshot.selectedThread === next.selectedThread) return
+        snapshot = next
+        publish()
+      }
+      return {
+        getSnapshot: () => snapshot,
+        subscribe: (listener) => {
+          listeners.add(listener)
+          return () => { listeners.delete(listener) }
+        },
+        setExpanded: (expanded) => {
+          replace({ ...snapshot, expanded })
+        },
+        selectThread: (thread) => {
+          replace({
+            expanded: thread === undefined ? snapshot.expanded : true,
+            ...(thread === undefined ? {} : { selectedThread: thread }),
+          })
+        },
+      }
+    }
+
+    function codexSidebarSessionId(threadId: string): string {
+      return `codex:${threadId}`
+    }
+
+    function codexTimestampMs(timestamp: number | undefined): number {
+      if (timestamp === undefined || !Number.isFinite(timestamp)) return Date.now()
+      return timestamp < 100_000_000_000 ? timestamp * 1_000 : timestamp
+    }
+
+    function codexThreadRunning(value: unknown): boolean {
+      return codexRecord(value)?.type === 'active'
+    }
+
+    function codexThreadWaitingOnApproval(value: unknown): boolean {
+      const status = codexRecord(value)
+      return status?.type === 'active'
+        && Array.isArray(status.activeFlags)
+        && status.activeFlags.includes('waitingOnApproval')
+    }
+
+    function codexSameSelection<T>(left: T, right: T): boolean {
+      return Object.is(left, right)
+    }
+
+    function useCodexSource<T, S>(
+      source: CodexObservable<T>,
+      selector: (snapshot: T) => S,
+      equals: (left: S, right: S) => boolean = codexSameSelection,
+    ): S {
+      const [selected, setSelected] = React.useState(() => selector(source.getSnapshot()))
+      const selectedRef = React.useRef(selected)
+      selectedRef.current = selected
+
+      React.useEffect(() => {
+        const publish = (): void => {
+          const next = selector(source.getSnapshot())
+          if (equals(selectedRef.current, next)) return
+          selectedRef.current = next
+          setSelected(next)
+        }
+        publish()
+        return source.subscribe(publish)
+      }, [source, selector, equals])
+
+      return selected
+    }
+
+    function codexSessionSnapshot(
+      sessionId: string,
+      selected: CodexThreadRow | undefined,
+      timeline: CodexTimelineState | undefined,
+      loading: boolean,
+      error: string | undefined,
+    ): Record<string, unknown> {
+      const running = timeline?.session.status === 'running' || timeline?.session.status === 'waiting'
+      const openError = error !== undefined && timeline === undefined
+        ? { code: 'CODEX', message: error }
+        : null
+      return {
+        sessionId,
+        queue: [],
+        pendingSubmissions: [],
+        running,
+        subagent: null,
+        removed: false,
+        openState: openError !== null ? 'error' : timeline === undefined && selected !== undefined ? 'loading' : 'open',
+        openError,
+        hasMore: false,
+        loadingOlder: false,
+        promptError: null,
+        blank: timeline !== undefined && timeline.items.length === 0,
+        lastAgentError: timeline?.session.status === 'failed' ? error ?? null : null,
+        promptAttempted: selected !== undefined,
+        awaitingFirstTurn: loading && timeline === undefined,
+      }
+    }
+
+    function codexChatSnapshot(
+      state: CodexTimelineState,
+      Builder: new () => CodexChatSnapshotBuilder,
+      t: Translate,
+    ): unknown {
+      const builder = new Builder()
+      return builder.replace(codexProjectChat(state, t))
+    }
+
+    function codexProjectChat(
+      state: CodexTimelineState,
+      t: Translate,
+    ): { nodes: readonly CodexChatNode[]; timeline: CodexTimelineSnapshotLike } {
+      const groups = codexTurnRecords(state)
+      const turns = new Map<number, CodexTurnLocationLike>()
+      const nodes: CodexChatNode[] = []
+      const lastGroup = groups[groups.length - 1]
+      const sessionRunning = state.session.status === 'running' || state.session.status === 'waiting'
+      for (const group of groups) {
+        const open = group.id === state.activeTurnId || (state.activeTurnId === undefined && sessionRunning && group === lastGroup)
+        const first = group.records[0]
+        const last = group.records[group.records.length - 1]
+        if (first === undefined || last === undefined) continue
+        const turnStart = codexSessionEvent('turn/start', first.seq, codexItemTime(first.item, state, first.seq), { turn: group.turn })
+        const turnEnd = open ? undefined : codexSessionEvent('turn/end', last.seq, codexItemTime(last.item, state, last.seq), { turn: group.turn })
+        const stepStart = codexSessionEvent('step/start', first.seq, codexItemTime(first.item, state, first.seq), {
+          turn: group.turn,
+          step: 1,
+        })
+        const stepEnd = open ? undefined : codexSessionEvent('step/end', last.seq, codexItemTime(last.item, state, last.seq), {
+          turn: group.turn,
+          step: 1,
+        })
+        const step: CodexStepLocationLike = {
+          turn: group.turn,
+          step: 1,
+          start: stepStart,
+          end: stepEnd,
+          status: open ? 'open' : 'closed',
+          data: CODEX_EMPTY_LOCATION_DATA,
+        }
+        const turn: CodexTurnLocationLike = {
+          turn: group.turn,
+          start: turnStart,
+          end: turnEnd,
+          status: open ? 'open' : 'closed',
+          steps: [step],
+          data: CODEX_EMPTY_LOCATION_DATA,
+        }
+        turns.set(group.turn, turn)
+        for (const record of group.records) {
+          const node = codexChatNode(record.item, record.seq, turn, step, state, t)
+          if (node !== undefined) nodes.push(node)
+        }
+      }
+      return {
+        nodes,
+        timeline: {
+          turnOrder: groups.map(group => group.turn),
+          turns,
+        },
+      }
+    }
+
+    function codexTurnRecords(state: CodexTimelineState): CodexTurnRecord[] {
+      const groups: CodexTurnRecord[] = []
+      const byId = new Map<string, CodexTurnRecord>()
+      let seq = 0
+      for (const item of state.items) {
+        if (item.nativeRef.requestHandle !== undefined
+          && item.nativeRef.requestHandle === state.approval?.requestHandle) continue
+        seq += 1
+        const id = item.nativeRef.turnId ?? `item:${item.id}`
+        let group = byId.get(id)
+        if (group === undefined) {
+          group = { id, turn: groups.length + 1, records: [] }
+          byId.set(id, group)
+          groups.push(group)
+        }
+        ;(group.records as { item: DisplayHistoryItem; seq: number }[]).push({ item, seq })
+      }
+      return groups
+    }
+
+    function codexChatNode(
+      item: DisplayHistoryItem,
+      seq: number,
+      turn: CodexTurnLocationLike,
+      step: CodexStepLocationLike,
+      state: CodexTimelineState,
+      t: Translate,
+    ): CodexChatNode | undefined {
+      const time = codexItemTime(item, state, seq)
+      if (item.kind === 'message' && item.role === 'user') {
+        return {
+          key: item.id,
+          id: item.id,
+          kind: 'user',
+          target: 'chat',
+          anchorSeq: seq,
+          location: { kind: 'turn', turn },
+          visibility: 'visible',
+          data: {
+            kind: 'user',
+            seq,
+            time,
+            content: codexTextContent(item.text),
+            source: { kind: 'user', rpcId: item.id },
+          },
+        }
+      }
+      if (item.kind === 'message' && item.role === 'assistant') {
+        const blocks = codexAssistantBlocks(item.text)
+        const running = item.status === 'running'
+        const interrupted = item.status === 'failed' || item.status === 'declined'
+        const finalNode = running ? undefined : {
+          kind: 'assistant',
+          seq,
+          time,
+          messageId: item.nativeRef.itemId ?? item.id,
+          turn: turn.turn,
+          step: step.step,
+          blocks,
+          ...(interrupted ? { interrupted: true } : {}),
+        }
+        return {
+          key: item.id,
+          id: item.id,
+          kind: 'assistant-step',
+          target: 'chat',
+          anchorSeq: seq,
+          location: { kind: 'step', turn, step },
+          visibility: blocks.length > 0 || interrupted ? 'visible' : 'hidden',
+          data: {
+            status: running ? 'running' : interrupted ? 'interrupted' : 'settled',
+            turn: turn.turn,
+            step: step.step,
+            blocks,
+            time,
+            ...(finalNode === undefined ? {} : { finalNode }),
+          },
+        }
+      }
+      const rendered = codexDisplayItem(item, t)
+      if (rendered.text === '' && item.kind === 'status') return undefined
+      return {
+        key: item.id,
+        id: item.id,
+        kind: 'unknown',
+        target: 'chat',
+        anchorSeq: seq,
+        location: { kind: 'step', turn, step },
+        visibility: 'visible',
+        data: {
+          kind: 'unknown',
+          seq,
+          time,
+          type: rendered.kind,
+          data: {
+            label: rendered.label,
+            text: rendered.text,
+            status: item.status,
+            details: item.details,
+          },
+        },
+      }
+    }
+
+    function codexSessionEvent(
+      type: string,
+      seq: number,
+      time: number,
+      data: Record<string, unknown>,
+    ): CodexSessionEventLike {
+      return { type, seq, time, data }
+    }
+
+    function codexTextContent(text: string | undefined): readonly { type: 'text'; text: string }[] {
+      return text === undefined || text === '' ? [] : [{ type: 'text', text }]
+    }
+
+    function codexAssistantBlocks(text: string | undefined): readonly { kind: 'text'; text: string }[] {
+      return text === undefined || text === '' ? [] : [{ kind: 'text', text }]
+    }
+
+    function codexItemTime(item: DisplayHistoryItem, state: CodexTimelineState, seq: number): number {
+      if (item.createdAt !== undefined && Number.isFinite(item.createdAt)) return item.createdAt
+      return state.session.createdAt + seq
     }
 
     function codexRecord(value: unknown): Record<string, unknown> | undefined {
@@ -2634,7 +3210,9 @@ window.__ModuleLoader__.load({
         '.dshRemotePage{width:min(720px,100%);max-height:min(760px,calc(100vh - 40px));display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:14px;overflow:hidden;animation:dshRemotePageIn .18s cubic-bezier(.25,1,.5,1)}',
         '.dshRemotePageHeader{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshRemotePageIntro{min-width:0;flex:1}.dshRemotePageHeader strong{display:block;font-size:18px;line-height:1.4}.dshRemotePageHeader p{min-width:0;max-width:70ch;margin:3px 0 0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5}.dshRemotePageActions{flex:0 0 auto;display:flex;align-items:center;gap:4px}.dshRemotePageActions>button{height:40px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;border:0;border-radius:8px;background:transparent;color:inherit;line-height:1;cursor:pointer}.dshRemotePageActions>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemotePageActions>button:disabled{opacity:.45;cursor:default}.dshRemotePageRefresh{min-width:48px;padding:0 10px;font:inherit;font-size:13px}.dshRemotePageActions>button:not(.dshRemotePageRefresh){width:40px;padding:0;font-size:24px}',
         '.dshRemotePageBody{padding:24px;overflow:auto;display:flex;flex-direction:column;gap:24px}.dshRemotePageBody button{font:inherit;color:inherit}',
+        '.dshCodexSurface{box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.dshCodexSurface button,.dshCodexSurface input{font:inherit;color:inherit}.dshCodexNativeFlow{flex:1;min-height:0;display:flex;flex-direction:column}.dshCodexSurfaceStatus{padding:8px 24px;color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexComposerSeat{position:sticky;bottom:0;z-index:2;padding:10px 0 12px;background:var(--dsw-alias-bg-base)}.dshCodexApproval{display:grid;gap:10px;margin:0 24px 12px;border:1px solid var(--dsw-alias-state-warn-primary,var(--dsw-alias-border-l1));border-radius:8px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2)}.dshCodexApproval code{white-space:pre-wrap;overflow-wrap:anywhere}.dshCodexApproval p{margin:0;color:var(--dsw-alias-label-secondary)}.dshCodexApproval>div{display:flex;justify-content:flex-end;gap:8px}.dshCodexApproval button{min-height:34px;border:0;border-radius:8px;padding:6px 12px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);cursor:pointer}.dshCodexApproval button:first-child{background:transparent;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2)}.dshCodexApproval button:disabled{opacity:.45;cursor:default}.dshCodexSurfaceError{margin:0 24px 12px}',
         '.dshCodexPage{width:min(920px,100%)}.dshCodexBody{min-height:min(560px,calc(100vh - 180px));gap:14px}.dshCodexThreadList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshCodexListActions{display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshCodexNewThread{min-width:0;flex:1;display:flex;gap:8px}.dshCodexNewThread input{min-width:0;flex:1;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:8px 10px;font:inherit}.dshCodexNewThread button,.dshCodexArchiveView,.dshCodexThreadHeader button{min-height:34px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:inherit;padding:6px 10px;cursor:pointer}.dshCodexNewThread button:disabled,.dshCodexArchiveView:disabled,.dshCodexThreadHeader button:disabled{opacity:.45;cursor:default}.dshCodexThreadList>button{min-height:62px;display:flex;align-items:center;justify-content:space-between;gap:18px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 6px;text-align:left;cursor:pointer}.dshCodexThreadList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexThreadList>button>span{min-width:0;display:flex;flex-direction:column;gap:4px}.dshCodexThreadList>.dshCodexLoadMore{min-height:40px;justify-content:center;color:var(--dsw-alias-label-secondary);text-align:center}.dshCodexThreadList strong,.dshCodexThreadList small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexThreadList small,.dshCodexThreadHeader span,.dshCodexThreadHeader small{color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexThreadHeader{display:flex;align-items:center;gap:8px;min-width:0}.dshCodexThreadHeader strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexThreadHeader span{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexTimeline{min-height:220px;display:flex;flex-direction:column;gap:12px;padding:2px 0}.dshCodexTimeline>p{color:var(--dsw-alias-label-secondary)}.dshCodexItem{max-width:86%;align-self:flex-start;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);padding:10px 12px}.dshCodexItem.isUser{align-self:flex-end;background:var(--dsw-alias-bg-layer-3)}.dshCodexItem.isUnknown{color:var(--dsw-alias-label-secondary)}.dshCodexItem>small{display:block;margin-bottom:5px;color:var(--dsw-alias-label-secondary)}.dshCodexItem>pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.55}.dshCodexItem.isTool>pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}.dshCodexApproval{display:grid;gap:10px;border:1px solid var(--dsw-alias-state-warn-primary,var(--dsw-alias-border-l1));border-radius:10px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2)}.dshCodexApproval code{white-space:pre-wrap;overflow-wrap:anywhere}.dshCodexApproval p{margin:0;color:var(--dsw-alias-label-secondary)}.dshCodexApproval>div{display:flex;justify-content:flex-end;gap:8px}.dshCodexApproval button,.dshCodexComposer button{min-height:38px;border:0;border-radius:8px;padding:7px 14px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);cursor:pointer}.dshCodexApproval button:first-child{background:transparent;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2)}.dshCodexComposer{position:sticky;bottom:-24px;display:flex;align-items:flex-end;gap:10px;margin-top:auto;padding:12px 0 0;background:var(--dsw-alias-bg-layer-1);border-top:1px solid var(--dsw-alias-border-l2)}.dshCodexComposer textarea{box-sizing:border-box;min-height:74px;flex:1;resize:vertical;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:10px 12px;font:inherit;line-height:1.5}.dshCodexComposer button:disabled,.dshCodexApproval button:disabled{opacity:.45;cursor:default}@media(max-width:620px){.dshCodexBody{min-height:calc(100vh - 150px)}.dshCodexListActions,.dshCodexNewThread{align-items:stretch;flex-direction:column}.dshCodexThreadHeader{align-items:stretch;flex-wrap:wrap}.dshCodexThreadHeader span{flex-basis:100%}.dshCodexItem{max-width:96%}.dshCodexComposer{bottom:-20px;flex-direction:column;align-items:stretch}.dshCodexComposer button{min-height:44px}}',
+        '.dshCodexWorkspaceRow{box-sizing:border-box;flex:none;padding:0 4px}.dshCodexWorkspaceButton{box-sizing:border-box;width:100%;height:34px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:8px;padding:6px 10px;font:inherit;text-align:left;cursor:pointer}.dshCodexWorkspaceButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexWorkspaceButton:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.dshCodexWorkspaceIcon{width:18px;height:18px;flex:0 0 18px;color:var(--dsw-alias-label-secondary)}.dshCodexWorkspaceLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexSurface{box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1)}.dshCodexSurface button,.dshCodexSurface input{font:inherit;color:inherit}.dshCodexSurfaceHeader{position:sticky;top:0;z-index:2;min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 24px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}.dshCodexSurfaceTitle,.dshCodexThreadTitle{min-width:0;display:flex;flex-direction:column;gap:2px}.dshCodexSurfaceTitle strong,.dshCodexThreadTitle strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600}.dshCodexSurfaceTitle span,.dshCodexThreadTitle span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}.dshCodexHeaderBack{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 0;cursor:pointer}.dshCodexHeaderBack:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}.dshCodexHeaderActions{flex:0 0 auto;display:flex;align-items:center;gap:6px}.dshCodexHeaderActions>span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexHeaderActions>button,.dshCodexNewThread button,.dshCodexThreadList>.dshCodexLoadMore{min-height:32px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:inherit;padding:5px 10px;cursor:pointer}.dshCodexHeaderActions>button:hover:not(:disabled),.dshCodexNewThread button:hover:not(:disabled),.dshCodexThreadList>.dshCodexLoadMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-label-dimmed)}.dshCodexHeaderActions>button:disabled,.dshCodexNewThread button:disabled,.dshCodexThreadList>.dshCodexLoadMore:disabled,.dshCodexApproval button:disabled{opacity:.45;cursor:default}.dshCodexSurfaceBody{box-sizing:border-box;flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:14px 24px 18px}.dshCodexThreadList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshCodexListActions{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshCodexNewThread{min-width:0;flex:1;display:flex;gap:8px}.dshCodexNewThread input{box-sizing:border-box;min-width:0;flex:1;height:34px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:0 10px}.dshCodexThreadList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:18px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;text-align:left;cursor:pointer}.dshCodexThreadList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexThreadList>button>span{min-width:0;display:flex;flex-direction:column;gap:4px}.dshCodexThreadList strong,.dshCodexThreadList small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexThreadList small{color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexNativeFlow{flex:1;min-height:320px;display:flex;flex-direction:column}.dshCodexComposerSeat{position:sticky;bottom:0;z-index:2;padding:10px 0 12px;background:var(--dsw-alias-bg-layer-1)}.dshCodexApproval{display:grid;gap:10px;border:1px solid var(--dsw-alias-state-warn-primary,var(--dsw-alias-border-l1));border-radius:8px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2)}.dshCodexApproval code{white-space:pre-wrap;overflow-wrap:anywhere}.dshCodexApproval p{margin:0;color:var(--dsw-alias-label-secondary)}.dshCodexApproval>div{display:flex;justify-content:flex-end;gap:8px}.dshCodexApproval button{min-height:34px;border:0;border-radius:8px;padding:6px 12px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);cursor:pointer}.dshCodexApproval button:first-child{background:transparent;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2)}.dshCodexSurfaceError{margin:0 0 12px}@media(max-width:620px){.dshCodexSurfaceHeader{align-items:flex-start;flex-direction:column;padding:10px 16px}.dshCodexHeaderActions{width:100%;flex-wrap:wrap}.dshCodexSurfaceBody{padding:12px 16px 16px}.dshCodexListActions,.dshCodexNewThread{align-items:stretch;flex-direction:column}.dshCodexThreadList>button{align-items:flex-start;flex-direction:column;gap:5px}.dshCodexNativeFlow{min-height:240px}}',
         '.dshRemoteSectionHeading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.dshRemoteSectionTitle{min-width:0;display:flex;align-items:center;gap:10px}.dshRemoteSectionTitle>strong{font-size:14px}.dshRemoteSectionActions{display:flex;align-items:center;gap:14px}.dshRemoteSectionActions>button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:5px 0;font-size:12px}.dshRemoteSectionActions>button:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}',
         '.dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}',
         '.dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList>button>span{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteHostList>button strong{font-size:14px;font-weight:500}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary);font-size:12px}',
@@ -2674,7 +3252,7 @@ window.__ModuleLoader__.load({
         '.dshRemoteConnection{border-top:1px solid var(--dsw-alias-border-l2);display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0}.dshRemoteConnectionSummary{min-width:0;display:flex;flex-direction:column;gap:4px}.dshRemoteConnectionSummary>span{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}.dshRemoteConnectionSummary strong{display:flex;align-items:center;gap:7px;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:1.5}.dshRemoteConnectionSummary p,.dshRemoteConnectionIssue{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}.dshRemoteConnectionDot{width:8px;height:8px;flex:0 0 auto;border-radius:999px;background:var(--dsw-alias-label-tertiary)}.dshRemoteConnectionDot.isOnline{background:var(--dsw-alias-state-success-primary)}.dshRemoteConnectionDot.isReconnecting{background:var(--dsw-alias-state-warn-primary)}.dshRemoteConnectionDot.isOffline{background:var(--dsw-alias-state-error-primary)}.dshRemoteConnectionIssue{color:var(--dsw-alias-state-error-primary);padding:0 0 12px}.dshRemoteReconnect{appearance:none;flex:0 0 auto;font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);min-height:34px;padding:5px 14px;font-size:13px;line-height:1.5}.dshRemoteReconnect:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteReconnect:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}.dshRemoteReconnect:disabled{opacity:.4;cursor:default}',
         '.dshRemoteSettingsFooter{border-top:1px solid var(--dsw-alias-border-l2);display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 0 4px}.dshRemoteSettingsFooter .dshRemoteError,.dshRemoteNotice{min-width:0;flex:1;margin:0;font-size:12px;line-height:1.5}.dshRemoteNotice{color:var(--dsw-alias-label-tertiary)}.dshRemoteDiscard,.dshRemoteSave{appearance:none;font:inherit;cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}.dshRemoteDiscard{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);background:transparent}.dshRemoteDiscard:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}.dshRemoteSave{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3)}.dshRemoteDiscard:disabled,.dshRemoteSave:disabled{opacity:.4;cursor:default}.dshRemoteDiscard:focus-visible,.dshRemoteSave:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
         '@media(max-width:620px){.dshRemotePluginCardStatus{display:none}.dshRemoteSettingsTop{gap:10px}.dshRemoteConnection{align-items:flex-start}.dshRemoteReconnect{min-height:40px}}',
-      ].join('')
+      ].filter(css => !css.includes('.dshCodexPage') && !css.includes('.dshCodexWorkspaceRow')).join('')
       document.head.append(style)
       return () => style.remove()
     }
@@ -2802,6 +3380,9 @@ window.__ModuleLoader__.load({
       })
       ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), 'ds-harness-remote: dictionaries')
       ctx.effect(installStyle, 'ds-harness-remote: client styles')
+      const openCodexSurface = (): void => {
+        ctx.get<CodexConversationSurfacesLike>('conversationSurfaces')?.open('codex')
+      }
       ctx.slots.inject('shell.overlay', () => ctx.slots.register({
         name: 'shell.overlay',
         id: 'ds-harness-remote-global-context',
@@ -2819,13 +3400,25 @@ window.__ModuleLoader__.load({
           preferredQrProvider: ctx.locale.getLocale().active === 'zh' ? 'zhihu' : 'github',
         }),
       }, RemoteWorkspaceAction))
-      ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
-        name: 'sidebar.footer.action',
-        id: 'ds-harness-remote-codex',
-        order: -19,
+      ctx.slots.inject('sidebar.workspaces.group', () => ctx.slots.register({
+        name: 'sidebar.workspaces.group',
+        id: 'ds-harness-remote-codex-workspace',
+        order: 100,
         locale: localeNamespace,
-        inject: () => ({ control }),
-      }, CodexSessionAction))
+        inject: () => ({ control, openSurface: openCodexSurface }),
+      }, CodexWorkspaceGroup))
+      ctx.slots.inject('conversation.surface', () => ctx.slots.register({
+        name: 'conversation.surface',
+        key: 'codex',
+        id: 'ds-harness-remote-codex',
+        order: 0,
+        locale: localeNamespace,
+        inject: () => ({
+          control,
+          chatT: ctx.locale.bind('chat'),
+          conversationT: ctx.locale.bind('conversation'),
+        }),
+      }, CodexConversationSurface))
       ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
         name: 'settings.plugin.item',
         key: 'ds-harness-remote',

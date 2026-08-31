@@ -16121,18 +16121,19 @@ var ClientModeRuntime = class {
     }
     return remote.client.rpc("fileviewer.call", { endpoint, payload }, signal);
   }
-  requireCodexRemote() {
-    const remote = this.connected;
-    if (remote === void 0) {
-      throw new ClientModeError("REMOTE_NOT_CONNECTED", "No Remote Host is selected.", true);
-    }
+  activeRemote() {
+    return this.connected;
+  }
+  activeCodexRemote() {
+    const remote = this.activeRemote();
+    if (remote === void 0) return void 0;
     if (!remote.features.codex) {
-      throw new ClientModeError("FEATURE_NOT_SUPPORTED", "The selected Remote Host does not provide Codex sessions.");
+      return void 0;
     }
     return remote;
   }
   async openCodexStream(payload, signal) {
-    const remote = this.requireCodexRemote();
+    const remote = this.activeCodexRemote();
     const value = record(payload);
     if (typeof value.streamId !== "string" || value.streamId.length === 0 || value.streamId.length > 128 || typeof value.threadId !== "string" || value.threadId.length === 0) {
       throw new ClientModeError("INVALID_MESSAGE", "A Codex stream and thread are required.");
@@ -16140,19 +16141,33 @@ var ClientModeRuntime = class {
     if (this.codexStreams.has(value.streamId)) throw new ClientModeError("REQUEST_CONFLICT", "The Codex stream is already open.");
     let wake = () => void 0;
     const stream = {
-      client: remote.client,
+      target: remote === void 0 ? { kind: "local" } : { kind: "remote", client: remote.client },
       frames: [],
       unsubscribe: () => void 0,
+      close: async () => {
+        if (remote === void 0) {
+          await this.host?.codexCloseStream?.({ streamId: value.streamId }).catch(() => void 0);
+          return;
+        }
+        await remote.client.rpc("codex.app.stream.close", { streamId: value.streamId }).catch(() => void 0);
+      },
       wake: () => wake()
     };
-    stream.unsubscribe = remote.client.onEvent((event) => {
-      if (event.event === "codex.app.frame" && isRecord4(event.data) && event.data.streamId === value.streamId && isRecord4(event.data.frame) && typeof event.data.frame.method === "string") {
-        if (stream.frames.length >= 256) {
-          stream.closed = "overflow";
-        } else {
-          stream.frames.push({ method: event.data.frame.method, params: event.data.frame.params });
-        }
+    if (remote === void 0) {
+      const host = this.requireLocalCodex();
+      this.codexStreams.set(value.streamId, stream);
+      try {
+        const result = await host.codexOpenStream({ streamId: value.streamId, threadId: value.threadId }, this.publishLocalCodexFrame, signal);
+        return result;
+      } catch (error) {
+        this.codexStreams.delete(value.streamId);
         stream.wake();
+        throw error;
+      }
+    }
+    stream.unsubscribe = remote.client.onEvent((event) => {
+      if (event.event === "codex.app.frame" && isRecord4(event.data) && event.data.streamId === value.streamId) {
+        this.appendCodexFrame(stream, event.data);
       }
       if (event.event === "codex.app.stream.closed" && isRecord4(event.data) && event.data.streamId === value.streamId) {
         stream.closed = typeof event.data.reason === "string" ? event.data.reason : "closed";
@@ -16167,6 +16182,41 @@ var ClientModeRuntime = class {
     }
     this.codexStreams.set(value.streamId, stream);
     return { opened: true, streamId: value.streamId, threadId: value.threadId };
+  }
+  publishLocalCodexFrame = async (event, data) => {
+    const streamId = data.streamId;
+    const stream = this.codexStreams.get(streamId);
+    if (stream === void 0 || stream.target.kind !== "local") return;
+    if (event === "codex.app.frame") {
+      this.appendCodexFrame(stream, data);
+      return;
+    }
+    const closed = data;
+    stream.closed = typeof closed.reason === "string" ? closed.reason : "closed";
+    stream.wake();
+  };
+  appendCodexFrame(stream, data) {
+    if (!isRecord4(data) || !isRecord4(data.frame) || typeof data.frame.method !== "string") return;
+    if (stream.frames.length >= 256) {
+      stream.closed = "overflow";
+    } else {
+      stream.frames.push({ method: data.frame.method, params: data.frame.params });
+    }
+    stream.wake();
+  }
+  localCodexAvailable() {
+    return this.host?.codexStatus?.().available === true;
+  }
+  requireLocalCodex() {
+    if (!this.localCodexAvailable() || this.host?.codexCall === void 0 || this.host.codexRespond === void 0 || this.host.codexOpenStream === void 0 || this.host.codexCloseStream === void 0) {
+      throw new ClientModeError("FEATURE_NOT_SUPPORTED", "Local CodeX is disabled or unavailable on this Host.");
+    }
+    return {
+      codexCall: this.host.codexCall.bind(this.host),
+      codexRespond: this.host.codexRespond.bind(this.host),
+      codexOpenStream: this.host.codexOpenStream.bind(this.host),
+      codexCloseStream: this.host.codexCloseStream.bind(this.host)
+    };
   }
   async nextCodexFrames(payload, signal) {
     const value = record(payload);
@@ -16190,17 +16240,17 @@ var ClientModeRuntime = class {
     this.codexStreams.delete(value.streamId);
     stream.unsubscribe();
     stream.wake();
-    await stream.client.rpc("codex.app.stream.close", { streamId: value.streamId }).catch(() => void 0);
+    await stream.close();
     return { closed: true, streamId: value.streamId };
   }
   async closeCodexStreams(client) {
-    const targets = [...this.codexStreams.entries()].filter(([, stream]) => client === void 0 || stream.client === client);
+    const targets = [...this.codexStreams.entries()].filter(([, stream]) => client === void 0 || stream.target.kind === "remote" && stream.target.client === client);
     await Promise.all(targets.map(async ([streamId, stream]) => {
       this.codexStreams.delete(streamId);
       stream.unsubscribe();
       stream.closed = "peer-disconnected";
       stream.wake();
-      await stream.client.rpc("codex.app.stream.close", { streamId }).catch(() => void 0);
+      await stream.close();
     }));
   }
   selectRemoteTarget(remote) {
@@ -16405,23 +16455,35 @@ var ClientModeRuntime = class {
         return ok(await this.callRemoteFileViewer(method, payload, signal));
       }
       if (endpoint === "codex.call") {
-        const remote = this.requireCodexRemote();
         const value = record(payload);
         if (typeof value.method !== "string" || !("params" in value)) {
           throw new ClientModeError("INVALID_MESSAGE", "A Codex method and params are required.");
         }
-        return ok(await new CodexRemoteClient(remote.client).request(value.method, value.params, signal));
+        const remote = this.activeCodexRemote();
+        if (remote !== void 0) return ok(await new CodexRemoteClient(remote.client).request(value.method, value.params, signal));
+        const host = this.requireLocalCodex();
+        return ok(await host.codexCall(value, signal));
       }
       if (endpoint === "codex.probe") {
-        const remote = this.connected;
-        if (remote === void 0) return ok({ supported: false });
-        remote.features = await probeRemoteHostFeatures(remote.client, remote.clientVersion);
-        return ok({ supported: remote.features.codex });
+        const local = this.localCodexAvailable();
+        let remoteSupported = false;
+        const remote = this.activeRemote();
+        if (remote !== void 0) {
+          try {
+            remote.features = await probeRemoteHostFeatures(remote.client, remote.clientVersion);
+            remoteSupported = remote.features.codex;
+          } catch (error) {
+            if (!local) throw error;
+          }
+        }
+        return ok({ supported: local || remoteSupported, local, remote: remoteSupported });
       }
       if (endpoint === "codex.respond") {
-        const remote = this.requireCodexRemote();
         const value = record(payload);
-        return ok(await remote.client.rpc("codex.app.respond", value, signal));
+        const remote = this.activeCodexRemote();
+        if (remote !== void 0) return ok(await remote.client.rpc("codex.app.respond", value, signal));
+        const host = this.requireLocalCodex();
+        return ok(await host.codexRespond(value, signal));
       }
       if (endpoint === "codex.stream.open") return ok(await this.openCodexStream(payload, signal));
       if (endpoint === "codex.stream.next") return ok(await this.nextCodexFrames(payload, signal));
@@ -20856,6 +20918,8 @@ var HostPluginRuntime = class {
   harnessVersion;
   closed = false;
   codex;
+  localCodexPeer;
+  localCodexPublish = async () => void 0;
   async start() {
     if (this.closed) throw new Error("remote runtime is closed");
     this.identity = await this.identities.loadOrCreate(this.config.deviceName);
@@ -20954,11 +21018,33 @@ var HostPluginRuntime = class {
     if (revoked) await this.connections.revoke(deviceId);
     return revoked;
   }
+  codexStatus() {
+    return this.codex.status();
+  }
+  codexCall(input2) {
+    return this.requireLocalCodexPeer().call(input2);
+  }
+  codexRespond(input2) {
+    return this.requireLocalCodexPeer().respond(input2);
+  }
+  codexOpenStream(input2, publish) {
+    this.localCodexPublish = publish;
+    return this.requireLocalCodexPeer().openStream(input2);
+  }
+  async codexCloseStream(input2) {
+    const peer = this.localCodexPeer;
+    if (peer !== void 0) return peer.closeStream(input2);
+    const streamId = isPlainRecord(input2) && typeof input2.streamId === "string" ? input2.streamId : void 0;
+    if (streamId === void 0) throw new RpcError("INVALID_MESSAGE", "A Codex stream is required.");
+    return { closed: false, streamId };
+  }
   async close() {
     if (this.closed) return;
     this.closed = true;
     await this.serverConnection?.stop();
     await this.connections.close();
+    await this.localCodexPeer?.closeAll();
+    this.localCodexPeer = void 0;
     await this.codex.close();
     this.logger.info("host runtime stopped");
   }
@@ -21021,9 +21107,28 @@ var HostPluginRuntime = class {
     if (this.codex.isAvailable()) capabilities.push("codex.appserver.v1", "codex.appserver.transfer.v1");
     return capabilities;
   }
+  requireLocalCodexPeer() {
+    if (!this.codex.isAvailable()) {
+      throw new RpcError("CODEX_UNAVAILABLE", "Local CodeX is disabled or unavailable on this Host.");
+    }
+    if (this.localCodexPeer !== void 0) return this.localCodexPeer;
+    const identity = this.currentIdentity();
+    const peer = this.codex.createPeer({
+      connectionId: `loopback:${identity.deviceId}`,
+      peerDeviceId: identity.deviceId
+    }, (event, data) => this.localCodexPublish(event, data));
+    if (peer === void 0) {
+      throw new RpcError("CODEX_UNAVAILABLE", "Local CodeX is disabled or unavailable on this Host.");
+    }
+    this.localCodexPeer = peer;
+    return peer;
+  }
 };
 function shortId5(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
+}
+function isPlainRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // src/remote-file-content-provider.ts
@@ -21215,7 +21320,7 @@ async function migrateLegacySettings(settings, currentScope) {
   try {
     let descriptors = settings.describe();
     const current = descriptors.find((descriptor) => descriptor.ns === pluginSettingsNamespace);
-    if (isPlainRecord(current?.user)) return "skipped";
+    if (isPlainRecord2(current?.user)) return "skipped";
     let legacy = descriptors.find((descriptor) => descriptor.ns === legacySettingsNamespace);
     if (legacy === void 0) {
       settings.register(legacySettingsNamespace, Config, {
@@ -21227,7 +21332,7 @@ async function migrateLegacySettings(settings, currentScope) {
       descriptors = settings.describe();
       legacy = descriptors.find((descriptor) => descriptor.ns === legacySettingsNamespace);
     }
-    if (!isPlainRecord(legacy?.user) || Object.keys(legacy.user).length === 0) return "skipped";
+    if (!isPlainRecord2(legacy?.user) || Object.keys(legacy.user).length === 0) return "skipped";
     await currentScope.replace(legacy.user);
     return "migrated";
   } catch {
@@ -21257,7 +21362,7 @@ async function disableLegacyLoaderEntries(ctx, logger) {
 function isLoaderLike(value) {
   return typeof value === "object" && value !== null && typeof value.entries === "function" && typeof value.update === "function";
 }
-function isPlainRecord(value) {
+function isPlainRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 export {

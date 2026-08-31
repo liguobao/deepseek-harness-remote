@@ -5247,8 +5247,8 @@ ${output}`);
     accountPasswordLogin: "Password",
     qrLoginExpired: "This QR code expired. Refresh it to continue.",
     refreshQrCode: "Refresh QR code",
-    codexEntry: "Codex",
-    codexTitle: "Codex sessions",
+    codexEntry: "CodeX",
+    codexTitle: "CodeX",
     codexDescription: "Threads on the connected Host. Data stays in Codex and is shown here as a separate view.",
     codexLoading: "Loading Codex sessions\u2026",
     codexEmpty: "No Codex threads are available in the Host allowed roots.",
@@ -5275,6 +5275,9 @@ ${output}`);
     codexUnknownItem: "Unsupported Codex item: {type}",
     codexNoMessages: "This thread has no displayable history yet.",
     codexUnavailable: "Codex is disabled or unavailable on the connected Host.",
+    codexImagesUnsupported: "CodeX image attachments are not supported in this bridge yet.",
+    codexFileOpenUnavailable: "Opening CodeX-produced files from this view is not available yet.",
+    codexRequestCancelled: "CodeX request was cancelled.",
     codexYou: "You",
     codexCommand: "Command",
     codexFiles: "Files",
@@ -5482,8 +5485,8 @@ ${output}`);
     accountPasswordLogin: "\u8D26\u53F7\u5BC6\u7801",
     qrLoginExpired: "\u4E8C\u7EF4\u7801\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5\u3002",
     refreshQrCode: "\u5237\u65B0\u4E8C\u7EF4\u7801",
-    codexEntry: "Codex",
-    codexTitle: "Codex \u4F1A\u8BDD",
+    codexEntry: "CodeX",
+    codexTitle: "CodeX",
     codexDescription: "\u5C55\u793A\u5DF2\u8FDE\u63A5 Host \u4E0A\u7684 Codex Thread\u3002\u6570\u636E\u4ECD\u7531 Codex \u4FDD\u5B58\uFF0C\u5E76\u5728\u8FD9\u91CC\u4F5C\u4E3A\u72EC\u7ACB\u89C6\u56FE\u5448\u73B0\u3002",
     codexLoading: "\u6B63\u5728\u52A0\u8F7D Codex \u4F1A\u8BDD\u2026",
     codexEmpty: "Host \u5141\u8BB8\u7684\u6839\u76EE\u5F55\u4E2D\u6CA1\u6709\u53EF\u5C55\u793A\u7684 Codex Thread\u3002",
@@ -5510,6 +5513,9 @@ ${output}`);
     codexUnknownItem: "\u6682\u4E0D\u652F\u6301\u7684 Codex \u9879\u76EE\uFF1A{type}",
     codexNoMessages: "\u8FD9\u4E2A Thread \u8FD8\u6CA1\u6709\u53EF\u5C55\u793A\u7684\u5386\u53F2\u3002",
     codexUnavailable: "\u5DF2\u8FDE\u63A5\u7684 Host \u672A\u542F\u7528 Codex\uFF0C\u6216 Codex \u5F53\u524D\u4E0D\u53EF\u7528\u3002",
+    codexImagesUnsupported: "\u8FD9\u4E2A\u6865\u63A5\u89C6\u56FE\u6682\u4E0D\u652F\u6301 CodeX \u56FE\u7247\u9644\u4EF6\u3002",
+    codexFileOpenUnavailable: "\u6682\u4E0D\u80FD\u4ECE\u8FD9\u4E2A\u89C6\u56FE\u76F4\u63A5\u6253\u5F00 CodeX \u4EA7\u51FA\u7684\u6587\u4EF6\u3002",
+    codexRequestCancelled: "CodeX \u8BF7\u6C42\u5DF2\u53D6\u6D88\u3002",
     codexYou: "\u4F60",
     codexCommand: "\u547D\u4EE4",
     codexFiles: "\u6587\u4EF6",
@@ -5605,7 +5611,21 @@ ${output}`);
   window.__ModuleLoader__.load({
     id: clientModuleId,
     factory: (require2) => {
-      let module = { exports: {} }, React = require2("react"), inject = ["connection", "slots", "locale", "workspaces", "sessions"];
+      let module = { exports: {} }, React = require2("react"), {
+        AssistantNodeView,
+        ChatSnapshotBuilder,
+        ChatView,
+        UnknownNodeView,
+        UserMessageNodeView,
+        createChatStore
+      } = require2("@deepseek-ai/dsh-client-ui-chat/client"), { InputBar, SessionInputShell } = require2("@deepseek-ai/dsh-client-ui-conversation/client"), inject = [
+        "connection",
+        "slots",
+        "locale",
+        "workspaces",
+        "sessions",
+        "conversationSurfaces"
+      ];
       function RemoteProgressView(props) {
         let progress = props.progress;
         if (progress === void 0) return null;
@@ -6412,20 +6432,37 @@ ${output}`);
           )) : null
         );
       }
-      function CodexSessionAction(props) {
-        let { t } = props, [supported, setSupported] = React.useState(!1), [open, setOpen] = React.useState(!1), [threads, setThreads] = React.useState([]), [nextCursor, setNextCursor] = React.useState(void 0), [showArchived, setShowArchived] = React.useState(!1), [selected, setSelected] = React.useState(void 0), [timelineState, setTimelineState] = React.useState(void 0), [prompt, setPrompt] = React.useState(""), [newThreadPath, setNewThreadPath] = React.useState(""), [busy, setBusy] = React.useState(!1), [loading, setLoading] = React.useState(!1), [reconnecting, setReconnecting] = React.useState(!1), [error, setError] = React.useState(void 0), streamRef = React.useRef(void 0), runRef = React.useRef(0), syncSupport = async () => {
+      let CODEX_EMPTY_LOCATION_DATA = { get: () => {
+      } }, CODEX_EMPTY_MENU_SOURCE = codexConstantSource(null), CODEX_COMPACT_TRANSCRIPT_SOURCE = codexConstantSource("compact"), codexSidebar = createCodexSidebarStore();
+      function CodexWorkspaceGroup(props) {
+        let { t } = props, [supported, setSupported] = React.useState(!1), [threads, setThreads] = React.useState([]), [busy, setBusy] = React.useState(!1), nav = useCodexSource(codexSidebar, (snapshot) => snapshot), syncSupport = async () => {
           try {
-            if ((await props.control("status")).connected !== !0) {
-              setSupported(!1);
-              return;
-            }
             let result = await props.control("codex.probe");
-            setSupported(result.supported);
+            setSupported(result.supported), result.supported && codexSidebar.getSnapshot().expanded && await loadThreads();
           } catch {
             setSupported(!1);
           }
+        }, loadThreads = async () => {
+          setBusy(!0);
+          try {
+            let result = await props.control("codex.call", {
+              method: "thread/list",
+              params: {
+                limit: 50,
+                sortKey: "updated_at",
+                sortDirection: "desc",
+                sourceKinds: ["cli", "vscode", "exec", "appServer", "unknown"],
+                archived: !1
+              }
+            });
+            setThreads(codexThreadPage(result, !1).rows);
+          } catch (reason) {
+            console.warn("[ds-harness-remote] failed to load Codex threads:", reason);
+          } finally {
+            setBusy(!1);
+          }
         };
-        React.useEffect(() => {
+        if (React.useEffect(() => {
           let active = !0, sync = async () => {
             active && await syncSupport();
           };
@@ -6436,7 +6473,101 @@ ${output}`);
           return () => {
             active = !1, window.clearInterval(timer);
           };
-        }, []);
+        }, []), React.useEffect(() => {
+          !supported || !nav.expanded || threads.length > 0 || busy || loadThreads();
+        }, [supported, nav.expanded, threads.length, busy]), !supported || !props.wide) return null;
+        let openThread = (thread) => {
+          codexSidebar.selectThread(thread), codexSidebar.setExpanded(!0), props.expandSidebar(), props.openSurface();
+        }, renameThread = async (thread) => {
+          let name = window.prompt(t("codexRenamePrompt"), thread.name ?? thread.preview ?? "")?.trim();
+          if (!(name === void 0 || name === "")) {
+            setBusy(!0);
+            try {
+              await props.control("codex.call", { method: "thread/name/set", params: { threadId: thread.id, name } });
+              let renamed = { ...thread, name };
+              setThreads((previous) => previous.map((item) => item.id === thread.id ? renamed : item)), codexSidebar.getSnapshot().selectedThread?.id === thread.id && codexSidebar.selectThread(renamed);
+            } catch (reason) {
+              console.warn("[ds-harness-remote] failed to rename Codex thread:", reason);
+            } finally {
+              setBusy(!1);
+            }
+          }
+        }, forkThread = async (thread) => {
+          setBusy(!0);
+          try {
+            let result = await props.control("codex.call", {
+              method: "thread/fork",
+              params: { threadId: thread.id }
+            }), forked = codexResultThread(result);
+            if (forked === void 0) throw new Error("The Host returned an invalid Codex thread.");
+            setThreads((previous) => mergeCodexThreads([forked], previous)), openThread(forked);
+          } catch (reason) {
+            console.warn("[ds-harness-remote] failed to fork Codex thread:", reason);
+          } finally {
+            setBusy(!1);
+          }
+        }, archiveThread = async (thread) => {
+          setBusy(!0);
+          try {
+            await props.control("codex.call", { method: "thread/archive", params: { threadId: thread.id } }), setThreads((previous) => previous.filter((item) => item.id !== thread.id)), codexSidebar.getSnapshot().selectedThread?.id === thread.id && codexSidebar.selectThread(void 0);
+          } catch (reason) {
+            console.warn("[ds-harness-remote] failed to archive Codex thread:", reason);
+          } finally {
+            setBusy(!1);
+          }
+        }, createThread = async () => {
+          let seedPath = threads.find((thread) => typeof thread.cwd == "string")?.cwd ?? "", cwd = window.prompt(t("codexNewPath"), seedPath)?.trim();
+          if (!(cwd === void 0 || cwd === "")) {
+            setBusy(!0);
+            try {
+              let result = await props.control("codex.call", { method: "thread/start", params: { cwd } }), thread = codexResultThread(result);
+              if (thread === void 0) throw new Error("The Host returned an invalid Codex thread.");
+              setThreads((previous) => mergeCodexThreads([thread], previous)), openThread(thread);
+            } catch (reason) {
+              console.warn("[ds-harness-remote] failed to create Codex thread:", reason);
+            } finally {
+              setBusy(!1);
+            }
+          }
+        };
+        return props.renderGroup({
+          key: "ds-harness-remote-codex",
+          label: t("codexEntry"),
+          expanded: nav.expanded,
+          containsCurrent: nav.selectedThread !== void 0,
+          selectedSessionId: nav.selectedThread === void 0 ? void 0 : codexSidebarSessionId(nav.selectedThread.id),
+          sessions: threads.map((thread) => ({
+            id: codexSidebarSessionId(thread.id),
+            title: `${thread.isPinned ? "\u2605 " : ""}${thread.name ?? thread.preview ?? thread.id}`,
+            running: codexThreadRunning(thread.status),
+            pendingInteraction: codexThreadWaitingOnApproval(thread.status) ? "approval" : void 0,
+            completed: !1,
+            updatedAt: codexTimestampMs(thread.updatedAt ?? thread.createdAt),
+            onOpen: () => {
+              openThread(thread);
+            },
+            onRename: () => {
+              renameThread(thread);
+            },
+            onFork: () => {
+              forkThread(thread);
+            },
+            onArchive: () => {
+              archiveThread(thread);
+            }
+          })),
+          onToggle: () => {
+            let expanded = !codexSidebar.getSnapshot().expanded;
+            codexSidebar.setExpanded(expanded), expanded && loadThreads();
+          },
+          onCreate: () => {
+            createThread();
+          }
+        });
+      }
+      function CodexConversationSurface(props) {
+        let { t } = props, requestedThread = useCodexSource(codexSidebar, (snapshot) => snapshot.selectedThread), [selected, setSelected] = React.useState(void 0), [timelineState, setTimelineState] = React.useState(void 0), [busy, setBusy] = React.useState(!1), [loading, setLoading] = React.useState(!1), [reconnecting, setReconnecting] = React.useState(!1), [error, setError] = React.useState(void 0), streamRef = React.useRef(void 0), runRef = React.useRef(0), selectedRef = React.useRef(void 0), timelineRef = React.useRef(void 0), controlRef = React.useRef(props.control);
+        selectedRef.current = selected, timelineRef.current = timelineState, controlRef.current = props.control;
         let closeActiveStream = async () => {
           runRef.current += 1;
           let stream = streamRef.current;
@@ -6446,27 +6577,47 @@ ${output}`);
         React.useEffect(() => () => {
           closeActiveStream();
         }, []);
-        let loadThreads = async (cursor, archived = showArchived) => {
-          setLoading(!0), setError(void 0);
-          try {
-            let result = await props.control("codex.call", {
-              method: "thread/list",
-              params: {
-                limit: 50,
-                sortKey: "updated_at",
-                sortDirection: "desc",
-                sourceKinds: ["cli", "vscode", "exec", "appServer", "unknown"],
-                archived,
-                ...cursor === void 0 ? {} : { cursor }
-              }
-            }), page = codexThreadPage(result, archived);
-            setThreads((previous) => cursor === void 0 ? page.rows : mergeCodexThreads(previous, page.rows)), setNextCursor(page.nextCursor);
-          } catch (reason) {
-            setError(messageOf(reason));
-          } finally {
-            setLoading(!1);
+        let inputShell = React.useMemo(() => new SessionInputShell({
+          actx: {},
+          defaultSink: async (text, _imageIds, _mode, signal) => {
+            let current = selectedRef.current;
+            if (current === void 0 || current.archived || text.trim() === "")
+              return { kind: "error", text: t("codexUnavailable") };
+            if (signal.aborted) return { kind: "error", text: t("codexRequestCancelled") };
+            setError(void 0);
+            try {
+              await controlRef.current("codex.call", {
+                method: "thread/resume",
+                params: { threadId: current.id }
+              });
+              let activeTurnId = timelineRef.current?.activeTurnId, method = activeTurnId !== void 0 ? "turn/steer" : "turn/start", result = await controlRef.current("codex.call", {
+                method,
+                params: method === "turn/steer" ? { threadId: current.id, expectedTurnId: activeTurnId, input: [{ type: "text", text: text.trim() }] } : { threadId: current.id, input: [{ type: "text", text: text.trim() }] }
+              }), turn = codexRecord(codexRecord(result)?.turn);
+              return typeof turn?.id == "string" ? setTimelineState((previous) => previous === void 0 ? previous : {
+                ...previous,
+                activeTurnId: turn.id,
+                session: { ...previous.session, status: "running" }
+              }) : method === "turn/steer" && setTimelineState((previous) => previous === void 0 ? previous : {
+                ...previous,
+                session: { ...previous.session, status: "running" }
+              }), { kind: "success" };
+            } catch (reason) {
+              let message = messageOf(reason);
+              return setError(message), { kind: "error", text: message };
+            }
+          },
+          commandImages: {
+            serialize: async () => [],
+            release: () => {
+            },
+            unsupportedNotice: () => t("codexImagesUnsupported")
           }
-        }, loadHistory = async (threadId) => {
+        }), [selected?.id, t]);
+        React.useEffect(() => () => {
+          inputShell.dispose();
+        }, [inputShell]);
+        let loadHistory = async (threadId) => {
           let result = await props.control("codex.call", {
             method: "thread/read",
             params: { threadId, includeTurns: !0 }
@@ -6508,87 +6659,28 @@ ${output}`);
           setLoading(!0), setError(void 0), setSelected(thread), setTimelineState(void 0), setReconnecting(!1), await closeActiveStream();
           let run = runRef.current + 1;
           runRef.current = run, runThreadSession(thread.id, run).finally(() => setLoading(!1));
-        }, createThread = async () => {
-          let cwd = newThreadPath.trim();
-          if (cwd !== "") {
-            setBusy(!0), setError(void 0);
-            try {
-              let result = await props.control("codex.call", { method: "thread/start", params: { cwd } }), thread = codexResultThread(result);
-              if (thread === void 0) throw new Error("The Host returned an invalid Codex thread.");
-              setThreads((previous) => mergeCodexThreads([thread], previous)), setNewThreadPath(""), await openThread(thread);
-            } catch (reason) {
-              setError(messageOf(reason));
-            } finally {
-              setBusy(!1);
-            }
+        };
+        React.useEffect(() => {
+          if (requestedThread === void 0) {
+            setSelected(void 0), setTimelineState(void 0), setReconnecting(!1), closeActiveStream().then(() => {
+              props.close();
+            });
+            return;
           }
-        }, renameThread = async () => {
-          if (selected === void 0) return;
-          let name = window.prompt(t("codexRenamePrompt"), selected.name ?? selected.preview ?? "")?.trim();
-          if (!(name === void 0 || name === "")) {
-            setBusy(!0), setError(void 0);
-            try {
-              await props.control("codex.call", { method: "thread/name/set", params: { threadId: selected.id, name } }), setSelected((previous) => previous === void 0 ? previous : { ...previous, name }), setThreads((previous) => previous.map((thread) => thread.id === selected.id ? { ...thread, name } : thread)), setTimelineState((previous) => previous === void 0 ? previous : {
-                ...previous,
-                session: { ...previous.session, title: name }
-              });
-            } catch (reason) {
-              setError(messageOf(reason));
-            } finally {
-              setBusy(!1);
-            }
+          if (selectedRef.current?.id === requestedThread.id) {
+            setSelected((previous) => previous === void 0 ? requestedThread : { ...previous, ...requestedThread });
+            return;
           }
-        }, archiveThread = async () => {
-          if (selected !== void 0) {
-            setBusy(!0), setError(void 0);
-            try {
-              await props.control("codex.call", {
-                method: selected.archived ? "thread/unarchive" : "thread/archive",
-                params: { threadId: selected.id }
-              });
-              let archivedId = selected.id;
-              await closeActiveStream(), setThreads((previous) => previous.filter((thread) => thread.id !== archivedId)), setSelected(void 0), setTimelineState(void 0), setReconnecting(!1);
-            } catch (reason) {
-              setError(messageOf(reason));
-            } finally {
-              setBusy(!1);
-            }
-          }
-        }, show = async () => {
-          setOpen(!0), setShowArchived(!1), setSelected(void 0), setTimelineState(void 0), await loadThreads(void 0, !1);
-        }, switchArchiveView = async () => {
-          let archived = !showArchived;
-          await closeActiveStream(), setShowArchived(archived), setSelected(void 0), setTimelineState(void 0), setThreads([]), setNextCursor(void 0), await loadThreads(void 0, archived);
-        }, close = async () => {
-          setOpen(!1), setSelected(void 0), setTimelineState(void 0), setReconnecting(!1), await closeActiveStream();
-        }, send = async () => {
-          if (!(selected === void 0 || selected.archived || prompt.trim() === "")) {
-            setBusy(!0), setError(void 0);
-            try {
-              await props.control("codex.call", { method: "thread/resume", params: { threadId: selected.id } });
-              let result = await props.control("codex.call", {
-                method: "turn/start",
-                params: { threadId: selected.id, input: [{ type: "text", text: prompt.trim() }] }
-              }), turn = codexRecord(codexRecord(result)?.turn);
-              typeof turn?.id == "string" && setTimelineState((previous) => previous === void 0 ? previous : {
-                ...previous,
-                activeTurnId: turn.id,
-                session: { ...previous.session, status: "running" }
-              }), setPrompt("");
-            } catch (reason) {
-              setError(messageOf(reason));
-            } finally {
-              setBusy(!1);
-            }
-          }
-        }, interrupt = async () => {
-          let activeTurnId2 = timelineState?.activeTurnId;
-          if (!(selected === void 0 || activeTurnId2 === void 0)) {
+          openThread(requestedThread);
+        }, [requestedThread]);
+        let interrupt = async () => {
+          let activeTurnId = timelineState?.activeTurnId;
+          if (!(selected === void 0 || activeTurnId === void 0)) {
             setBusy(!0);
             try {
               await props.control("codex.call", {
                 method: "turn/interrupt",
-                params: { threadId: selected.id, turnId: activeTurnId2 }
+                params: { threadId: selected.id, turnId: activeTurnId }
               });
             } catch (reason) {
               setError(messageOf(reason));
@@ -6612,191 +6704,332 @@ ${output}`);
               setBusy(!1);
             }
           }
+        }, approval = timelineState?.approval, sessionId = timelineState?.session.id ?? (selected === void 0 ? "codex" : `codex:${selected.id}`), chatSnapshot = React.useMemo(
+          () => timelineState === void 0 ? new ChatSnapshotBuilder().empty : codexChatSnapshot(timelineState, ChatSnapshotBuilder, t),
+          [timelineState, t]
+        ), sessionSnapshot = React.useMemo(
+          () => codexSessionSnapshot(sessionId, selected, timelineState, loading, error),
+          [sessionId, selected, timelineState, loading, error]
+        ), sessionsSnapshot = React.useMemo(() => ({
+          byId: {
+            [sessionId]: {
+              cwd: timelineState?.session.cwd ?? selected?.cwd
+            }
+          }
+        }), [sessionId, timelineState?.session.cwd, selected?.cwd]), chatStore = React.useMemo(() => createChatStore().create(sessionId), [sessionId]), chatScrollRef = React.useRef(null), useSession = (selector) => selector(sessionSnapshot), useChat = (selector) => selector(chatSnapshot), useSessions = (selector) => selector(sessionsSnapshot), useStore = (selector, equals) => useCodexSource(chatStore, selector, equals), useInput = (selector, equals) => useCodexSource(inputShell.state, selector, equals), useNotices = (selector, equals) => useCodexSource(inputShell.notices, selector, equals), useTranscriptView = (selector) => useCodexSource(CODEX_COMPACT_TRANSCRIPT_SOURCE, selector), useMenuLauncher = (selector) => useCodexSource(CODEX_EMPTY_MENU_SOURCE, selector), useProjection = () => {
+        }, renderCodexChatSlot = (_name, owner, options) => {
+          let ownerRecord = codexRecord(owner), node = codexRecord(ownerRecord?.node), fallback = codexRecord(options)?.fallback;
+          if (node === void 0) return fallback;
+          let rendererProps = {
+            ...ownerRecord,
+            t: props.chatT,
+            useTurnData: () => {
+            }
+          };
+          return node.kind === "user" || node.kind === "steering" ? React.createElement(UserMessageNodeView, rendererProps) : node.kind === "assistant-step" ? React.createElement(AssistantNodeView, rendererProps) : node.kind === "unknown" ? React.createElement(UnknownNodeView, rendererProps) : fallback;
         };
-        if (!supported) return null;
-        let timeline = timelineState?.items ?? [], approval = timelineState?.approval, activeTurnId = timelineState?.activeTurnId;
         return React.createElement(
-          React.Fragment,
-          null,
+          "section",
+          { className: "dshCodexSurface", "aria-label": t("codexTitle") },
+          reconnecting ? React.createElement("div", { className: "dshCodexSurfaceStatus", role: "status" }, t("codexReconnecting")) : null,
           React.createElement(
             "div",
-            { className: `dshRemoteSidebarEntry dshCodexSidebar${props.wide ? " isWide" : " isRail"}` },
-            React.createElement(
-              "button",
-              {
-                type: "button",
-                className: "dshRemoteModeButton",
-                title: t("codexEntry"),
-                "aria-label": t("codexEntry"),
-                onClick: () => void show()
+            { className: "dshCodexNativeFlow" },
+            React.createElement(ChatView, {
+              sessionId,
+              useSession,
+              useChat,
+              useSessions,
+              useStore,
+              actions: chatStore.actions,
+              useTranscriptView,
+              renderSlot: renderCodexChatSlot,
+              t: props.chatT,
+              openDetails: () => {
               },
-              React.createElement("svg", {
-                className: "dshRemoteComputerIcon",
-                viewBox: "0 0 24 24",
-                fill: "none",
-                stroke: "currentColor",
-                strokeWidth: 1.7,
-                strokeLinecap: "round",
-                strokeLinejoin: "round",
-                "aria-hidden": !0
-              }, React.createElement("path", { d: "M8 5h8M6 9h12M5 13h14M8 17h8" })),
-              props.wide ? React.createElement("span", { className: "dshRemoteSidebarLabel" }, t("codexEntry")) : null
+              openFile: () => Promise.reject(new Error(t("codexFileOpenUnavailable"))),
+              loadOlder: () => {
+              },
+              loadImage: Object.assign(
+                () => Promise.reject(new Error(t("codexImagesUnsupported"))),
+                { peek: () => {
+                } }
+              ),
+              chatScroll: {
+                save: (position) => {
+                  chatScrollRef.current = position;
+                },
+                read: () => chatScrollRef.current
+              },
+              forkAt: () => {
+              },
+              fileMentions: () => {
+              },
+              openView: () => {
+              }
+            })
+          ),
+          approval === void 0 ? null : React.createElement(
+            "section",
+            { className: "dshCodexApproval" },
+            React.createElement("strong", null, t("codexApproval")),
+            approval.command === void 0 ? null : React.createElement("code", null, approval.command),
+            approval.reason === void 0 ? null : React.createElement("p", null, approval.reason),
+            React.createElement(
+              "div",
+              null,
+              React.createElement("button", { type: "button", disabled: busy, onClick: () => void respond("decline") }, t("codexDeny")),
+              React.createElement("button", { type: "button", disabled: busy, onClick: () => void respond("accept") }, t("codexAllowOnce"))
             )
           ),
-          open ? React.createElement("div", {
-            className: "dshRemoteBackdrop",
-            role: "presentation",
-            onMouseDown: (event) => {
-              event.target === event.currentTarget && close();
-            }
-          }, React.createElement(
-            "section",
-            {
-              className: "dshRemotePage dshCodexPage",
-              role: "dialog",
-              "aria-modal": !0,
-              "aria-label": t("codexTitle")
-            },
-            React.createElement(
-              "header",
-              { className: "dshRemotePageHeader" },
-              React.createElement(
-                "div",
-                { className: "dshRemotePageIntro" },
-                React.createElement("strong", null, t("codexTitle")),
-                React.createElement("p", null, t("codexDescription"))
-              ),
-              React.createElement(
-                "div",
-                { className: "dshRemotePageActions" },
-                React.createElement("button", {
-                  type: "button",
-                  disabled: loading || busy,
-                  onClick: () => selected === void 0 ? void loadThreads() : void loadHistory(selected.id)
-                }, t("codexRefresh")),
-                React.createElement("button", { type: "button", onClick: () => void close(), "aria-label": t("close") }, "\xD7")
-              )
-            ),
-            React.createElement(
-              "main",
-              { className: "dshRemotePageBody dshCodexBody" },
-              selected === void 0 ? React.createElement(
-                "div",
-                { className: "dshCodexThreadList" },
-                React.createElement(
-                  "div",
-                  { className: "dshCodexListActions" },
-                  showArchived ? null : React.createElement(
-                    "div",
-                    { className: "dshCodexNewThread" },
-                    React.createElement("input", {
-                      value: newThreadPath,
-                      disabled: busy,
-                      placeholder: t("codexNewPath"),
-                      onChange: (event) => setNewThreadPath(event.target.value)
-                    }),
-                    React.createElement("button", {
-                      type: "button",
-                      disabled: busy || newThreadPath.trim() === "",
-                      onClick: () => void createThread()
-                    }, t("codexNewThread"))
-                  ),
-                  React.createElement("button", {
-                    type: "button",
-                    className: "dshCodexArchiveView",
-                    disabled: loading || busy,
-                    onClick: () => void switchArchiveView()
-                  }, t(showArchived ? "codexShowActive" : "codexShowArchived"))
-                ),
-                loading && threads.length === 0 ? React.createElement("p", null, t("codexLoading")) : threads.length === 0 ? React.createElement("p", null, t("codexEmpty")) : threads.map((thread) => React.createElement(
-                  "button",
-                  {
-                    type: "button",
-                    key: thread.id,
-                    onClick: () => void openThread(thread)
-                  },
-                  React.createElement(
-                    "span",
-                    null,
-                    React.createElement("strong", null, `${thread.isPinned ? "\u2605 " : ""}${thread.name ?? thread.preview ?? thread.id}`),
-                    React.createElement("small", null, thread.cwd ?? thread.id)
-                  ),
-                  React.createElement("small", null, [
-                    thread.isPinned ? t("codexPinned") : "",
-                    codexStatusLabel(thread.status, t),
-                    codexTimestampLabel(thread.updatedAt)
-                  ].filter(Boolean).join(" \xB7 "))
-                )),
-                nextCursor === void 0 ? null : React.createElement("button", {
-                  type: "button",
-                  className: "dshCodexLoadMore",
-                  disabled: loading,
-                  onClick: () => void loadThreads(nextCursor)
-                }, t("codexLoadMore"))
-              ) : React.createElement(
-                React.Fragment,
-                null,
-                React.createElement("button", {
-                  type: "button",
-                  className: "dshRemoteLocalLink",
-                  onClick: () => {
-                    closeActiveStream(), setSelected(void 0), setTimelineState(void 0), setReconnecting(!1);
-                  }
-                }, t("codexBack")),
-                React.createElement(
-                  "div",
-                  { className: "dshCodexThreadHeader" },
-                  React.createElement("strong", null, selected.name ?? selected.preview ?? selected.id),
-                  React.createElement("span", null, selected.cwd ?? selected.id),
-                  reconnecting ? React.createElement("small", null, t("codexReconnecting")) : streamRef.current === void 0 ? null : React.createElement("small", null, t("codexLive")),
-                  React.createElement("button", { type: "button", disabled: busy, onClick: () => void renameThread() }, t("codexRename")),
-                  React.createElement(
-                    "button",
-                    { type: "button", disabled: busy, onClick: () => void archiveThread() },
-                    t(selected.archived ? "codexUnarchive" : "codexArchive")
-                  )
-                ),
-                React.createElement(
-                  "div",
-                  { className: "dshCodexTimeline" },
-                  loading && timelineState === void 0 ? React.createElement("p", null, t("codexLoading")) : timeline.length === 0 ? React.createElement("p", null, t("codexNoMessages")) : timeline.map((item) => {
-                    let view = codexDisplayItem(item, t);
-                    return React.createElement("article", {
-                      key: item.id,
-                      className: `dshCodexItem is${view.kind}`
-                    }, React.createElement("small", null, view.label), React.createElement("pre", null, view.text));
-                  })
-                ),
-                approval === void 0 ? null : React.createElement(
-                  "section",
-                  { className: "dshCodexApproval" },
-                  React.createElement("strong", null, t("codexApproval")),
-                  approval.command === void 0 ? null : React.createElement("code", null, approval.command),
-                  approval.reason === void 0 ? null : React.createElement("p", null, approval.reason),
-                  React.createElement(
-                    "div",
-                    null,
-                    React.createElement("button", { type: "button", disabled: busy, onClick: () => void respond("decline") }, t("codexDeny")),
-                    React.createElement("button", { type: "button", disabled: busy, onClick: () => void respond("accept") }, t("codexAllowOnce"))
-                  )
-                ),
-                selected.archived ? null : React.createElement(
-                  "footer",
-                  { className: "dshCodexComposer" },
-                  React.createElement("textarea", {
-                    value: prompt,
-                    disabled: busy,
-                    rows: 3,
-                    placeholder: t("codexPromptPlaceholder"),
-                    onChange: (event) => setPrompt(event.target.value)
-                  }),
-                  activeTurnId === void 0 ? React.createElement("button", { type: "button", disabled: busy || prompt.trim() === "", onClick: () => void send() }, t(busy ? "codexSending" : "codexSend")) : React.createElement("button", { type: "button", disabled: busy, onClick: () => void interrupt() }, t("codexStop"))
-                )
-              ),
-              error === void 0 ? null : React.createElement("p", { className: "dshRemoteError", role: "alert" }, error)
-            )
-          )) : null
+          selected?.archived ? null : React.createElement(
+            "div",
+            { className: "dshCodexComposerSeat", "data-composer-seat": "" },
+            React.createElement(InputBar, {
+              sessionId,
+              variant: "composer",
+              placeholder: t("codexPromptPlaceholder"),
+              disabled: busy || selected === void 0 || selected.archived === !0,
+              blocked: approval === void 0 ? void 0 : { reason: t("codexApproval") },
+              useSession,
+              useInput,
+              inputActions: inputShell.actions,
+              keyboard: inputShell,
+              addImages: void 0,
+              removeImage: void 0,
+              draftImages: () => [],
+              resolveSubmitMode: () => "queue",
+              toggleCommandMenu: void 0,
+              stop: timelineState?.activeTurnId === void 0 ? void 0 : () => {
+                interrupt();
+              },
+              command: void 0,
+              useNotices,
+              useLexicon: () => /* @__PURE__ */ new Map(),
+              useMenuLauncher,
+              useProjection,
+              renderSlot: () => null,
+              t: props.conversationT,
+              overlay: null,
+              leftItems: null,
+              rightItems: null,
+              footer: null
+            })
+          ),
+          error === void 0 ? null : React.createElement("p", { className: "dshRemoteError dshCodexSurfaceError", role: "alert" }, error)
         );
+      }
+      function codexConstantSource(value) {
+        return {
+          getSnapshot: () => value,
+          subscribe: () => () => {
+          }
+        };
+      }
+      function createCodexSidebarStore() {
+        let snapshot = { expanded: !1 }, listeners = /* @__PURE__ */ new Set(), publish = () => {
+          for (let listener of listeners) listener();
+        }, replace = (next) => {
+          snapshot.expanded === next.expanded && snapshot.selectedThread?.id === next.selectedThread?.id && snapshot.selectedThread === next.selectedThread || (snapshot = next, publish());
+        };
+        return {
+          getSnapshot: () => snapshot,
+          subscribe: (listener) => (listeners.add(listener), () => {
+            listeners.delete(listener);
+          }),
+          setExpanded: (expanded) => {
+            replace({ ...snapshot, expanded });
+          },
+          selectThread: (thread) => {
+            replace({
+              expanded: thread === void 0 ? snapshot.expanded : !0,
+              ...thread === void 0 ? {} : { selectedThread: thread }
+            });
+          }
+        };
+      }
+      function codexSidebarSessionId(threadId) {
+        return `codex:${threadId}`;
+      }
+      function codexTimestampMs(timestamp) {
+        return timestamp === void 0 || !Number.isFinite(timestamp) ? Date.now() : timestamp < 1e11 ? timestamp * 1e3 : timestamp;
+      }
+      function codexThreadRunning(value) {
+        return codexRecord(value)?.type === "active";
+      }
+      function codexThreadWaitingOnApproval(value) {
+        let status = codexRecord(value);
+        return status?.type === "active" && Array.isArray(status.activeFlags) && status.activeFlags.includes("waitingOnApproval");
+      }
+      function codexSameSelection(left, right) {
+        return Object.is(left, right);
+      }
+      function useCodexSource(source, selector, equals = codexSameSelection) {
+        let [selected, setSelected] = React.useState(() => selector(source.getSnapshot())), selectedRef = React.useRef(selected);
+        return selectedRef.current = selected, React.useEffect(() => {
+          let publish = () => {
+            let next = selector(source.getSnapshot());
+            equals(selectedRef.current, next) || (selectedRef.current = next, setSelected(next));
+          };
+          return publish(), source.subscribe(publish);
+        }, [source, selector, equals]), selected;
+      }
+      function codexSessionSnapshot(sessionId, selected, timeline, loading, error) {
+        let running = timeline?.session.status === "running" || timeline?.session.status === "waiting", openError = error !== void 0 && timeline === void 0 ? { code: "CODEX", message: error } : null;
+        return {
+          sessionId,
+          queue: [],
+          pendingSubmissions: [],
+          running,
+          subagent: null,
+          removed: !1,
+          openState: openError !== null ? "error" : timeline === void 0 && selected !== void 0 ? "loading" : "open",
+          openError,
+          hasMore: !1,
+          loadingOlder: !1,
+          promptError: null,
+          blank: timeline !== void 0 && timeline.items.length === 0,
+          lastAgentError: timeline?.session.status === "failed" ? error ?? null : null,
+          promptAttempted: selected !== void 0,
+          awaitingFirstTurn: loading && timeline === void 0
+        };
+      }
+      function codexChatSnapshot(state, Builder, t) {
+        return new Builder().replace(codexProjectChat(state, t));
+      }
+      function codexProjectChat(state, t) {
+        let groups = codexTurnRecords(state), turns = /* @__PURE__ */ new Map(), nodes = [], lastGroup = groups[groups.length - 1], sessionRunning = state.session.status === "running" || state.session.status === "waiting";
+        for (let group of groups) {
+          let open = group.id === state.activeTurnId || state.activeTurnId === void 0 && sessionRunning && group === lastGroup, first = group.records[0], last = group.records[group.records.length - 1];
+          if (first === void 0 || last === void 0) continue;
+          let turnStart = codexSessionEvent("turn/start", first.seq, codexItemTime(first.item, state, first.seq), { turn: group.turn }), turnEnd = open ? void 0 : codexSessionEvent("turn/end", last.seq, codexItemTime(last.item, state, last.seq), { turn: group.turn }), stepStart = codexSessionEvent("step/start", first.seq, codexItemTime(first.item, state, first.seq), {
+            turn: group.turn,
+            step: 1
+          }), stepEnd = open ? void 0 : codexSessionEvent("step/end", last.seq, codexItemTime(last.item, state, last.seq), {
+            turn: group.turn,
+            step: 1
+          }), step = {
+            turn: group.turn,
+            step: 1,
+            start: stepStart,
+            end: stepEnd,
+            status: open ? "open" : "closed",
+            data: CODEX_EMPTY_LOCATION_DATA
+          }, turn = {
+            turn: group.turn,
+            start: turnStart,
+            end: turnEnd,
+            status: open ? "open" : "closed",
+            steps: [step],
+            data: CODEX_EMPTY_LOCATION_DATA
+          };
+          turns.set(group.turn, turn);
+          for (let record of group.records) {
+            let node = codexChatNode(record.item, record.seq, turn, step, state, t);
+            node !== void 0 && nodes.push(node);
+          }
+        }
+        return {
+          nodes,
+          timeline: {
+            turnOrder: groups.map((group) => group.turn),
+            turns
+          }
+        };
+      }
+      function codexTurnRecords(state) {
+        let groups = [], byId = /* @__PURE__ */ new Map(), seq = 0;
+        for (let item of state.items) {
+          if (item.nativeRef.requestHandle !== void 0 && item.nativeRef.requestHandle === state.approval?.requestHandle) continue;
+          seq += 1;
+          let id = item.nativeRef.turnId ?? `item:${item.id}`, group = byId.get(id);
+          group === void 0 && (group = { id, turn: groups.length + 1, records: [] }, byId.set(id, group), groups.push(group)), group.records.push({ item, seq });
+        }
+        return groups;
+      }
+      function codexChatNode(item, seq, turn, step, state, t) {
+        let time = codexItemTime(item, state, seq);
+        if (item.kind === "message" && item.role === "user")
+          return {
+            key: item.id,
+            id: item.id,
+            kind: "user",
+            target: "chat",
+            anchorSeq: seq,
+            location: { kind: "turn", turn },
+            visibility: "visible",
+            data: {
+              kind: "user",
+              seq,
+              time,
+              content: codexTextContent(item.text),
+              source: { kind: "user", rpcId: item.id }
+            }
+          };
+        if (item.kind === "message" && item.role === "assistant") {
+          let blocks = codexAssistantBlocks(item.text), running = item.status === "running", interrupted = item.status === "failed" || item.status === "declined", finalNode = running ? void 0 : {
+            kind: "assistant",
+            seq,
+            time,
+            messageId: item.nativeRef.itemId ?? item.id,
+            turn: turn.turn,
+            step: step.step,
+            blocks,
+            ...interrupted ? { interrupted: !0 } : {}
+          };
+          return {
+            key: item.id,
+            id: item.id,
+            kind: "assistant-step",
+            target: "chat",
+            anchorSeq: seq,
+            location: { kind: "step", turn, step },
+            visibility: blocks.length > 0 || interrupted ? "visible" : "hidden",
+            data: {
+              status: running ? "running" : interrupted ? "interrupted" : "settled",
+              turn: turn.turn,
+              step: step.step,
+              blocks,
+              time,
+              ...finalNode === void 0 ? {} : { finalNode }
+            }
+          };
+        }
+        let rendered = codexDisplayItem(item, t);
+        if (!(rendered.text === "" && item.kind === "status"))
+          return {
+            key: item.id,
+            id: item.id,
+            kind: "unknown",
+            target: "chat",
+            anchorSeq: seq,
+            location: { kind: "step", turn, step },
+            visibility: "visible",
+            data: {
+              kind: "unknown",
+              seq,
+              time,
+              type: rendered.kind,
+              data: {
+                label: rendered.label,
+                text: rendered.text,
+                status: item.status,
+                details: item.details
+              }
+            }
+          };
+      }
+      function codexSessionEvent(type, seq, time, data) {
+        return { type, seq, time, data };
+      }
+      function codexTextContent(text) {
+        return text === void 0 || text === "" ? [] : [{ type: "text", text }];
+      }
+      function codexAssistantBlocks(text) {
+        return text === void 0 || text === "" ? [] : [{ kind: "text", text }];
+      }
+      function codexItemTime(item, state, seq) {
+        return item.createdAt !== void 0 && Number.isFinite(item.createdAt) ? item.createdAt : state.session.createdAt + seq;
       }
       function codexRecord(value) {
         return typeof value == "object" && value !== null && !Array.isArray(value) ? value : void 0;
@@ -7207,7 +7440,9 @@ ${output}`);
           ".dshRemotePage{width:min(720px,100%);max-height:min(760px,calc(100vh - 40px));display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:14px;overflow:hidden;animation:dshRemotePageIn .18s cubic-bezier(.25,1,.5,1)}",
           ".dshRemotePageHeader{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshRemotePageIntro{min-width:0;flex:1}.dshRemotePageHeader strong{display:block;font-size:18px;line-height:1.4}.dshRemotePageHeader p{min-width:0;max-width:70ch;margin:3px 0 0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5}.dshRemotePageActions{flex:0 0 auto;display:flex;align-items:center;gap:4px}.dshRemotePageActions>button{height:40px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;border:0;border-radius:8px;background:transparent;color:inherit;line-height:1;cursor:pointer}.dshRemotePageActions>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemotePageActions>button:disabled{opacity:.45;cursor:default}.dshRemotePageRefresh{min-width:48px;padding:0 10px;font:inherit;font-size:13px}.dshRemotePageActions>button:not(.dshRemotePageRefresh){width:40px;padding:0;font-size:24px}",
           ".dshRemotePageBody{padding:24px;overflow:auto;display:flex;flex-direction:column;gap:24px}.dshRemotePageBody button{font:inherit;color:inherit}",
+          ".dshCodexSurface{box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.dshCodexSurface button,.dshCodexSurface input{font:inherit;color:inherit}.dshCodexNativeFlow{flex:1;min-height:0;display:flex;flex-direction:column}.dshCodexSurfaceStatus{padding:8px 24px;color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexComposerSeat{position:sticky;bottom:0;z-index:2;padding:10px 0 12px;background:var(--dsw-alias-bg-base)}.dshCodexApproval{display:grid;gap:10px;margin:0 24px 12px;border:1px solid var(--dsw-alias-state-warn-primary,var(--dsw-alias-border-l1));border-radius:8px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2)}.dshCodexApproval code{white-space:pre-wrap;overflow-wrap:anywhere}.dshCodexApproval p{margin:0;color:var(--dsw-alias-label-secondary)}.dshCodexApproval>div{display:flex;justify-content:flex-end;gap:8px}.dshCodexApproval button{min-height:34px;border:0;border-radius:8px;padding:6px 12px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);cursor:pointer}.dshCodexApproval button:first-child{background:transparent;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2)}.dshCodexApproval button:disabled{opacity:.45;cursor:default}.dshCodexSurfaceError{margin:0 24px 12px}",
           ".dshCodexPage{width:min(920px,100%)}.dshCodexBody{min-height:min(560px,calc(100vh - 180px));gap:14px}.dshCodexThreadList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshCodexListActions{display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshCodexNewThread{min-width:0;flex:1;display:flex;gap:8px}.dshCodexNewThread input{min-width:0;flex:1;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:8px 10px;font:inherit}.dshCodexNewThread button,.dshCodexArchiveView,.dshCodexThreadHeader button{min-height:34px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:inherit;padding:6px 10px;cursor:pointer}.dshCodexNewThread button:disabled,.dshCodexArchiveView:disabled,.dshCodexThreadHeader button:disabled{opacity:.45;cursor:default}.dshCodexThreadList>button{min-height:62px;display:flex;align-items:center;justify-content:space-between;gap:18px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 6px;text-align:left;cursor:pointer}.dshCodexThreadList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexThreadList>button>span{min-width:0;display:flex;flex-direction:column;gap:4px}.dshCodexThreadList>.dshCodexLoadMore{min-height:40px;justify-content:center;color:var(--dsw-alias-label-secondary);text-align:center}.dshCodexThreadList strong,.dshCodexThreadList small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexThreadList small,.dshCodexThreadHeader span,.dshCodexThreadHeader small{color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexThreadHeader{display:flex;align-items:center;gap:8px;min-width:0}.dshCodexThreadHeader strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexThreadHeader span{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexTimeline{min-height:220px;display:flex;flex-direction:column;gap:12px;padding:2px 0}.dshCodexTimeline>p{color:var(--dsw-alias-label-secondary)}.dshCodexItem{max-width:86%;align-self:flex-start;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);padding:10px 12px}.dshCodexItem.isUser{align-self:flex-end;background:var(--dsw-alias-bg-layer-3)}.dshCodexItem.isUnknown{color:var(--dsw-alias-label-secondary)}.dshCodexItem>small{display:block;margin-bottom:5px;color:var(--dsw-alias-label-secondary)}.dshCodexItem>pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.55}.dshCodexItem.isTool>pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}.dshCodexApproval{display:grid;gap:10px;border:1px solid var(--dsw-alias-state-warn-primary,var(--dsw-alias-border-l1));border-radius:10px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2)}.dshCodexApproval code{white-space:pre-wrap;overflow-wrap:anywhere}.dshCodexApproval p{margin:0;color:var(--dsw-alias-label-secondary)}.dshCodexApproval>div{display:flex;justify-content:flex-end;gap:8px}.dshCodexApproval button,.dshCodexComposer button{min-height:38px;border:0;border-radius:8px;padding:7px 14px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);cursor:pointer}.dshCodexApproval button:first-child{background:transparent;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2)}.dshCodexComposer{position:sticky;bottom:-24px;display:flex;align-items:flex-end;gap:10px;margin-top:auto;padding:12px 0 0;background:var(--dsw-alias-bg-layer-1);border-top:1px solid var(--dsw-alias-border-l2)}.dshCodexComposer textarea{box-sizing:border-box;min-height:74px;flex:1;resize:vertical;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:10px 12px;font:inherit;line-height:1.5}.dshCodexComposer button:disabled,.dshCodexApproval button:disabled{opacity:.45;cursor:default}@media(max-width:620px){.dshCodexBody{min-height:calc(100vh - 150px)}.dshCodexListActions,.dshCodexNewThread{align-items:stretch;flex-direction:column}.dshCodexThreadHeader{align-items:stretch;flex-wrap:wrap}.dshCodexThreadHeader span{flex-basis:100%}.dshCodexItem{max-width:96%}.dshCodexComposer{bottom:-20px;flex-direction:column;align-items:stretch}.dshCodexComposer button{min-height:44px}}",
+          ".dshCodexWorkspaceRow{box-sizing:border-box;flex:none;padding:0 4px}.dshCodexWorkspaceButton{box-sizing:border-box;width:100%;height:34px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:8px;padding:6px 10px;font:inherit;text-align:left;cursor:pointer}.dshCodexWorkspaceButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexWorkspaceButton:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.dshCodexWorkspaceIcon{width:18px;height:18px;flex:0 0 18px;color:var(--dsw-alias-label-secondary)}.dshCodexWorkspaceLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexSurface{box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1)}.dshCodexSurface button,.dshCodexSurface input{font:inherit;color:inherit}.dshCodexSurfaceHeader{position:sticky;top:0;z-index:2;min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 24px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}.dshCodexSurfaceTitle,.dshCodexThreadTitle{min-width:0;display:flex;flex-direction:column;gap:2px}.dshCodexSurfaceTitle strong,.dshCodexThreadTitle strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600}.dshCodexSurfaceTitle span,.dshCodexThreadTitle span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}.dshCodexHeaderBack{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 0;cursor:pointer}.dshCodexHeaderBack:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}.dshCodexHeaderActions{flex:0 0 auto;display:flex;align-items:center;gap:6px}.dshCodexHeaderActions>span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexHeaderActions>button,.dshCodexNewThread button,.dshCodexThreadList>.dshCodexLoadMore{min-height:32px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:inherit;padding:5px 10px;cursor:pointer}.dshCodexHeaderActions>button:hover:not(:disabled),.dshCodexNewThread button:hover:not(:disabled),.dshCodexThreadList>.dshCodexLoadMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-label-dimmed)}.dshCodexHeaderActions>button:disabled,.dshCodexNewThread button:disabled,.dshCodexThreadList>.dshCodexLoadMore:disabled,.dshCodexApproval button:disabled{opacity:.45;cursor:default}.dshCodexSurfaceBody{box-sizing:border-box;flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:14px 24px 18px}.dshCodexThreadList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshCodexListActions{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshCodexNewThread{min-width:0;flex:1;display:flex;gap:8px}.dshCodexNewThread input{box-sizing:border-box;min-width:0;flex:1;height:34px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:0 10px}.dshCodexThreadList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:18px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;text-align:left;cursor:pointer}.dshCodexThreadList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexThreadList>button>span{min-width:0;display:flex;flex-direction:column;gap:4px}.dshCodexThreadList strong,.dshCodexThreadList small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexThreadList small{color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexNativeFlow{flex:1;min-height:320px;display:flex;flex-direction:column}.dshCodexComposerSeat{position:sticky;bottom:0;z-index:2;padding:10px 0 12px;background:var(--dsw-alias-bg-layer-1)}.dshCodexApproval{display:grid;gap:10px;border:1px solid var(--dsw-alias-state-warn-primary,var(--dsw-alias-border-l1));border-radius:8px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2)}.dshCodexApproval code{white-space:pre-wrap;overflow-wrap:anywhere}.dshCodexApproval p{margin:0;color:var(--dsw-alias-label-secondary)}.dshCodexApproval>div{display:flex;justify-content:flex-end;gap:8px}.dshCodexApproval button{min-height:34px;border:0;border-radius:8px;padding:6px 12px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);cursor:pointer}.dshCodexApproval button:first-child{background:transparent;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2)}.dshCodexSurfaceError{margin:0 0 12px}@media(max-width:620px){.dshCodexSurfaceHeader{align-items:flex-start;flex-direction:column;padding:10px 16px}.dshCodexHeaderActions{width:100%;flex-wrap:wrap}.dshCodexSurfaceBody{padding:12px 16px 16px}.dshCodexListActions,.dshCodexNewThread{align-items:stretch;flex-direction:column}.dshCodexThreadList>button{align-items:flex-start;flex-direction:column;gap:5px}.dshCodexNativeFlow{min-height:240px}}",
           ".dshRemoteSectionHeading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.dshRemoteSectionTitle{min-width:0;display:flex;align-items:center;gap:10px}.dshRemoteSectionTitle>strong{font-size:14px}.dshRemoteSectionActions{display:flex;align-items:center;gap:14px}.dshRemoteSectionActions>button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:5px 0;font-size:12px}.dshRemoteSectionActions>button:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}",
           ".dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
           ".dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList>button>span{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteHostList>button strong{font-size:14px;font-weight:500}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary);font-size:12px}",
@@ -7247,7 +7482,7 @@ ${output}`);
           ".dshRemoteConnection{border-top:1px solid var(--dsw-alias-border-l2);display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0}.dshRemoteConnectionSummary{min-width:0;display:flex;flex-direction:column;gap:4px}.dshRemoteConnectionSummary>span{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:1.5}.dshRemoteConnectionSummary strong{display:flex;align-items:center;gap:7px;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:1.5}.dshRemoteConnectionSummary p,.dshRemoteConnectionIssue{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}.dshRemoteConnectionDot{width:8px;height:8px;flex:0 0 auto;border-radius:999px;background:var(--dsw-alias-label-tertiary)}.dshRemoteConnectionDot.isOnline{background:var(--dsw-alias-state-success-primary)}.dshRemoteConnectionDot.isReconnecting{background:var(--dsw-alias-state-warn-primary)}.dshRemoteConnectionDot.isOffline{background:var(--dsw-alias-state-error-primary)}.dshRemoteConnectionIssue{color:var(--dsw-alias-state-error-primary);padding:0 0 12px}.dshRemoteReconnect{appearance:none;flex:0 0 auto;font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);min-height:34px;padding:5px 14px;font-size:13px;line-height:1.5}.dshRemoteReconnect:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed);background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteReconnect:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}.dshRemoteReconnect:disabled{opacity:.4;cursor:default}",
           ".dshRemoteSettingsFooter{border-top:1px solid var(--dsw-alias-border-l2);display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 0 4px}.dshRemoteSettingsFooter .dshRemoteError,.dshRemoteNotice{min-width:0;flex:1;margin:0;font-size:12px;line-height:1.5}.dshRemoteNotice{color:var(--dsw-alias-label-tertiary)}.dshRemoteDiscard,.dshRemoteSave{appearance:none;font:inherit;cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;font-size:13px;line-height:1.5}.dshRemoteDiscard{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);background:transparent}.dshRemoteDiscard:hover:not(:disabled){color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-dimmed)}.dshRemoteSave{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-3)}.dshRemoteDiscard:disabled,.dshRemoteSave:disabled{opacity:.4;cursor:default}.dshRemoteDiscard:focus-visible,.dshRemoteSave:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}",
           "@media(max-width:620px){.dshRemotePluginCardStatus{display:none}.dshRemoteSettingsTop{gap:10px}.dshRemoteConnection{align-items:flex-start}.dshRemoteReconnect{min-height:40px}}"
-        ].join(""), document.head.append(style), () => style.remove();
+        ].filter((css) => !css.includes(".dshCodexPage") && !css.includes(".dshCodexWorkspaceRow")).join(""), document.head.append(style), () => style.remove();
       }
       function apply(ctx) {
         if (window.__DS_HARNESS_REMOTE_CLIENT_ACTIVE__) return;
@@ -7307,7 +7542,11 @@ ${output}`);
               active = !1, window.clearInterval(timer), unregister?.();
             };
           }, "ds-harness-remote: remote file viewer provider");
-        }), ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), "ds-harness-remote: dictionaries"), ctx.effect(installStyle, "ds-harness-remote: client styles"), ctx.slots.inject("shell.overlay", () => ctx.slots.register({
+        }), ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), "ds-harness-remote: dictionaries"), ctx.effect(installStyle, "ds-harness-remote: client styles");
+        let openCodexSurface = () => {
+          ctx.get("conversationSurfaces")?.open("codex");
+        };
+        ctx.slots.inject("shell.overlay", () => ctx.slots.register({
           name: "shell.overlay",
           id: "ds-harness-remote-global-context",
           order: 20,
@@ -7322,13 +7561,24 @@ ${output}`);
             control,
             preferredQrProvider: ctx.locale.getLocale().active === "zh" ? "zhihu" : "github"
           })
-        }, RemoteWorkspaceAction)), ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({
-          name: "sidebar.footer.action",
-          id: "ds-harness-remote-codex",
-          order: -19,
+        }, RemoteWorkspaceAction)), ctx.slots.inject("sidebar.workspaces.group", () => ctx.slots.register({
+          name: "sidebar.workspaces.group",
+          id: "ds-harness-remote-codex-workspace",
+          order: 100,
           locale: localeNamespace,
-          inject: () => ({ control })
-        }, CodexSessionAction)), ctx.slots.inject("settings.plugin.item", () => ctx.slots.register({
+          inject: () => ({ control, openSurface: openCodexSurface })
+        }, CodexWorkspaceGroup)), ctx.slots.inject("conversation.surface", () => ctx.slots.register({
+          name: "conversation.surface",
+          key: "codex",
+          id: "ds-harness-remote-codex",
+          order: 0,
+          locale: localeNamespace,
+          inject: () => ({
+            control,
+            chatT: ctx.locale.bind("chat"),
+            conversationT: ctx.locale.bind("conversation")
+          })
+        }, CodexConversationSurface)), ctx.slots.inject("settings.plugin.item", () => ctx.slots.register({
           name: "settings.plugin.item",
           key: "ds-harness-remote",
           id: "ds-harness-remote",
