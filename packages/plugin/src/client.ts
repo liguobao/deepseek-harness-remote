@@ -23,6 +23,7 @@ declare const DSH_REMOTE_CLIENT_MODULE_ID: string | undefined
 const clientModuleId = typeof DSH_REMOTE_CLIENT_MODULE_ID === 'string'
   ? DSH_REMOTE_CLIENT_MODULE_ID
   : 'ds-harness-remote'
+const pendingWorkspaceSelectionKey = 'dsh-remote:pending-workspace-selection'
 
 interface ControlResult<T = unknown> {
   ok: boolean
@@ -140,6 +141,21 @@ interface RemoteWorkspaceSelection {
   workspaceId: string
   backend?: 'harness' | 'codex'
   sessionId?: string
+}
+
+function storedWorkspaceSelection(): RemoteWorkspaceSelection | undefined {
+  const raw = window.sessionStorage.getItem(pendingWorkspaceSelectionKey)
+  if (raw === null) return undefined
+  try {
+    const value = JSON.parse(raw) as Partial<RemoteWorkspaceSelection>
+    if (typeof value.targetDeviceId !== 'string' || typeof value.workspaceId !== 'string') throw new Error('invalid')
+    if (value.backend !== undefined && value.backend !== 'harness' && value.backend !== 'codex') throw new Error('invalid')
+    if (value.sessionId !== undefined && typeof value.sessionId !== 'string') throw new Error('invalid')
+    return value as RemoteWorkspaceSelection
+  } catch {
+    window.sessionStorage.removeItem(pendingWorkspaceSelectionKey)
+    return undefined
+  }
 }
 
 interface WorkspacesClientServiceLike {
@@ -1463,6 +1479,9 @@ window.__ModuleLoader__.load({
             connectedProgress,
           )
           setStatus(nextStatus)
+          if (nextStatus.workspaceSelection !== undefined) {
+            window.sessionStorage.setItem(pendingWorkspaceSelectionKey, JSON.stringify(nextStatus.workspaceSelection))
+          }
           window.location.reload()
         } catch (reason) {
           setError(messageOf(reason))
@@ -2210,13 +2229,10 @@ window.__ModuleLoader__.load({
         const reconcile = (): void => {
           if (disposed || opening || selection === undefined) return
           const pending = selection
-          const snapshot = ctx.workspaces.list.getSnapshot()
-          if (!snapshot.baselinesReady
-            || !snapshot.items.some(workspace => workspace.workspaceId === pending.workspaceId)) return
-
-          if (pending.backend === 'codex' && pending.sessionId !== undefined) {
-            const sessions = ctx.sessions.list.getSnapshot()
-            if (sessions.phase !== 'ready' || !sessions.ids.includes(pending.sessionId)) return
+          if (pending.backend !== 'codex' || pending.sessionId === undefined) {
+            const snapshot = ctx.workspaces.list.getSnapshot()
+            if (!snapshot.baselinesReady
+              || !snapshot.items.some(workspace => workspace.workspaceId === pending.workspaceId)) return
           }
 
           opening = true
@@ -2225,11 +2241,14 @@ window.__ModuleLoader__.load({
           unsubscribeWorkspaces = undefined
           unsubscribeSessions = undefined
           const open = pending.backend === 'codex' && pending.sessionId !== undefined
-            ? Promise.resolve(pending.sessionId)
+            ? new Promise<string>(resolve => {
+              window.setTimeout(() => resolve(pending.sessionId!), 1_000)
+            })
             : ctx.workspaces.connectWorkspace(pending.workspaceId)
           void open.then(async sessionId => {
             if (disposed) return
             ctx.sessions.open(sessionId)
+            window.sessionStorage.removeItem(pendingWorkspaceSelectionKey)
             await control('workspace.selection.consume', pending).catch(() => undefined)
           }).catch(reason => {
             if (!disposed) console.warn('remote workspace selection failed:', reason)
@@ -2237,9 +2256,10 @@ window.__ModuleLoader__.load({
         }
 
         void control<RemoteStatus>('status').then(status => {
-          if (disposed || status.mode !== 'remote' || status.workspaceSelection === undefined
-            || status.target?.deviceId !== status.workspaceSelection.targetDeviceId) return
-          selection = status.workspaceSelection
+          const pending = status.workspaceSelection ?? storedWorkspaceSelection()
+          if (disposed || status.mode !== 'remote' || pending === undefined
+            || status.target?.deviceId !== pending.targetDeviceId) return
+          selection = pending
           unsubscribeWorkspaces = ctx.workspaces.list.subscribe(reconcile)
           unsubscribeSessions = ctx.sessions.list.subscribe(reconcile)
           reconcile()

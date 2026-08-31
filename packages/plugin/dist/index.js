@@ -14198,12 +14198,43 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   follows = /* @__PURE__ */ new Set();
   pendingRequestIds = /* @__PURE__ */ new Map();
   pendingApprovals = /* @__PURE__ */ new Map();
+  removedSessionIds = /* @__PURE__ */ new Set();
+  threadHistoryCache = /* @__PURE__ */ new Map();
+  workspaceScope;
   closed = false;
   static remote(core, host) {
     return new _CodexVirtualHarness(new CodexRemoteClient(core), host);
   }
   async workspaces(signal) {
     return (await this.refreshCatalog(signal)).workspaces;
+  }
+  async selectWorkspace(workspaceId, signal) {
+    const catalog = await loadCatalog(this.client, signal);
+    const workspace = catalog.workspaces.find((item) => item.workspaceId === workspaceId);
+    if (workspace === void 0) throw new Error("The selected CodeX workspace is no longer available.");
+    this.workspaceScope = { workspaceId: workspace.workspaceId, path: workspace.path };
+    this.catalog = scopeCatalog(catalog, this.workspaceScope);
+    const visible = new Set(this.catalog.sessions.map((session) => session.id));
+    this.removedSessionIds.clear();
+    for (const session of catalog.sessions) if (!visible.has(session.id)) this.removedSessionIds.add(session.id);
+    return this.catalog.workspaces[0];
+  }
+  async preferredSessionId(signal) {
+    const sessions = this.catalog?.sessions ?? [];
+    const idleNamed = sessions.filter((session) => session.status !== "running" && session.status !== "waiting" && displayTitle(session) !== null);
+    const idle = sessions.filter((session) => session.status !== "running" && session.status !== "waiting");
+    const preferredNamed = idleNamed.length > 1 ? [...idleNamed.slice(1), idleNamed[0]] : idleNamed;
+    const candidates = [...new Set([...preferredNamed, ...idle, ...sessions].map((session) => session.id))];
+    for (const sessionId of candidates) {
+      const threadId = nativeThreadId(sessionId);
+      try {
+        const thread = await this.fetchThread(threadId, signal);
+        this.threadHistoryCache.set(threadId, thread);
+        return sessionId;
+      } catch {
+      }
+    }
+    return void 0;
   }
   async invoke(request) {
     const result = await this.dispatch(
@@ -14322,7 +14353,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     this.pendingRequestIds.clear();
   }
   async refreshCatalog(signal) {
-    const catalog = await loadCatalog(this.client, signal);
+    const loaded = await loadCatalog(this.client, signal);
+    const catalog = this.workspaceScope === void 0 ? loaded : scopeCatalog(loaded, this.workspaceScope);
     this.catalog = catalog;
     return catalog;
   }
@@ -14341,7 +14373,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         asOfSeq: 0,
         values: {
           title: displayTitle(session),
-          sessionListMetadata: { blank: false, lastPromptAt: session.updatedAt || null }
+          sessionListMetadata: { blank: false, lastPromptAt: session.updatedAt || null },
+          modelSelection: modelSelectionProjection()
         }
       }
     }));
@@ -14371,6 +14404,9 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     this.eventStreams.set(clientId, queue);
     const home = (await this.currentCatalog(signal)).workspaces[0]?.path ?? "/";
     queue.push({ type: "ready", clientId, host: { home } });
+    for (const sessionId of this.removedSessionIds) {
+      queue.push({ type: "emit", event: "api-session/removed", args: [sessionId] });
+    }
     return queue.iterate(() => this.eventStreams.delete(clientId));
   }
   async sessionFollow(request, signal) {
@@ -14402,7 +14438,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         asOfSeq: history.lastSeq,
         values: {
           title: threadTitle(raw),
-          sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: lastPromptAt(raw) }
+          sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: lastPromptAt(raw) },
+          modelSelection: modelSelectionProjection()
         }
       }
     });
@@ -14499,22 +14536,36 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     if (type === "agentMessage" && !settleAssistant) return;
     follow.completedItems.add(itemId);
     for (const event of itemEvents(item, follow.turn, 1, follow.requestId)) {
-      this.pushEvent(follow, event.type, event.data);
+      this.pushEvent(follow, event.type, event.data, event.view);
     }
   }
-  pushEvent(follow, type, data) {
-    const event = { type, seq: follow.nextSeq++, time: Date.now(), data };
+  pushEvent(follow, type, data, view) {
+    const event = {
+      type,
+      seq: follow.nextSeq++,
+      time: Date.now(),
+      data,
+      ...isSurfaceEvent(type) ? { surfaceOp: "append" } : {}
+    };
     if (!follow.rcOnly) follow.queue.push({
       type: "event",
-      event
+      event,
+      ...view === void 0 ? {} : { view }
     });
-    this.broadcastRcMux({ type: "session/event", sessionId: follow.sessionId, event });
+    this.broadcastRcMux({
+      type: "session/event",
+      sessionId: follow.sessionId,
+      event,
+      ...view === void 0 ? {} : { view }
+    });
   }
   emitRemoteEvent(event, args) {
     for (const queue of this.eventStreams.values()) queue.push({ type: "emit", event, args });
     const sessionId = typeof args[0] === "string" ? args[0] : void 0;
     if (event === "api-session/status" && sessionId !== void 0 && typeof args[1] === "boolean") {
       this.broadcastRcHost({ type: "host/session-status", sessionId, running: args[1] });
+    } else if (event === "api-session/removed" && sessionId !== void 0) {
+      this.broadcastRcHost({ type: "host/session-removed", sessionId });
     } else if (event === "api-session/added" && isRecord3(args[0])) {
       const summary = args[0];
       this.broadcastRcHost({
@@ -14645,6 +14696,11 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     return void 0;
   }
   async readThread(threadId, signal) {
+    const cached = this.threadHistoryCache.get(threadId);
+    if (cached !== void 0) return cached;
+    return this.fetchThread(threadId, signal);
+  }
+  async fetchThread(threadId, signal) {
     const result = record(await this.client.request("thread/read", { threadId, includeTurns: true }, signal));
     const thread = record(result.thread);
     if (string(thread.id) !== threadId) throw new Error("CodeX returned an invalid Thread history.");
@@ -14656,13 +14712,17 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     const history = nativeHistory(thread, sessionId);
     await this.ensureRcFollow(sessionId, thread);
     return success({
-      events: history.entries.map((entry) => ({ event: entry.event })),
+      events: history.entries.map((entry) => ({
+        event: entry.event,
+        ...entry.view === void 0 ? {} : { view: entry.view }
+      })),
       hasMore: false,
       projections: {
         asOfSeq: history.lastSeq,
         values: {
           title: threadTitle(thread),
-          sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: null }
+          sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: null },
+          modelSelection: modelSelectionProjection()
         }
       }
     });
@@ -14734,7 +14794,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         search: call("session.search"),
         create: call("session.create"),
         history: call("session.history"),
-        models: call("session.modelCatalog"),
+        models: call("session.models"),
         selectModel: call("session.selectModel"),
         rename: call("session.rename"),
         fork: call("session.fork"),
@@ -14795,6 +14855,10 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   async *rcHost(_request, signal) {
     const queue = new AsyncValueQueue2(signal);
     this.rcHostStreams.add(queue);
+    for (const sessionId of this.removedSessionIds) queue.push({
+      rpcId: `codex-host:${Date.now()}:${Math.random()}`,
+      payload: { type: "host/session-removed", sessionId }
+    });
     try {
       yield* queue;
     } finally {
@@ -14858,8 +14922,18 @@ function nativeHistory(thread, sessionId) {
   const entries = [];
   let seq = 0;
   let turnNumber = 0;
-  const append = (type, data, time = Date.now()) => {
-    entries.push({ type: "event", event: { type, seq: seq++, time, data } });
+  const append = (type, data, time = Date.now(), view) => {
+    entries.push({
+      type: "event",
+      event: {
+        type,
+        seq: seq++,
+        time,
+        data,
+        ...isSurfaceEvent(type) ? { surfaceOp: "append" } : {}
+      },
+      ...view === void 0 ? {} : { view }
+    });
   };
   for (const rawTurn of array(thread.turns)) {
     const turn = record(rawTurn);
@@ -14869,7 +14943,9 @@ function nativeHistory(thread, sessionId) {
     append("step/start", { turn: turnNumber, step: 1 }, time);
     for (const rawItem of array(turn.items)) {
       const item = record(rawItem);
-      for (const event of itemEvents(item, turnNumber, 1)) append(event.type, event.data, normalizeTime(item.createdAt) || time);
+      for (const event of itemEvents(item, turnNumber, 1)) {
+        append(event.type, event.data, normalizeTime(item.createdAt) || time, event.view);
+      }
     }
     append("step/end", { turn: turnNumber, step: 1 }, normalizeTime(turn.updatedAt) || time);
     append("turn/end", {
@@ -14918,9 +14994,14 @@ function itemEvents(item, turn, step, requestId) {
   }];
   if (type === "commandExecution" || type === "mcpToolCall" || type === "dynamicToolCall" || type === "fileChange") {
     const name2 = type === "fileChange" ? "codex.fileChange" : type === "commandExecution" ? "codex.command" : `codex.${type}`;
+    const args = toolArguments(item);
     const resultText = type === "fileChange" ? fileChangeSummary(item) : text ?? itemText2(record(item.result)) ?? type;
     return [
-      { type: "tool/call", data: { turn, step, callId: id2, name: name2, arguments: JSON.stringify(toolArguments(item)) } },
+      {
+        type: "tool/call",
+        data: { turn, step, callId: id2, name: name2, arguments: JSON.stringify(args) },
+        view: { for: "call", view: toolCallView(item, type, args) }
+      },
       {
         type: "tool/result",
         data: {
@@ -14937,7 +15018,8 @@ function itemEvents(item, turn, step, requestId) {
             }],
             source: { kind: "tool", callId: id2 }
           }
-        }
+        },
+        view: { for: "result", view: toolResultView(item, type, resultText) }
       }
     ];
   }
@@ -14956,12 +15038,76 @@ function itemEvents(item, turn, step, requestId) {
   }];
   return [];
 }
+function isSurfaceEvent(type) {
+  return type === "user/message" || type === "assistant/message" || type === "tool/result";
+}
+function toolCallView(item, type, args) {
+  if (type === "commandExecution") {
+    return {
+      card: "terminal",
+      title: commandText(item.command) ?? "CodeX command",
+      ...typeof item.cwd === "string" ? { cwd: item.cwd } : {}
+    };
+  }
+  const locations = fileLocations(item);
+  if (type === "fileChange") {
+    return {
+      card: "generic",
+      title: locations.length === 0 ? "CodeX file changes" : `Modify ${locations.length} file${locations.length === 1 ? "" : "s"}`,
+      kind: "edit",
+      rawInput: args,
+      ...locations.length === 0 ? {} : { locations }
+    };
+  }
+  return {
+    card: "generic",
+    title: toolDisplayName(item, type),
+    kind: "other"
+  };
+}
+function toolResultView(item, type, resultText) {
+  if (type === "commandExecution") {
+    return {
+      card: "terminal",
+      output: resultText,
+      ...typeof item.exitCode === "number" && Number.isSafeInteger(item.exitCode) ? { exitCode: item.exitCode } : {}
+    };
+  }
+  return {
+    card: "generic",
+    ...type === "fileChange" ? { title: "CodeX file changes completed" } : {}
+  };
+}
+function toolDisplayName(item, type) {
+  return string(item.name) ?? string(item.tool) ?? string(record(item.tool).name) ?? (type === "mcpToolCall" ? "CodeX MCP tool" : "CodeX tool");
+}
+function fileLocations(item) {
+  return array(item.changes).map((value) => string(record(value).path)).filter((path) => path !== void 0 && path.length > 0).map((path) => ({ path }));
+}
+function scopeCatalog(catalog, scope) {
+  const workspace = catalog.workspaces.find((item) => item.workspaceId === scope.workspaceId && item.path === scope.path);
+  if (workspace === void 0) return { threads: [], sessions: [], workspaces: [] };
+  const sessionIds = new Set(workspace.sessionIds);
+  const sessions = catalog.sessions.filter((session) => sessionIds.has(session.id) && session.cwd === scope.path);
+  const nativeIds = new Set(sessions.map((session) => session.nativeId));
+  return {
+    threads: catalog.threads.filter((thread) => {
+      const id2 = string(thread.id);
+      return id2 !== void 0 && nativeIds.has(id2);
+    }),
+    sessions,
+    workspaces: [{ ...workspace, sessionIds: sessions.map((session) => session.id), sessionCount: sessions.length }]
+  };
+}
 function nativeWorkspace(view) {
   const { sessionCount: _sessionCount, ...workspace } = view;
   return workspace;
 }
 function modelSelection() {
   return { provider: CODEX_PROVIDER, model: CODEX_MODEL };
+}
+function modelSelectionProjection() {
+  return { lastUsed: modelSelection(), next: modelSelection() };
 }
 function modelCatalog() {
   return {
@@ -17114,20 +17260,22 @@ var ClientModeRuntime = class {
       deviceId: remote.target.deviceId,
       name: remote.target.name
     });
-    const workspaces = await virtual.workspaces(signal);
-    const workspace = workspaces.find((item) => item.workspaceId === workspaceId);
-    if (workspace === void 0) {
+    let workspace;
+    try {
+      workspace = await virtual.selectWorkspace(workspaceId, signal);
+    } catch {
       await virtual.close();
       throw new ClientModeError("WORKSPACE_NOT_FOUND", "The selected CodeX workspace is no longer available.");
     }
     await this.closeCodexVirtual();
     this.codexVirtual = virtual;
     this.selectCodexTarget(virtual, remote);
+    const preferredSessionId = await virtual.preferredSessionId(signal);
     this.pendingWorkspaceSelection = {
       targetDeviceId: remote.target.deviceId,
       workspaceId,
       backend: "codex",
-      ...workspace.sessionIds[0] === void 0 ? {} : { sessionId: workspace.sessionIds[0] }
+      ...preferredSessionId === void 0 ? {} : { sessionId: preferredSessionId }
     };
     this.logger.info("CodeX virtual workspace opened", { targetDeviceId: shortId(remote.target.deviceId) });
     return { ...this.status(), workspace };

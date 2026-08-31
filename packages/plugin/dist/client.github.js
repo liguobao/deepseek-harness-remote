@@ -1697,7 +1697,22 @@ Minimum version required to store current data is: ` + bestVersion + `.
   var CONTROL_RPC_PREFIX = "/ds-harness-remote";
 
   // src/client.ts
-  var clientModuleId = "ds-harness-remote", localeNamespace = "ds-harness-remote", en = {
+  var clientModuleId = "ds-harness-remote", pendingWorkspaceSelectionKey = "dsh-remote:pending-workspace-selection";
+  function storedWorkspaceSelection() {
+    let raw = window.sessionStorage.getItem(pendingWorkspaceSelectionKey);
+    if (raw !== null)
+      try {
+        let value = JSON.parse(raw);
+        if (typeof value.targetDeviceId != "string" || typeof value.workspaceId != "string") throw new Error("invalid");
+        if (value.backend !== void 0 && value.backend !== "harness" && value.backend !== "codex") throw new Error("invalid");
+        if (value.sessionId !== void 0 && typeof value.sessionId != "string") throw new Error("invalid");
+        return value;
+      } catch {
+        window.sessionStorage.removeItem(pendingWorkspaceSelectionKey);
+        return;
+      }
+  }
+  var localeNamespace = "ds-harness-remote", en = {
     pluginTitle: "DeepSeek Remote",
     pluginDescription: "Connect once. Available anytime.",
     expandSettings: "Show settings: {name}",
@@ -2668,7 +2683,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
                 }),
                 connectedProgress
               );
-              setStatus(nextStatus), window.location.reload();
+              setStatus(nextStatus), nextStatus.workspaceSelection !== void 0 && window.sessionStorage.setItem(pendingWorkspaceSelectionKey, JSON.stringify(nextStatus.workspaceSelection)), window.location.reload();
             } catch (reason) {
               setError(messageOf(reason)), setBusy(!1);
             }
@@ -3436,21 +3451,23 @@ Minimum version required to store current data is: ` + bestVersion + `.
         ctx.effect(() => {
           let disposed = !1, unsubscribeWorkspaces, unsubscribeSessions, selection, opening = !1, reconcile = () => {
             if (disposed || opening || selection === void 0) return;
-            let pending = selection, snapshot = ctx.workspaces.list.getSnapshot();
-            if (!snapshot.baselinesReady || !snapshot.items.some((workspace) => workspace.workspaceId === pending.workspaceId)) return;
-            if (pending.backend === "codex" && pending.sessionId !== void 0) {
-              let sessions = ctx.sessions.list.getSnapshot();
-              if (sessions.phase !== "ready" || !sessions.ids.includes(pending.sessionId)) return;
+            let pending = selection;
+            if (pending.backend !== "codex" || pending.sessionId === void 0) {
+              let snapshot = ctx.workspaces.list.getSnapshot();
+              if (!snapshot.baselinesReady || !snapshot.items.some((workspace) => workspace.workspaceId === pending.workspaceId)) return;
             }
-            opening = !0, unsubscribeWorkspaces?.(), unsubscribeSessions?.(), unsubscribeWorkspaces = void 0, unsubscribeSessions = void 0, (pending.backend === "codex" && pending.sessionId !== void 0 ? Promise.resolve(pending.sessionId) : ctx.workspaces.connectWorkspace(pending.workspaceId)).then(async (sessionId) => {
-              disposed || (ctx.sessions.open(sessionId), await control("workspace.selection.consume", pending).catch(() => {
+            opening = !0, unsubscribeWorkspaces?.(), unsubscribeSessions?.(), unsubscribeWorkspaces = void 0, unsubscribeSessions = void 0, (pending.backend === "codex" && pending.sessionId !== void 0 ? new Promise((resolve) => {
+              window.setTimeout(() => resolve(pending.sessionId), 1e3);
+            }) : ctx.workspaces.connectWorkspace(pending.workspaceId)).then(async (sessionId) => {
+              disposed || (ctx.sessions.open(sessionId), window.sessionStorage.removeItem(pendingWorkspaceSelectionKey), await control("workspace.selection.consume", pending).catch(() => {
               }));
             }).catch((reason) => {
               disposed || console.warn("remote workspace selection failed:", reason);
             });
           };
           return control("status").then((status) => {
-            disposed || status.mode !== "remote" || status.workspaceSelection === void 0 || status.target?.deviceId !== status.workspaceSelection.targetDeviceId || (selection = status.workspaceSelection, unsubscribeWorkspaces = ctx.workspaces.list.subscribe(reconcile), unsubscribeSessions = ctx.sessions.list.subscribe(reconcile), reconcile());
+            let pending = status.workspaceSelection ?? storedWorkspaceSelection();
+            disposed || status.mode !== "remote" || pending === void 0 || status.target?.deviceId !== pending.targetDeviceId || (selection = pending, unsubscribeWorkspaces = ctx.workspaces.list.subscribe(reconcile), unsubscribeSessions = ctx.sessions.list.subscribe(reconcile), reconcile());
           }).catch(() => {
           }), () => {
             disposed = !0, unsubscribeWorkspaces?.(), unsubscribeSessions?.();

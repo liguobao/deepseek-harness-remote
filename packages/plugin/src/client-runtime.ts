@@ -414,20 +414,22 @@ export class ClientModeRuntime {
       deviceId: remote.target.deviceId,
       name: remote.target.name,
     })
-    const workspaces = await virtual.workspaces(signal)
-    const workspace = workspaces.find(item => item.workspaceId === workspaceId)
-    if (workspace === undefined) {
+    let workspace: CodexVirtualWorkspaceView
+    try {
+      workspace = await virtual.selectWorkspace(workspaceId, signal)
+    } catch {
       await virtual.close()
       throw new ClientModeError('WORKSPACE_NOT_FOUND', 'The selected CodeX workspace is no longer available.')
     }
     await this.closeCodexVirtual()
     this.codexVirtual = virtual
     this.selectCodexTarget(virtual, remote)
+    const preferredSessionId = await virtual.preferredSessionId(signal)
     this.pendingWorkspaceSelection = {
       targetDeviceId: remote.target.deviceId,
       workspaceId,
       backend: 'codex',
-      ...(workspace.sessionIds[0] === undefined ? {} : { sessionId: workspace.sessionIds[0] }),
+      ...(preferredSessionId === undefined ? {} : { sessionId: preferredSessionId }),
     }
     this.logger.info('CodeX virtual workspace opened', { targetDeviceId: shortId(remote.target.deviceId) })
     return { ...this.status(), workspace }

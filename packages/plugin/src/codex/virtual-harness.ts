@@ -50,6 +50,7 @@ interface NativeEvent {
   seq: number
   time: number
   data: unknown
+  surfaceOp?: 'append'
 }
 
 interface NativeHistory {
@@ -59,7 +60,7 @@ interface NativeHistory {
     createdAt: number
     cwd?: string
   }
-  entries: Array<{ type: 'event'; event: NativeEvent }>
+  entries: Array<{ type: 'event'; event: NativeEvent; view?: ToolEventView }>
   lastSeq: number
   nextTurn: number
 }
@@ -83,6 +84,17 @@ interface FollowState {
 interface PendingApproval {
   requestHandle: string
   sessionId: string
+}
+
+interface ToolEventView {
+  for: 'call' | 'result'
+  view: JsonRecord
+}
+
+interface ProjectedNativeEvent {
+  type: string
+  data: unknown
+  view?: ToolEventView
 }
 
 /** Discover the CodeX working directories visible through the Host root policy. */
@@ -110,6 +122,9 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private readonly follows = new Set<FollowState>()
   private readonly pendingRequestIds = new Map<string, string>()
   private readonly pendingApprovals = new Map<string, PendingApproval>()
+  private readonly removedSessionIds = new Set<string>()
+  private readonly threadHistoryCache = new Map<string, JsonRecord>()
+  private workspaceScope?: { workspaceId: string; path: string }
   private closed = false
 
   constructor(
@@ -128,6 +143,44 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
 
   async workspaces(signal?: AbortSignal): Promise<CodexVirtualWorkspaceView[]> {
     return (await this.refreshCatalog(signal)).workspaces
+  }
+
+  async selectWorkspace(workspaceId: string, signal?: AbortSignal): Promise<CodexVirtualWorkspaceView> {
+    const catalog = await loadCatalog(this.client, signal)
+    const workspace = catalog.workspaces.find(item => item.workspaceId === workspaceId)
+    if (workspace === undefined) throw new Error('The selected CodeX workspace is no longer available.')
+    this.workspaceScope = { workspaceId: workspace.workspaceId, path: workspace.path }
+    this.catalog = scopeCatalog(catalog, this.workspaceScope)
+    const visible = new Set(this.catalog.sessions.map(session => session.id))
+    this.removedSessionIds.clear()
+    for (const session of catalog.sessions) if (!visible.has(session.id)) this.removedSessionIds.add(session.id)
+    return this.catalog.workspaces[0]!
+  }
+
+  async preferredSessionId(signal?: AbortSignal): Promise<string | undefined> {
+    const sessions = this.catalog?.sessions ?? []
+    const idleNamed = sessions.filter(session => session.status !== 'running'
+      && session.status !== 'waiting'
+      && displayTitle(session) !== null)
+    const idle = sessions.filter(session => session.status !== 'running' && session.status !== 'waiting')
+    // The most recently updated Thread is often the one still owned by the
+    // interactive Codex process. Prefer the previous named Thread when one is
+    // available, then fall back through the complete catalog.
+    const preferredNamed = idleNamed.length > 1 ? [...idleNamed.slice(1), idleNamed[0]!] : idleNamed
+    const candidates = [...new Set([...preferredNamed, ...idle, ...sessions].map(session => session.id))]
+    for (const sessionId of candidates) {
+      const threadId = nativeThreadId(sessionId)
+      try {
+        const thread = await this.fetchThread(threadId, signal)
+        this.threadHistoryCache.set(threadId, thread)
+        return sessionId
+      } catch {
+        // A currently active or concurrently changing CodeX Thread may reject
+        // a full history read. Keep looking so the native UI does not remain
+        // on an ungrouped placeholder Session after entering the Workspace.
+      }
+    }
+    return undefined
   }
 
   async invoke(request: TypertGatewayRequest): Promise<unknown> {
@@ -225,7 +278,8 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   }
 
   private async refreshCatalog(signal?: AbortSignal): Promise<CatalogState> {
-    const catalog = await loadCatalog(this.client, signal)
+    const loaded = await loadCatalog(this.client, signal)
+    const catalog = this.workspaceScope === undefined ? loaded : scopeCatalog(loaded, this.workspaceScope)
     this.catalog = catalog
     return catalog
   }
@@ -247,6 +301,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         values: {
           title: displayTitle(session),
           sessionListMetadata: { blank: false, lastPromptAt: session.updatedAt || null },
+          modelSelection: modelSelectionProjection(),
         },
       },
     }))
@@ -279,6 +334,9 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     this.eventStreams.set(clientId, queue)
     const home = (await this.currentCatalog(signal)).workspaces[0]?.path ?? '/'
     queue.push({ type: 'ready', clientId, host: { home } })
+    for (const sessionId of this.removedSessionIds) {
+      queue.push({ type: 'emit', event: 'api-session/removed', args: [sessionId] })
+    }
     return queue.iterate(() => this.eventStreams.delete(clientId))
   }
 
@@ -312,6 +370,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         values: {
           title: threadTitle(raw),
           sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: lastPromptAt(raw) },
+          modelSelection: modelSelectionProjection(),
         },
       },
     })
@@ -413,17 +472,29 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     if (type === 'agentMessage' && !settleAssistant) return
     follow.completedItems.add(itemId)
     for (const event of itemEvents(item, follow.turn, 1, follow.requestId)) {
-      this.pushEvent(follow, event.type, event.data)
+      this.pushEvent(follow, event.type, event.data, event.view)
     }
   }
 
-  private pushEvent(follow: FollowState, type: string, data: unknown): void {
-    const event = { type, seq: follow.nextSeq++, time: Date.now(), data }
+  private pushEvent(follow: FollowState, type: string, data: unknown, view?: ToolEventView): void {
+    const event: NativeEvent = {
+      type,
+      seq: follow.nextSeq++,
+      time: Date.now(),
+      data,
+      ...(isSurfaceEvent(type) ? { surfaceOp: 'append' as const } : {}),
+    }
     if (!follow.rcOnly) follow.queue.push({
       type: 'event',
       event,
+      ...(view === undefined ? {} : { view }),
     })
-    this.broadcastRcMux({ type: 'session/event', sessionId: follow.sessionId, event })
+    this.broadcastRcMux({
+      type: 'session/event',
+      sessionId: follow.sessionId,
+      event,
+      ...(view === undefined ? {} : { view }),
+    })
   }
 
   private emitRemoteEvent(event: string, args: unknown[]): void {
@@ -431,6 +502,8 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     const sessionId = typeof args[0] === 'string' ? args[0] : undefined
     if (event === 'api-session/status' && sessionId !== undefined && typeof args[1] === 'boolean') {
       this.broadcastRcHost({ type: 'host/session-status', sessionId, running: args[1] })
+    } else if (event === 'api-session/removed' && sessionId !== undefined) {
+      this.broadcastRcHost({ type: 'host/session-removed', sessionId })
     } else if (event === 'api-session/added' && isRecord(args[0])) {
       const summary = args[0]
       this.broadcastRcHost({
@@ -582,6 +655,12 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   }
 
   private async readThread(threadId: string, signal?: AbortSignal): Promise<JsonRecord> {
+    const cached = this.threadHistoryCache.get(threadId)
+    if (cached !== undefined) return cached
+    return this.fetchThread(threadId, signal)
+  }
+
+  private async fetchThread(threadId: string, signal?: AbortSignal): Promise<JsonRecord> {
     const result = record(await this.client.request('thread/read', { threadId, includeTurns: true }, signal))
     const thread = record(result.thread)
     if (string(thread.id) !== threadId) throw new Error('CodeX returned an invalid Thread history.')
@@ -597,13 +676,17 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     // Session, so attach the CodeX live stream here before returning its tail.
     await this.ensureRcFollow(sessionId, thread)
     return success({
-      events: history.entries.map(entry => ({ event: entry.event })),
+      events: history.entries.map(entry => ({
+        event: entry.event,
+        ...(entry.view === undefined ? {} : { view: entry.view }),
+      })),
       hasMore: false,
       projections: {
         asOfSeq: history.lastSeq,
         values: {
           title: threadTitle(thread),
           sessionListMetadata: { blank: history.entries.length === 0, lastPromptAt: null },
+          modelSelection: modelSelectionProjection(),
         },
       },
     })
@@ -687,7 +770,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         search: call('session.search') as never,
         create: call('session.create') as never,
         history: call('session.history') as never,
-        models: call('session.modelCatalog') as never,
+        models: call('session.models') as never,
         selectModel: call('session.selectModel') as never,
         rename: call('session.rename') as never,
         fork: call('session.fork') as never,
@@ -750,6 +833,10 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private async *rcHost(_request: RpcRequest<unknown>, signal: AbortSignal): AsyncIterable<unknown> {
     const queue = new AsyncValueQueue(signal)
     this.rcHostStreams.add(queue)
+    for (const sessionId of this.removedSessionIds) queue.push({
+      rpcId: `codex-host:${Date.now()}:${Math.random()}`,
+      payload: { type: 'host/session-removed', sessionId },
+    })
     try {
       yield* queue
     } finally {
@@ -817,8 +904,18 @@ function nativeHistory(thread: JsonRecord, sessionId: string): NativeHistory {
   const entries: NativeHistory['entries'] = []
   let seq = 0
   let turnNumber = 0
-  const append = (type: string, data: unknown, time = Date.now()): void => {
-    entries.push({ type: 'event', event: { type, seq: seq++, time, data } })
+  const append = (type: string, data: unknown, time = Date.now(), view?: ToolEventView): void => {
+    entries.push({
+      type: 'event',
+      event: {
+        type,
+        seq: seq++,
+        time,
+        data,
+        ...(isSurfaceEvent(type) ? { surfaceOp: 'append' as const } : {}),
+      },
+      ...(view === undefined ? {} : { view }),
+    })
   }
   for (const rawTurn of array(thread.turns)) {
     const turn = record(rawTurn)
@@ -828,7 +925,9 @@ function nativeHistory(thread: JsonRecord, sessionId: string): NativeHistory {
     append('step/start', { turn: turnNumber, step: 1 }, time)
     for (const rawItem of array(turn.items)) {
       const item = record(rawItem)
-      for (const event of itemEvents(item, turnNumber, 1)) append(event.type, event.data, normalizeTime(item.createdAt) || time)
+      for (const event of itemEvents(item, turnNumber, 1)) {
+        append(event.type, event.data, normalizeTime(item.createdAt) || time, event.view)
+      }
     }
     append('step/end', { turn: turnNumber, step: 1 }, normalizeTime(turn.updatedAt) || time)
     append('turn/end', {
@@ -852,7 +951,7 @@ function nativeHistory(thread: JsonRecord, sessionId: string): NativeHistory {
   }
 }
 
-function itemEvents(item: JsonRecord, turn: number, step: number, requestId?: string): Array<{ type: string; data: unknown }> {
+function itemEvents(item: JsonRecord, turn: number, step: number, requestId?: string): ProjectedNativeEvent[] {
   const type = string(item.type)
   const id = string(item.id) ?? `${turn}:${step}:${hashString(JSON.stringify(item))}`
   const text = itemText(item)
@@ -880,11 +979,16 @@ function itemEvents(item: JsonRecord, turn: number, step: number, requestId?: st
   }]
   if (type === 'commandExecution' || type === 'mcpToolCall' || type === 'dynamicToolCall' || type === 'fileChange') {
     const name = type === 'fileChange' ? 'codex.fileChange' : type === 'commandExecution' ? 'codex.command' : `codex.${type}`
+    const args = toolArguments(item)
     const resultText = type === 'fileChange'
       ? fileChangeSummary(item)
       : text ?? itemText(record(item.result)) ?? type
     return [
-      { type: 'tool/call', data: { turn, step, callId: id, name, arguments: JSON.stringify(toolArguments(item)) } },
+      {
+        type: 'tool/call',
+        data: { turn, step, callId: id, name, arguments: JSON.stringify(args) },
+        view: { for: 'call', view: toolCallView(item, type, args) },
+      },
       {
         type: 'tool/result',
         data: {
@@ -902,6 +1006,7 @@ function itemEvents(item: JsonRecord, turn: number, step: number, requestId?: st
             source: { kind: 'tool', callId: id },
           },
         },
+        view: { for: 'result', view: toolResultView(item, type, resultText) },
       },
     ]
   }
@@ -921,6 +1026,79 @@ function itemEvents(item: JsonRecord, turn: number, step: number, requestId?: st
   return []
 }
 
+function isSurfaceEvent(type: string): boolean {
+  return type === 'user/message' || type === 'assistant/message' || type === 'tool/result'
+}
+
+function toolCallView(item: JsonRecord, type: string, args: JsonRecord): JsonRecord {
+  if (type === 'commandExecution') {
+    return {
+      card: 'terminal',
+      title: commandText(item.command) ?? 'CodeX command',
+      ...(typeof item.cwd === 'string' ? { cwd: item.cwd } : {}),
+    }
+  }
+  const locations = fileLocations(item)
+  if (type === 'fileChange') {
+    return {
+      card: 'generic',
+      title: locations.length === 0 ? 'CodeX file changes' : `Modify ${locations.length} file${locations.length === 1 ? '' : 's'}`,
+      kind: 'edit',
+      rawInput: args,
+      ...(locations.length === 0 ? {} : { locations }),
+    }
+  }
+  return {
+    card: 'generic',
+    title: toolDisplayName(item, type),
+    kind: 'other',
+  }
+}
+
+function toolResultView(item: JsonRecord, type: string, resultText: string): JsonRecord {
+  if (type === 'commandExecution') {
+    return {
+      card: 'terminal',
+      output: resultText,
+      ...(typeof item.exitCode === 'number' && Number.isSafeInteger(item.exitCode) ? { exitCode: item.exitCode } : {}),
+    }
+  }
+  return {
+    card: 'generic',
+    ...(type === 'fileChange' ? { title: 'CodeX file changes completed' } : {}),
+  }
+}
+
+function toolDisplayName(item: JsonRecord, type: string): string {
+  return string(item.name)
+    ?? string(item.tool)
+    ?? string(record(item.tool).name)
+    ?? (type === 'mcpToolCall' ? 'CodeX MCP tool' : 'CodeX tool')
+}
+
+function fileLocations(item: JsonRecord): Array<{ path: string }> {
+  return array(item.changes)
+    .map(value => string(record(value).path))
+    .filter((path): path is string => path !== undefined && path.length > 0)
+    .map(path => ({ path }))
+}
+
+function scopeCatalog(catalog: CatalogState, scope: { workspaceId: string; path: string }): CatalogState {
+  const workspace = catalog.workspaces.find(item => item.workspaceId === scope.workspaceId && item.path === scope.path)
+  if (workspace === undefined) return { threads: [], sessions: [], workspaces: [] }
+  const sessionIds = new Set(workspace.sessionIds)
+  const sessions = catalog.sessions.filter(session => sessionIds.has(session.id) && session.cwd === scope.path)
+  const nativeIds = new Set(sessions.map(session => session.nativeId))
+  return {
+    threads: catalog.threads.filter(thread => {
+      const id = string(thread.id)
+      return id !== undefined && nativeIds.has(id)
+    }),
+    sessions,
+    workspaces: [{ ...workspace, sessionIds: sessions.map(session => session.id), sessionCount: sessions.length }],
+  }
+}
+
 function nativeWorkspace(view: CodexVirtualWorkspaceView): Omit<CodexVirtualWorkspaceView, 'sessionCount'> {
   const { sessionCount: _sessionCount, ...workspace } = view
   return workspace
@@ -928,6 +1106,10 @@ function nativeWorkspace(view: CodexVirtualWorkspaceView): Omit<CodexVirtualWork
 
 function modelSelection(): { provider: string; model: string } {
   return { provider: CODEX_PROVIDER, model: CODEX_MODEL }
+}
+
+function modelSelectionProjection(): { lastUsed: ReturnType<typeof modelSelection>; next: ReturnType<typeof modelSelection> } {
+  return { lastUsed: modelSelection(), next: modelSelection() }
 }
 
 function modelCatalog(): unknown {
