@@ -11,15 +11,6 @@ importers:
       '@deepseek-ai/cordis':
         specifier: '>=4.0.1 <5'
         version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      '@deepseek-ai/dsh-client-ui-chat':
-        specifier: '>=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0'
-        version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.1)
-      '@deepseek-ai/dsh-client-ui-conversation':
-        specifier: '>=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0'
-        version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.1)(typescript@5.9.3)
-      '@deepseek-ai/dsh-client-ui-workspace':
-        specifier: '>=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0'
-        version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.1)
       '@deepseek-ai/schemastery':
         specifier: ^3.18.2
         version: 3.18.2
@@ -326,15 +317,6 @@ importers:
 
   packages/plugin:
     dependencies:
-      '@deepseek-ai/dsh-client-ui-chat':
-        specifier: '>=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0'
-        version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)
-      '@deepseek-ai/dsh-client-ui-conversation':
-        specifier: '>=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0'
-        version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(typescript@5.9.3)
-      '@deepseek-ai/dsh-client-ui-workspace':
-        specifier: '>=0.1.1-rc.2 <0.1.2 || >=0.1.2-alpha.1 <0.2.0'
-        version: 0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/schemastery':
         specifier: ^3.18.2
         version: 3.18.2
@@ -983,16 +965,6 @@ packages:
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
 
-  '@deepseek-ai/dsh-client-ui-chat@0.1.2-alpha.2':
-    resolution: {integrity: sha512-+EHT8plLEXOhp8DK4gn9dvYcxirjp1rwCnzOxNkN9pW2BSipVOBJyHa2e6nAgzCfNCfTXTCTIf6Idn0XSGhxKQ==}
-    peerDependencies:
-      '@deepseek-ai/cordis': ^4.0.2
-
-  '@deepseek-ai/dsh-client-ui-conversation@0.1.2-alpha.2':
-    resolution: {integrity: sha512-iCNkro90sUYopvtAWe3pE635ZpKfdUQdvejTboEVmmwBvU6n+2yKQDOcDMntZO7OqDOD4LfoJlMnnG3OGrXxtw==}
-    peerDependencies:
-      '@deepseek-ai/cordis': ^4.0.2
-
   '@deepseek-ai/dsh-client-ui-settings-plugins@0.1.2-alpha.2':
     resolution: {integrity: sha512-8DAvbngT9PE1Nzqmxbx2nKeIJIb9XAdiSbqcEzEGCHwyRLZA+jwzDBbZGvJ/ZS5cTOP2Zs9ifhwPkzGIg4riAw==}
     peerDependencies:
@@ -1010,11 +982,6 @@ packages:
 
   '@deepseek-ai/dsh-client-ui-slots@0.1.2-alpha.2':
     resolution: {integrity: sha512-6ihXjJcgQLExj28SkKuPK0Rr7xfOvHhOiAIeO+uD5yywxtz7mSAW4S9JuxAOrpk2I2gNNU0DnFU4MmB229tjww==}
-    peerDependencies:
-      '@deepseek-ai/cordis': ^4.0.2
-
-  '@deepseek-ai/dsh-client-ui-workspace@0.1.2-alpha.2':
-    resolution: {integrity: sha512-Lzf1YBbEaIkG+kPr/NB8PkLC1L1Im7OxmLdlx19XBS9+GxT6e/WIZnNTfRr1yfDkVFjG6djrj6bacxF0t5VWGg==}
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
 
@@ -2063,94 +2030,6 @@ packages:
   '@leichtgewicht/ip-codec@2.0.5':
     resolution: {integrity: sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw==}
 
-  '@lexical/clipboard@0.49.0':
-    resolution: {integrity: sha512-AVKj21xH1qU7JAFA/v0hCoafa+Yti1I7cHG+JQIgc/EqCtP8ePeJyIfTPNN/tXskoCdq++HewQoiSXRwwlocVg==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
-  '@lexical/dragon@0.49.0':
-    resolution: {integrity: sha512-62/4DP5qyX/l4Yf5qRyyQrs9BV725eRU3OmLUW6g7T5xrcHXxAo7tia/NvqjqvXdpvQzyHjWgsy7dMitGITUsw==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
-  '@lexical/extension@0.49.0':
-    resolution: {integrity: sha512-Wv0VsuqxorbxHCK4ms1PwAu6cXIGNLtflq66auF+zwxOtBprkSFV8VzzzdKLOYD2admP0VK6EqVCeGXFK1GggA==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
-  '@lexical/history@0.49.0':
-    resolution: {integrity: sha512-uQdtEd34gIJklXNSdHS2Wko1zxx1xUMVXbiodcLO6a3GeFTE5bKnx6af1zGX78KpYhUQYnHWorKuUvtdZlJPaA==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
-  '@lexical/html@0.49.0':
-    resolution: {integrity: sha512-NQqAydKzRjQl7Jx+bTTyC2iuz5uhuDaQX0SSPrdfgaFDCPjqQEejcBkCt1QXnu1CkbVHutZKVGVzljx40Y6y+Q==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
-  '@lexical/internal@0.49.0':
-    resolution: {integrity: sha512-s+XjPC7Qb39A/Xx9ahcz1s69CPix4ultaqyW+MDG0AXYW2quDr7m0USqReKIAiuoLIWtGN5HW8BwV2Y6t4qr6Q==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
-  '@lexical/list@0.49.0':
-    resolution: {integrity: sha512-zs6wYkxakDRcJO0KmwrPPHgeLLIxzjD+P2CRu+scJCHRuA5e2iSw2iFjH5n/LlWBrlnPMSjeQse4QqsRy9nnqA==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
-  '@lexical/plain-text@0.49.0':
-    resolution: {integrity: sha512-l7IuUj9n9CtFfz4Fz6zU6mmO+VkcnvyyebABx+lHevvTa7B6YI5PPVgABFfzdyPanyW/FGs7qpKBf59inAqbkg==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
-  '@lexical/selection@0.49.0':
-    resolution: {integrity: sha512-08Vd1+VoC6YnztWOFWVsqF/Hxw5EP8qeL1c7t3+rVCV8revLzXxdQw+vbPX3tgM4fmjOBDUXk6Ws1+rTtsqjcQ==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
-  '@lexical/text@0.49.0':
-    resolution: {integrity: sha512-mowedvbvx0HDaW+ymVdYmWVhueqgauhhqIWaCtbJj33tPk8pOu1BB0pZuJQbOB+1bDnFiZhkJV8W/CvR2M9lEA==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
-  '@lexical/utils@0.49.0':
-    resolution: {integrity: sha512-Jaa6DERBqxiFOFa49VPRV1WOb7mzRbMZ5U+v+RFagjzTmBhfxDmEkbQQ9nYTU3n3DPfdT8Hkyffextmw04etXg==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
   '@lukeburns/clatterjs@1.0.0':
     resolution: {integrity: sha512-b1uUTULv09SFJuAKKCz3+2pi5XqoyLeRCY5Xt8Ghrl8cEI6ab2gbGHB+upkQrrDx4cy8T00ShO5Sl43GQPbg3A==}
 
@@ -2159,6 +2038,7 @@ packages:
     engines: {node: ^22.20 || ^24.12 || >=25}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@noble/ciphers@1.3.0':
     resolution: {integrity: sha512-2I0gnIVPtfnMw9ee9h1dJG7tp81+8Ob3OJb3Mv37rx5L40/b0i7djjCVvGOVqc9AEIQyvyu1i6ypKdFw8R8gQw==}
@@ -2248,9 +2128,6 @@ packages:
   '@peculiar/x509@1.14.3':
     resolution: {integrity: sha512-C2Xj8FZ0uHWeCXXqX5B4/gVFQmtSkiuOolzAgutjTfseNOHT3pUjljDZsTSxXFGgio54bCzVFqmEOUrIVk8RDA==}
     engines: {node: '>=20.0.0'}
-
-  '@preact/signals-core@1.14.4':
-    resolution: {integrity: sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA==}
 
   '@react-native-community/netinfo@12.0.1':
     resolution: {integrity: sha512-P/3caXIvfYSJG8AWJVefukg+ZGRPs+M4Lp3pNJtgcTYoJxCjWrKQGNnCkj/Cz//zWa/avGed0i/wzm0T8vV2IQ==}
@@ -2380,66 +2257,79 @@ packages:
     resolution: {integrity: sha512-81wiiX3v7aqy+T+bT61TJ78yJjRquqFFTTbAPt08imfQQzkPIW8t6aJbkTagtCCrXMNc9D66+geqlK7ydLPNqA==}
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm-musleabihf@4.62.4':
     resolution: {integrity: sha512-9kmDIvNZqdoHOBZgNtpTBeLWYO/LVipM3H/j62P8848/l/VPEQL6N3uxU9pvP1oZAsXyC2MEnFP3ovRjo7WYNQ==}
     cpu: [arm]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-arm64-gnu@4.62.4':
     resolution: {integrity: sha512-CcnXHWnXg69g+DX5VWL3FHts3qMRN2uVEHX+BZvGLdd07/gXkn3ePjYtO1LDJvxkGKVHMclKBRa1QUTH+6toYQ==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm64-musl@4.62.4':
     resolution: {integrity: sha512-iFOibiHnTRuhrWLlRsOQFdZJJIa7S8OwkneJr4ocALP16u5yk6lWLINFwhHaEqBFMsKDUZofLkGos7+CPzGB3g==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-loong64-gnu@4.62.4':
     resolution: {integrity: sha512-XnWYMI7euHlb5a871xPja+Gm7DRCFU+FGRrtS2sMq9N8FvqtpagUy6gD4YOemC5MRk9xbh8+jYMEJbigFQwsgA==}
     cpu: [loong64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-loong64-musl@4.62.4':
     resolution: {integrity: sha512-qGDAlO0U8xedCcsdRm9oaoQY8DAx/QT7uIxJWhCdx0ceIWX783UC9QSYkdpzAe29wNiVfp24+bZdQmn49o45SQ==}
     cpu: [loong64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-ppc64-gnu@4.62.4':
     resolution: {integrity: sha512-ru4H6ezD7ysA5EiEK6qkkaEb4modH8CTej6kUy/gQi20u3kB3G7Zn8snXXkeJSCOFKG/rbPPtM/+9Wgas1961w==}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-ppc64-musl@4.62.4':
     resolution: {integrity: sha512-2W4MO5WQVJnbJaZdvDb9rhBDuFU1nKIepPFpJUBsTh2k1YY2g+ODViaWuyOAjQ5cOP7NvrvLzt3wvHOoiAvc7w==}
     cpu: [ppc64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-riscv64-gnu@4.62.4':
     resolution: {integrity: sha512-+fxjfuoAmVMCYV5QyjoIpu0cp5DOiOTeqYFk1AVaxGr+/ravWLX89XfQmptsoWcaVy/TGf2hexzbUOrCQIL1CQ==}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-riscv64-musl@4.62.4':
     resolution: {integrity: sha512-jTn8JfHGL4djjFxPuM06LmNUJDsst2jeVlsd9OmIH6zc5sC9K6rIuO4YajXatLUpBmBKl6b35ro1QZocLi+tcA==}
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-s390x-gnu@4.62.4':
     resolution: {integrity: sha512-oCJCJL4pXsoDcP2QZ+JVlPTIRc6266zsIaeJJsWImmF7HO0W8nb6HuSgZlMWxJwaPf8ehbSw8yo0EUw925hKsA==}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-gnu@4.62.4':
     resolution: {integrity: sha512-W69hukhZ3KKNRCaMIEzKvcFye42hh0FE1+YoYaf5+Ikacuftoco6yO/xouz0hc5d5W/s3yBro5jRiuEE/Q5vUw==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-musl@4.62.4':
     resolution: {integrity: sha512-qiXbGG2jkjXhzXpsFZSR2Xpb8DN/UaxYsbb/STbuR/6fpaDgRmmaq1B/LmtF2wQFOFOSsK2jdE0RZ3a0zHn4QA==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-openbsd-x64@4.62.4':
     resolution: {integrity: sha512-nWeM//hxv8mIo6jD7Hu4o48DVmV9pbV6gsKaWU+4NFyqHoPKwrkRiZGLKUhOBk8qNmDmpwFtPKg80Bo/Tn4xiQ==}
@@ -2599,9 +2489,6 @@ packages:
 
   '@types/sarif@2.1.7':
     resolution: {integrity: sha512-kRz0VEkJqWLf1LLVN4pT1cg1Z9wAuvI6L97V3m2f5B76Tg8d413ddvLBPTEHAZJlnn4XSvu0FkZtViCQGVyrXQ==}
-
-  '@types/trusted-types@2.0.7':
-    resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
 
   '@types/vscode@1.125.0':
     resolution: {integrity: sha512-0icm/ZQAaism87P0ekHqi4/Ju9du+Tm0RUW+y7vqRsxY2cY0FNRX1nAnaW7nT6npPt2tfHiheZ55Zm9UhqonFA==}
@@ -3840,14 +3727,6 @@ packages:
     resolution: {integrity: sha512-qsda+H8jTaUaN/x5vzW2rzc+8Rw4TAQ/4KjB46IwK5VH+IlVeeeje/EoZRpiXvIqjFgK84QffqPztGI3VBLG1A==}
     engines: {node: '>=6'}
 
-  lexical@0.49.0:
-    resolution: {integrity: sha512-9V1ZIzGpJEd8rIN+nN7veL4fW4fFWbS66Un4JNqSZB4D5t9euzN9+3+jEXy83FjNjNy0MiiUI3+DQaGCLYko0w==}
-    peerDependencies:
-      typescript: '>=5.2'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
   lighthouse-logger@1.4.2:
     resolution: {integrity: sha512-gPWxznF6TKmUHrOQjlVo2UbaL2EJ71mb2CCeRs/2qBpi4L/g4LUVc9+3lKQ6DTUZwJswfM7ainGrLO1+fOqa2g==}
 
@@ -3886,24 +3765,28 @@ packages:
     engines: {node: '>= 12.0.0'}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-arm64-musl@1.33.0:
     resolution: {integrity: sha512-yiO5ROMuYQgXbC60yjZU5CYSFZGKXL0HFATXt9mHJn1+zW55oCtMI9NfcVhYLMFDL7gV7oBPon/EmMMGg2OvtQ==}
     engines: {node: '>= 12.0.0'}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-linux-x64-gnu@1.33.0:
     resolution: {integrity: sha512-ar+Ju7LmcN0Jo4FpL4hpFybwNG9/3A/Br5KW2n2jyODg3MEZXaDYADdemoNS+BDNfMgKvylJLj4S5tyRActuAg==}
     engines: {node: '>= 12.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-x64-musl@1.33.0:
     resolution: {integrity: sha512-RYiYbkokw0trfKqqzfF55lginwEPrD3OJDfTuJzFs1MK6iFnDenaz1fqLLtX4ITG3OktJQXOeTaw1awrBAlZPw==}
     engines: {node: '>= 12.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-win32-arm64-msvc@1.33.0:
     resolution: {integrity: sha512-1K+MPfLSFVpphzpdbfkhlWk6wBrTObBzS2T6db10PNOZgR9GoVsAWzwNyuhUYYbTp23j+4RrncfujZ4uAzXvwA==}
@@ -6037,42 +5920,6 @@ snapshots:
       '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
       '@deepseek-ai/schemastery': 3.18.2
 
-  '@deepseek-ai/dsh-client-ui-chat@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.1)':
-    dependencies:
-      '@deepseek-ai/cordis': 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      '@deepseek-ai/schemastery': 3.18.2
-
-  '@deepseek-ai/dsh-client-ui-chat@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)':
-    dependencies:
-      '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      '@deepseek-ai/schemastery': 3.18.2
-
-  '@deepseek-ai/dsh-client-ui-conversation@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.1)(typescript@5.9.3)':
-    dependencies:
-      '@deepseek-ai/cordis': 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      '@deepseek-ai/schemastery': 3.18.2
-      '@lexical/history': 0.49.0(typescript@5.9.3)
-      '@lexical/plain-text': 0.49.0(typescript@5.9.3)
-      '@lexical/text': 0.49.0(typescript@5.9.3)
-      '@lexical/utils': 0.49.0(typescript@5.9.3)
-      clsx: 2.1.1
-      lexical: 0.49.0(typescript@5.9.3)
-    transitivePeerDependencies:
-      - typescript
-
-  '@deepseek-ai/dsh-client-ui-conversation@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)(typescript@5.9.3)':
-    dependencies:
-      '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      '@deepseek-ai/schemastery': 3.18.2
-      '@lexical/history': 0.49.0(typescript@5.9.3)
-      '@lexical/plain-text': 0.49.0(typescript@5.9.3)
-      '@lexical/text': 0.49.0(typescript@5.9.3)
-      '@lexical/utils': 0.49.0(typescript@5.9.3)
-      clsx: 2.1.1
-      lexical: 0.49.0(typescript@5.9.3)
-    transitivePeerDependencies:
-      - typescript
-
   '@deepseek-ai/dsh-client-ui-settings-plugins@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.1)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
@@ -6108,16 +5955,6 @@ snapshots:
   '@deepseek-ai/dsh-client-ui-slots@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-
-  '@deepseek-ai/dsh-client-ui-workspace@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.1)':
-    dependencies:
-      '@deepseek-ai/cordis': 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      clsx: 2.1.1
-
-  '@deepseek-ai/dsh-client-ui-workspace@0.1.2-alpha.2(@deepseek-ai/cordis@4.0.2)':
-    dependencies:
-      '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      clsx: 2.1.1
 
   '@deepseek-ai/dsh-code-runtime@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.1(@deepseek-ai/cordis@4.0.1))':
     dependencies:
@@ -7629,100 +7466,6 @@ snapshots:
 
   '@leichtgewicht/ip-codec@2.0.5': {}
 
-  '@lexical/clipboard@0.49.0(typescript@5.9.3)':
-    dependencies:
-      '@lexical/extension': 0.49.0(typescript@5.9.3)
-      '@lexical/html': 0.49.0(typescript@5.9.3)
-      '@lexical/internal': 0.49.0(typescript@5.9.3)
-      '@lexical/list': 0.49.0(typescript@5.9.3)
-      '@lexical/selection': 0.49.0(typescript@5.9.3)
-      '@lexical/utils': 0.49.0(typescript@5.9.3)
-      '@types/trusted-types': 2.0.7
-      lexical: 0.49.0(typescript@5.9.3)
-    optionalDependencies:
-      typescript: 5.9.3
-
-  '@lexical/dragon@0.49.0(typescript@5.9.3)':
-    dependencies:
-      '@lexical/extension': 0.49.0(typescript@5.9.3)
-      lexical: 0.49.0(typescript@5.9.3)
-    optionalDependencies:
-      typescript: 5.9.3
-
-  '@lexical/extension@0.49.0(typescript@5.9.3)':
-    dependencies:
-      '@lexical/internal': 0.49.0(typescript@5.9.3)
-      '@lexical/utils': 0.49.0(typescript@5.9.3)
-      '@preact/signals-core': 1.14.4
-      lexical: 0.49.0(typescript@5.9.3)
-    optionalDependencies:
-      typescript: 5.9.3
-
-  '@lexical/history@0.49.0(typescript@5.9.3)':
-    dependencies:
-      '@lexical/extension': 0.49.0(typescript@5.9.3)
-      '@lexical/utils': 0.49.0(typescript@5.9.3)
-      lexical: 0.49.0(typescript@5.9.3)
-    optionalDependencies:
-      typescript: 5.9.3
-
-  '@lexical/html@0.49.0(typescript@5.9.3)':
-    dependencies:
-      '@lexical/extension': 0.49.0(typescript@5.9.3)
-      '@lexical/internal': 0.49.0(typescript@5.9.3)
-      '@lexical/selection': 0.49.0(typescript@5.9.3)
-      '@lexical/utils': 0.49.0(typescript@5.9.3)
-      lexical: 0.49.0(typescript@5.9.3)
-    optionalDependencies:
-      typescript: 5.9.3
-
-  '@lexical/internal@0.49.0(typescript@5.9.3)':
-    optionalDependencies:
-      typescript: 5.9.3
-
-  '@lexical/list@0.49.0(typescript@5.9.3)':
-    dependencies:
-      '@lexical/extension': 0.49.0(typescript@5.9.3)
-      '@lexical/html': 0.49.0(typescript@5.9.3)
-      '@lexical/internal': 0.49.0(typescript@5.9.3)
-      '@lexical/utils': 0.49.0(typescript@5.9.3)
-      lexical: 0.49.0(typescript@5.9.3)
-    optionalDependencies:
-      typescript: 5.9.3
-
-  '@lexical/plain-text@0.49.0(typescript@5.9.3)':
-    dependencies:
-      '@lexical/clipboard': 0.49.0(typescript@5.9.3)
-      '@lexical/dragon': 0.49.0(typescript@5.9.3)
-      '@lexical/extension': 0.49.0(typescript@5.9.3)
-      '@lexical/selection': 0.49.0(typescript@5.9.3)
-      '@lexical/utils': 0.49.0(typescript@5.9.3)
-      lexical: 0.49.0(typescript@5.9.3)
-    optionalDependencies:
-      typescript: 5.9.3
-
-  '@lexical/selection@0.49.0(typescript@5.9.3)':
-    dependencies:
-      '@lexical/internal': 0.49.0(typescript@5.9.3)
-      lexical: 0.49.0(typescript@5.9.3)
-    optionalDependencies:
-      typescript: 5.9.3
-
-  '@lexical/text@0.49.0(typescript@5.9.3)':
-    dependencies:
-      '@lexical/internal': 0.49.0(typescript@5.9.3)
-      lexical: 0.49.0(typescript@5.9.3)
-    optionalDependencies:
-      typescript: 5.9.3
-
-  '@lexical/utils@0.49.0(typescript@5.9.3)':
-    dependencies:
-      '@lexical/internal': 0.49.0(typescript@5.9.3)
-      '@lexical/selection': 0.49.0(typescript@5.9.3)
-      lexical: 0.49.0(typescript@5.9.3)
-    optionalDependencies:
-      typescript: 5.9.3
-
   '@lukeburns/clatterjs@1.0.0':
     dependencies:
       '@noble/ciphers': 2.3.0
@@ -7868,8 +7611,6 @@ snapshots:
       reflect-metadata: 0.2.2
       tslib: 2.8.1
       tsyringe: 4.10.0
-
-  '@preact/signals-core@1.14.4': {}
 
   '@react-native-community/netinfo@12.0.1(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)':
     dependencies:
@@ -8222,8 +7963,6 @@ snapshots:
       csstype: 3.2.3
 
   '@types/sarif@2.1.7': {}
-
-  '@types/trusted-types@2.0.7': {}
 
   '@types/vscode@1.125.0': {}
 
@@ -9598,12 +9337,6 @@ snapshots:
   lan-network@0.2.1: {}
 
   leven@3.1.0: {}
-
-  lexical@0.49.0(typescript@5.9.3):
-    dependencies:
-      '@lexical/internal': 0.49.0(typescript@5.9.3)
-    optionalDependencies:
-      typescript: 5.9.3
 
   lighthouse-logger@1.4.2:
     dependencies:
