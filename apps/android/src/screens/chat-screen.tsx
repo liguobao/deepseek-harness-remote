@@ -581,9 +581,6 @@ function ModelPicker({ visible, models, onClose, onPick }: {
                     >
                       <View style={styles.modelOptionCopy}>
                         <Text style={styles.modelOptionName} numberOfLines={1}>{effort.name}</Text>
-                        {effort.description !== undefined && (
-                          <Text style={styles.modelOptionDescription} numberOfLines={2}>{effort.description}</Text>
-                        )}
                       </View>
                       {current && <Check size={16} color={colors.primary} />}
                     </Pressable>
