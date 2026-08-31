@@ -55,6 +55,8 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 - [x] 完善 Desktop Codex Timeline 的 Item 增量 reducer、Thread 分页与断线 baseline/live 重建
 - [x] 增加 App Server crash 后有界指数退避重启；关闭旧 stream 且不自动重放 mutation
 - [x] 使用当前 v2 schema 与真实 Codex App Server 完成 stdio initialize/account/list/read/root-filter 冒烟
+- [x] 使用真实 Codex App Server 完成本机 thread/start、幂等 resume、streamed turn/completed、History 回读与归档清理冒烟
+- [x] 迁移旧 `dsh-remote` 用户设置，并在 macOS 默认配置下自动发现 ChatGPT App 内置 Codex
 - [ ] 用两台真实 DSH Desktop 跑通加密跨机 resume/turn/event/approval/interrupt 与大 History 传输
 - [ ] 验证 App Server crash、Host transport 重连和多 Desktop Web Client 同时观察同一 Thread
 

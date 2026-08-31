@@ -64,7 +64,7 @@ docs/
 | Relay Transport | Protocol v1 control/relay 已实现 | 心跳、限制协商、断线状态传播 |
 | WebRTC | signaling、ICE、TURN、LAN/P2P/Relay 自适应路径基础已实现 | 真实跨网互操作、网络切换恢复和长期稳定性 |
 | Client Core | ApiProxy tunnel RPC/Event 关联基础已实现 | reconnect、pending call/stream 恢复 |
-| Codex Remote 领域 | 作为现有 Remote Plugin 内部可选领域：Host stdio App Server、显式开关/根目录、固定 allowlist、独立 capability/RPC/event/transfer、连接隔离 stream/approval、Client Core reducer、Desktop Plugin Web 分页/History/live/新建/改名/归档/恢复、只读查看与按需 resume、动态 capability 重探测、App Server 有界重启与 baseline 重建已实现；当前 v2 stdio/list/read 已真实冒烟 | 两台真实 DSH Desktop 的加密跨机 turn/event/approval/interrupt、大 History 与多 Client E2E；Android 不在当前 Plugin-only 范围 |
+| Codex Remote 领域 | 作为现有 Remote Plugin 内部可选领域：Host stdio App Server、显式开关/根目录、默认 binary 自动发现、固定 allowlist、独立 capability/RPC/event/transfer、连接隔离 stream/approval、Client Core reducer、Desktop Plugin Web 分页/History/live/新建/改名/归档/恢复、只读查看与幂等按需 resume、动态 capability 重探测、App Server 有界重启与 baseline 重建已实现；当前 v2 本机 thread/start、streamed turn/completed、History 回读已真实冒烟 | 两台真实 DSH Desktop 的加密跨机 turn/event/approval/interrupt、大 History 与多 Client E2E；Android 不在当前 Plugin-only 范围 |
 | Mock Host | 旧 Android Remote RPC 联调工具，当前冻结 | 若恢复 Android 再迁移或替换 |
 | Desktop | Host 设置、Remote 工作区模态框、远程 Header、连接链路与加密状态已接入 Harness Web UI | 完成原生窗口跨机 E2E |
 | Server/Remote Web/Admin | 本仓库仅保留文档；独立 Server 仓库已有实现 | runtime 变更只在独立 Server 仓库完成，并同步跨仓库契约 |

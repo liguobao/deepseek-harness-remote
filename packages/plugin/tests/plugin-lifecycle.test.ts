@@ -14,6 +14,37 @@ afterEach(async () => {
 })
 
 describe('Cordis plugin lifecycle', () => {
+  it('copies legacy user settings once without deleting the rollback section', async () => {
+    const replace = vi.fn(async () => undefined)
+    const descriptors = [
+      { ns: 'ds-harness-remote', user: undefined },
+      { ns: 'dsh-remote', user: { role: 'both', serverUrl: 'https://remote.example.com' } },
+    ]
+    const provider = {
+      register: vi.fn(),
+      describe: vi.fn(() => descriptors),
+    }
+
+    await expect(remotePlugin.migrateLegacySettings(provider as never, { replace } as never)).resolves.toBe('migrated')
+    expect(replace).toHaveBeenCalledWith({ role: 'both', serverUrl: 'https://remote.example.com' })
+    expect(provider.register).not.toHaveBeenCalled()
+    expect(descriptors[1]?.user).toEqual({ role: 'both', serverUrl: 'https://remote.example.com' })
+  })
+
+  it('does not overwrite current user settings with a legacy section', async () => {
+    const replace = vi.fn(async () => undefined)
+    const provider = {
+      register: vi.fn(),
+      describe: vi.fn(() => [
+        { ns: 'ds-harness-remote', user: { role: 'client' } },
+        { ns: 'dsh-remote', user: { role: 'host' } },
+      ]),
+    }
+
+    await expect(remotePlugin.migrateLegacySettings(provider as never, { replace } as never)).resolves.toBe('skipped')
+    expect(replace).not.toHaveBeenCalled()
+  })
+
   it('does not block Harness startup while runtime services are unavailable', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis pending host' })

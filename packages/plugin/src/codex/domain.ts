@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { CodexAppFrameData, CodexAppStreamClosedData } from '@dsh-remote/protocol'
 import type { ResolvedCodexConfig } from '../config.js'
 import type { PeerConnectionContext } from '../connection-controller.js'
@@ -176,7 +178,21 @@ export class CodexRemoteDomain {
               },
             }
           : call.params
-      const result = await this.callUpstream(call.method, upstreamParams)
+      let result: unknown
+      try {
+        result = await this.callUpstream(call.method, upstreamParams)
+      } catch (error) {
+        // App Server rejects thread/resume when this process already has the
+        // thread loaded. Remote callers should be able to resume defensively
+        // before every turn, including immediately after thread/start.
+        if (call.method === 'thread/resume'
+          && allowedThread !== undefined
+          && error instanceof RpcError
+          && error.code === 'CODEX_UPSTREAM_ERROR') {
+          return { thread: allowedThread.thread }
+        }
+        throw error
+      }
       if (call.method === 'thread/resume' || call.method === 'thread/fork' || call.method === 'thread/unarchive') {
         await this.assertResultThreadAllowed(result)
       }
@@ -237,7 +253,21 @@ export class CodexRemoteDomain {
   }
 
   private async launchAppServer(): Promise<void> {
-    const appServer = this.createAppServer(this.config.binary, this.logger)
+    let lastError: unknown
+    for (const binary of codexBinaryCandidates(this.config.binary)) {
+      try {
+        await this.launchAppServerCandidate(binary)
+        return
+      } catch (error) {
+        lastError = error
+        if (!canTryNextBinary(error)) throw error
+      }
+    }
+    throw lastError ?? new RpcError('CODEX_START_FAILED', 'Codex App Server could not be started.')
+  }
+
+  private async launchAppServerCandidate(binary: string): Promise<void> {
+    const appServer = this.createAppServer(binary, this.logger)
     this.appServer = appServer
     this.unsubscribeInbound = appServer.onInbound(message => {
       void this.handleInbound(message).catch(error => {
@@ -507,6 +537,24 @@ export class CodexRemoteDomain {
 
 export type CodexDomainFrame = CodexAppFrameData | CodexAppStreamClosedData
 
+/**
+ * Prefer Codex bundled with the current ChatGPT desktop app on macOS when the
+ * user kept the default command. Explicit binary configuration is never
+ * rewritten or supplemented.
+ */
+export function codexBinaryCandidates(
+  configured: string,
+  hostPlatform: NodeJS.Platform = process.platform,
+  userHome: string = homedir(),
+): string[] {
+  if (configured !== 'codex' || hostPlatform !== 'darwin') return [configured]
+  return [...new Set([
+    '/Applications/ChatGPT.app/Contents/Resources/codex',
+    join(userHome, 'Applications', 'ChatGPT.app', 'Contents', 'Resources', 'codex'),
+    configured,
+  ])]
+}
+
 function parseCallEnvelope(input: unknown): { method: string; params: unknown } {
   if (!isRecord(input) || typeof input.method !== 'string' || !('params' in input)
     || Object.keys(input).some(key => key !== 'method' && key !== 'params')) {
@@ -578,6 +626,10 @@ function mapAppServerError(error: unknown): Error {
 function errorCode(error: unknown): string {
   if (error instanceof RpcError || error instanceof CodexAppServerError) return error.code
   return 'CODEX_START_FAILED'
+}
+
+function canTryNextBinary(error: unknown): boolean {
+  return !(error instanceof RpcError) || !['CODEX_AUTH_REQUIRED', 'CODEX_CLOSED'].includes(error.code)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

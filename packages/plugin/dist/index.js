@@ -19675,6 +19675,8 @@ function concatChunks2(chunks, totalBytes) {
 
 // src/codex/domain.ts
 import { randomUUID } from "node:crypto";
+import { homedir as homedir3 } from "node:os";
+import { join as join5 } from "node:path";
 
 // src/codex/app-server.ts
 import { spawn as spawn2 } from "node:child_process";
@@ -20403,7 +20405,15 @@ var CodexRemoteDomain = class {
           networkAccess: false
         }
       } : call.params;
-      const result = await this.callUpstream(call.method, upstreamParams);
+      let result;
+      try {
+        result = await this.callUpstream(call.method, upstreamParams);
+      } catch (error) {
+        if (call.method === "thread/resume" && allowedThread !== void 0 && error instanceof RpcError && error.code === "CODEX_UPSTREAM_ERROR") {
+          return { thread: allowedThread.thread };
+        }
+        throw error;
+      }
       if (call.method === "thread/resume" || call.method === "thread/fork" || call.method === "thread/unarchive") {
         await this.assertResultThreadAllowed(result);
       }
@@ -20460,7 +20470,20 @@ var CodexRemoteDomain = class {
     this.appServer = void 0;
   }
   async launchAppServer() {
-    const appServer = this.createAppServer(this.config.binary, this.logger);
+    let lastError;
+    for (const binary of codexBinaryCandidates(this.config.binary)) {
+      try {
+        await this.launchAppServerCandidate(binary);
+        return;
+      } catch (error) {
+        lastError = error;
+        if (!canTryNextBinary(error)) throw error;
+      }
+    }
+    throw lastError ?? new RpcError("CODEX_START_FAILED", "Codex App Server could not be started.");
+  }
+  async launchAppServerCandidate(binary) {
+    const appServer = this.createAppServer(binary, this.logger);
     this.appServer = appServer;
     this.unsubscribeInbound = appServer.onInbound((message) => {
       void this.handleInbound(message).catch((error) => {
@@ -20705,6 +20728,14 @@ var CodexRemoteDomain = class {
     return this.pathPolicy;
   }
 };
+function codexBinaryCandidates(configured, hostPlatform = process.platform, userHome = homedir3()) {
+  if (configured !== "codex" || hostPlatform !== "darwin") return [configured];
+  return [.../* @__PURE__ */ new Set([
+    "/Applications/ChatGPT.app/Contents/Resources/codex",
+    join5(userHome, "Applications", "ChatGPT.app", "Contents", "Resources", "codex"),
+    configured
+  ])];
+}
 function parseCallEnvelope(input2) {
   if (!isRecord7(input2) || typeof input2.method !== "string" || !("params" in input2) || Object.keys(input2).some((key) => key !== "method" && key !== "params")) {
     throw new RpcError("INVALID_MESSAGE", "The Codex call envelope is invalid.");
@@ -20764,6 +20795,9 @@ function mapAppServerError(error) {
 function errorCode2(error) {
   if (error instanceof RpcError || error instanceof CodexAppServerError) return error.code;
   return "CODEX_START_FAILED";
+}
+function canTryNextBinary(error) {
+  return !(error instanceof RpcError) || !["CODEX_AUTH_REQUIRED", "CODEX_CLOSED"].includes(error.code);
 }
 function isRecord7(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -21069,6 +21103,7 @@ function decodeBase64(value) {
 var name = "ds-harness-remote";
 var legacyLoaderModuleNames = /* @__PURE__ */ new Set(["dsh-remote", "@dsh-remote/plugin"]);
 var pluginSettingsNamespace = "ds-harness-remote";
+var legacySettingsNamespace = "dsh-remote";
 function apply(ctx, input2 = {}) {
   ctx.inject(["settings", "connection", "typertGateway"], (runtimeContext) => {
     const gateway = runtimeContext.get("typertGateway");
@@ -21087,6 +21122,11 @@ async function activate(ctx, input2) {
       resolveConfig(value);
     }
   });
+  if (settings !== void 0 && settingsScope !== void 0) {
+    const migration = await migrateLegacySettings(settings, settingsScope);
+    if (migration === "migrated") ctx.logger.info("migrated legacy Remote settings namespace");
+    if (migration === "failed") ctx.logger.warn("failed to migrate legacy Remote settings namespace");
+  }
   const config = resolveConfig(settingsScope?.get() ?? input2);
   if (!config.enabled) return;
   const logger = new SafeLogger({
@@ -21170,6 +21210,30 @@ async function activate(ctx, input2) {
     };
   }, "dsh-remote lifecycle");
 }
+async function migrateLegacySettings(settings, currentScope) {
+  if (typeof settings.describe !== "function") return "skipped";
+  try {
+    let descriptors = settings.describe();
+    const current = descriptors.find((descriptor) => descriptor.ns === pluginSettingsNamespace);
+    if (isPlainRecord(current?.user)) return "skipped";
+    let legacy = descriptors.find((descriptor) => descriptor.ns === legacySettingsNamespace);
+    if (legacy === void 0) {
+      settings.register(legacySettingsNamespace, Config, {
+        applies: "restart",
+        validate: (value) => {
+          resolveConfig(value);
+        }
+      });
+      descriptors = settings.describe();
+      legacy = descriptors.find((descriptor) => descriptor.ns === legacySettingsNamespace);
+    }
+    if (!isPlainRecord(legacy?.user) || Object.keys(legacy.user).length === 0) return "skipped";
+    await currentScope.replace(legacy.user);
+    return "migrated";
+  } catch {
+    return "failed";
+  }
+}
 async function disableLegacyLoaderEntries(ctx, logger) {
   const loader = ctx.get("loader");
   if (!isLoaderLike(loader)) return;
@@ -21192,6 +21256,9 @@ async function disableLegacyLoaderEntries(ctx, logger) {
 }
 function isLoaderLike(value) {
   return typeof value === "object" && value !== null && typeof value.entries === "function" && typeof value.update === "function";
+}
+function isPlainRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 export {
   ApiProxySwitch,
@@ -21230,6 +21297,7 @@ export {
   apply,
   createRemoteFileContentProvider,
   fingerprint,
+  migrateLegacySettings,
   name,
   resolveConfig,
   serverStorageDirectory

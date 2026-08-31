@@ -8,7 +8,8 @@ import type {
   CodexAppServerLike,
   CodexAppServerUnavailableHandler,
 } from '../src/codex/app-server.js'
-import { CodexRemoteDomain } from '../src/codex/domain.js'
+import { CodexAppServerError } from '../src/codex/app-server.js'
+import { CodexRemoteDomain, codexBinaryCandidates } from '../src/codex/domain.js'
 import type { SafeLogger } from '../src/logging.js'
 
 const cleanup: string[] = []
@@ -18,6 +19,16 @@ afterEach(async () => {
 })
 
 describe('CodexRemoteDomain', () => {
+  it('discovers the ChatGPT-bundled Codex only for the default macOS command', () => {
+    expect(codexBinaryCandidates('codex', 'darwin', '/Users/tester')).toEqual([
+      '/Applications/ChatGPT.app/Contents/Resources/codex',
+      '/Users/tester/Applications/ChatGPT.app/Contents/Resources/codex',
+      'codex',
+    ])
+    expect(codexBinaryCandidates('/custom/codex', 'darwin', '/Users/tester')).toEqual(['/custom/codex'])
+    expect(codexBinaryCandidates('codex', 'linux', '/home/tester')).toEqual(['codex'])
+  })
+
   it('stays unavailable when the optional domain is disabled', async () => {
     const create = vi.fn(() => new FakeAppServer('/unused'))
     const domain = new CodexRemoteDomain(
@@ -91,6 +102,25 @@ describe('CodexRemoteDomain', () => {
       serviceName: 'deepseek_harness_remote',
     })
     expect(base).toContain(tmpdir())
+    await domain.close()
+  })
+
+  it('treats resume as idempotent when App Server already has the allowed thread loaded', async () => {
+    const { root } = await directories()
+    const app = new FakeAppServer(root)
+    app.rejectResume = true
+    const domain = new CodexRemoteDomain(
+      { enabled: true, binary: '/custom/codex', allowedRoots: [root] },
+      logger(),
+      () => app,
+    )
+    await domain.start()
+
+    await expect(domain.call('connection-1', {
+      method: 'thread/resume', params: { threadId: 'allowed-thread' },
+    })).resolves.toMatchObject({ thread: { id: 'allowed-thread', cwd: root } })
+    expect(app.calls.filter(call => call.method === 'thread/read')).toHaveLength(1)
+    expect(app.calls.filter(call => call.method === 'thread/resume')).toHaveLength(1)
     await domain.close()
   })
 
@@ -228,6 +258,7 @@ class FakeAppServer implements CodexAppServerLike {
   private ready = false
   readonly responses: Array<{ id: string | number; result?: unknown; error?: unknown }> = []
   readonly calls: Array<{ method: string; params: unknown }> = []
+  rejectResume = false
 
   constructor(private readonly root: string, private readonly outside = root) {}
 
@@ -250,6 +281,9 @@ class FakeAppServer implements CodexAppServerLike {
       return { thread: { id: threadId, cwd: threadId === 'outside-thread' ? this.outside : this.root, turns: [] } }
     }
     if (method === 'thread/start') return { thread: { id: 'new-thread', cwd: isRecord(params) ? params.cwd : undefined } }
+    if (method === 'thread/resume' && this.rejectResume) {
+      throw new CodexAppServerError('CODEX_UPSTREAM_ERROR', 'Codex App Server rejected the request.')
+    }
     if (method === 'thread/resume' || method === 'thread/fork' || method === 'thread/unarchive') {
       return { thread: { id: 'allowed-thread', cwd: this.root } }
     }

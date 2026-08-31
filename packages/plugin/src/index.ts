@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { SettingsNamespace, SettingsScope } from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace, SettingsProvider, SettingsScope } from '@deepseek-ai/dsh-settings'
 import { ClientModeRuntime, type HostConnectionHandle } from './client-runtime.js'
 import { Config, resolveConfig, type Config as ConfigInput, type ResolvedConfig } from './config.js'
 import { PluginControlRuntime } from './control-runtime.js'
@@ -28,6 +28,7 @@ const legacyLoaderModuleNames = new Set(['dsh-remote', '@dsh-remote/plugin'])
 // rc.2 requires the branded SettingsNamespace type, while alpha.2 accepts and
 // validates the literal directly after removing the settingsNamespace helper.
 const pluginSettingsNamespace = 'ds-harness-remote' as SettingsNamespace
+const legacySettingsNamespace = 'dsh-remote' as SettingsNamespace
 
 interface LoaderEntryLike {
   id: string
@@ -60,6 +61,11 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
     applies: 'restart',
     validate: value => { resolveConfig(value) },
   })
+  if (settings !== undefined && settingsScope !== undefined) {
+    const migration = await migrateLegacySettings(settings, settingsScope)
+    if (migration === 'migrated') ctx.logger.info('migrated legacy Remote settings namespace')
+    if (migration === 'failed') ctx.logger.warn('failed to migrate legacy Remote settings namespace')
+  }
   const config: ResolvedConfig = resolveConfig(settingsScope?.get() ?? input)
   if (!config.enabled) return
   // Mirrors SafeLogger output to the process stdout/stderr as well as the DSH
@@ -145,6 +151,38 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
   }, 'dsh-remote lifecycle')
 }
 
+/**
+ * Preserve existing installs after the package/settings namespace rename. The
+ * old section remains untouched as a rollback source; only its raw user layer
+ * is copied, once, when the current namespace has no user layer of its own.
+ */
+export async function migrateLegacySettings(
+  settings: Pick<SettingsProvider, 'register'> & Partial<Pick<SettingsProvider, 'describe'>>,
+  currentScope: SettingsScope<ConfigInput>,
+): Promise<'migrated' | 'skipped' | 'failed'> {
+  if (typeof settings.describe !== 'function') return 'skipped'
+  try {
+    let descriptors = settings.describe()
+    const current = descriptors.find(descriptor => descriptor.ns === pluginSettingsNamespace)
+    if (isPlainRecord(current?.user)) return 'skipped'
+
+    let legacy = descriptors.find(descriptor => descriptor.ns === legacySettingsNamespace)
+    if (legacy === undefined) {
+      settings.register(legacySettingsNamespace, Config, {
+        applies: 'restart',
+        validate: value => { resolveConfig(value) },
+      })
+      descriptors = settings.describe()
+      legacy = descriptors.find(descriptor => descriptor.ns === legacySettingsNamespace)
+    }
+    if (!isPlainRecord(legacy?.user) || Object.keys(legacy.user).length === 0) return 'skipped'
+    await currentScope.replace(legacy.user)
+    return 'migrated'
+  } catch {
+    return 'failed'
+  }
+}
+
 async function disableLegacyLoaderEntries(ctx: Context, logger: SafeLogger): Promise<void> {
   const loader = ctx.get('loader') as LoaderLike | undefined
   if (!isLoaderLike(loader)) return
@@ -172,6 +210,10 @@ function isLoaderLike(value: unknown): value is LoaderLike {
   return typeof value === 'object' && value !== null
     && typeof (value as { entries?: unknown }).entries === 'function'
     && typeof (value as { update?: unknown }).update === 'function'
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export type { ResolvedConfig } from './config.js'

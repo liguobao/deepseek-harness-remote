@@ -131,7 +131,8 @@ thread lists, create, rename, archive/restore, persisted history plus live item 
 turn interruption, one-time approvals, and baseline reconstruction after stream or App Server recovery.
 Opening history only performs a read; `thread/resume` is deferred until the user continues work. The Host uses bounded
 exponential restart without replaying mutations. Current App Server stdio/list/read compatibility has
-been smoke-tested; real encrypted cross-machine turn/approval testing is still pending. Android is
+been smoke-tested, including a real local thread/start, streamed turn, completed history read, and
+archive cleanup; real encrypted cross-machine turn/approval testing is still pending. Android is
 outside the current Plugin-only scope.
 
 ```yaml
@@ -143,8 +144,11 @@ ds-harness-remote:
       - /absolute/path/to/project
 ```
 
-`binary` must resolve to a Codex CLI that provides `codex app-server`. If an older CLI appears first
-on `PATH`, configure the absolute path to a current Codex binary instead.
+`binary` must resolve to a Codex CLI that provides `codex app-server`. With the default `codex` value
+on macOS, the Plugin first tries the current ChatGPT app's bundled Codex and then falls back to
+`PATH`; an explicitly configured binary is always used as-is. Existing installs using the former
+`dsh-remote` settings namespace are copied once into `ds-harness-remote` without deleting the legacy
+section.
 
 The Harness Host does not need a public listening port. You can connect from
 anywhere with internet access, and Remote communicates over a bidirectional end-to-end encrypted channel.

@@ -124,7 +124,8 @@ Thread/Turn 白名单。Codex 默认关闭，并且必须由 Host 本机显式�
 Desktop Plugin Web 视图。该视图支持 Thread 分页、新建、改名、归档/恢复、持久化 History 与实时
 Item 更新、文本 Prompt、停止 Turn、单次审批，以及 stream 或 App Server 恢复后的 baseline 重建。
 单纯打开 History 只读 `thread/read`，继续发送时才会 `thread/resume`。Host 使用有界指数退避
-重启，并且不会重放 mutation。当前 App Server 的 stdio/list/read 已完成真实冒烟验证；加密跨机
+重启，并且不会重放 mutation。当前 App Server 的 stdio/list/read 已完成真实冒烟验证，测试也已
+覆盖本机真实 thread/start、流式 Turn、完成后 History 回读和归档清理；加密跨机
 turn/approval 联调仍待完成。Android 不属于当前仅 Plugin 的交付范围。
 
 ```yaml
@@ -136,8 +137,10 @@ ds-harness-remote:
       - /项目的绝对路径
 ```
 
-`binary` 必须指向支持 `codex app-server` 的 Codex CLI。如果 `PATH` 中优先找到的是旧版 CLI，
-请配置当前 Codex binary 的绝对路径。
+`binary` 必须指向支持 `codex app-server` 的 Codex CLI。在 macOS 保持默认 `codex` 时，Plugin
+会先尝试当前 ChatGPT App 内置的 Codex，再回退到 `PATH`；显式配置的 binary 始终原样使用。
+已有安装若仍使用旧的 `dsh-remote` 设置命名空间，Plugin 会一次性复制到
+`ds-harness-remote`，同时保留旧配置作为回退。
 
 Harness 主机无需开放公网监听端口。只要能够访问互联网，就可以从任意地方连接，
 Remote 通过双向端到端加密链路通信。它将客户端切换到所选 Host 的 Harness 原生 API，

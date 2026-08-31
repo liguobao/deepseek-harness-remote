@@ -1154,6 +1154,8 @@ Session adapter。Host 本机配置 `codex.enabled: true` 且至少一个绝对 
 才可使用配置的 `codex.binary` 启动 `codex app-server`。Plugin 与 App Server 只使用默认 stdio
 JSONL；App Server 不监听 Remote/公网端口。初始化、账户状态和 canonical root policy 全部成功后，
 Host 才宣告 `codex.appserver.v1` 与 `codex.appserver.transfer.v1`。
+当 `codex.binary` 保持默认值时，macOS Host 可以优先发现 ChatGPT App 内置 Codex 后再回退到
+`PATH`；用户显式配置的 binary 不得被替换或补充候选项。
 
 业务 RPC 固定为：
 
@@ -1200,7 +1202,8 @@ baseline 后继续归并 live event。
 
 Desktop 打开 Thread 时只用 `thread/read(includeTurns:true)` 建立持久化 baseline，Remote stream
 只是 Host 侧的事件过滤器，不得因纯查看自动调用 `thread/resume`。用户明确继续发送前才
-resume；不确定结果的 resume、turn、rename 或 archive 不自动重放。
+resume；如果 App Server 因 Thread 已在本进程加载而拒绝重复 resume，Host 可在已经完成
+`thread/read` 归属校验后把该操作视为幂等成功。不确定结果的 turn、rename 或 archive 不自动重放。
 
 ## 20. Events
 
