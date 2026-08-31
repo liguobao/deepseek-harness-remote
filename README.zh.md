@@ -95,6 +95,7 @@ Workspace 会在 Harness 原生界面中打开，顶部显示当前 Host 和加�
 从 [GitHub Releases](https://github.com/liguobao/ds-harness-remote/releases/latest) 下载最新 Android APK。
 
 使用已有账号登录 Android 客户端，选择可用电脑并打开 Workspace，然后通过文字或图片 Prompt 继续会话。
+会话工具栏也可以切换当前模型，并选择该模型声明的思考程度。
 
 <p align="center">
   <img src="docs/images/mobile-list.jpg" alt="Android 客户端中的在线和离线设备列表" width="30%">

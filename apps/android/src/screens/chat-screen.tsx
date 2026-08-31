@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
-import { Bot, Check, ChevronDown, ChevronRight, CircleStop, Code2, ImagePlus, Images, RefreshCw, Send, ShieldAlert, Sparkles, User, X } from 'lucide-react-native'
+import { Bot, Check, ChevronDown, ChevronLeft, ChevronRight, CircleStop, Code2, ImagePlus, Images, RefreshCw, Send, ShieldAlert, Sparkles, User, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import { hasVisibleMessageText } from '../state/event-reducer'
 import type { ApprovalActivity, ChatItem, ChatMessage, ImageAttachmentLimits, ImageMediaType, ModelCatalogModel, ModelProviderGroup, PermissionSelect, PromptImage, QuestionActivity, RemoteSession, ToolActivity, ToolDisplayDetail } from '../types'
@@ -143,9 +143,13 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
     }
   }
 
-  const pickModel = async (group: ModelProviderGroup, model: ModelCatalogModel) => {
+  const pickModel = async (group: ModelProviderGroup, model: ModelCatalogModel, reasoningEffort?: string) => {
     setModelPickerOpen(false)
-    await selectModel({ provider: group.id, model: model.id })
+    await selectModel({
+      provider: group.id,
+      model: model.id,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    })
   }
 
   const reconnectCurrentSession = async () => {
@@ -169,6 +173,16 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const stopping = busy === 'stop-session'
   const permissions = sessionPermissions(session)
   const currentPermission = permissions?.options.find(option => option.value === permissions.currentValue)
+  const currentModel = sessionModels?.groups
+    .find(group => group.id === sessionModels.current.provider)
+    ?.models.find(model => model.id === sessionModels.current.model)
+  const currentEffortId = sessionModels?.current.reasoningEffort ?? currentModel?.reasoning?.defaultEffort
+  const currentEffortName = currentModel?.reasoning?.efforts.find(effort => effort.id === currentEffortId)?.name
+    ?? currentEffortId
+  const currentModelName = currentModel?.name ?? sessionModels?.current.model
+  const currentModelLabel = currentEffortName === undefined
+    ? currentModelName
+    : `${currentModelName} · ${currentEffortName}`
 
   const pickPermission = (preset: string) => {
     setPermissionPickerOpen(false)
@@ -196,7 +210,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         {sessionModels !== undefined && (
           <Pressable accessibilityRole="button" accessibilityLabel={zhCN.chat.selectModel} onPress={() => setModelPickerOpen(true)} style={styles.modelChip}>
             <Sparkles size={14} color={colors.primary} />
-            <Text style={styles.modelChipText} numberOfLines={1}>{sessionModels.current.model}</Text>
+            <Text style={styles.modelChipText} numberOfLines={1}>{currentModelLabel}</Text>
             {modelSelecting ? <ActivityIndicator size="small" color={colors.muted} /> : <ChevronDown size={14} color={colors.muted} />}
           </Pressable>
         )}
@@ -475,18 +489,37 @@ function ModelPicker({ visible, models, onClose, onPick }: {
   visible: boolean
   models?: import('../types').SessionModels
   onClose: () => void
-  onPick: (group: ModelProviderGroup, model: ModelCatalogModel) => void
+  onPick: (group: ModelProviderGroup, model: ModelCatalogModel, reasoningEffort?: string) => void
 }) {
   const { colors } = useTheme()
   const styles = useThemedStyles(createStyles)
   const listMaxHeight = usePickerListMaxHeight()
+  const [effortTarget, setEffortTarget] = useState<{
+    group: ModelProviderGroup
+    model: ModelCatalogModel
+  }>()
+  useEffect(() => {
+    if (!visible) setEffortTarget(undefined)
+  }, [visible])
   if (models === undefined) return null
+  const selectedEffort = effortTarget !== undefined
+    && models.current.provider === effortTarget.group.id
+    && models.current.model === effortTarget.model.id
+    ? models.current.reasoningEffort ?? effortTarget.model.reasoning?.defaultEffort
+    : undefined
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.modalBackdrop} onPress={onClose}>
         <Pressable style={styles.modalSheet} onPress={event => event.stopPropagation()}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{zhCN.chat.selectModel}</Text>
+            <View style={styles.modalHeaderCopy}>
+              {effortTarget !== undefined && (
+                <IconButton label={zhCN.common.back} icon={ChevronLeft} onPress={() => setEffortTarget(undefined)} />
+              )}
+              <Text style={styles.modalTitle} numberOfLines={1}>
+                {effortTarget === undefined ? zhCN.chat.selectModel : zhCN.chat.selectReasoningEffort}
+              </Text>
+            </View>
             <IconButton label={zhCN.common.close} icon={X} onPress={onClose} />
           </View>
           <ScrollView
@@ -495,28 +528,68 @@ function ModelPicker({ visible, models, onClose, onPick }: {
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
           >
-            {models.groups.map(group => (
-              <View key={group.id} style={styles.modelGroupBlock}>
-                <Text style={styles.modelGroupTitle}>{group.name}</Text>
-                {group.models.map(model => {
-                  const current = models.current.provider === group.id && models.current.model === model.id
+            {effortTarget === undefined ? (
+              <>
+                {models.groups.map(group => (
+                  <View key={group.id} style={styles.modelGroupBlock}>
+                    <Text style={styles.modelGroupTitle}>{group.name}</Text>
+                    {group.models.map(model => {
+                      const current = models.current.provider === group.id && models.current.model === model.id
+                      const hasEfforts = (model.reasoning?.efforts.length ?? 0) > 0
+                      return (
+                        <Pressable
+                          key={model.id}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: current }}
+                          onPress={() => {
+                            if (hasEfforts) setEffortTarget({ group, model })
+                            else onPick(group, model)
+                          }}
+                          style={[styles.modelOption, current && styles.modelOptionCurrent]}
+                        >
+                          <View style={styles.modelOptionCopy}>
+                            <Text style={styles.modelOptionName} numberOfLines={1}>{model.name}</Text>
+                            {model.description !== undefined && (
+                              <Text style={styles.modelOptionDescription} numberOfLines={2}>{model.description}</Text>
+                            )}
+                          </View>
+                          {current && <Check size={16} color={colors.primary} />}
+                          {hasEfforts && <ChevronRight size={16} color={colors.muted} />}
+                        </Pressable>
+                      )
+                    })}
+                  </View>
+                ))}
+                {models.failures.length > 0 && (
+                  <Text style={styles.modelFailures}>{models.failures.map(failure => failure.message).join('; ')}</Text>
+                )}
+              </>
+            ) : (
+              <>
+                <Text style={styles.effortProviderName}>{effortTarget.group.name}</Text>
+                <Text style={styles.effortModelName}>{effortTarget.model.name}</Text>
+                {effortTarget.model.reasoning?.efforts.map(effort => {
+                  const current = selectedEffort === effort.id
                   return (
                     <Pressable
-                      key={model.id}
+                      key={effort.id}
                       accessibilityRole="button"
                       accessibilityState={{ selected: current }}
-                      onPress={() => onPick(group, model)}
+                      accessibilityLabel={zhCN.chat.reasoningEffortLabel(effort.name)}
+                      onPress={() => onPick(effortTarget.group, effortTarget.model, effort.id)}
                       style={[styles.modelOption, current && styles.modelOptionCurrent]}
                     >
-                      <Text style={styles.modelOptionName} numberOfLines={1}>{model.name}</Text>
+                      <View style={styles.modelOptionCopy}>
+                        <Text style={styles.modelOptionName} numberOfLines={1}>{effort.name}</Text>
+                        {effort.description !== undefined && (
+                          <Text style={styles.modelOptionDescription} numberOfLines={2}>{effort.description}</Text>
+                        )}
+                      </View>
                       {current && <Check size={16} color={colors.primary} />}
                     </Pressable>
                   )
                 })}
-              </View>
-            ))}
-            {models.failures.length > 0 && (
-              <Text style={styles.modelFailures}>{models.failures.map(failure => failure.message).join('; ')}</Text>
+              </>
             )}
           </ScrollView>
         </Pressable>
@@ -811,14 +884,19 @@ function createStyles(colors: ThemeColors) {
   olderText: { ...type.smallStrong, color: colors.primary },
   modalBackdrop: { flex: 1, backgroundColor: colors.modalBackdrop, justifyContent: 'flex-end' },
   modalSheet: { maxHeight: '70%', backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, paddingBottom: spacing.xxl },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
-  modalTitle: { ...type.heading, color: colors.ink },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginBottom: spacing.md },
+  modalHeaderCopy: { minWidth: 0, flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  modalTitle: { ...type.heading, color: colors.ink, flexShrink: 1 },
   modalListContent: { paddingBottom: spacing.xs },
   modelGroupBlock: { marginBottom: spacing.md },
   modelGroupTitle: { ...type.caption, color: colors.muted, textTransform: 'uppercase', marginBottom: spacing.xs },
   modelOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs },
   modelOptionCurrent: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  modelOptionName: { ...type.small, color: colors.ink, flex: 1 },
+  modelOptionCopy: { minWidth: 0, flex: 1 },
+  modelOptionName: { ...type.small, color: colors.ink },
+  modelOptionDescription: { ...type.caption, color: colors.muted, marginTop: 2 },
+  effortProviderName: { ...type.caption, color: colors.muted, textTransform: 'uppercase', marginBottom: spacing.xs },
+  effortModelName: { ...type.heading, color: colors.ink, marginBottom: spacing.md },
   permissionOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surface, marginBottom: spacing.xs },
   permissionOptionCopy: { flex: 1 },
   permissionOptionName: { ...type.small, color: colors.ink },

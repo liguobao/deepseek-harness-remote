@@ -98,7 +98,8 @@ connection status shown in the header.
 Download the latest Android APK from [GitHub Releases](https://github.com/liguobao/ds-harness-remote/releases/latest).
 
 Sign in to the Android client with your existing account, select an available computer,
-open a workspace, and continue the conversation with text or image prompts.
+open a workspace, and continue the conversation with text or image prompts. The conversation
+toolbar also lets you switch the active model and choose any reasoning effort declared by it.
 
 <p align="center">
   <img src="docs/images/mobile-list.jpg" alt="Android client listing online and offline computers" width="30%">

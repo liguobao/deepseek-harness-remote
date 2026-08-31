@@ -18,8 +18,9 @@ React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness hos
 - Drive the Host through the rc.2 ApiProxy bridge or the alpha Typert Remote Gateway after
   encrypted capability probing:
   browse sessions (including archived ones), create sessions, stream live mux frames, send
-  text/image prompts, cancel generation, page older history, switch the active model from the host's
-  catalog, manage host workspaces (create with a read-only directory browser, rename, delete,
+  text/image prompts, cancel generation, page older history, switch the active model and its
+  declared reasoning effort from the host's catalog, manage host workspaces (create with a
+  read-only directory browser, rename, delete,
   reorder), and answer approval / question requests with the native `client-response` envelope.
 - Select PNG/JPEG/WebP/GIF images from Android's system picker, preflight the Host-projected image
   limits, preview them in the composer, and carry large native `session.prompt` envelopes through
