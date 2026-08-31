@@ -162,6 +162,8 @@ describe('CodexRemoteDomain', () => {
       sandboxPolicy: {
         type: 'workspaceWrite',
         networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
       },
     })
     expect(isRecord(enforcedTurn) && typeof enforcedTurn.cwd === 'string' && enforcedTurn.cwd.endsWith('/allowed')).toBe(true)

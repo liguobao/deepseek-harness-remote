@@ -112,6 +112,26 @@ describe('CodexVirtualHarness', () => {
       value: { type: 'event', event: { type: 'assistant/chunk', data: { chunk: { type: 'text-delta', text: 'Streaming' } } } },
     })
 
+    client.emit('thr_1', {
+      method: 'item/completed',
+      params: { turnId: 'turn_2', item: { id: 'assistant_2', type: 'agentMessage', text: 'Streaming', status: 'completed' } },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: 'event', event: { type: 'assistant/chunk', data: { chunk: {
+        type: 'block-end', block: { type: 'text', text: 'Streaming' },
+      } } } },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: 'event', event: { type: 'assistant/chunk', data: { chunk: {
+        type: 'finish', reason: { kind: 'stop' },
+      } } } },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: 'event', event: { type: 'assistant/message', data: {
+        message: { content: [{ type: 'text', text: 'Streaming' }] },
+      } } },
+    })
+
     controller.abort()
     await iterator.return?.()
     await target.close()
@@ -175,7 +195,7 @@ describe('CodexVirtualHarness', () => {
     await target.close()
   })
 
-  it('scopes the native data plane to the CodeX workspace selected in the Remote picker', async () => {
+  it('loads every CodeX workspace while using the Remote picker selection only for initial navigation', async () => {
     const client = fakeCodex([
       codexThread('thr_2', '/workspace/other', 'Other workspace'),
       codexThread('thr_3', undefined, 'Ungrouped thread'),
@@ -187,27 +207,20 @@ describe('CodexVirtualHarness', () => {
     await expect(target.preferredSessionId()).resolves.toBe('codex:thr_1')
 
     const workspaces = await target.dispatch('workspace/list', { args: {} }, new AbortController().signal)
-    expect(workspaces).toMatchObject({
-      ok: true,
-      value: { items: [{ workspaceId: workspace!.workspaceId, sessionIds: ['codex:thr_1'] }] },
-    })
+    expect(workspaces).toMatchObject({ ok: true, value: { items: [
+      { workspaceId: workspace!.workspaceId, sessionIds: ['codex:thr_1'] },
+      { sessionIds: ['codex:thr_2'] },
+    ] } })
     const sessions = await target.dispatch('session/list', { args: {} }, new AbortController().signal)
-    expect(sessions).toMatchObject({
-      ok: true,
-      value: { items: [{ sessionId: 'codex:thr_1' }] },
-    })
-    expect(JSON.stringify(sessions)).not.toContain('thr_2')
-    expect(JSON.stringify(sessions)).not.toContain('thr_3')
+    expect(sessions).toMatchObject({ ok: true, value: { items: [
+      { sessionId: 'codex:thr_1' },
+      { sessionId: 'codex:thr_2' },
+      { sessionId: 'codex:thr_3' },
+    ] } })
 
     const events = await target.open('$events', { args: {} }, new AbortController().signal)
     const iterator = events[Symbol.asyncIterator]()
     await expect(iterator.next()).resolves.toMatchObject({ value: { type: 'ready' } })
-    await expect(iterator.next()).resolves.toMatchObject({
-      value: { type: 'emit', event: 'api-session/removed', args: ['codex:thr_2'] },
-    })
-    await expect(iterator.next()).resolves.toMatchObject({
-      value: { type: 'emit', event: 'api-session/removed', args: ['codex:thr_3'] },
-    })
     await iterator.return?.()
     await target.close()
   })

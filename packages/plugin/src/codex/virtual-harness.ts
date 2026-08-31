@@ -75,6 +75,7 @@ interface FollowState {
   startedItems: Set<string>
   completedItems: Set<string>
   assistantBlocks: Set<string>
+  assistantText: Map<string, string>
   requestId?: string
   activeTurnId?: string
   rcOnly?: boolean
@@ -122,9 +123,8 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private readonly follows = new Set<FollowState>()
   private readonly pendingRequestIds = new Map<string, string>()
   private readonly pendingApprovals = new Map<string, PendingApproval>()
-  private readonly removedSessionIds = new Set<string>()
   private readonly threadHistoryCache = new Map<string, JsonRecord>()
-  private workspaceScope?: { workspaceId: string; path: string }
+  private selectedWorkspaceId?: string
   private closed = false
 
   constructor(
@@ -149,16 +149,16 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     const catalog = await loadCatalog(this.client, signal)
     const workspace = catalog.workspaces.find(item => item.workspaceId === workspaceId)
     if (workspace === undefined) throw new Error('The selected CodeX workspace is no longer available.')
-    this.workspaceScope = { workspaceId: workspace.workspaceId, path: workspace.path }
-    this.catalog = scopeCatalog(catalog, this.workspaceScope)
-    const visible = new Set(this.catalog.sessions.map(session => session.id))
-    this.removedSessionIds.clear()
-    for (const session of catalog.sessions) if (!visible.has(session.id)) this.removedSessionIds.add(session.id)
-    return this.catalog.workspaces[0]!
+    this.selectedWorkspaceId = workspace.workspaceId
+    this.catalog = catalog
+    return workspace
   }
 
   async preferredSessionId(signal?: AbortSignal): Promise<string | undefined> {
-    const sessions = this.catalog?.sessions ?? []
+    const catalog = this.catalog
+    const selected = catalog?.workspaces.find(workspace => workspace.workspaceId === this.selectedWorkspaceId)
+    const selectedSessionIds = new Set(selected?.sessionIds ?? [])
+    const sessions = (catalog?.sessions ?? []).filter(session => selectedSessionIds.has(session.id))
     const idleNamed = sessions.filter(session => session.status !== 'running'
       && session.status !== 'waiting'
       && displayTitle(session) !== null)
@@ -278,8 +278,11 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   }
 
   private async refreshCatalog(signal?: AbortSignal): Promise<CatalogState> {
-    const loaded = await loadCatalog(this.client, signal)
-    const catalog = this.workspaceScope === undefined ? loaded : scopeCatalog(loaded, this.workspaceScope)
+    const catalog = await loadCatalog(this.client, signal)
+    if (this.selectedWorkspaceId !== undefined
+      && !catalog.workspaces.some(workspace => workspace.workspaceId === this.selectedWorkspaceId)) {
+      this.selectedWorkspaceId = undefined
+    }
     this.catalog = catalog
     return catalog
   }
@@ -334,9 +337,6 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     this.eventStreams.set(clientId, queue)
     const home = (await this.currentCatalog(signal)).workspaces[0]?.path ?? '/'
     queue.push({ type: 'ready', clientId, host: { home } })
-    for (const sessionId of this.removedSessionIds) {
-      queue.push({ type: 'emit', event: 'api-session/removed', args: [sessionId] })
-    }
     return queue.iterate(() => this.eventStreams.delete(clientId))
   }
 
@@ -356,6 +356,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       startedItems: new Set(),
       completedItems: new Set(),
       assistantBlocks: new Set(),
+      assistantText: new Map(),
       requestId: this.pendingRequestIds.get(sessionId),
     }
     this.follows.add(follow)
@@ -415,6 +416,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       if (delta === undefined) return
       if (!follow.assistantBlocks.has(itemId)) {
         follow.assistantBlocks.add(itemId)
+        follow.assistantText.set(itemId, '')
         this.pushEvent(follow, 'assistant/chunk', {
           turn: follow.turn,
           step: 1,
@@ -426,6 +428,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         step: 1,
         chunk: { type: 'text-delta', index: 0, text: delta },
       })
+      follow.assistantText.set(itemId, `${follow.assistantText.get(itemId) ?? ''}${delta}`)
       return
     }
     if (frame.method === 'turn/completed') {
@@ -471,6 +474,20 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     const type = string(item.type)
     if (type === 'agentMessage' && !settleAssistant) return
     follow.completedItems.add(itemId)
+    if (type === 'agentMessage' && follow.assistantBlocks.delete(itemId)) {
+      const text = itemText(item) ?? follow.assistantText.get(itemId) ?? ''
+      this.pushEvent(follow, 'assistant/chunk', {
+        turn: follow.turn,
+        step: 1,
+        chunk: { type: 'block-end', index: 0, block: { type: 'text', text } },
+      })
+      this.pushEvent(follow, 'assistant/chunk', {
+        turn: follow.turn,
+        step: 1,
+        chunk: { type: 'finish', reason: { kind: 'stop' } },
+      })
+      follow.assistantText.delete(itemId)
+    }
     for (const event of itemEvents(item, follow.turn, 1, follow.requestId)) {
       this.pushEvent(follow, event.type, event.data, event.view)
     }
@@ -716,6 +733,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       startedItems: new Set(),
       completedItems: new Set(),
       assistantBlocks: new Set(),
+      assistantText: new Map(),
       requestId: this.pendingRequestIds.get(sessionId),
       rcOnly: true,
     }
@@ -833,10 +851,6 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private async *rcHost(_request: RpcRequest<unknown>, signal: AbortSignal): AsyncIterable<unknown> {
     const queue = new AsyncValueQueue(signal)
     this.rcHostStreams.add(queue)
-    for (const sessionId of this.removedSessionIds) queue.push({
-      rpcId: `codex-host:${Date.now()}:${Math.random()}`,
-      payload: { type: 'host/session-removed', sessionId },
-    })
     try {
       yield* queue
     } finally {
@@ -1081,22 +1095,6 @@ function fileLocations(item: JsonRecord): Array<{ path: string }> {
     .map(value => string(record(value).path))
     .filter((path): path is string => path !== undefined && path.length > 0)
     .map(path => ({ path }))
-}
-
-function scopeCatalog(catalog: CatalogState, scope: { workspaceId: string; path: string }): CatalogState {
-  const workspace = catalog.workspaces.find(item => item.workspaceId === scope.workspaceId && item.path === scope.path)
-  if (workspace === undefined) return { threads: [], sessions: [], workspaces: [] }
-  const sessionIds = new Set(workspace.sessionIds)
-  const sessions = catalog.sessions.filter(session => sessionIds.has(session.id) && session.cwd === scope.path)
-  const nativeIds = new Set(sessions.map(session => session.nativeId))
-  return {
-    threads: catalog.threads.filter(thread => {
-      const id = string(thread.id)
-      return id !== undefined && nativeIds.has(id)
-    }),
-    sessions,
-    workspaces: [{ ...workspace, sessionIds: sessions.map(session => session.id), sessionCount: sessions.length }],
-  }
 }
 
 function nativeWorkspace(view: CodexVirtualWorkspaceView): Omit<CodexVirtualWorkspaceView, 'sessionCount'> {

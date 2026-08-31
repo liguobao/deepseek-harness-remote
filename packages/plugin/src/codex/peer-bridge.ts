@@ -172,7 +172,15 @@ export class CodexPeerBridge {
     } catch {
       throw new RpcError('INVALID_MESSAGE', 'The Codex transfer does not contain a valid request.')
     }
-    const response = await this.call(request)
+    let response: unknown
+    try {
+      response = await this.call(request)
+    } catch (error) {
+      this.logger?.warn('Codex transfer call failed', {
+        method: isRecord(request) && typeof request.method === 'string' ? request.method : 'invalid',
+      })
+      throw error
+    }
     const responseBytes = new TextEncoder().encode(JSON.stringify(response))
     if (responseBytes.byteLength <= INLINE_TRANSFER_RESPONSE_BYTES) return { kind: 'inline', response }
     if (responseBytes.byteLength > MAX_CODEX_APP_TRANSFER_BYTES) {
@@ -295,6 +303,10 @@ function decodeCanonicalBase64(value: string): Uint8Array {
     throw new RpcError('INVALID_MESSAGE', 'The Codex transfer chunk is not canonical base64.')
   }
   return decoded
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function concatChunks(chunks: readonly Uint8Array[], totalBytes: number): Uint8Array {

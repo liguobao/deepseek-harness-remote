@@ -175,6 +175,8 @@ export class CodexRemoteDomain {
                 type: 'workspaceWrite',
                 writableRoots: [allowedThread.cwd],
                 networkAccess: false,
+                excludeTmpdirEnvVar: false,
+                excludeSlashTmp: false,
               },
             }
           : call.params

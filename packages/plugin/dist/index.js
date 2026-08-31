@@ -14198,9 +14198,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   follows = /* @__PURE__ */ new Set();
   pendingRequestIds = /* @__PURE__ */ new Map();
   pendingApprovals = /* @__PURE__ */ new Map();
-  removedSessionIds = /* @__PURE__ */ new Set();
   threadHistoryCache = /* @__PURE__ */ new Map();
-  workspaceScope;
+  selectedWorkspaceId;
   closed = false;
   static remote(core, host) {
     return new _CodexVirtualHarness(new CodexRemoteClient(core), host);
@@ -14212,15 +14211,15 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     const catalog = await loadCatalog(this.client, signal);
     const workspace = catalog.workspaces.find((item) => item.workspaceId === workspaceId);
     if (workspace === void 0) throw new Error("The selected CodeX workspace is no longer available.");
-    this.workspaceScope = { workspaceId: workspace.workspaceId, path: workspace.path };
-    this.catalog = scopeCatalog(catalog, this.workspaceScope);
-    const visible = new Set(this.catalog.sessions.map((session) => session.id));
-    this.removedSessionIds.clear();
-    for (const session of catalog.sessions) if (!visible.has(session.id)) this.removedSessionIds.add(session.id);
-    return this.catalog.workspaces[0];
+    this.selectedWorkspaceId = workspace.workspaceId;
+    this.catalog = catalog;
+    return workspace;
   }
   async preferredSessionId(signal) {
-    const sessions = this.catalog?.sessions ?? [];
+    const catalog = this.catalog;
+    const selected = catalog?.workspaces.find((workspace) => workspace.workspaceId === this.selectedWorkspaceId);
+    const selectedSessionIds = new Set(selected?.sessionIds ?? []);
+    const sessions = (catalog?.sessions ?? []).filter((session) => selectedSessionIds.has(session.id));
     const idleNamed = sessions.filter((session) => session.status !== "running" && session.status !== "waiting" && displayTitle(session) !== null);
     const idle = sessions.filter((session) => session.status !== "running" && session.status !== "waiting");
     const preferredNamed = idleNamed.length > 1 ? [...idleNamed.slice(1), idleNamed[0]] : idleNamed;
@@ -14353,8 +14352,10 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     this.pendingRequestIds.clear();
   }
   async refreshCatalog(signal) {
-    const loaded = await loadCatalog(this.client, signal);
-    const catalog = this.workspaceScope === void 0 ? loaded : scopeCatalog(loaded, this.workspaceScope);
+    const catalog = await loadCatalog(this.client, signal);
+    if (this.selectedWorkspaceId !== void 0 && !catalog.workspaces.some((workspace) => workspace.workspaceId === this.selectedWorkspaceId)) {
+      this.selectedWorkspaceId = void 0;
+    }
     this.catalog = catalog;
     return catalog;
   }
@@ -14404,9 +14405,6 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     this.eventStreams.set(clientId, queue);
     const home = (await this.currentCatalog(signal)).workspaces[0]?.path ?? "/";
     queue.push({ type: "ready", clientId, host: { home } });
-    for (const sessionId of this.removedSessionIds) {
-      queue.push({ type: "emit", event: "api-session/removed", args: [sessionId] });
-    }
     return queue.iterate(() => this.eventStreams.delete(clientId));
   }
   async sessionFollow(request, signal) {
@@ -14425,6 +14423,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       startedItems: /* @__PURE__ */ new Set(),
       completedItems: /* @__PURE__ */ new Set(),
       assistantBlocks: /* @__PURE__ */ new Set(),
+      assistantText: /* @__PURE__ */ new Map(),
       requestId: this.pendingRequestIds.get(sessionId)
     };
     this.follows.add(follow);
@@ -14483,6 +14482,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       if (delta === void 0) return;
       if (!follow.assistantBlocks.has(itemId)) {
         follow.assistantBlocks.add(itemId);
+        follow.assistantText.set(itemId, "");
         this.pushEvent(follow, "assistant/chunk", {
           turn: follow.turn,
           step: 1,
@@ -14494,6 +14494,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         step: 1,
         chunk: { type: "text-delta", index: 0, text: delta }
       });
+      follow.assistantText.set(itemId, `${follow.assistantText.get(itemId) ?? ""}${delta}`);
       return;
     }
     if (frame.method === "turn/completed") {
@@ -14535,6 +14536,20 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     const type = string(item.type);
     if (type === "agentMessage" && !settleAssistant) return;
     follow.completedItems.add(itemId);
+    if (type === "agentMessage" && follow.assistantBlocks.delete(itemId)) {
+      const text = itemText2(item) ?? follow.assistantText.get(itemId) ?? "";
+      this.pushEvent(follow, "assistant/chunk", {
+        turn: follow.turn,
+        step: 1,
+        chunk: { type: "block-end", index: 0, block: { type: "text", text } }
+      });
+      this.pushEvent(follow, "assistant/chunk", {
+        turn: follow.turn,
+        step: 1,
+        chunk: { type: "finish", reason: { kind: "stop" } }
+      });
+      follow.assistantText.delete(itemId);
+    }
     for (const event of itemEvents(item, follow.turn, 1, follow.requestId)) {
       this.pushEvent(follow, event.type, event.data, event.view);
     }
@@ -14748,6 +14763,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       startedItems: /* @__PURE__ */ new Set(),
       completedItems: /* @__PURE__ */ new Set(),
       assistantBlocks: /* @__PURE__ */ new Set(),
+      assistantText: /* @__PURE__ */ new Map(),
       requestId: this.pendingRequestIds.get(sessionId),
       rcOnly: true
     };
@@ -14855,10 +14871,6 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   async *rcHost(_request, signal) {
     const queue = new AsyncValueQueue2(signal);
     this.rcHostStreams.add(queue);
-    for (const sessionId of this.removedSessionIds) queue.push({
-      rpcId: `codex-host:${Date.now()}:${Math.random()}`,
-      payload: { type: "host/session-removed", sessionId }
-    });
     try {
       yield* queue;
     } finally {
@@ -15083,21 +15095,6 @@ function toolDisplayName(item, type) {
 }
 function fileLocations(item) {
   return array(item.changes).map((value) => string(record(value).path)).filter((path) => path !== void 0 && path.length > 0).map((path) => ({ path }));
-}
-function scopeCatalog(catalog, scope) {
-  const workspace = catalog.workspaces.find((item) => item.workspaceId === scope.workspaceId && item.path === scope.path);
-  if (workspace === void 0) return { threads: [], sessions: [], workspaces: [] };
-  const sessionIds = new Set(workspace.sessionIds);
-  const sessions = catalog.sessions.filter((session) => sessionIds.has(session.id) && session.cwd === scope.path);
-  const nativeIds = new Set(sessions.map((session) => session.nativeId));
-  return {
-    threads: catalog.threads.filter((thread) => {
-      const id2 = string(thread.id);
-      return id2 !== void 0 && nativeIds.has(id2);
-    }),
-    sessions,
-    workspaces: [{ ...workspace, sessionIds: sessions.map((session) => session.id), sessionCount: sessions.length }]
-  };
 }
 function nativeWorkspace(view) {
   const { sessionCount: _sessionCount, ...workspace } = view;
@@ -21444,7 +21441,15 @@ var CodexPeerBridge = class {
     } catch {
       throw new RpcError("INVALID_MESSAGE", "The Codex transfer does not contain a valid request.");
     }
-    const response = await this.call(request);
+    let response;
+    try {
+      response = await this.call(request);
+    } catch (error) {
+      this.logger?.warn("Codex transfer call failed", {
+        method: isRecord8(request) && typeof request.method === "string" ? request.method : "invalid"
+      });
+      throw error;
+    }
     const responseBytes = new TextEncoder().encode(JSON.stringify(response));
     if (responseBytes.byteLength <= INLINE_TRANSFER_RESPONSE_BYTES3) return { kind: "inline", response };
     if (responseBytes.byteLength > MAX_CODEX_APP_TRANSFER_BYTES) {
@@ -21555,6 +21560,9 @@ function decodeCanonicalBase643(value) {
     throw new RpcError("INVALID_MESSAGE", "The Codex transfer chunk is not canonical base64.");
   }
   return decoded;
+}
+function isRecord8(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function concatChunks3(chunks, totalBytes) {
   const output = new Uint8Array(totalBytes);
@@ -21682,7 +21690,9 @@ var CodexRemoteDomain = class {
         sandboxPolicy: {
           type: "workspaceWrite",
           writableRoots: [allowedThread.cwd],
-          networkAccess: false
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false
         }
       } : call.params;
       let result;
@@ -21931,12 +21941,12 @@ var CodexRemoteDomain = class {
     return { ...params, cwd: Array.isArray(params.cwd) ? cwd : cwd[0] };
   }
   async filterThreadList(result) {
-    if (!isRecord8(result) || !Array.isArray(result.data)) {
+    if (!isRecord9(result) || !Array.isArray(result.data)) {
       throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread list.");
     }
     const allowed = [];
     for (const value of result.data) {
-      if (!isRecord8(value) || typeof value.id !== "string") continue;
+      if (!isRecord9(value) || typeof value.id !== "string") continue;
       if (await this.requirePathPolicy().allows(value.cwd)) allowed.push(value);
     }
     return { ...result, data: allowed };
@@ -21962,7 +21972,7 @@ var CodexRemoteDomain = class {
     return [...this.peers.values()].some((peer) => peer.hasThreadSubscription(threadId));
   }
   resolveUpstreamApproval(params) {
-    if (!isRecord8(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return;
+    if (!isRecord9(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return;
     for (const [handle, approval] of this.approvals) {
       if (approval.upstreamId === params.requestId) this.approvals.delete(handle);
     }
@@ -22017,24 +22027,24 @@ function codexBinaryCandidates(configured, hostPlatform = process.platform, user
   ])];
 }
 function parseCallEnvelope(input2) {
-  if (!isRecord8(input2) || typeof input2.method !== "string" || !("params" in input2) || Object.keys(input2).some((key) => key !== "method" && key !== "params")) {
+  if (!isRecord9(input2) || typeof input2.method !== "string" || !("params" in input2) || Object.keys(input2).some((key) => key !== "method" && key !== "params")) {
     throw new RpcError("INVALID_MESSAGE", "The Codex call envelope is invalid.");
   }
   return { method: input2.method, params: input2.params };
 }
 function parseRespond(input2) {
-  if (!isRecord8(input2) || typeof input2.requestHandle !== "string" || !["accept", "decline", "cancel"].includes(String(input2.decision)) || Object.keys(input2).some((key) => key !== "requestHandle" && key !== "decision")) {
+  if (!isRecord9(input2) || typeof input2.requestHandle !== "string" || !["accept", "decline", "cancel"].includes(String(input2.decision)) || Object.keys(input2).some((key) => key !== "requestHandle" && key !== "decision")) {
     throw new RpcError("INVALID_MESSAGE", "The Codex approval response is invalid.");
   }
   return input2;
 }
 function accountCanRun(result) {
-  if (!isRecord8(result) || typeof result.requiresOpenaiAuth !== "boolean") return false;
-  return result.requiresOpenaiAuth === false || isRecord8(result.account);
+  if (!isRecord9(result) || typeof result.requiresOpenaiAuth !== "boolean") return false;
+  return result.requiresOpenaiAuth === false || isRecord9(result.account);
 }
 function sanitizeAccount(result) {
-  if (!isRecord8(result)) throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid account state.");
-  const account = isRecord8(result.account) ? result.account : void 0;
+  if (!isRecord9(result)) throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid account state.");
+  const account = isRecord9(result.account) ? result.account : void 0;
   return {
     authenticated: account !== void 0 || result.requiresOpenaiAuth === false,
     requiresOpenaiAuth: result.requiresOpenaiAuth === true,
@@ -22047,17 +22057,17 @@ function sanitizeAccount(result) {
   };
 }
 function extractThread(result) {
-  return isRecord8(result) && isRecord8(result.thread) ? result.thread : void 0;
+  return isRecord9(result) && isRecord9(result.thread) ? result.thread : void 0;
 }
 function extractThreadId(params) {
-  if (!isRecord8(params)) return void 0;
+  if (!isRecord9(params)) return void 0;
   if (typeof params.threadId === "string") return params.threadId;
-  if (isRecord8(params.thread) && typeof params.thread.id === "string") return params.thread.id;
-  if (isRecord8(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
+  if (isRecord9(params.thread) && typeof params.thread.id === "string") return params.thread.id;
+  if (isRecord9(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
   return void 0;
 }
 function sanitizeApprovalParams(params, requestHandle) {
-  if (!isRecord8(params)) return { requestHandle };
+  if (!isRecord9(params)) return { requestHandle };
   const safe = { ...params };
   delete safe.proposedExecpolicyAmendment;
   delete safe.additionalPermissions;
@@ -22079,7 +22089,7 @@ function errorCode2(error) {
 function canTryNextBinary(error) {
   return !(error instanceof RpcError) || !["CODEX_AUTH_REQUIRED", "CODEX_CLOSED"].includes(error.code);
 }
-function isRecord8(value) {
+function isRecord9(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
