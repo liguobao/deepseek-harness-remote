@@ -12,7 +12,7 @@ describe('CodexVirtualHarness', () => {
     expect(workspaces).toHaveLength(1)
     expect(workspaces[0]).toMatchObject({
       path: '/workspace/repo',
-      title: 'CodeX · repo',
+      title: 'repo',
       sessionIds: ['codex:thr_1'],
       sessionCount: 1,
     })

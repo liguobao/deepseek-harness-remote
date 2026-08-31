@@ -14915,7 +14915,7 @@ async function loadCatalog(client, signal) {
       workspaceByPath.set(session.cwd, {
         workspaceId: `${CODEX_WORKSPACE_PREFIX}${hashString(session.cwd)}`,
         path: session.cwd,
-        title: `CodeX \xB7 ${basename(session.cwd)}`,
+        title: basename(session.cwd),
         sessionIds: [session.id],
         sessionCount: 1,
         createdAt,
