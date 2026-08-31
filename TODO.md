@@ -1,6 +1,6 @@
 # TODO
 
-本清单按 2026-08-30 的兼容方向维护：Harness rc.2 使用官方 ApiProxy，
+本清单按 2026-08-31 的兼容方向维护：Harness rc.2 使用官方 ApiProxy，
 alpha.1/alpha.2 使用官方 Typert Remote Gateway。Android 与 VS Code Client 通过 capability 探测兼容两种 Host carrier；Server、Remote Web 和 Admin 只在独立
 Server 仓库实现。
 
@@ -26,6 +26,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [x] 配合 dsh-file-viewer 的远端只读文件 stat/list/分块预览桥与 Client provider
 - [x] 不同 Web Client 同时连接一个 Host；RPC、stream 与断开清理按 connectionId 隔离
 - [x] 删除自定义 Session/Agent/Workspace/Permission adapters、event replay 和旧 Host RPC 路由
+- [x] GitHub Actions 使用 Node.js 22 和 pnpm 9.15.4 执行 build、check、test 与 Bundle 校验
 
 ## P0：Plugin 可用链路
 
@@ -38,16 +39,18 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [ ] 用两台真实 Harness 验证 dsh-file-viewer 文本、图片、PDF、大文件分块与断线回落
 - [ ] 在 macOS、Windows、Linux 验证 native picker 只读目录兜底、symlink、权限错误和大目录截断
 - [ ] 完善账号过期、`DEVICE_OWNERSHIP_REQUIRED` 和 legacy owner 的显式恢复体验
-- [ ] 增加 transport 关闭后 pending unary/stream 的确定错误与可诊断状态
+- [x] transport 关闭后 pending unary/stream 立即返回稳定错误，并清理 timer 和 abort listener
 
 ## P0：协议与安全
 
 - [ ] 将 `packages/protocol` 与 `docs/protocol.md` 的 Control、Account Authorization、Connect、Relay、ApiProxy tunnel、Error 和 Limits schema 逐项对齐
 - [ ] 清理仅供冻结 Android 原型使用的旧 Session/Event 类型
-- [ ] 固定 hello/hello.ack 版本拒绝、能力与最大消息限制
+- [x] 固定 hello/hello.ack 版本拒绝、capability 协商与 Control/Relay frame 上限
+- [x] 拒绝超限 Control/Relay frame 和 binary Control frame
 - [ ] 完成 Noise 实现独立安全审查、长期连接 rekey 与断线密钥清理策略
 - [ ] 增加 golden vectors 与跨 Server/Plugin conformance fixture
-- [ ] 补齐篡改、重放、错误 identity、counter 越界和 relay frame limit 测试
+- [x] 补齐 counter 安全整数边界与 Control/Relay frame limit 测试
+- [ ] 补齐真实 Relay 链路的篡改、重放和错误 identity 跨层验证
 
 ## P1：Transport 与恢复
 
