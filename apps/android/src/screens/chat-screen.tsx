@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
@@ -340,21 +341,29 @@ function PermissionPicker({ visible, permissions, onClose, onPick }: {
 }) {
   const { colors } = useTheme()
   const styles = useThemedStyles(createStyles)
+  const listMaxHeight = usePickerListMaxHeight()
   if (permissions === undefined) return null
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.modalBackdrop} onPress={onClose}>
         <Pressable style={styles.modalSheet} onPress={event => event.stopPropagation()}>
           <View style={styles.modalHeader}><Text style={styles.modalTitle}>{zhCN.chat.approvalMode}</Text><IconButton label={zhCN.common.close} icon={X} onPress={onClose} /></View>
-          {permissions.options.filter(option => option.value !== 'custom').map(option => {
-            const current = option.value === permissions.currentValue
-            return (
-              <Pressable key={option.value} accessibilityRole="button" accessibilityState={{ selected: current }} onPress={() => onPick(option.value)} style={[styles.permissionOption, current && styles.modelOptionCurrent]}>
-                <View style={styles.permissionOptionCopy}><Text style={styles.permissionOptionName}>{option.name}</Text>{option.description !== undefined && <Text style={styles.permissionOptionDescription}>{option.description}</Text>}</View>
-                {current && <Check size={16} color={colors.primary} />}
-              </Pressable>
-            )
-          })}
+          <ScrollView
+            style={{ maxHeight: listMaxHeight }}
+            contentContainerStyle={styles.modalListContent}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+          >
+            {permissions.options.filter(option => option.value !== 'custom').map(option => {
+              const current = option.value === permissions.currentValue
+              return (
+                <Pressable key={option.value} accessibilityRole="button" accessibilityState={{ selected: current }} onPress={() => onPick(option.value)} style={[styles.permissionOption, current && styles.modelOptionCurrent]}>
+                  <View style={styles.permissionOptionCopy}><Text style={styles.permissionOptionName}>{option.name}</Text>{option.description !== undefined && <Text style={styles.permissionOptionDescription}>{option.description}</Text>}</View>
+                  {current && <Check size={16} color={colors.primary} />}
+                </Pressable>
+              )
+            })}
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
@@ -470,6 +479,7 @@ function ModelPicker({ visible, models, onClose, onPick }: {
 }) {
   const { colors } = useTheme()
   const styles = useThemedStyles(createStyles)
+  const listMaxHeight = usePickerListMaxHeight()
   if (models === undefined) return null
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -479,33 +489,46 @@ function ModelPicker({ visible, models, onClose, onPick }: {
             <Text style={styles.modalTitle}>{zhCN.chat.selectModel}</Text>
             <IconButton label={zhCN.common.close} icon={X} onPress={onClose} />
           </View>
-          {models.groups.map(group => (
-            <View key={group.id} style={styles.modelGroupBlock}>
-              <Text style={styles.modelGroupTitle}>{group.name}</Text>
-              {group.models.map(model => {
-                const current = models.current.provider === group.id && models.current.model === model.id
-                return (
-                  <Pressable
-                    key={model.id}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: current }}
-                    onPress={() => onPick(group, model)}
-                    style={[styles.modelOption, current && styles.modelOptionCurrent]}
-                  >
-                    <Text style={styles.modelOptionName} numberOfLines={1}>{model.name}</Text>
-                    {current && <Check size={16} color={colors.primary} />}
-                  </Pressable>
-                )
-              })}
-            </View>
-          ))}
-          {models.failures.length > 0 && (
-            <Text style={styles.modelFailures}>{models.failures.map(failure => failure.message).join('; ')}</Text>
-          )}
+          <ScrollView
+            style={{ maxHeight: listMaxHeight }}
+            contentContainerStyle={styles.modalListContent}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+          >
+            {models.groups.map(group => (
+              <View key={group.id} style={styles.modelGroupBlock}>
+                <Text style={styles.modelGroupTitle}>{group.name}</Text>
+                {group.models.map(model => {
+                  const current = models.current.provider === group.id && models.current.model === model.id
+                  return (
+                    <Pressable
+                      key={model.id}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: current }}
+                      onPress={() => onPick(group, model)}
+                      style={[styles.modelOption, current && styles.modelOptionCurrent]}
+                    >
+                      <Text style={styles.modelOptionName} numberOfLines={1}>{model.name}</Text>
+                      {current && <Check size={16} color={colors.primary} />}
+                    </Pressable>
+                  )
+                })}
+              </View>
+            ))}
+            {models.failures.length > 0 && (
+              <Text style={styles.modelFailures}>{models.failures.map(failure => failure.message).join('; ')}</Text>
+            )}
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
   )
+}
+
+/** Keep the picker sheet within ~70% of the screen while letting long catalogs scroll. */
+function usePickerListMaxHeight(): number {
+  const { height } = useWindowDimensions()
+  return Math.max(180, Math.round(height * 0.7) - 96)
 }
 
 function sessionTitle(session: RemoteSession): string {
@@ -790,6 +813,7 @@ function createStyles(colors: ThemeColors) {
   modalSheet: { maxHeight: '70%', backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, paddingBottom: spacing.xxl },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   modalTitle: { ...type.heading, color: colors.ink },
+  modalListContent: { paddingBottom: spacing.xs },
   modelGroupBlock: { marginBottom: spacing.md },
   modelGroupTitle: { ...type.caption, color: colors.muted, textTransform: 'uppercase', marginBottom: spacing.xs },
   modelOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs },
