@@ -398,6 +398,7 @@ const en = {
   codexWorkspaceMode: 'Workspace source',
   codexHarnessMode: 'Harness',
   codexSwitchToCodex: 'Switch workspace source to CodeX',
+  codexSwitchToHarness: 'Return to Harness workspaces',
   codexDescription: 'Threads on the connected Host. Data stays in Codex and is shown here as a separate view.',
   codexLoading: 'Loading Codex sessions…',
   codexEmpty: 'No Codex threads are available in the Host allowed roots.',
@@ -410,6 +411,7 @@ const en = {
   codexRenamePrompt: 'New Codex thread name',
   codexFork: 'Fork',
   codexArchive: 'Archive',
+  codexActions: 'Session actions',
   codexUnarchive: 'Restore',
   codexShowArchived: 'Archived',
   codexShowActive: 'Active',
@@ -645,6 +647,7 @@ const zh: Record<keyof typeof en, string> = {
   codexWorkspaceMode: '工作区来源',
   codexHarnessMode: 'Harness',
   codexSwitchToCodex: '切换到 CodeX 工作区',
+  codexSwitchToHarness: '返回 Harness 工作区',
   codexDescription: '展示已连接 Host 上的 Codex Thread。数据仍由 Codex 保存，并在这里作为独立视图呈现。',
   codexLoading: '正在加载 Codex 会话…',
   codexEmpty: 'Host 允许的根目录中没有可展示的 Codex Thread。',
@@ -657,6 +660,7 @@ const zh: Record<keyof typeof en, string> = {
   codexRenamePrompt: '新的 Codex Thread 名称',
   codexFork: '派生',
   codexArchive: '归档',
+  codexActions: '会话操作',
   codexUnarchive: '恢复',
   codexShowArchived: '已归档',
   codexShowActive: '进行中',
@@ -1758,6 +1762,90 @@ window.__ModuleLoader__.load({
 
     const codexSidebar = createCodexSidebarStore()
 
+    function CodexModeIcon(props: { size?: number } = {}): unknown {
+      const size = props.size ?? 16
+      return React.createElement('svg', {
+        width: size,
+        height: size,
+        viewBox: '0 0 16 16',
+        fill: 'none',
+        'aria-hidden': true,
+      },
+      React.createElement('path', {
+        d: 'M11.6 4.25A4.75 4.75 0 1 0 11.6 11.75',
+        stroke: 'currentColor',
+        strokeWidth: 1.45,
+        strokeLinecap: 'round',
+      }),
+      React.createElement('path', {
+        d: 'M10.1 4.25h1.5v1.5',
+        stroke: 'currentColor',
+        strokeWidth: 1.45,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+      }))
+    }
+
+    function CodexChevronIcon(props: { expanded: boolean }): unknown {
+      return React.createElement('svg', {
+        width: 14,
+        height: 14,
+        viewBox: '0 0 16 16',
+        fill: 'none',
+        'aria-hidden': true,
+      }, React.createElement('path', {
+        d: props.expanded ? 'm4.75 6.25 3.25 3.5 3.25-3.5' : 'm6.25 4.75 3.5 3.25-3.5 3.25',
+        stroke: 'currentColor',
+        strokeWidth: 1.35,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+      }))
+    }
+
+    function CodexRefreshIcon(): unknown {
+      return React.createElement('svg', {
+        width: 15,
+        height: 15,
+        viewBox: '0 0 16 16',
+        fill: 'none',
+        'aria-hidden': true,
+      }, React.createElement('path', {
+        d: 'M12.65 5.45A5.15 5.15 0 1 0 13 9.85M12.65 5.45V2.7m0 2.75H9.9',
+        stroke: 'currentColor',
+        strokeWidth: 1.35,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+      }))
+    }
+
+    function CodexAddIcon(): unknown {
+      return React.createElement('svg', {
+        width: 15,
+        height: 15,
+        viewBox: '0 0 16 16',
+        fill: 'none',
+        'aria-hidden': true,
+      }, React.createElement('path', {
+        d: 'M8 3.25v9.5M3.25 8h9.5',
+        stroke: 'currentColor',
+        strokeWidth: 1.35,
+        strokeLinecap: 'round',
+      }))
+    }
+
+    function CodexMoreIcon(): unknown {
+      return React.createElement('svg', {
+        width: 15,
+        height: 15,
+        viewBox: '0 0 16 16',
+        fill: 'currentColor',
+        'aria-hidden': true,
+      },
+      React.createElement('circle', { cx: 3.25, cy: 8, r: 1 }),
+      React.createElement('circle', { cx: 8, cy: 8, r: 1 }),
+      React.createElement('circle', { cx: 12.75, cy: 8, r: 1 }))
+    }
+
     function CodexWorkspaceGroup(props: {
       control: <T>(endpoint: string, payload?: unknown) => Promise<T>
       t: Translate
@@ -1766,6 +1854,7 @@ window.__ModuleLoader__.load({
       const [supported, setSupported] = React.useState(false)
       const [threads, setThreads] = React.useState<CodexThreadRow[]>([])
       const [busy, setBusy] = React.useState(false)
+      const [actionThreadId, setActionThreadId] = React.useState<string | undefined>(undefined)
       const nav = useCodexSource(codexSidebar, snapshot => snapshot)
 
       const syncSupport = async (): Promise<void> => {
@@ -1886,11 +1975,16 @@ window.__ModuleLoader__.load({
           setBusy(false)
         }
       }
-      return React.createElement('section', { className: 'dshCodexVirtualWorkspace' },
-        React.createElement('header', { className: 'dshCodexVirtualWorkspaceHeader' },
+      return React.createElement('div', { className: 'dshCodexTree', role: 'tree', 'aria-label': t('codexVirtualWorkspace') },
+        React.createElement('div', {
+          className: 'dshCodexWorkspaceNode',
+          role: 'treeitem',
+          'aria-expanded': nav.expanded,
+        },
+        React.createElement('div', { className: 'dshCodexWorkspaceNodeRow' },
           React.createElement('button', {
             type: 'button',
-            className: 'dshCodexVirtualWorkspaceToggle',
+            className: 'dshCodexWorkspaceNodeToggle',
             'aria-expanded': nav.expanded,
             onClick: () => {
               const expanded = !codexSidebar.getSnapshot().expanded
@@ -1898,59 +1992,74 @@ window.__ModuleLoader__.load({
               if (expanded) void loadThreads()
             },
           },
-          React.createElement('span', { 'aria-hidden': true }, nav.expanded ? '⌄' : '›'),
-          React.createElement('span', null, t('codexVirtualWorkspace'))),
-          React.createElement('button', {
-            type: 'button',
-            className: 'dshCodexVirtualWorkspaceCreate',
-            disabled: busy,
-            title: t('codexNewThread'),
-            'aria-label': t('codexNewThread'),
-            onClick: () => { void createThread() },
-          }, '+')),
-        !nav.expanded ? null : React.createElement('div', { className: 'dshCodexVirtualSessions' },
-          React.createElement('div', { className: 'dshCodexVirtualSessionsLabel' },
-            React.createElement('span', null, t('codexVirtualSessions')),
+          React.createElement(CodexChevronIcon, { expanded: nav.expanded }),
+          React.createElement(CodexModeIcon, null),
+          React.createElement('span', null, t('codexEntry'))),
+          React.createElement('div', { className: 'dshCodexWorkspaceNodeActions' },
             React.createElement('button', {
-              type: 'button', disabled: busy, onClick: () => { void loadThreads() },
-            }, t('codexRefresh'))),
+              type: 'button',
+              disabled: busy,
+              title: t('codexRefresh'),
+              'aria-label': t('codexRefresh'),
+              onClick: () => { void loadThreads() },
+            }, React.createElement(CodexRefreshIcon, null)),
+            React.createElement('button', {
+              type: 'button',
+              disabled: busy,
+              title: t('codexNewThread'),
+              'aria-label': t('codexNewThread'),
+              onClick: () => { void createThread() },
+            }, React.createElement(CodexAddIcon, null)))),
+        !nav.expanded ? null : React.createElement('div', { className: 'dshCodexSessionList', role: 'group' },
           busy && threads.length === 0
-            ? React.createElement('p', { className: 'dshCodexVirtualWorkspaceState' }, t('codexLoading'))
+            ? React.createElement('p', { className: 'dshCodexTreeState' }, t('codexLoading'))
             : threads.length === 0
-              ? React.createElement('p', { className: 'dshCodexVirtualWorkspaceState' }, t('codexEmpty'))
+              ? React.createElement('p', { className: 'dshCodexTreeState' }, t('codexEmpty'))
               : threads.map(thread => {
                 const selected = nav.selectedThread?.id === thread.id
                 const title = `${thread.isPinned ? '★ ' : ''}${thread.name ?? thread.preview ?? thread.id}`
-                return React.createElement('article', {
-                  className: `dshCodexVirtualSession${selected ? ' isSelected' : ''}`,
+                const actionOpen = actionThreadId === thread.id
+                return React.createElement('div', {
+                  className: `dshCodexSessionRow${selected ? ' isSelected' : ''}`,
                   key: codexSidebarSessionId(thread.id),
+                  role: 'treeitem',
+                  'aria-selected': selected,
                 },
                 React.createElement('button', {
                   type: 'button',
-                  className: 'dshCodexVirtualSessionOpen',
-                  onClick: () => { openThread(thread) },
+                  className: 'dshCodexSessionOpen',
+                  onClick: () => { setActionThreadId(undefined); openThread(thread) },
                 },
-                React.createElement('span', { className: 'dshCodexVirtualSessionTitle' }, title),
-                React.createElement('span', { className: 'dshCodexVirtualSessionMeta' },
+                React.createElement('span', { className: 'dshCodexSessionTitle' }, title),
+                React.createElement('span', { className: 'dshCodexSessionMeta' },
                   codexThreadWaitingOnApproval(thread.status)
                     ? t('codexApproval')
                     : codexThreadRunning(thread.status)
                       ? t('codexLive')
                       : formatCodexTime(thread.updatedAt ?? thread.createdAt))),
-                React.createElement('div', { className: 'dshCodexVirtualSessionActions' },
+                React.createElement('button', {
+                  type: 'button',
+                  className: 'dshCodexSessionMore',
+                  disabled: busy,
+                  'aria-expanded': actionOpen,
+                  'aria-label': `${title}: ${t('codexActions')}`,
+                  title: t('codexActions'),
+                  onClick: () => { setActionThreadId(actionOpen ? undefined : thread.id) },
+                }, React.createElement(CodexMoreIcon, null)),
+                !actionOpen ? null : React.createElement('div', { className: 'dshCodexSessionMenu' },
                   React.createElement('button', {
-                    type: 'button', disabled: busy, title: t('codexRename'),
-                    onClick: () => { void renameThread(thread) },
+                    type: 'button', disabled: busy,
+                    onClick: () => { setActionThreadId(undefined); void renameThread(thread) },
                   }, t('codexRename')),
                   React.createElement('button', {
-                    type: 'button', disabled: busy, title: t('codexFork'),
-                    onClick: () => { void forkThread(thread) },
+                    type: 'button', disabled: busy,
+                    onClick: () => { setActionThreadId(undefined); void forkThread(thread) },
                   }, t('codexFork')),
                   React.createElement('button', {
-                    type: 'button', disabled: busy, title: t('codexArchive'),
-                    onClick: () => { void archiveThread(thread) },
+                    type: 'button', disabled: busy,
+                    onClick: () => { setActionThreadId(undefined); void archiveThread(thread) },
                   }, t('codexArchive'))))
-              })))
+              }))))
     }
 
     function CodexWorkspaceBrowser(props: {
@@ -1971,17 +2080,15 @@ window.__ModuleLoader__.load({
       }
       return React.createElement('section', { className: 'dshCodexWorkspaceBrowser', 'aria-label': t('codexVirtualWorkspace') },
         React.createElement('header', { className: 'dshCodexWorkspaceBrowserHeader' },
-          React.createElement('strong', null, t('codexWorkspaceTitle')),
-          React.createElement('div', { className: 'dshCodexWorkspaceModes', role: 'group', 'aria-label': t('codexWorkspaceMode') },
-            React.createElement('button', {
-              type: 'button',
-              onClick: () => codexSidebar.setMode('harness'),
-            }, t('codexHarnessMode')),
-            React.createElement('button', {
-              type: 'button',
-              className: 'isActive',
-              'aria-pressed': true,
-            }, t('codexEntry')))),
+          React.createElement('span', null, t('codexWorkspaceTitle')),
+          React.createElement('button', {
+            type: 'button',
+            className: 'dshCodexWorkspaceModeButton isActive',
+            title: t('codexSwitchToHarness'),
+            'aria-label': t('codexSwitchToHarness'),
+            'aria-pressed': true,
+            onClick: () => codexSidebar.setMode('harness'),
+          }, React.createElement(CodexModeIcon, null))),
         React.createElement('div', { className: 'dshCodexWorkspaceBrowserBody' },
           React.createElement(CodexWorkspaceGroup, { control: props.control, t })))
     }
@@ -2179,8 +2286,8 @@ window.__ModuleLoader__.load({
           'aria-label': t('codexTitle'),
         },
         React.createElement('div', null,
-          React.createElement('span', { className: 'dshCodexEmptyMark', 'aria-hidden': true }, 'C'),
-          React.createElement('strong', null, t('codexVirtualWorkspace')),
+          React.createElement('span', { className: 'dshCodexEmptyMark' }, React.createElement(CodexModeIcon, { size: 28 })),
+          React.createElement('strong', null, t('codexEntry')),
           React.createElement('p', null, t('codexDescription'))))
       }
 
@@ -2842,15 +2949,16 @@ window.__ModuleLoader__.load({
         const anchor = addWorkspaceSelectors
           .map(selector => document.querySelector<HTMLButtonElement>(selector))
           .find((element): element is HTMLButtonElement => element !== null)
-        const actions = anchor?.parentElement
-        if (actions === undefined || actions === null) return
+        if (anchor === undefined) return
+        const actions = anchor.parentElement
+        if (actions === null) return
         const button = document.createElement('button')
         button.type = 'button'
-        button.className = 'dshCodexWorkspaceSwitch'
+        button.className = `${anchor.className} dshCodexWorkspaceSwitch`
         button.setAttribute(switchAttribute, '')
         button.setAttribute('aria-label', t('codexSwitchToCodex'))
         button.title = t('codexSwitchToCodex')
-        button.textContent = 'CodeX'
+        button.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M11.6 4.25A4.75 4.75 0 1 0 11.6 11.75" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"/><path d="M10.1 4.25h1.5v1.5" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/></svg>'
         button.addEventListener('click', () => {
           codexSidebar.setExpanded(true)
           codexSidebar.setMode('codex')
@@ -2913,6 +3021,9 @@ window.__ModuleLoader__.load({
         '.dshCodexSurfaceHeader{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 20px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}.dshCodexSurfaceHeader>div{min-width:0;display:flex;flex-direction:column;gap:2px}.dshCodexSurfaceHeader strong,.dshCodexSurfaceHeader span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexSurfaceHeader strong{font-size:14px}.dshCodexSurfaceHeader span{color:var(--dsw-alias-label-secondary);font-size:11px}.dshCodexVirtualBadge{flex:0 0 auto;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;padding:2px 7px}.dshCodexSurfaceEmpty{flex:1;align-items:center;justify-content:center;padding:32px}.dshCodexSurfaceEmpty>div{max-width:440px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}.dshCodexSurfaceEmpty .dshCodexEmptyMark{width:38px;height:38px;border-radius:10px;font-size:16px}.dshCodexSurfaceEmpty strong{font-size:16px}.dshCodexSurfaceEmpty p{margin:0;color:var(--dsw-alias-label-secondary);line-height:1.6}@media(max-width:760px){.dshCodexVirtualBackdrop{padding:0}.dshCodexVirtualPage{width:100%;height:100vh;border:0;border-radius:0}.dshCodexVirtualLayout{grid-template-columns:220px minmax(0,1fr)}}@media(max-width:560px){.dshCodexVirtualLayout{display:flex;flex-direction:column}.dshCodexVirtualSidebar{max-height:42%;border-right:0;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshCodexVirtualConversation{flex:1}}',
         '.dshCodexTimeline{box-sizing:border-box;flex:1;min-height:220px;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:18px 24px}.dshCodexTimeline>p{margin:auto;color:var(--dsw-alias-label-secondary)}.dshCodexItem{max-width:86%;align-self:flex-start;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);padding:10px 12px}.dshCodexItem.isUser{align-self:flex-end;background:var(--dsw-alias-bg-layer-3)}.dshCodexItem.isUnknown{color:var(--dsw-alias-label-secondary)}.dshCodexItem>small{display:block;margin-bottom:5px;color:var(--dsw-alias-label-secondary);font-size:11px}.dshCodexItem>pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.55}.dshCodexItem.isTool>pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}.dshCodexComposer{box-sizing:border-box;display:flex;align-items:flex-end;gap:10px;padding:12px 20px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}.dshCodexComposer textarea{box-sizing:border-box;min-height:70px;flex:1;resize:vertical;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:10px 12px;font:inherit;line-height:1.5}.dshCodexComposer button{min-height:38px;border:0;border-radius:8px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);padding:7px 14px;font:inherit;cursor:pointer}.dshCodexComposer button:disabled{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);cursor:default}@media(max-width:560px){.dshCodexTimeline{padding:14px}.dshCodexItem{max-width:96%}.dshCodexComposer{align-items:stretch;flex-direction:column;padding:10px 14px}.dshCodexComposer button{min-height:42px}}',
         '.dshCodexSurface{box-sizing:border-box;width:100%;height:100%;min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base)}.dshCodexSurface button,.dshCodexSurface input{font:inherit;color:inherit}.dshCodexNativeFlow{flex:1;min-height:0;display:flex;flex-direction:column}.dshCodexSurfaceStatus{padding:8px 24px;color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexComposerSeat{position:sticky;bottom:0;z-index:2;padding:10px 0 12px;background:var(--dsw-alias-bg-base)}.dshCodexApproval{display:grid;gap:10px;margin:0 24px 12px;border:1px solid var(--dsw-alias-state-warn-primary,var(--dsw-alias-border-l1));border-radius:8px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2)}.dshCodexApproval code{white-space:pre-wrap;overflow-wrap:anywhere}.dshCodexApproval p{margin:0;color:var(--dsw-alias-label-secondary)}.dshCodexApproval>div{display:flex;justify-content:flex-end;gap:8px}.dshCodexApproval button{min-height:34px;border:0;border-radius:8px;padding:6px 12px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);cursor:pointer}.dshCodexApproval button:first-child{background:transparent;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2)}.dshCodexApproval button:disabled{opacity:.45;cursor:default}.dshCodexSurfaceError{margin:0 24px 12px}',
+        '.dshCodexWorkspaceSwitch{width:28px!important;min-width:28px!important;height:28px!important;display:flex!important;align-items:center!important;justify-content:center!important;padding:0!important;border:0!important;border-radius:50%!important;background:transparent!important;color:var(--dsw-alias-label-primary)!important}.dshCodexWorkspaceSwitch:hover{background:var(--dsw-alias-interactive-bg-hover)!important}.dshCodexWorkspaceSwitch:focus-visible,.dshCodexWorkspaceModeButton:focus-visible,.dshCodexTree button:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}.dshCodexWorkspaceBrowser{box-sizing:border-box;height:100%;min-height:0;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary)}.dshCodexWorkspaceBrowserHeader{box-sizing:border-box;height:36px;flex:0 0 36px;display:flex;align-items:center;justify-content:space-between;gap:4px;padding:0 0 0 4px}.dshCodexWorkspaceBrowserHeader>span{color:var(--dsw-alias-label-secondary);font-size:14px;font-weight:400}.dshCodexWorkspaceModeButton{box-sizing:border-box;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-primary);padding:0;cursor:pointer}.dshCodexWorkspaceModeButton:hover,.dshCodexWorkspaceModeButton.isActive{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexWorkspaceBrowserBody{flex:1;min-height:0;overflow:auto}.dshCodexWorkspaceRail{width:56px;display:flex;justify-content:center;padding-top:8px}.dshCodexWorkspaceRail>button{width:36px;height:36px;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-secondary);display:grid;place-items:center;cursor:pointer}.dshCodexWorkspaceRail>button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
+        '.dshCodexTree{box-sizing:border-box;min-height:100%;padding:8px 4px 18px;color:var(--dsw-alias-label-primary)}.dshCodexWorkspaceNodeRow{height:34px;display:flex;align-items:center;gap:2px}.dshCodexWorkspaceNodeToggle{min-width:0;flex:1;height:34px;display:flex;align-items:center;gap:7px;border:0;border-radius:8px;background:transparent;color:inherit;padding:0 6px;text-align:left;font:inherit;font-size:13px;font-weight:500;cursor:pointer}.dshCodexWorkspaceNodeToggle>svg:first-child{flex:0 0 14px;color:var(--dsw-alias-label-tertiary)}.dshCodexWorkspaceNodeToggle>svg:nth-child(2){flex:0 0 16px;color:var(--dsw-alias-label-secondary)}.dshCodexWorkspaceNodeToggle>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexWorkspaceNodeToggle:hover,.dshCodexWorkspaceNodeActions>button:hover,.dshCodexSessionMore:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexWorkspaceNodeActions{display:flex;align-items:center;gap:0}.dshCodexWorkspaceNodeActions>button,.dshCodexSessionMore{box-sizing:border-box;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:0;border-radius:50%;background:transparent;color:var(--dsw-alias-label-secondary);padding:0;cursor:pointer}.dshCodexWorkspaceNodeActions>button:disabled,.dshCodexSessionMore:disabled{opacity:.4;cursor:default}.dshCodexSessionList{display:flex;flex-direction:column;padding:2px 0 0 20px}.dshCodexSessionRow{position:relative;min-width:0;height:38px;display:grid;grid-template-columns:minmax(0,1fr) 28px;align-items:center;border-radius:8px}.dshCodexSessionRow:hover,.dshCodexSessionRow.isSelected{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexSessionOpen{min-width:0;height:38px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;border:0;background:transparent;color:inherit;padding:0 4px 0 8px;text-align:left;cursor:pointer}.dshCodexSessionTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.dshCodexSessionMeta{color:var(--dsw-alias-label-tertiary);font-size:10px;font-variant-numeric:tabular-nums;white-space:nowrap}.dshCodexSessionMore{opacity:0}.dshCodexSessionRow:hover .dshCodexSessionMore,.dshCodexSessionRow:focus-within .dshCodexSessionMore,.dshCodexSessionMore[aria-expanded=true]{opacity:1}.dshCodexSessionMenu{position:absolute;z-index:8;top:34px;right:2px;min-width:108px;display:flex;flex-direction:column;padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-shadow-lv2)}.dshCodexSessionMenu>button{height:30px;border:0;border-radius:6px;background:transparent;color:inherit;padding:0 9px;text-align:left;font:inherit;font-size:12px;cursor:pointer}.dshCodexSessionMenu>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexTreeState,.dshCodexWorkspaceUnavailable{margin:8px 10px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5}',
+        '.dshCodexSurfaceEmpty{flex:1;align-items:center;justify-content:center;padding:32px}.dshCodexSurfaceEmpty>div{max-width:420px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}.dshCodexSurfaceEmpty .dshCodexEmptyMark{width:32px;height:32px;display:grid;place-items:center;color:var(--dsw-alias-label-secondary)}.dshCodexSurfaceEmpty strong{font-size:16px;font-weight:600}.dshCodexSurfaceEmpty p{max-width:58ch;margin:0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.55}.dshCodexSurfaceHeader{min-height:52px;padding:7px 20px}.dshCodexVirtualBadge{border:0;background:transparent;color:var(--dsw-alias-label-tertiary);padding:0;font-size:11px}.dshCodexTimeline{gap:10px;padding:18px 24px 28px}.dshCodexItem{max-width:min(82%,720px);border:0;border-radius:8px;background:transparent;padding:8px 10px}.dshCodexItem.isUser{background:var(--dsw-alias-bg-layer-3)}.dshCodexItem.isTool{background:var(--dsw-alias-bg-layer-2)}.dshCodexItem>small{margin-bottom:4px}.dshCodexComposer{padding:12px 20px 16px;background:var(--dsw-alias-bg-base)}@media(max-width:560px){.dshCodexSessionMeta{display:none}.dshCodexSessionMore{opacity:1}.dshCodexTimeline{padding:14px}.dshCodexComposer{padding:10px 14px 14px}}',
         '.dshCodexPage{width:min(920px,100%)}.dshCodexBody{min-height:min(560px,calc(100vh - 180px));gap:14px}.dshCodexThreadList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshCodexListActions{display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshCodexNewThread{min-width:0;flex:1;display:flex;gap:8px}.dshCodexNewThread input{min-width:0;flex:1;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:8px 10px;font:inherit}.dshCodexNewThread button,.dshCodexArchiveView,.dshCodexThreadHeader button{min-height:34px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:inherit;padding:6px 10px;cursor:pointer}.dshCodexNewThread button:disabled,.dshCodexArchiveView:disabled,.dshCodexThreadHeader button:disabled{opacity:.45;cursor:default}.dshCodexThreadList>button{min-height:62px;display:flex;align-items:center;justify-content:space-between;gap:18px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 6px;text-align:left;cursor:pointer}.dshCodexThreadList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexThreadList>button>span{min-width:0;display:flex;flex-direction:column;gap:4px}.dshCodexThreadList>.dshCodexLoadMore{min-height:40px;justify-content:center;color:var(--dsw-alias-label-secondary);text-align:center}.dshCodexThreadList strong,.dshCodexThreadList small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexThreadList small,.dshCodexThreadHeader span,.dshCodexThreadHeader small{color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexThreadHeader{display:flex;align-items:center;gap:8px;min-width:0}.dshCodexThreadHeader strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexThreadHeader span{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexTimeline{min-height:220px;display:flex;flex-direction:column;gap:12px;padding:2px 0}.dshCodexTimeline>p{color:var(--dsw-alias-label-secondary)}.dshCodexItem{max-width:86%;align-self:flex-start;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2);padding:10px 12px}.dshCodexItem.isUser{align-self:flex-end;background:var(--dsw-alias-bg-layer-3)}.dshCodexItem.isUnknown{color:var(--dsw-alias-label-secondary)}.dshCodexItem>small{display:block;margin-bottom:5px;color:var(--dsw-alias-label-secondary)}.dshCodexItem>pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;line-height:1.55}.dshCodexItem.isTool>pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}.dshCodexApproval{display:grid;gap:10px;border:1px solid var(--dsw-alias-state-warn-primary,var(--dsw-alias-border-l1));border-radius:10px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2)}.dshCodexApproval code{white-space:pre-wrap;overflow-wrap:anywhere}.dshCodexApproval p{margin:0;color:var(--dsw-alias-label-secondary)}.dshCodexApproval>div{display:flex;justify-content:flex-end;gap:8px}.dshCodexApproval button,.dshCodexComposer button{min-height:38px;border:0;border-radius:8px;padding:7px 14px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);cursor:pointer}.dshCodexApproval button:first-child{background:transparent;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2)}.dshCodexComposer{position:sticky;bottom:-24px;display:flex;align-items:flex-end;gap:10px;margin-top:auto;padding:12px 0 0;background:var(--dsw-alias-bg-layer-1);border-top:1px solid var(--dsw-alias-border-l2)}.dshCodexComposer textarea{box-sizing:border-box;min-height:74px;flex:1;resize:vertical;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:10px 12px;font:inherit;line-height:1.5}.dshCodexComposer button:disabled,.dshCodexApproval button:disabled{opacity:.45;cursor:default}@media(max-width:620px){.dshCodexBody{min-height:calc(100vh - 150px)}.dshCodexListActions,.dshCodexNewThread{align-items:stretch;flex-direction:column}.dshCodexThreadHeader{align-items:stretch;flex-wrap:wrap}.dshCodexThreadHeader span{flex-basis:100%}.dshCodexItem{max-width:96%}.dshCodexComposer{bottom:-20px;flex-direction:column;align-items:stretch}.dshCodexComposer button{min-height:44px}}',
         '.dshCodexWorkspaceRow{box-sizing:border-box;flex:none;padding:0 4px}.dshCodexWorkspaceButton{box-sizing:border-box;width:100%;height:34px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:8px;padding:6px 10px;font:inherit;text-align:left;cursor:pointer}.dshCodexWorkspaceButton:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexWorkspaceButton:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.dshCodexWorkspaceIcon{width:18px;height:18px;flex:0 0 18px;color:var(--dsw-alias-label-secondary)}.dshCodexWorkspaceLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexSurface{box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1)}.dshCodexSurface button,.dshCodexSurface input{font:inherit;color:inherit}.dshCodexSurfaceHeader{position:sticky;top:0;z-index:2;min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 24px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}.dshCodexSurfaceTitle,.dshCodexThreadTitle{min-width:0;display:flex;flex-direction:column;gap:2px}.dshCodexSurfaceTitle strong,.dshCodexThreadTitle strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600}.dshCodexSurfaceTitle span,.dshCodexThreadTitle span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}.dshCodexHeaderBack{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 0;cursor:pointer}.dshCodexHeaderBack:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}.dshCodexHeaderActions{flex:0 0 auto;display:flex;align-items:center;gap:6px}.dshCodexHeaderActions>span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexHeaderActions>button,.dshCodexNewThread button,.dshCodexThreadList>.dshCodexLoadMore{min-height:32px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:inherit;padding:5px 10px;cursor:pointer}.dshCodexHeaderActions>button:hover:not(:disabled),.dshCodexNewThread button:hover:not(:disabled),.dshCodexThreadList>.dshCodexLoadMore:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-label-dimmed)}.dshCodexHeaderActions>button:disabled,.dshCodexNewThread button:disabled,.dshCodexThreadList>.dshCodexLoadMore:disabled,.dshCodexApproval button:disabled{opacity:.45;cursor:default}.dshCodexSurfaceBody{box-sizing:border-box;flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:14px 24px 18px}.dshCodexThreadList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshCodexListActions{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshCodexNewThread{min-width:0;flex:1;display:flex;gap:8px}.dshCodexNewThread input{box-sizing:border-box;min-width:0;flex:1;height:34px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:0 10px}.dshCodexThreadList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:18px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;text-align:left;cursor:pointer}.dshCodexThreadList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshCodexThreadList>button>span{min-width:0;display:flex;flex-direction:column;gap:4px}.dshCodexThreadList strong,.dshCodexThreadList small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshCodexThreadList small{color:var(--dsw-alias-label-secondary);font-size:12px}.dshCodexNativeFlow{flex:1;min-height:320px;display:flex;flex-direction:column}.dshCodexComposerSeat{position:sticky;bottom:0;z-index:2;padding:10px 0 12px;background:var(--dsw-alias-bg-layer-1)}.dshCodexApproval{display:grid;gap:10px;border:1px solid var(--dsw-alias-state-warn-primary,var(--dsw-alias-border-l1));border-radius:8px;padding:12px 14px;background:var(--dsw-alias-bg-layer-2)}.dshCodexApproval code{white-space:pre-wrap;overflow-wrap:anywhere}.dshCodexApproval p{margin:0;color:var(--dsw-alias-label-secondary)}.dshCodexApproval>div{display:flex;justify-content:flex-end;gap:8px}.dshCodexApproval button{min-height:34px;border:0;border-radius:8px;padding:6px 12px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);cursor:pointer}.dshCodexApproval button:first-child{background:transparent;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2)}.dshCodexSurfaceError{margin:0 0 12px}@media(max-width:620px){.dshCodexSurfaceHeader{align-items:flex-start;flex-direction:column;padding:10px 16px}.dshCodexHeaderActions{width:100%;flex-wrap:wrap}.dshCodexSurfaceBody{padding:12px 16px 16px}.dshCodexListActions,.dshCodexNewThread{align-items:stretch;flex-direction:column}.dshCodexThreadList>button{align-items:flex-start;flex-direction:column;gap:5px}.dshCodexNativeFlow{min-height:240px}}',
         '.dshRemoteSectionHeading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.dshRemoteSectionTitle{min-width:0;display:flex;align-items:center;gap:10px}.dshRemoteSectionTitle>strong{font-size:14px}.dshRemoteSectionActions{display:flex;align-items:center;gap:14px}.dshRemoteSectionActions>button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:5px 0;font-size:12px}.dshRemoteSectionActions>button:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}',
