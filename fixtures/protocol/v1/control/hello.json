@@ -1,0 +1,211 @@
+{
+  "name": "control-hello",
+  "cases": [
+    {
+      "name": "accept-valid-client-hello",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-hello-1",
+        "type": "hello",
+        "timestamp": 1700000000000,
+        "payload": {
+          "role": "client",
+          "deviceId": "fixture-client-1",
+          "accessToken": "fixture-access-token",
+          "protocols": [1],
+          "capabilities": ["transport.relay"]
+        }
+      },
+      "expect": {
+        "accepted": true
+      }
+    },
+    {
+      "name": "accept-valid-host-hello",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-hello-2",
+        "type": "hello",
+        "timestamp": 1700000000000,
+        "payload": {
+          "role": "host",
+          "deviceId": "fixture-host-1",
+          "accessToken": "fixture-access-token",
+          "protocols": [1],
+          "capabilities": ["transport.relay", "harness.api.v1"],
+          "clientVersion": "0.4.2",
+          "harnessVersion": "0.1.1-rc.2"
+        }
+      },
+      "expect": {
+        "accepted": true
+      }
+    },
+    {
+      "name": "reject-hello-with-missing-device-id",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-hello-3",
+        "type": "hello",
+        "timestamp": 1700000000000,
+        "payload": {
+          "role": "client",
+          "accessToken": "fixture-access-token",
+          "protocols": [1],
+          "capabilities": ["transport.relay"]
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-hello-with-empty-access-token",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-hello-4",
+        "type": "hello",
+        "timestamp": 1700000000000,
+        "payload": {
+          "role": "client",
+          "deviceId": "fixture-client-1",
+          "accessToken": "",
+          "protocols": [1],
+          "capabilities": ["transport.relay"]
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-hello-with-duplicate-protocols",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-hello-5",
+        "type": "hello",
+        "timestamp": 1700000000000,
+        "payload": {
+          "role": "client",
+          "deviceId": "fixture-client-1",
+          "accessToken": "fixture-access-token",
+          "protocols": [1, 1],
+          "capabilities": ["transport.relay"]
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-hello-with-duplicate-capabilities",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-hello-6",
+        "type": "hello",
+        "timestamp": 1700000000000,
+        "payload": {
+          "role": "client",
+          "deviceId": "fixture-client-1",
+          "accessToken": "fixture-access-token",
+          "protocols": [1],
+          "capabilities": ["transport.relay", "transport.relay"]
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "accept-valid-hello-ack",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-hello-ack-1",
+        "type": "hello.ack",
+        "timestamp": 1700000000000,
+        "payload": {
+          "protocol": 1,
+          "serverVersion": "0.4.2",
+          "connectionSessionId": "fixture-control-session-1",
+          "heartbeatIntervalMs": 25000,
+          "maxControlFrameBytes": 65536,
+          "maxRelayFrameBytes": 1048576,
+          "capabilities": ["transport.relay", "harness.api.v1"]
+        }
+      },
+      "expect": {
+        "accepted": true
+      }
+    },
+    {
+      "name": "reject-hello-ack-with-unsupported-version",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-hello-ack-2",
+        "type": "hello.ack",
+        "timestamp": 1700000000000,
+        "payload": {
+          "protocol": 2,
+          "serverVersion": "0.4.2",
+          "connectionSessionId": "fixture-control-session-2",
+          "heartbeatIntervalMs": 25000,
+          "maxControlFrameBytes": 65536,
+          "maxRelayFrameBytes": 1048576,
+          "capabilities": ["transport.relay"]
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-hello-ack-with-missing-session-id",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-hello-ack-3",
+        "type": "hello.ack",
+        "timestamp": 1700000000000,
+        "payload": {
+          "protocol": 1,
+          "serverVersion": "0.4.2",
+          "heartbeatIntervalMs": 25000,
+          "maxControlFrameBytes": 65536,
+          "maxRelayFrameBytes": 1048576,
+          "capabilities": ["transport.relay"]
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-hello-ack-with-missing-frame-limits",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-hello-ack-4",
+        "type": "hello.ack",
+        "timestamp": 1700000000000,
+        "payload": {
+          "protocol": 1,
+          "serverVersion": "0.4.2",
+          "connectionSessionId": "fixture-control-session-4",
+          "heartbeatIntervalMs": 25000,
+          "capabilities": ["transport.relay"]
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    }
+  ]
+}

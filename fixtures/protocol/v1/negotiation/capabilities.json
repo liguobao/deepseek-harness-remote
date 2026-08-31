@@ -1,0 +1,85 @@
+{
+  "name": "capability-negotiation",
+  "cases": [
+    {
+      "name": "select-highest-common-protocol-version",
+      "operation": "selectProtocolVersion",
+      "input": {
+        "offered": [1, 3, 2],
+        "supported": [1, 2]
+      },
+      "expect": {
+        "accepted": true,
+        "selected": 2
+      }
+    },
+    {
+      "name": "select-no-common-protocol-version",
+      "operation": "selectProtocolVersion",
+      "input": {
+        "offered": [2, 3],
+        "supported": [1]
+      },
+      "expect": {
+        "accepted": true,
+        "selected": null
+      }
+    },
+    {
+      "name": "select-supported-capabilities",
+      "operation": "selectCapabilities",
+      "input": {
+        "offered": ["fixture.future.v1", "transport.relay", "transport.p2p"],
+        "supported": ["transport.p2p", "transport.turn", "transport.relay"]
+      },
+      "expect": {
+        "accepted": true,
+        "value": ["transport.p2p", "transport.relay"]
+      }
+    },
+    {
+      "name": "accept-offered-capability-selection",
+      "operation": "acceptNegotiatedCapabilities",
+      "input": {
+        "offered": ["transport.p2p", "transport.relay"],
+        "negotiated": ["transport.p2p"]
+      },
+      "expect": {
+        "accepted": true,
+        "value": ["transport.p2p"]
+      }
+    },
+    {
+      "name": "reject-capability-not-offered-by-peer",
+      "operation": "acceptNegotiatedCapabilities",
+      "input": {
+        "offered": ["transport.relay"],
+        "negotiated": ["transport.p2p"]
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "accept-legacy-relay-capability-default",
+      "operation": "acceptNegotiatedCapabilities",
+      "input": {
+        "offered": ["transport.relay"]
+      },
+      "expect": {
+        "accepted": true,
+        "value": ["transport.relay"]
+      }
+    },
+    {
+      "name": "reject-legacy-relay-default-when-not-offered",
+      "operation": "acceptNegotiatedCapabilities",
+      "input": {
+        "offered": ["transport.p2p"]
+      },
+      "expect": {
+        "accepted": false
+      }
+    }
+  ]
+}

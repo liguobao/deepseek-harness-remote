@@ -1,0 +1,122 @@
+{
+  "name": "control-envelope",
+  "cases": [
+    {
+      "name": "accept-valid-control-envelope",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-envelope-1",
+        "type": "ping",
+        "timestamp": 1700000000000,
+        "payload": {
+          "nonce": "fixture-nonce-1"
+        }
+      },
+      "expect": {
+        "accepted": true,
+        "value": {
+          "v": 1,
+          "id": "fixture-frame-envelope-1",
+          "type": "ping",
+          "timestamp": 1700000000000,
+          "payload": {
+            "nonce": "fixture-nonce-1"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject-unsupported-control-version",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 2,
+        "id": "fixture-frame-envelope-2",
+        "type": "ping",
+        "timestamp": 1700000000000,
+        "payload": {
+          "nonce": "fixture-nonce-2"
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-missing-control-id",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "type": "ping",
+        "timestamp": 1700000000000,
+        "payload": {
+          "nonce": "fixture-nonce-3"
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-missing-control-type",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-envelope-4",
+        "timestamp": 1700000000000,
+        "payload": {
+          "nonce": "fixture-nonce-4"
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-missing-control-timestamp",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-envelope-5",
+        "type": "ping",
+        "payload": {
+          "nonce": "fixture-nonce-5"
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-unknown-control-type",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-envelope-6",
+        "type": "fixture.unknown",
+        "timestamp": 1700000000000,
+        "payload": {}
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-extra-control-envelope-field",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "fixture-frame-envelope-7",
+        "type": "ping",
+        "timestamp": 1700000000000,
+        "payload": {
+          "nonce": "fixture-nonce-7"
+        },
+        "extra": true
+      },
+      "expect": {
+        "accepted": false
+      }
+    }
+  ]
+}
