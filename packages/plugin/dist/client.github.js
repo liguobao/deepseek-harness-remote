@@ -3222,7 +3222,10 @@ Minimum version required to store current data is: ` + bestVersion + `.
         }, []), React.useEffect(() => {
           if (status?.mode === "remote")
             return hideLocalSessionActions();
-        }, [status?.mode]), React.useEffect(() => {
+        }, [status?.mode]), React.useEffect(() => (document.documentElement.classList.toggle(
+          "dshRemoteCodexTargetActive",
+          status?.mode === "remote" && status.backend === "codex"
+        ), () => document.documentElement.classList.remove("dshRemoteCodexTargetActive")), [status?.mode, status?.backend]), React.useEffect(() => {
           if (!routeOpen) return;
           let closeOnEscape = (event) => {
             event.key === "Escape" && setRouteOpen(!1);
@@ -3384,6 +3387,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
         let style = document.createElement("style");
         return style.dataset.pluginCss = "dsh-remote", style.textContent = [
           'html.dshRemoteTargetActive button[aria-label="\u6DFB\u52A0\u5DE5\u4F5C\u533A"],html.dshRemoteTargetActive button[aria-label="Add workspace"]{display:none!important}',
+          'html.dshRemoteCodexTargetActive [data-composer-card] button[aria-haspopup="listbox"][aria-label="\u6307\u4EE4"],html.dshRemoteCodexTargetActive [data-composer-card] button[aria-haspopup="listbox"][aria-label="Commands"]{display:none!important}',
           "[data-dsh-remote-hidden-action]{display:none!important}",
           ".dshRemoteModeButton{min-height:36px;border:0;background:transparent;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px}.dshRemoteModeButton:is(button){cursor:pointer}",
           ".dshRemoteModeButton:is(button):hover{background:var(--dsw-alias-interactive-bg-hover)}",

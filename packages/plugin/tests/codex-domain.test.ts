@@ -119,6 +119,70 @@ describe('CodexRemoteDomain', () => {
     await domain.close()
   })
 
+  it('maps the explicit Full access preset to fixed App Server policies', async () => {
+    const { root } = await directories()
+    const app = new FakeAppServer(root)
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
+    await domain.start()
+
+    await domain.call('connection-1', {
+      method: 'thread/resume',
+      params: { threadId: 'allowed-thread', permissionPreset: 'danger-full-access' },
+    })
+    await domain.call('connection-1', {
+      method: 'turn/start',
+      params: {
+        threadId: 'allowed-thread',
+        input: [{ type: 'text', text: 'Run without approval prompts' }],
+        permissionPreset: 'danger-full-access',
+      },
+    })
+
+    expect(app.calls.find(call => call.method === 'thread/resume')?.params).toMatchObject({
+      approvalPolicy: 'never',
+      sandbox: 'danger-full-access',
+    })
+    expect(app.calls.find(call => call.method === 'turn/start')?.params).toMatchObject({
+      approvalPolicy: 'never',
+      sandboxPolicy: { type: 'dangerFullAccess' },
+    })
+    expect(JSON.stringify(app.calls)).not.toContain('permissionPreset')
+    await domain.close()
+  })
+
+  it('maps bounded remote image input to an App Server data URL', async () => {
+    const { root } = await directories()
+    const app = new FakeAppServer(root)
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
+    await domain.start()
+
+    await domain.call('connection-1', {
+      method: 'turn/start',
+      params: {
+        threadId: 'allowed-thread',
+        input: [
+          { type: 'text', text: 'Describe the image' },
+          { type: 'image', mediaType: 'image/png', data: 'aW1hZ2U=' },
+        ],
+      },
+    })
+
+    expect(app.calls.find(call => call.method === 'turn/start')?.params).toMatchObject({
+      input: [
+        { type: 'text', text: 'Describe the image' },
+        { type: 'image', url: 'data:image/png;base64,aW1hZ2U=' },
+      ],
+    })
+    await expect(domain.call('connection-1', {
+      method: 'turn/start',
+      params: {
+        threadId: 'allowed-thread',
+        input: [{ type: 'image', mediaType: 'image/png', data: 'not-base64' }],
+      },
+    })).rejects.toMatchObject({ code: 'INVALID_MESSAGE' })
+    await domain.close()
+  })
+
   it('projects and paginates CodeX History on the Host before returning it to the Client', async () => {
     const { root } = await directories()
     const app = new FakeAppServer(root)

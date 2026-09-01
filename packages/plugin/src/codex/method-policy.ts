@@ -7,7 +7,20 @@ const textInput = z.object({
   type: z.literal('text'),
   text: z.string().min(1).max(256 * 1024),
 }).strict()
-const input = z.array(textInput).min(1).max(16)
+const imageMediaType = z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+const canonicalBase64 = z.string()
+  .min(4)
+  .max(288 * 1024 * 1024)
+  .refine(value => value.length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value), {
+    message: 'Image data must use canonical base64.',
+  })
+const imageInput = z.object({
+  type: z.literal('image'),
+  mediaType: imageMediaType,
+  data: canonicalBase64,
+}).strict()
+const input = z.array(z.union([textInput, imageInput])).min(1).max(16)
+const permissionPreset = z.enum(['workspace-write', 'danger-full-access'])
 
 const schemas = {
   'account/read': z.object({ refreshToken: z.literal(false).optional() }).strict(),
@@ -44,14 +57,17 @@ const schemas = {
     cwd: z.string().min(1).max(4096),
     model: z.string().min(1).max(128).optional(),
     personality: z.string().min(1).max(64).optional(),
+    permissionPreset: permissionPreset.optional(),
   }).strict(),
   'thread/resume': z.object({
     threadId: id,
     model: z.string().min(1).max(128).optional(),
+    permissionPreset: permissionPreset.optional(),
   }).strict(),
   'thread/fork': z.object({
     threadId: id,
     lastTurnId: id.optional(),
+    permissionPreset: permissionPreset.optional(),
   }).strict(),
   'thread/name/set': z.object({ threadId: id, name: z.string().trim().min(1).max(256) }).strict(),
   'thread/archive': z.object({ threadId: id }).strict(),
@@ -64,6 +80,7 @@ const schemas = {
     effort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']).optional(),
     summary: z.enum(['auto', 'concise', 'detailed', 'none']).optional(),
     personality: z.string().min(1).max(64).optional(),
+    permissionPreset: permissionPreset.optional(),
   }).strict(),
   'turn/steer': z.object({ threadId: id, input, expectedTurnId: id }).strict(),
   'turn/interrupt': z.object({ threadId: id, turnId: id }).strict(),
@@ -77,7 +94,9 @@ export function parseCodexCall(method: string, params: unknown): { method: Allow
     throw new RpcError('METHOD_NOT_ALLOWED', 'The requested Codex method is not available over Remote.')
   }
   const schema = schemas[method as AllowedCodexAppMethod] as z.ZodType<Record<string, unknown>>
-  return { method: method as AllowedCodexAppMethod, params: schema.parse(params) }
+  const parsed = schema.safeParse(params)
+  if (!parsed.success) throw new RpcError('INVALID_MESSAGE', 'The CodeX call parameters are invalid.')
+  return { method: method as AllowedCodexAppMethod, params: parsed.data }
 }
 
 export function isThreadMutation(method: AllowedCodexAppMethod): boolean {

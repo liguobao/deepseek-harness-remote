@@ -36,6 +36,15 @@ describe('CodexVirtualHarness', () => {
                 lastUsed: { provider: 'codex', model: 'gpt-5.6-sol', reasoningEffort: 'low' },
                 next: { provider: 'codex', model: 'gpt-5.6-sol', reasoningEffort: 'low' },
               },
+              permissions: {
+                options: [{ value: 'workspace-write' }, { value: 'danger-full-access' }],
+                currentValue: 'workspace-write',
+              },
+              imageLimits: {
+                maxImageBytes: 20 * 1024 * 1024,
+                maxImagesPerMessage: 16,
+                mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+              },
             },
           },
         }],
@@ -57,6 +66,40 @@ describe('CodexVirtualHarness', () => {
         },
       },
     })
+    await target.close()
+  })
+
+  it('switches the native Session permission projection between workspace and Full access', async () => {
+    const client = fakeCodex()
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const signal = new AbortController().signal
+    const control = await target.open('session/control', { args: {} }, signal)
+    const iterator = control[Symbol.asyncIterator]()
+    await iterator.next()
+
+    await expect(target.invoke({ namespace: 'commands', method: 'list', args: { agentId: 'codex:thr_1' } }))
+      .resolves.toEqual([expect.objectContaining({ name: 'permission' })])
+    await expect(target.invoke({
+      namespace: 'commands',
+      method: 'execute',
+      args: { agentId: 'codex:thr_1', line: '/permission danger-full-access', images: [] },
+    })).resolves.toMatchObject({ result: { kind: 'success' } })
+    await expect(iterator.next()).resolves.toMatchObject({ value: {
+      type: 'projection',
+      sessionId: 'codex:thr_1',
+      key: 'permissions',
+      value: { currentValue: 'danger-full-access' },
+    } })
+
+    const prompted = await target.dispatch('session/prompt', { args: { request: {
+      sessionId: 'codex:thr_1',
+      content: [{ type: 'text', text: 'Use full access' }],
+    } } }, signal)
+    expect(prompted.ok).toBe(true)
+    expect(client.request).toHaveBeenCalledWith('turn/start', expect.objectContaining({
+      permissionPreset: 'danger-full-access',
+    }), expect.any(AbortSignal))
+    await iterator.return?.()
     await target.close()
   })
 
@@ -389,7 +432,7 @@ describe('CodexVirtualHarness', () => {
 
     client.emit('thr_1', {
       method: 'thread/name/updated',
-      params: { threadId: 'thr_1', name: 'Generated CodeX title' },
+      params: { threadId: 'thr_1', threadName: 'Generated CodeX title' },
     })
     await expect(controlIterator.next()).resolves.toMatchObject({ value: {
       type: 'projection',
@@ -491,18 +534,47 @@ describe('CodexVirtualHarness', () => {
     expect(client.request).toHaveBeenCalledWith('thread/resume', {
       threadId: 'thr_1',
       model: 'gpt-5.6-terra',
+      permissionPreset: 'workspace-write',
     }, expect.any(AbortSignal))
     expect(client.request).toHaveBeenCalledWith('turn/start', {
       threadId: 'thr_1',
       input: [{ type: 'text', text: 'Continue here' }],
       model: 'gpt-5.6-terra',
       effort: 'high',
+      permissionPreset: 'workspace-write',
     }, expect.any(AbortSignal))
     await target.close()
   })
 
+  it('routes pasted Composer images through the CodeX prompt input', async () => {
+    const client = fakeCodex()
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const result = await target.dispatch('session/prompt', {
+      args: {
+        request: {
+          sessionId: 'codex:thr_1',
+          requestId: 'rpc-image-1',
+          content: [
+            { type: 'text', text: 'Describe this screenshot' },
+            { type: 'image', mediaType: 'image/png', data: 'aW1hZ2U=' },
+          ],
+        },
+      },
+    }, new AbortController().signal)
+
+    expect(result).toEqual({ ok: true, value: { accepted: true } })
+    expect(client.request).toHaveBeenCalledWith('turn/start', expect.objectContaining({
+      threadId: 'thr_1',
+      input: [
+        { type: 'text', text: 'Describe this screenshot' },
+        { type: 'image', mediaType: 'image/png', data: 'aW1hZ2U=' },
+      ],
+    }), expect.any(AbortSignal))
+    await target.close()
+  })
+
   it('creates a blank Thread in the selected CodeX Workspace and searches visible Sessions locally', async () => {
-    const client = fakeCodex([], { startName: 'Fresh Thread Title' })
+    const client = fakeCodex()
     const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
     const workspace = (await target.workspaces())[0]!
     await target.selectWorkspace(workspace.workspaceId)
@@ -514,6 +586,12 @@ describe('CodexVirtualHarness', () => {
     const events = await target.open('$events', { args: {} }, eventsController.signal)
     const eventsIterator = events[Symbol.asyncIterator]()
     await eventsIterator.next()
+    const muxController = new AbortController()
+    const muxIterator = target.api.events.mux(
+      { rpcId: 'mux-create-1' as never, payload: {} },
+      muxController.signal,
+    )[Symbol.asyncIterator]()
+    await muxIterator.next()
 
     const created = await target.api.sessions.create({
       rpcId: 'create-1' as never,
@@ -530,7 +608,7 @@ describe('CodexVirtualHarness', () => {
       sessionId: 'codex:new_1',
       projections: {
         values: {
-          title: 'Fresh Thread Title',
+          title: null,
           sessionListMetadata: { blank: true, lastPromptAt: null },
           modelSelection: { next: { provider: 'codex', model: 'gpt-5.6-sol', reasoningEffort: 'low' } },
         },
@@ -540,12 +618,18 @@ describe('CodexVirtualHarness', () => {
       type: 'projection',
       sessionId: 'codex:new_1',
       key: 'title',
-      value: 'Fresh Thread Title',
+      value: null,
     } })
-    expect(client.request).toHaveBeenCalledWith('thread/start', {
+    await expect(muxIterator.next()).resolves.toMatchObject({ value: { payload: {
+      type: 'session/projection',
+      sessionId: 'codex:new_1',
+      key: 'title',
+      value: null,
+    } } })
+    expect(client.request).toHaveBeenCalledWith('thread/start', expect.objectContaining({
       cwd: '/workspace/repo',
       model: 'gpt-5.6-sol',
-    }, expect.any(AbortSignal))
+    }), expect.any(AbortSignal))
 
     const listed = await target.api.workspace.list({ rpcId: 'workspace-1' as never, payload: {} })
     expect(listed.result).toMatchObject({ ok: true, value: { items: [{
@@ -565,10 +649,38 @@ describe('CodexVirtualHarness', () => {
       items: [{ sessionId: 'codex:thr_1', snippet: 'Native renderer' }],
       hasMore: false,
     } })
+
+    await target.api.sessions.prompt({
+      rpcId: 'prompt-created-1' as never,
+      payload: {
+        sessionId: 'codex:new_1' as never,
+        mode: 'queue',
+        content: [{ type: 'text', text: 'Generate a title' }],
+      },
+    })
+    client.emit('new_1', {
+      method: 'thread/name/updated',
+      params: { threadId: 'new_1', threadName: 'Fresh Thread Title' },
+    })
+    await expect(controlIterator.next()).resolves.toMatchObject({ value: {
+      type: 'projection',
+      sessionId: 'codex:new_1',
+      key: 'title',
+      value: 'Fresh Thread Title',
+    } })
+    await expect(muxIterator.next()).resolves.toMatchObject({ value: { payload: {
+      type: 'session/projection',
+      sessionId: 'codex:new_1',
+      key: 'title',
+      value: 'Fresh Thread Title',
+    } } })
+
     controlController.abort()
     eventsController.abort()
+    muxController.abort()
     await controlIterator.return?.()
     await eventsIterator.return?.()
+    await muxIterator.return?.()
     await target.close()
   })
 
@@ -624,6 +736,7 @@ describe('CodexVirtualHarness', () => {
       input: [{ type: 'text', text: 'Start here' }],
       model: 'gpt-5.6-sol',
       effort: 'low',
+      permissionPreset: 'workspace-write',
     }, expect.any(AbortSignal))
     await target.close()
   })
@@ -804,7 +917,6 @@ describe('CodexVirtualHarness', () => {
 interface FakeCodexOptions {
   projects?: Array<Record<string, unknown>>
   projectListError?: Error
-  startName?: string
 }
 
 function fakeCodex(extraThreads: Array<Record<string, unknown>> = [], options: FakeCodexOptions = {}): {
@@ -899,7 +1011,7 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = [], options: F
       )
     }
     if (method === 'thread/start') {
-      const created = codexThread(`new_${nextThread++}`, String(params?.cwd), options.startName ?? '')
+      const created = codexThread(`new_${nextThread++}`, String(params?.cwd), '')
       threads.push(created)
       return { thread: created }
     }

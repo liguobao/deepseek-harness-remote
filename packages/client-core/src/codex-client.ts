@@ -85,7 +85,7 @@ export class CodexRemoteClient {
   request(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
     const largeHistory = method === 'dsh/sessionHistory'
       || method === 'thread/read' && isRecord(params) && params.includeTurns === true
-    return this.call(method, params, largeHistory, signal)
+    return this.call(method, params, largeHistory || hasImageInput(params), signal)
   }
 
   async account(signal?: AbortSignal): Promise<unknown> {
@@ -254,6 +254,11 @@ export class CodexRemoteClient {
   }
 }
 
+function hasImageInput(params: unknown): boolean {
+  return isRecord(params) && Array.isArray(params.input)
+    && params.input.some(value => isRecord(value) && value.type === 'image')
+}
+
 export function projectCodexThread(value: unknown): DisplaySession | undefined {
   if (!isRecord(value) || typeof value.id !== 'string') return undefined
   const createdAt = normalizeTimestamp(value.createdAt)
@@ -314,8 +319,8 @@ export function reduceCodexTimelineFrame(
   if (frame.method === 'thread/status/changed') {
     return { ...state, session: { ...state.session, status: projectThreadStatus(params.status) } }
   }
-  if (frame.method === 'thread/name/updated' && typeof params.name === 'string') {
-    return { ...state, session: { ...state.session, title: params.name } }
+  if (frame.method === 'thread/name/updated' && typeof params.threadName === 'string') {
+    return { ...state, session: { ...state.session, title: params.threadName } }
   }
   if (frame.method === 'thread/archived') return { ...state, session: { ...state.session, archived: true } }
   if (frame.method === 'thread/unarchived') return { ...state, session: { ...state.session, archived: false } }

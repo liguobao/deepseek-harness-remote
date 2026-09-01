@@ -124,7 +124,10 @@ Remote workspace picker can also show CodeX working directories. Selecting one s
 DSH Workspace/Session data plane to an in-memory virtual carrier: CodeX threads appear as Sessions,
 and their history and live frames are projected into native DSH Session events. The existing DSH
 workspace list, conversation renderer, composer, tool cards, and approval UI remain responsible for
-the interface; there is no separate CodeX page.
+the interface; there is no separate CodeX page. The native Session permission control can switch
+between `Workspace write` and explicitly confirmed `Full access`. The CodeX Composer accepts text
+and clipboard-pasted PNG, JPEG, WebP, or GIF image prompts over the bounded
+encrypted transfer path. The “+” entry remains hidden because general file attachments are not exposed.
 
 The live projection covers assistant/reasoning/plan deltas, command and file output, file-change
 summaries, MCP progress, thread status, and model reroutes. Web Search, Subagent, Image, Compaction,

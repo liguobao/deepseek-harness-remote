@@ -128,11 +128,12 @@ export class CodexRemoteDomain {
     }
     if (call.method === 'thread/start') {
       const cwd = await this.requireCodexWorkspacePath(call.params.cwd as string)
+      const permission = codexPermission(call.params)
       const result = await this.callUpstream(call.method, {
-        ...call.params,
+        ...permission.params,
         cwd,
-        approvalPolicy: 'on-request',
-        sandbox: 'workspace-write',
+        approvalPolicy: permission.approvalPolicy,
+        sandbox: permission.sandbox,
         serviceName: 'deepseek_harness_remote',
       })
       if (extractThread(result)?.id === undefined) {
@@ -174,35 +175,38 @@ export class CodexRemoteDomain {
       claimed = this.claimTurn(threadId, connectionId, call.method)
     }
     try {
+      const permission = codexPermission(call.params)
       const upstreamParams = call.method === 'thread/resume' && allowedThread !== undefined
         ? {
-            ...call.params,
+            ...permission.params,
             ...(allowedThread.cwd === undefined ? {} : { cwd: allowedThread.cwd }),
-            approvalPolicy: 'on-request',
-            sandbox: 'workspace-write',
+            approvalPolicy: permission.approvalPolicy,
+            sandbox: permission.sandbox,
             excludeTurns: true,
           }
         : call.method === 'thread/fork' && allowedThread !== undefined
           ? {
-              ...call.params,
+              ...permission.params,
               ...(allowedThread.cwd === undefined ? {} : { cwd: allowedThread.cwd }),
-              approvalPolicy: 'on-request',
-              sandbox: 'workspace-write',
+              approvalPolicy: permission.approvalPolicy,
+              sandbox: permission.sandbox,
             }
-        : call.method === 'turn/start' && allowedThread?.cwd !== undefined
+        : call.method === 'turn/start'
           ? {
-              ...call.params,
-              cwd: allowedThread.cwd,
-              approvalPolicy: 'on-request',
-              sandboxPolicy: {
-                type: 'workspaceWrite',
-                writableRoots: [allowedThread.cwd],
-                networkAccess: false,
-                excludeTmpdirEnvVar: false,
-                excludeSlashTmp: false,
-              },
+              ...permission.params,
+              ...(allowedThread?.cwd === undefined ? {} : { cwd: allowedThread.cwd }),
+              approvalPolicy: permission.approvalPolicy,
+              sandboxPolicy: permission.sandbox === 'danger-full-access'
+                ? { type: 'dangerFullAccess' }
+                : {
+                    type: 'workspaceWrite',
+                    writableRoots: allowedThread?.cwd === undefined ? [] : [allowedThread.cwd],
+                    networkAccess: false,
+                    excludeTmpdirEnvVar: false,
+                    excludeSlashTmp: false,
+                  },
             }
-          : call.params
+          : permission.params
       let result: unknown
       try {
         result = await this.callUpstream(call.method, upstreamParams)
@@ -866,6 +870,32 @@ function extractThreadId(params: unknown): string | undefined {
 
 function optionalInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined
+}
+
+function codexPermission(params: Record<string, unknown>): {
+  params: Record<string, unknown>
+  approvalPolicy: 'on-request' | 'never'
+  sandbox: 'workspace-write' | 'danger-full-access'
+} {
+  const { permissionPreset, ...rest } = params
+  const fullAccess = permissionPreset === 'danger-full-access'
+  return {
+    params: mapCodexImageInputs(rest),
+    approvalPolicy: fullAccess ? 'never' : 'on-request',
+    sandbox: fullAccess ? 'danger-full-access' : 'workspace-write',
+  }
+}
+
+function mapCodexImageInputs(params: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(params.input)) return params
+  return {
+    ...params,
+    input: params.input.map(value => {
+      if (!isRecord(value) || value.type !== 'image'
+        || typeof value.mediaType !== 'string' || typeof value.data !== 'string') return value
+      return { type: 'image', url: `data:${value.mediaType};base64,${value.data}` }
+    }),
+  }
 }
 
 function sanitizeApprovalParams(params: unknown, requestHandle: string): unknown {

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
+  CodexRemoteClient,
   createCodexTimelineState,
   projectCodexHistory,
   projectCodexThread,
@@ -7,6 +8,24 @@ import {
 } from '../src/codex-client.js'
 
 describe('Codex display projection', () => {
+  it('uses the bounded Codex transfer path for image prompt input', async () => {
+    const rpc = vi.fn(async (method: string) => {
+      if (method === 'codex.app.transfer.commit') return { kind: 'inline', response: { turn: { id: 'turn_1' } } }
+      return { accepted: true }
+    })
+    const client = new CodexRemoteClient({ rpc } as never)
+
+    await client.request('turn/start', {
+      threadId: 'thr_1',
+      input: [{ type: 'image', mediaType: 'image/png', data: 'aW1hZ2U=' }],
+    })
+
+    expect(rpc).not.toHaveBeenCalledWith('codex.app.call', expect.anything(), expect.anything())
+    expect(rpc).toHaveBeenCalledWith('codex.app.transfer.open', expect.objectContaining({ totalChunks: 1 }), undefined)
+    expect(rpc).toHaveBeenCalledWith('codex.app.transfer.chunk', expect.objectContaining({ index: 0 }), undefined)
+    expect(rpc).toHaveBeenCalledWith('codex.app.transfer.commit', expect.anything(), undefined)
+  })
+
   it('keeps Codex identity namespaced and separate from Harness sessions', () => {
     expect(projectCodexThread({
       id: 'thr_123',
@@ -69,6 +88,10 @@ describe('Codex display projection', () => {
       turns: [],
     })!
     state = reduceCodexTimelineFrame(state, {
+      method: 'thread/name/updated',
+      params: { threadId: 'thr_123', threadName: 'Generated CodeX title' },
+    })
+    state = reduceCodexTimelineFrame(state, {
       method: 'turn/started',
       params: { threadId: 'thr_123', turn: { id: 'turn_1', status: 'inProgress', items: [] } },
     })
@@ -93,7 +116,7 @@ describe('Codex display projection', () => {
     expect(state).toMatchObject({
       activeTurnId: 'turn_1',
       approval: { requestHandle: 'opaque-handle', kind: 'command', command: 'pnpm test' },
-      session: { status: 'waiting' },
+      session: { title: 'Generated CodeX title', status: 'waiting' },
     })
     expect(state.items).toMatchObject([
       { kind: 'message', role: 'assistant', text: 'Hello world', status: 'running' },

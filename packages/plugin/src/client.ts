@@ -1942,6 +1942,14 @@ window.__ModuleLoader__.load({
       }, [status?.mode])
 
       React.useEffect(() => {
+        document.documentElement.classList.toggle(
+          'dshRemoteCodexTargetActive',
+          status?.mode === 'remote' && status.backend === 'codex',
+        )
+        return () => document.documentElement.classList.remove('dshRemoteCodexTargetActive')
+      }, [status?.mode, status?.backend])
+
+      React.useEffect(() => {
         if (!routeOpen) return
         const closeOnEscape = (event: KeyboardEvent): void => {
           if (event.key === 'Escape') setRouteOpen(false)
@@ -2128,6 +2136,7 @@ window.__ModuleLoader__.load({
       style.dataset.pluginCss = 'dsh-remote'
       style.textContent = [
         'html.dshRemoteTargetActive button[aria-label="添加工作区"],html.dshRemoteTargetActive button[aria-label="Add workspace"]{display:none!important}',
+        'html.dshRemoteCodexTargetActive [data-composer-card] button[aria-haspopup="listbox"][aria-label="指令"],html.dshRemoteCodexTargetActive [data-composer-card] button[aria-haspopup="listbox"][aria-label="Commands"]{display:none!important}',
         '[data-dsh-remote-hidden-action]{display:none!important}',
         '.dshRemoteModeButton{min-height:36px;border:0;background:transparent;color:var(--dsw-alias-label-primary);display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:8px}.dshRemoteModeButton:is(button){cursor:pointer}',
         '.dshRemoteModeButton:is(button):hover{background:var(--dsw-alias-interactive-bg-hover)}',

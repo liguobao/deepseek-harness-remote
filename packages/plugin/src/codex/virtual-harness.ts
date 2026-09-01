@@ -20,6 +20,13 @@ const MAX_LIVE_TOOL_OUTPUT = 128 * 1024
 const DEFAULT_HISTORY_MESSAGES = 50
 const SESSION_SEARCH_RESULT_LIMIT = 20
 const SESSION_SEARCH_SNIPPET_CODE_POINTS = 240
+const CODEX_DEFAULT_PERMISSION = 'workspace-write'
+const MAX_CODEX_PROMPT_PARTS = 16
+const MAX_CODEX_PROMPT_TEXT = 256 * 1024
+const MAX_CODEX_IMAGE_BASE64 = 288 * 1024 * 1024
+const CODEX_IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+
+type CodexPermissionPreset = 'workspace-write' | 'danger-full-access'
 
 type JsonRecord = Record<string, unknown>
 
@@ -187,9 +194,11 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private readonly pendingThreads = new Map<string, JsonRecord>()
   private readonly blankThreads = new Set<string>()
   private readonly selectedModels = new Map<string, CodexModelSelection>()
+  private readonly selectedPermissions = new Map<string, CodexPermissionPreset>()
   private modelDirectory?: CodexModelDirectory
   private modelDirectoryPromise?: Promise<CodexModelDirectory>
   private lastProjectionSeq = 0
+  private commandSeq = 0
   private selectedWorkspaceId?: string
   private closed = false
 
@@ -309,6 +318,8 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         case 'session/canOpenWorkspacePath': return business(false)
         case 'session/openWorkspacePath': return business(failure('bad-request', 'Opening Host paths is unavailable in CodeX mode.'))
         case 'skills/list': return business(success({ items: [] }))
+        case 'commands/list': return ok(this.commandList(args))
+        case 'commands/execute': return ok(this.executeCommand(args))
         default: return fail('method-not-found', `CodeX virtual Harness does not implement ${endpoint}.`)
       }
     } catch (error) {
@@ -353,6 +364,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     this.pendingThreads.clear()
     this.blankThreads.clear()
     this.selectedModels.clear()
+    this.selectedPermissions.clear()
   }
 
   private async refreshCatalog(signal?: AbortSignal): Promise<CatalogState> {
@@ -382,6 +394,46 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
 
   private modelSelection(sessionId: string, directory?: CodexModelDirectory): CodexModelSelection {
     return this.selectedModels.get(sessionId) ?? directory?.default ?? modelSelection()
+  }
+
+  private permissionSelection(sessionId: string): CodexPermissionPreset {
+    return this.selectedPermissions.get(sessionId) ?? CODEX_DEFAULT_PERMISSION
+  }
+
+  private commandList(args: JsonRecord): unknown[] {
+    nativeThreadId(requiredString(args.agentId, 'agentId'))
+    return [{
+      name: 'permission',
+      description: 'Switch the CodeX Remote sandbox mode and approval policy',
+      input: { hint: '<preset>' },
+    }]
+  }
+
+  private executeCommand(args: JsonRecord): unknown {
+    const sessionId = requiredString(args.agentId, 'agentId')
+    nativeThreadId(sessionId)
+    const line = requiredString(args.line, 'command line').trim()
+    if (!Array.isArray(args.images)) throw new Error('The CodeX command image list is required.')
+    const match = /^\/permission(?:\s+([\s\S]*))?$/u.exec(line)
+    if (match === null) return undefined
+
+    const commandId = `codex-permission:${++this.commandSeq}`
+    if (args.images.length > 0) return {
+      commandId,
+      result: { kind: 'error', text: 'CodeX Remote permission commands do not accept attachments.' },
+    }
+    const requested = (match[1] ?? '').trim()
+    if (requested === '') return {
+      commandId,
+      result: { kind: 'success', text: `current preset ${this.permissionSelection(sessionId)}` },
+    }
+    if (!isCodexPermissionPreset(requested)) return {
+      commandId,
+      result: { kind: 'error', text: `unknown preset "${requested}" (available: workspace-write, danger-full-access)` },
+    }
+    this.selectedPermissions.set(sessionId, requested)
+    this.publishProjection(sessionId, 'permissions', codexPermissionsProjection(requested), this.nextProjectionSeq())
+    return { commandId, result: { kind: 'success', text: `preset ${requested}` } }
   }
 
   private sessionTitle(sessionId: string): string | null {
@@ -470,6 +522,8 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
           title: displayTitle(session),
           sessionListMetadata: { blank: options.blank, lastPromptAt: options.lastPromptAt },
           modelSelection: modelSelectionProjection(options.modelSelection),
+          permissions: codexPermissionsProjection(this.permissionSelection(session.id)),
+          imageLimits: codexImageLimitsProjection(),
         },
       },
     }
@@ -565,6 +619,8 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
           title: this.sessionTitle(sessionId),
           sessionListMetadata: { blank: history.cursor < 0, lastPromptAt: null },
           modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory)),
+          permissions: codexPermissionsProjection(this.permissionSelection(sessionId)),
+          imageLimits: codexImageLimitsProjection(),
         },
       },
     })
@@ -590,7 +646,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private acceptCodexFrame(follow: FollowState, frame: { method: string; params: unknown }): void {
     const params = record(frame.params)
     if (frame.method === 'thread/name/updated') {
-      const name = string(params.name)
+      const name = string(params.threadName)
       if (name === undefined) return
       const seq = this.nextProjectionSeq()
       this.updateThreadName(follow.threadId, name)
@@ -1034,13 +1090,19 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     if (cwd === undefined) return failure('workspace-not-found', 'The CodeX virtual Workspace was not found.')
     const directory = await this.models(signal)
     const selection = directory.default
-    const result = record(await this.client.request('thread/start', { cwd, model: selection.model }, signal))
+    const permissionPreset = CODEX_DEFAULT_PERMISSION
+    const result = record(await this.client.request('thread/start', {
+      cwd,
+      model: selection.model,
+      permissionPreset,
+    }, signal))
     const thread = { ...record(result.thread), cwd, turns: array(record(result.thread).turns) }
     const projected = projectCodexThread(thread)
     if (projected === undefined) return failure('internal', 'CodeX returned an invalid Thread.')
     this.pendingThreads.set(projected.nativeId, thread)
     this.blankThreads.add(projected.nativeId)
     this.selectedModels.set(projected.id, selection)
+    this.selectedPermissions.set(projected.id, permissionPreset)
     await this.refreshAndPublishWorkspaces()
     const seq = this.nextProjectionSeq()
     this.emitRemoteEvent('api-session/added', [this.sessionSummary(projected, {
@@ -1055,10 +1117,15 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
 
   private async forkSession(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
     const sessionId = requiredString(request.sessionId, 'sessionId')
-    const result = record(await this.client.request('thread/fork', { threadId: nativeThreadId(sessionId) }, signal))
+    const permissionPreset = this.permissionSelection(sessionId)
+    const result = record(await this.client.request('thread/fork', {
+      threadId: nativeThreadId(sessionId),
+      permissionPreset,
+    }, signal))
     const projected = projectCodexThread(record(result.thread))
     if (projected === undefined) return failure('internal', 'CodeX returned an invalid forked Thread.')
     this.selectedModels.set(projected.id, this.modelSelection(sessionId, await this.models(signal)))
+    this.selectedPermissions.set(projected.id, permissionPreset)
     await this.refreshAndPublishWorkspaces()
     const seq = this.nextProjectionSeq()
     this.publishProjection(projected.id, 'title', displayTitle(projected), seq)
@@ -1068,26 +1135,30 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private async prompt(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
     const sessionId = requiredString(request.sessionId, 'sessionId')
     const content = array(request.content)
-    const texts = content.map(record).filter(part => part.type === 'text').map(part => string(part.text) ?? '')
-    if (texts.length === 0 || content.some(part => record(part).type !== 'text')) {
-      return failure('attachment-error', 'CodeX virtual Sessions currently accept text prompts only.')
-    }
+    const input = codexPromptInput(content)
+    if (input === undefined) return failure('attachment-error', 'CodeX virtual Sessions accept text and pasted PNG, JPEG, WebP, or GIF images only.')
     const threadId = nativeThreadId(sessionId)
     const selection = this.modelSelection(sessionId, await this.models(signal))
+    const permissionPreset = this.permissionSelection(sessionId)
     const isFreshBlankThread = this.blankThreads.has(threadId) || this.pendingThreads.has(threadId)
     await this.ensureRcFollow(sessionId)
-    if (!isFreshBlankThread) await this.client.request('thread/resume', { threadId, model: selection.model }, signal)
+    if (!isFreshBlankThread) await this.client.request('thread/resume', {
+      threadId,
+      model: selection.model,
+      permissionPreset,
+    }, signal)
     this.pendingRequestIds.set(sessionId, string(request.requestId) ?? '')
     const mode = request.mode === 'steer' ? 'turn/steer' : 'turn/start'
     if (mode === 'turn/steer') {
       const active = this.activeTurnId(threadId)
       if (active === undefined) return failure('steer-unavailable', 'The CodeX Thread has no active turn to steer.')
-      await this.client.request(mode, { threadId, expectedTurnId: active, input: [{ type: 'text', text: texts.join('\n') }] }, signal)
+      await this.client.request(mode, { threadId, expectedTurnId: active, input }, signal)
     } else {
       await this.client.request(mode, {
         threadId,
-        input: [{ type: 'text', text: texts.join('\n') }],
+        input,
         ...codexModelParams(selection),
+        permissionPreset,
       }, signal)
     }
     this.blankThreads.delete(threadId)
@@ -1193,6 +1264,8 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
             title: this.sessionTitle(sessionId),
             sessionListMetadata: { blank: history.cursor < 0, lastPromptAt: null },
             modelSelection: modelSelectionProjection(this.modelSelection(sessionId, directory)),
+            permissions: codexPermissionsProjection(this.permissionSelection(sessionId)),
+            imageLimits: codexImageLimitsProjection(),
           },
         },
       }),
@@ -1952,8 +2025,68 @@ function modelSelection(): CodexModelSelection {
   return { provider: CODEX_PROVIDER, model: CODEX_MODEL }
 }
 
+function codexPromptInput(content: unknown[]): JsonRecord[] | undefined {
+  if (content.length === 0 || content.length > MAX_CODEX_PROMPT_PARTS) return undefined
+  const input: JsonRecord[] = []
+  for (const value of content) {
+    if (!isRecord(value)) return undefined
+    if (value.type === 'text') {
+      if (typeof value.text !== 'string' || value.text.length === 0 || value.text.length > MAX_CODEX_PROMPT_TEXT) return undefined
+      input.push({ type: 'text', text: value.text })
+      continue
+    }
+    if (value.type === 'image') {
+      if (typeof value.mediaType !== 'string' || !CODEX_IMAGE_MEDIA_TYPES.has(value.mediaType)
+        || typeof value.data !== 'string' || value.data.length > MAX_CODEX_IMAGE_BASE64
+        || !isCanonicalBase64(value.data)) return undefined
+      input.push({ type: 'image', mediaType: value.mediaType, data: value.data })
+      continue
+    }
+    return undefined
+  }
+  return input
+}
+
+function isCanonicalBase64(value: string): boolean {
+  return value.length >= 4 && value.length % 4 === 0
+    && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)
+}
+
 function modelSelectionProjection(selection: CodexModelSelection): { lastUsed: CodexModelSelection; next: CodexModelSelection } {
   return { lastUsed: selection, next: selection }
+}
+
+function codexPermissionsProjection(currentValue: CodexPermissionPreset): unknown {
+  return {
+    options: [
+      {
+        value: 'workspace-write',
+        name: 'workspace-write',
+        description: 'Write inside the workspace; wider command and file access requires one-time approval.',
+      },
+      {
+        value: 'danger-full-access',
+        name: 'danger-full-access',
+        description: 'Full Host file access without approval prompts for subsequent turns in this virtual Session.',
+      },
+    ],
+    currentValue,
+  }
+}
+
+function codexImageLimitsProjection(): unknown {
+  return {
+    maxImageBytes: 20 * 1024 * 1024,
+    maxImagesPerMessage: MAX_CODEX_PROMPT_PARTS,
+    maxMessageImageBytes: 100 * 1024 * 1024,
+    maxImagePixels: 40_000_000,
+    maxImageDimension: 8_192,
+    mediaTypes: [...CODEX_IMAGE_MEDIA_TYPES],
+  }
+}
+
+function isCodexPermissionPreset(value: string): value is CodexPermissionPreset {
+  return value === 'workspace-write' || value === 'danger-full-access'
 }
 
 function modelCatalog(directory: CodexModelDirectory): unknown {

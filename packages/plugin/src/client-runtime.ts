@@ -650,7 +650,7 @@ export class ClientModeRuntime {
       return
     }
     this.proxySwitch!.selectRemote(virtual.api, target)
-    this.gatewaySwitch.selectRemote(request => virtual.invoke(request), { execute: false, list: false }, target)
+    this.gatewaySwitch.selectRemote(request => virtual.invoke(request), { execute: true, list: true }, target)
   }
 
   private async closeCodexVirtual(): Promise<void> {

@@ -119,7 +119,9 @@ Codex 是同一个 Remote Plugin 内的可选独立领域。连接 Host 后，�
 展示 CodeX 工作目录。选中后，Plugin 会把现有 DSH Workspace/Session 数据面切换到内存虚拟载体：
 CodeX Thread 以 Session 形式出现，History 与实时 frame 被投影成 DSH 原生 Session 事件。界面仍由
 DSH 原生工作区列表、Conversation Renderer、Composer、工具卡片和审批组件负责，不再提供独立
-CodeX 页面。
+CodeX 页面。原生 Session 权限控件可在 `Workspace write` 与显式确认风险后的 `Full access` 间切换。
+CodeX Composer 支持文本以及从剪贴板粘贴的 PNG、JPEG、WebP 或 GIF 图片 Prompt，图片通过有界的
+加密分块通道传输；由于仍不开放通用文件附件，“+”入口继续隐藏。
 
 实时投影覆盖 assistant/reasoning/plan 增量、命令与文件输出、文件变更摘要、MCP progress、Thread
 运行状态和 model reroute；Web Search、Subagent、Image、Compaction 与 Review Mode 等 Item 复用

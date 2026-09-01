@@ -1183,14 +1183,22 @@ CodeX App Server 的 `project/list` 是虚拟 Workspace 的唯一来源。Client
 root 的 Thread 不得返回为可见 Session。其它带 `threadId` 的调用必须先用只读
 `thread/read(includeTurns:false)` 重新验证该 Thread 仍属于 `project/list` 暴露的项目；如果该只读
 验证因 App Server 当前状态临时失败，Host 最多只能用同一项目 authority 下的 `thread/list` 结果兜底。
-Remote 创建 Thread 时 Host 只能接受 `project/list` 暴露的项目根目录，并固定使用单次审批语义与
-workspace sandbox，不接受 Client 提交的任意 sandbox、writable roots 或持久授权。对 `thread/resume`
-与 `thread/fork`，Host 同样重新注入已验证的 cwd、单次审批与 workspace sandbox，不使用 Remote
-Client 提供的越界覆盖。
-当前 App Server wire 中 Thread 级覆盖固定为 `approvalPolicy: "on-request"` 与
-`sandbox: "workspace-write"`；每次 `turn/start` 还必须由 Host 注入 canonical cwd、
-`approvalPolicy: "on-request"` 以及 `sandboxPolicy.type: "workspaceWrite"`，不能依赖 Client 或
-Thread 历史里保存的旧策略。
+Remote 创建 Thread 时 Host 只能接受 `project/list` 暴露的项目根目录。虚拟 Session 的原生权限控件
+只暴露 `workspace-write` 与 `danger-full-access` 两个固定 preset；Client 传 preset 名，Host 映射为
+App Server 的审批与 sandbox 字段，不接受任意 sandbox、writable roots 或额外授权。默认
+`workspace-write` 映射为 `approvalPolicy: "on-request"`、`sandbox: "workspace-write"` 和
+`sandboxPolicy.type: "workspaceWrite"`；用户显式确认的 `danger-full-access` 映射为
+`approvalPolicy: "never"`、`sandbox: "danger-full-access"` 和
+`sandboxPolicy.type: "dangerFullAccess"`。每次 `thread/start|resume|fork` 与 `turn/start` 都由 Host
+重新注入 canonical 策略，不能依赖 Client 提交的底层字段或 Thread 历史里的旧策略。审批响应本身仍
+只允许单次 accept/decline/cancel，不提供 `allow_session`。
+
+CodeX 虚拟 Session 接受文本和 Composer 从剪贴板产生的 PNG、JPEG、WebP、GIF 图片 Prompt。
+Client 只能把原生 `{ type: "image", mediaType, data }` 转为 CodeX 领域的同形受限 input，并在存在
+图片时使用 `codex.appserver.transfer.v1`；Host 必须验证 MIME、canonical base64、part 数量与
+288 MiB envelope 上限，再转换为 App Server 的 `{ type: "image", url: "data:..." }`。禁止外部
+URL、Host path、临时文件、attachment id 和其它 input 类型。由于不开放通用文件附件，Client 仍
+隐藏 Composer 的“+”入口；Host 不能依赖 UI 隐藏作为安全边界。
 
 每条认证连接拥有独立的 `streamId -> threadId` 订阅与 transfer 容器。一个 Thread 同时只允许
 一个 connection 持有 active turn mutation lease。`codex.app.frame` 只发送给订阅该 Thread 的
@@ -1200,8 +1208,9 @@ active turn owner，并以 Host 生成的 opaque `requestHandle` 暴露。`codex
 审批自动 decline。`acceptForSession`、execpolicy amendment 和额外 permission grant 不得进入
 Remote frame。
 
-`codex.appserver.transfer.v1` 使用独立的 512 KiB chunk、288 MiB 总上限、canonical base64、
-严格有序/恰好一次、每连接输入/输出各两个 transfer 和 2 分钟 idle 清理。重组后的内容必须再次
+`codex.appserver.transfer.v1` 使用独立的 512 KiB chunk、288 MiB 总上限、canonical base64，
+承载大 History 响应和图片 Prompt request；它保持严格有序/恰好一次、每连接输入/输出各两个
+transfer 和 2 分钟 idle 清理。重组后的内容必须再次
 解析为 `codex.app.call` 并经过同一 allowlist / project-list policy，不能借分块扩权。
 
 App Server 意外退出或 stdio 失效时，Host 立即撤回动态 capability、清空 active-turn lease 与审批

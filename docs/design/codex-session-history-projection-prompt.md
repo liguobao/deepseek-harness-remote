@@ -153,8 +153,10 @@ delta、command/file/MCP progress、file patch update、`thread/status/changed`�
 | Stop | `turn/interrupt` |
 | Approval | Host 的 `codex.app.respond` |
 
-第一版 Composer 只接受文本。图片、附件与 DSH inbox queue 必须明确返回受限错误。远程审批只允许
-单次 `allow_once` 或 `deny`，不得提供 session-scoped 或永久授权。
+Composer 接受文本和剪贴板粘贴的 PNG、JPEG、WebP、GIF 图片；图片只以受限 base64 input 通过
+CodeX transfer 传输，并在 Host 边界转换成 App Server data URL。通用附件、外部 URL、Host path
+与 DSH inbox queue 必须明确返回受限错误。远程审批只允许单次 `allow_once` 或 `deny`，不得提供
+session-scoped 或永久授权。
 
 ## 生命周期与安全
 
