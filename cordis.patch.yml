@@ -8,3 +8,6 @@
         enabled: true
         role: host
         serverUrl: https://dsh.r2049.cn
+        codex:
+          enabled: true
+          binary: codex

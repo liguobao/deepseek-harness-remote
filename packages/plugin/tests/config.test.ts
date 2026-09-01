@@ -8,11 +8,14 @@ describe('plugin config', () => {
       role: 'host',
       forceRelay: false,
       reconnect: { enabled: true, initialDelayMs: 1_000, maxDelayMs: 30_000, jitter: 0.2 },
-      codex: { enabled: false, binary: 'codex' },
+      codex: { enabled: true, binary: 'codex' },
     })
   })
 
-  it('keeps the nested Codex domain opt-in and rejects obsolete workspace filters', () => {
+  it('allows the default-on Codex domain to be disabled and rejects obsolete workspace filters', () => {
+    expect(resolveConfig({ codex: { enabled: false } }, {})).toMatchObject({
+      codex: { enabled: false, binary: 'codex' },
+    })
     expect(resolveConfig({ codex: {
       enabled: true,
       binary: '/opt/codex/bin/codex',

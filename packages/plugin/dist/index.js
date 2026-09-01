@@ -16303,7 +16303,7 @@ function resolveConfig(input2 = {}, env = process.env) {
       jitter: reconnect.jitter ?? 0.2
     },
     codex: {
-      enabled: parsed.codex?.enabled ?? false,
+      enabled: parsed.codex?.enabled ?? true,
       binary: parsed.codex?.binary ?? "codex"
     }
   };
@@ -19139,6 +19139,7 @@ var PluginControlRuntime = class {
       if (endpoint === "settings.configure") return ok3(await this.configure(payload));
       if (endpoint === "settings.server.set") return ok3(await this.setServer(payload));
       if (endpoint === "settings.role.set") return ok3(await this.setRole(payload));
+      if (endpoint === "settings.codex.set") return ok3(await this.setCodex(payload));
       if (endpoint === "settings.logout") return ok3(await this.logout());
       if (endpoint === "host.reconnect") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
@@ -19234,6 +19235,22 @@ var PluginControlRuntime = class {
     await this.settings.replace({ ...current, role });
     return this.settingsView();
   }
+  async setCodex(payload) {
+    if (this.settings === void 0) {
+      throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
+    }
+    const enabled = record3(payload).enabled;
+    if (typeof enabled !== "boolean") {
+      throw new ClientModeError("INVALID_MESSAGE", "Codex Remote enabled must be a boolean.");
+    }
+    const current = editableConfig(resolveConfig(this.settings.get()));
+    const next = resolveConfig({
+      ...current,
+      codex: { ...current.codex, enabled }
+    });
+    await this.settings.replace(editableConfig(next));
+    return this.settingsView();
+  }
   async authorizeOwnedRole(serverUrl, sourceRole, targetRole) {
     const sourceDirectory = serverStorageDirectory(this.identityDirectory, serverUrl, sourceRole);
     const sourceIdentity = await new IdentityStore({ directory: sourceDirectory }).loadOrCreate(hostname2());
@@ -19321,7 +19338,11 @@ function editableConfig(config) {
       initialDelayMs: config.reconnect.initialDelayMs,
       maxDelayMs: config.reconnect.maxDelayMs,
       jitter: config.reconnect.jitter
-    } : false
+    } : false,
+    codex: {
+      enabled: config.codex.enabled,
+      binary: config.codex.binary
+    }
   };
 }
 function isRecord6(value) {

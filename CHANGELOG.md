@@ -2,7 +2,7 @@
 
 ## 0.4.3
 
-- Adds the opt-in Codex Remote domain to the existing encrypted Plugin channel,
+- Adds the default-on Codex Remote domain with a settings toggle to the existing encrypted Plugin channel,
   with a fixed App Server allowlist, project-backed virtual Workspaces, paged
   Thread history, live turn projection, prompts, interrupt, and approvals.
 - Reuses the native DSH Workspace, Session, conversation, tool, permission, and

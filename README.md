@@ -150,13 +150,14 @@ to DSH SessionStore, workspace storage, or Harness logs. CodeX App Server remain
 and `project/list` is the only source of truth for visible CodeX Workspaces. Create, rename, archive,
 prompt, interrupt, and approval actions are routed back to its allowlisted methods. The Host carrier
 still uses the existing account membership, pinned Host identity, Noise channel, and adaptive transport.
-CodeX is disabled by default. Real encrypted cross-machine turn/approval testing on Desktop and
-Android is still pending.
+CodeX is enabled by default and can be disabled from the DeepSeek Remote settings card. Changes to
+this setting take effect after restarting DSH. Real encrypted cross-machine turn/approval testing on
+Desktop and Android is still pending.
 
 ```yaml
 ds-harness-remote:
   codex:
-    enabled: true
+    enabled: false
     binary: codex
 ```
 
@@ -199,7 +200,7 @@ validation status.
 - The workspace picker lists folders only and returns bounded, read-only directory metadata.
 - Optional File Viewer access is limited to authenticated, encrypted range reads and continues to enforce provider root and locator authorization.
 - Remote file preview cannot write, delete, upload, execute, or open a path in an external application.
-- Codex Remote is opt-in, exposes only CodeX `project/list` Workspaces, and rejects raw shell/process/config App Server methods.
+- Codex Remote is enabled by default with a settings toggle to disable it, exposes only CodeX `project/list` Workspaces, and rejects raw shell/process/config App Server methods.
 - Removing a device revokes its credentials, membership, and active Remote connections.
 
 ## Compatibility

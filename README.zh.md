@@ -140,13 +140,14 @@ Server 列表可见前由 Plugin 临时保留。History 由 Host 按 DSH 消息�
 这只是展示适配，不是导入。虚拟 Workspace/Session 不会写入 DSH SessionStore、工作区存储或
 Harness 日志；CodeX App Server 始终是唯一数据源，其中 `project/list` 是可见 CodeX Workspace 的
 唯一来源。新建、改名、归档、Prompt、停止和审批操作都路由回其白名单方法。Host carrier 继续复用
-账号 membership、Host identity 固定、Noise 安全通道和自适应传输。Codex 默认关闭。Desktop 与
-Android 的加密跨机 turn/approval 联调仍待完成。
+账号 membership、Host identity 固定、Noise 安全通道和自适应传输。Codex 默认开启，可在
+DeepSeek Remote 设置卡片中关闭，修改后重启 DSH 生效。Desktop 与 Android 的加密跨机
+turn/approval 联调仍待完成。
 
 ```yaml
 ds-harness-remote:
   codex:
-    enabled: true
+    enabled: false
     binary: codex
 ```
 
@@ -183,7 +184,7 @@ WebSocket Relay。所有路径都承载同一份 Noise 密文，并保持相同�
 - Workspace 选择器只列出文件夹，并且只返回受限的只读目录元数据。
 - 可选 File Viewer 只通过已认证、已加密的分块读取访问文件，并继续执行 provider 根目录与 locator 授权。
 - 远端文件预览不能写入、删除、上传、执行文件，也不能调用远端系统的“外部打开”。
-- Codex Remote 默认关闭，只暴露 CodeX `project/list` 中的 Workspace，并拒绝 App Server 的原始 Shell、process 和 config 方法。
+- Codex Remote 默认开启并可在设置中关闭，只暴露 CodeX `project/list` 中的 Workspace，并拒绝 App Server 的原始 Shell、process 和 config 方法。
 - 移除设备后，其凭证、membership 和已建立的 Remote 连接均会失效。
 
 ## 版本兼容

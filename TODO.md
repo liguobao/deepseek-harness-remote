@@ -47,7 +47,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 提供虚拟 Workspace/Session 数据源，并把 `Thread -> Turn -> Item` 临时投影为 DSH 原生 Session
 事件；不迁移数据，也不写入 DSH SessionStore。
 
-- [x] 增加默认关闭的 `codex.enabled`、本机 `binary` 配置，并以 CodeX `project/list` 作为 Workspace 唯一来源
+- [x] 增加默认开启、可在设置中关闭的 `codex.enabled` 与本机 `binary` 配置，并以 CodeX `project/list` 作为 Workspace 唯一来源
 - [x] 增加 Host 单例 stdio App Server 生命周期、initialize/account probe 与动态 capability
 - [x] 增加独立 `codex.app.*` RPC/event/transfer、固定 method schema allowlist 与大 History 分块
 - [x] 增加按 connection 隔离的 stream、active-turn owner、opaque approval handle 与断线 fail-closed

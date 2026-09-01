@@ -42,7 +42,11 @@ describe('PluginControlRuntime settings setup', () => {
 
   it('updates the Server address without creating a separate authorization', async () => {
     const directory = await temporaryDirectory()
-    const settings = settingsScope({ serverUrl: 'https://old.example.com', role: 'client' })
+    const settings = settingsScope({
+      serverUrl: 'https://old.example.com',
+      role: 'client',
+      codex: { enabled: true, binary: '/opt/codex' },
+    })
     const handler = register(new PluginControlRuntime(
       resolveConfig(settings.get()), directory, settings, undefined, undefined,
     ))
@@ -52,12 +56,25 @@ describe('PluginControlRuntime settings setup', () => {
     }, signal())).resolves.toMatchObject({
       ok: true,
       value: {
-        config: { serverUrl: 'https://remote.example.com' },
+        config: {
+          serverUrl: 'https://remote.example.com',
+          codex: { enabled: true, binary: '/opt/codex' },
+        },
         associations: {},
         applies: 'restart',
       },
     })
-    expect(settings.get()).toMatchObject({ serverUrl: 'https://remote.example.com', role: 'client' })
+    expect(settings.get()).toMatchObject({
+      serverUrl: 'https://remote.example.com',
+      role: 'client',
+      codex: { enabled: true, binary: '/opt/codex' },
+    })
+
+    await expect(handler('settings.codex.set', { enabled: false }, signal())).resolves.toMatchObject({
+      ok: true,
+      value: { config: { codex: { enabled: false, binary: '/opt/codex' } } },
+    })
+    expect(settings.get()).toMatchObject({ codex: { enabled: false, binary: '/opt/codex' } })
   })
 
   it('exposes Host activity and starts a manual reconnect through loopback control', async () => {

@@ -111,7 +111,7 @@ export function resolveConfig(input: Config = {}, env: NodeJS.ProcessEnv = proce
       jitter: reconnect.jitter ?? 0.2,
     },
     codex: {
-      enabled: parsed.codex?.enabled ?? false,
+      enabled: parsed.codex?.enabled ?? true,
       binary: parsed.codex?.binary ?? 'codex',
     },
   }

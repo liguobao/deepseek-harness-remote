@@ -1742,6 +1742,9 @@ Minimum version required to store current data is: ` + bestVersion + `.
     serverUrl: "Server URL",
     serverUrlHint: "HTTPS origin used for account authorization and encrypted relay.",
     serverSaved: "Server address saved. Restart DSH to apply it.",
+    codexRemote: "Codex Remote",
+    codexRemoteHint: "Expose Codex projects through this Host. Restart DSH after changing this setting.",
+    codexSaved: "Codex Remote setting saved. Restart DSH to apply it.",
     authorizeFromRemote: "Sign in from the Remote entry in the sidebar, then return here to manage this device.",
     authorizationMethod: "Authorization method",
     accountPassword: "Account password",
@@ -1941,6 +1944,9 @@ Minimum version required to store current data is: ` + bestVersion + `.
     serverUrl: "Server \u5730\u5740",
     serverUrlHint: "\u7528\u4E8E\u8D26\u53F7\u6388\u6743\u548C\u52A0\u5BC6\u4E2D\u7EE7\u7684 HTTPS \u5730\u5740\u3002",
     serverSaved: "Server \u5730\u5740\u5DF2\u4FDD\u5B58\uFF0C\u91CD\u542F DSH \u540E\u751F\u6548\u3002",
+    codexRemote: "Codex Remote",
+    codexRemoteHint: "\u901A\u8FC7\u8FD9\u53F0 Host \u63D0\u4F9B Codex \u9879\u76EE\uFF1B\u4FEE\u6539\u540E\u9700\u91CD\u542F DSH \u751F\u6548\u3002",
+    codexSaved: "Codex Remote \u8BBE\u7F6E\u5DF2\u4FDD\u5B58\uFF0C\u91CD\u542F DSH \u540E\u751F\u6548\u3002",
     authorizeFromRemote: "\u8BF7\u4ECE\u4FA7\u680F Remote \u5165\u53E3\u767B\u5F55\uFF0C\u767B\u5F55\u540E\u53EF\u5728\u8FD9\u91CC\u7BA1\u7406\u5F53\u524D\u8BBE\u5907\u3002",
     authorizationMethod: "\u6388\u6743\u65B9\u5F0F",
     accountPassword: "\u8D26\u53F7\u5BC6\u7801",
@@ -2265,8 +2271,8 @@ Minimum version required to store current data is: ` + bestVersion + `.
         { label: "remoteProgressSwitchingWorkspace", detail: "remoteProgressSwitchingWorkspaceDetail", percent: 74, delayMs: 520 }
       ];
       function RemotePluginOptions(props) {
-        let { t } = props, [open, setOpen] = React.useState(!1), [serverUrl, setServerUrl] = React.useState(""), role = "host", [registrationCode, setRegistrationCode] = React.useState(""), [associations, setAssociations] = React.useState({}), [loaded, setLoaded] = React.useState(!1), [writable, setWritable] = React.useState(!1), [busy, setBusy] = React.useState(!1), [reconnectBusy, setReconnectBusy] = React.useState(!1), [hostStatus, setHostStatus] = React.useState(void 0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0), [settingsView, setSettingsView] = React.useState(void 0), persistedServerUrl = settingsView?.config.serverUrl ?? "https://dsh.r2049.cn", association = associations.client ?? associations.host, serverDirty = settingsView !== void 0 && serverUrl !== persistedServerUrl, draftDirty = serverDirty, applyView = (view) => {
-          setSettingsView(view), setServerUrl(view.config.serverUrl ?? "https://dsh.r2049.cn"), setAssociations(view.associations ?? (view.association === void 0 ? {} : { host: view.association })), setWritable(view.writable), setLoaded(!0);
+        let { t } = props, [open, setOpen] = React.useState(!1), [serverUrl, setServerUrl] = React.useState(""), [codexEnabled, setCodexEnabled] = React.useState(!0), role = "host", [registrationCode, setRegistrationCode] = React.useState(""), [associations, setAssociations] = React.useState({}), [loaded, setLoaded] = React.useState(!1), [writable, setWritable] = React.useState(!1), [busy, setBusy] = React.useState(!1), [codexBusy, setCodexBusy] = React.useState(!1), [reconnectBusy, setReconnectBusy] = React.useState(!1), [hostStatus, setHostStatus] = React.useState(void 0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0), [settingsView, setSettingsView] = React.useState(void 0), persistedServerUrl = settingsView?.config.serverUrl ?? "https://dsh.r2049.cn", association = associations.client ?? associations.host, serverDirty = settingsView !== void 0 && serverUrl !== persistedServerUrl, draftDirty = serverDirty, applyView = (view) => {
+          setSettingsView(view), setServerUrl(view.config.serverUrl ?? "https://dsh.r2049.cn"), setCodexEnabled(view.config.codex?.enabled ?? !0), setAssociations(view.associations ?? (view.association === void 0 ? {} : { host: view.association })), setWritable(view.writable), setLoaded(!0);
         }, load = async () => {
           let [view, status] = await Promise.all([
             props.control("settings.get"),
@@ -2333,9 +2339,37 @@ Minimum version required to store current data is: ` + bestVersion + `.
           } finally {
             setBusy(!1);
           }
+        }, setCodexRemote = async (enabled) => {
+          let previous = codexEnabled;
+          setCodexEnabled(enabled), setCodexBusy(!0), setError(void 0), setNotice(void 0);
+          try {
+            let view = await props.control("settings.codex.set", { enabled });
+            applyView(view), setNotice({ key: "codexSaved" });
+          } catch (reason) {
+            setCodexEnabled(previous), setError(messageOf(reason));
+          } finally {
+            setCodexBusy(!1);
+          }
         }, discard = () => {
           settingsView !== void 0 && applyView(settingsView), setRegistrationCode(""), setNotice(void 0), setError(void 0);
-        };
+        }, codexSetting = React.createElement(
+          "div",
+          { className: "dshRemoteAuthorizationSetting" },
+          React.createElement(
+            "div",
+            null,
+            React.createElement("strong", null, t("codexRemote")),
+            React.createElement("p", null, t("codexRemoteHint"))
+          ),
+          React.createElement("input", {
+            type: "checkbox",
+            role: "switch",
+            disabled: busy || codexBusy || !writable,
+            "aria-label": t("codexRemote"),
+            checked: codexEnabled,
+            onChange: (event) => void setCodexRemote(event.target.checked)
+          })
+        );
         return React.createElement(
           "li",
           { className: `dshRemotePluginCard${open ? " isOpen" : ""}` },
@@ -2397,6 +2431,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
                 }),
                 React.createElement("p", null, t("serverUrlHint"))
               ),
+              codexSetting,
               React.createElement(
                 "div",
                 { className: "dshRemoteAuthorizationSetting" },
@@ -2478,6 +2513,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
                 }),
                 React.createElement("p", null, t("serverUrlHint"))
               ),
+              codexSetting,
               React.createElement("p", { className: "dshRemoteSettingsState" }, t("authorizeFromRemote")),
               writable ? null : React.createElement("p", { className: "dshRemoteError" }, t("readOnly")),
               React.createElement(

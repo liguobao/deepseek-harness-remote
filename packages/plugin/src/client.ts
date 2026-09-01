@@ -194,6 +194,10 @@ interface PluginSettings {
     maxDelayMs?: number
     jitter?: number
   }
+  codex?: {
+    enabled?: boolean
+    binary?: string
+  }
 }
 
 interface PluginSettingsView {
@@ -246,6 +250,9 @@ const en = {
   serverUrl: 'Server URL',
   serverUrlHint: 'HTTPS origin used for account authorization and encrypted relay.',
   serverSaved: 'Server address saved. Restart DSH to apply it.',
+  codexRemote: 'Codex Remote',
+  codexRemoteHint: 'Expose Codex projects through this Host. Restart DSH after changing this setting.',
+  codexSaved: 'Codex Remote setting saved. Restart DSH to apply it.',
   authorizeFromRemote: 'Sign in from the Remote entry in the sidebar, then return here to manage this device.',
   authorizationMethod: 'Authorization method',
   accountPassword: 'Account password',
@@ -447,6 +454,9 @@ const zh: Record<keyof typeof en, string> = {
   serverUrl: 'Server 地址',
   serverUrlHint: '用于账号授权和加密中继的 HTTPS 地址。',
   serverSaved: 'Server 地址已保存，重启 DSH 后生效。',
+  codexRemote: 'Codex Remote',
+  codexRemoteHint: '通过这台 Host 提供 Codex 项目；修改后需重启 DSH 生效。',
+  codexSaved: 'Codex Remote 设置已保存，重启 DSH 后生效。',
   authorizeFromRemote: '请从侧栏 Remote 入口登录，登录后可在这里管理当前设备。',
   authorizationMethod: '授权方式',
   accountPassword: '账号密码',
@@ -874,12 +884,14 @@ window.__ModuleLoader__.load({
       const { t } = props
       const [open, setOpen] = React.useState(false)
       const [serverUrl, setServerUrl] = React.useState('')
+      const [codexEnabled, setCodexEnabled] = React.useState(true)
       const role = 'host' as const
       const [registrationCode, setRegistrationCode] = React.useState('')
       const [associations, setAssociations] = React.useState<Partial<Record<'host' | 'client', PluginAssociation>>>({})
       const [loaded, setLoaded] = React.useState(false)
       const [writable, setWritable] = React.useState(false)
       const [busy, setBusy] = React.useState(false)
+      const [codexBusy, setCodexBusy] = React.useState(false)
       const [reconnectBusy, setReconnectBusy] = React.useState(false)
       const [hostStatus, setHostStatus] = React.useState<RemoteStatus['host'] | undefined>(undefined)
       const [notice, setNotice] = React.useState<LocalizedMessage | undefined>(undefined)
@@ -893,6 +905,7 @@ window.__ModuleLoader__.load({
       const applyView = (view: PluginSettingsView): void => {
         setSettingsView(view)
         setServerUrl(view.config.serverUrl ?? 'https://dsh.r2049.cn')
+        setCodexEnabled(view.config.codex?.enabled ?? true)
         setAssociations(view.associations ?? (view.association === undefined ? {} : { host: view.association }))
         setWritable(view.writable)
         setLoaded(true)
@@ -988,12 +1001,41 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const setCodexRemote = async (enabled: boolean): Promise<void> => {
+        const previous = codexEnabled
+        setCodexEnabled(enabled)
+        setCodexBusy(true)
+        setError(undefined)
+        setNotice(undefined)
+        try {
+          const view = await props.control<PluginSettingsView>('settings.codex.set', { enabled })
+          applyView(view)
+          setNotice({ key: 'codexSaved' })
+        } catch (reason) {
+          setCodexEnabled(previous)
+          setError(messageOf(reason))
+        } finally {
+          setCodexBusy(false)
+        }
+      }
+
       const discard = (): void => {
         if (settingsView !== undefined) applyView(settingsView)
         setRegistrationCode('')
         setNotice(undefined)
         setError(undefined)
       }
+
+      const codexSetting = React.createElement('div', { className: 'dshRemoteAuthorizationSetting' },
+        React.createElement('div', null,
+          React.createElement('strong', null, t('codexRemote')),
+          React.createElement('p', null, t('codexRemoteHint'))),
+        React.createElement('input', {
+          type: 'checkbox', role: 'switch', disabled: busy || codexBusy || !writable,
+          'aria-label': t('codexRemote'),
+          checked: codexEnabled,
+          onChange: (event: Event) => void setCodexRemote((event.target as HTMLInputElement).checked),
+        }))
 
       return React.createElement('li', { className: `dshRemotePluginCard${open ? ' isOpen' : ''}` },
         React.createElement('div', { className: 'dshRemotePluginCardHeader' },
@@ -1038,6 +1080,7 @@ window.__ModuleLoader__.load({
             onChange: (event: Event) => { setServerUrl((event.target as HTMLInputElement).value); setNotice(undefined) },
           }),
           React.createElement('p', null, t('serverUrlHint'))),
+        codexSetting,
         React.createElement('div', { className: 'dshRemoteAuthorizationSetting' },
           React.createElement('div', null,
             React.createElement('strong', null, t('allowControlCurrentDevice')),
@@ -1099,6 +1142,7 @@ window.__ModuleLoader__.load({
             onChange: (event: Event) => { setServerUrl((event.target as HTMLInputElement).value); setNotice(undefined) },
           }),
           React.createElement('p', null, t('serverUrlHint'))),
+        codexSetting,
         React.createElement('p', { className: 'dshRemoteSettingsState' }, t('authorizeFromRemote')),
         !writable ? React.createElement('p', { className: 'dshRemoteError' }, t('readOnly')) : null,
         React.createElement('div', { className: 'dshRemoteSettingsFooter' },
