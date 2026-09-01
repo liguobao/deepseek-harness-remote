@@ -1,7 +1,8 @@
 # DSH Remote for Android
 
 React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness host over the
-[Remote Protocol v1](../../docs/protocol.md) ApiProxy / Typert Remote tunnel.
+[Remote Protocol v1](../../docs/protocol.md) ApiProxy / Typert Remote tunnel, including the optional
+CodeX App Server domain advertised by the Host.
 
 ## Implemented flow
 
@@ -25,6 +26,12 @@ React Native / Expo SDK 57 client for controlling a trusted DeepSeek Harness hos
 - Select PNG/JPEG/WebP/GIF images from Android's system picker, preflight the Host-projected image
   limits, preview them in the composer, and carry large native `session.prompt` envelopes through
   the bounded `harness.api.transfer.*` path. Image processing and provider upload remain on the Host.
+- When the Host advertises `codex.appserver.v1`, merge CodeX `project/list` roots into the workspace
+  screen without creating local workspaces, show their allowlisted Threads as conversations, page
+  `dsh/sessionHistory`, reduce live reasoning/plan/tool frames, send text or system-picker image
+  prompts over `codex.app.*`, switch CodeX model/reasoning and fixed permission presets, interrupt
+  the active turn, and answer one-time command/file approvals. CodeX workspaces remain read-only in
+  Android because the Host's `project/list` is authoritative.
 - Reconnect after Android network/app lifecycle changes. The connection transport can be
   pinned in Settings (Auto / TURN first / Relay only) and is applied on reconnect.
 - Show the interface in English or Simplified Chinese, follow Android's current locale by default,
@@ -48,8 +55,8 @@ pnpm --filter @dsh-remote/android android
 ```
 
 The Android `start`, `android`, `ios`, and `build` commands rebuild the shared protocol, crypto,
-WebRTC, and client-core packages first, then verify that the compiled client contains both the
-rc.2 ApiProxy and alpha Typert Remote capability paths. This prevents Metro or Gradle from
+WebRTC, and client-core packages first, then verify that the compiled client contains the
+rc.2 ApiProxy, alpha Typert Remote, and CodeX Remote capability paths. This prevents Metro or Gradle from
 silently packaging stale workspace `dist` files.
 
 Android Emulator reaches a server on the development machine at `http://10.0.2.2:8080`. Cleartext
@@ -77,10 +84,11 @@ cd android
 src/
   lib/       URL validation and user-facing errors
   screens/   server sign-in, devices, sessions, chat, settings
-  services/  REST, secure storage, secure transport, ApiProxy tunnel client
-  state/     Zustand store and mux-frame reducer
+  services/  REST, secure storage, secure transport, ApiProxy and CodeX clients
+  state/     Zustand store plus Harness mux and CodeX frame reducers
   ui/        tokens and reusable mobile components
 ```
 
 The UI does not expose shell, filesystem, or arbitrary tool RPCs. Every Harness action goes through
-the Host's fixed ApiProxy or Typert Remote allowlist; Host policy remains authoritative.
+the Host's fixed ApiProxy or Typert Remote allowlist, and every CodeX action goes through the separate
+fixed App Server method schemas; Host policy remains authoritative.

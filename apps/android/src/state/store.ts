@@ -1,6 +1,13 @@
 import * as Haptics from 'expo-haptics'
 import { create } from 'zustand'
 import {
+  createCodexTimelineState,
+  projectCodexThread,
+  reduceCodexTimelineFrame,
+  type CodexStream,
+  type CodexTimelineState,
+} from '@dsh-remote/client-core'
+import {
   applyLanguagePreference,
   getActiveLanguage,
   strings as zhCN,
@@ -20,6 +27,19 @@ import {
 } from '../services/login'
 import type { RedirectLoginMethod } from '../types'
 import { createNativeRpcId } from '../services/api-proxy'
+import {
+  codexItemsToChat,
+  codexPermissionPreset,
+  codexSession,
+  codexThreadId,
+  loadCodexCatalog,
+  loadCodexModels,
+  mergeCodexLive,
+  readCodexHistoryPage,
+  readCodexSession,
+  updateCodexSession,
+  withCodexPermission,
+} from '../services/codex'
 import { AndroidRemoteConnection } from '../services/connection'
 import { reconcileTrustedDevices } from '../services/device-directory'
 import { resolveAutomaticPreferredTransports } from '../services/network-route'
@@ -133,6 +153,7 @@ interface AppState {
   setOffline(): void
   clearError(): void
   handleMuxFrame(frame: MuxStreamFrame): void
+  handleCodexFrame(frame: { method: string; params: unknown }): void
 }
 
 const disconnected: ConnectionSnapshot = {
@@ -141,6 +162,9 @@ const disconnected: ConnectionSnapshot = {
 }
 
 const connection = new AndroidRemoteConnection()
+let activeCodexStream: CodexStream | undefined
+let activeCodexTimeline: CodexTimelineState | undefined
+const codexModelSelections = new Map<string, ModelSelection>()
 
 export const useAppStore = create<AppState>((set, get) => ({
   bootPhase: 'loading',
@@ -271,14 +295,40 @@ export const useAppStore = create<AppState>((set, get) => ({
         proxy.workspaceList(),
         proxy.sessionList(),
       ])
-      set(state => ({
-        workspaces: workspaceList.items,
-        archivedSessionIds: workspaceList.archivedSessionIds,
-        sessions,
-        selectedSession: state.selectedSession === undefined
-          ? undefined
-          : sessions.find(session => session.sessionId === state.selectedSession?.sessionId) ?? state.selectedSession,
-      }))
+      let codexCatalog = { workspaces: [] as WorkspaceView[], sessions: [] as RemoteSession[] }
+      let codexError: string | undefined
+      if (connection.hasCodex()) {
+        try {
+          codexCatalog = await loadCodexCatalog(connection.requireCodex())
+        } catch (error) {
+          codexError = friendlyError(error)
+        }
+      }
+      set(state => {
+        const codexWorkspaces = codexError === undefined
+          ? codexCatalog.workspaces
+          : state.workspaces.filter(workspace => workspace.backend === 'codex')
+        const catalogSessions = codexError === undefined
+          ? codexCatalog.sessions
+          : state.sessions.filter(session => session.backend === 'codex')
+        const codexSessions = catalogSessions.map(session => {
+          const previous = state.sessions.find(item => item.sessionId === session.sessionId)
+            ?? (state.selectedSession?.sessionId === session.sessionId ? state.selectedSession : undefined)
+          return previous?.backend === 'codex'
+            ? withCodexPermission(session, codexPermissionPreset(previous))
+            : session
+        })
+        const combinedSessions = [...sessions, ...codexSessions]
+        return {
+          workspaces: [...workspaceList.items, ...codexWorkspaces],
+          archivedSessionIds: workspaceList.archivedSessionIds,
+          sessions: combinedSessions,
+          selectedSession: state.selectedSession === undefined
+            ? undefined
+            : combinedSessions.find(session => session.sessionId === state.selectedSession?.sessionId) ?? state.selectedSession,
+          ...(codexError === undefined ? {} : { error: codexError }),
+        }
+      })
     } catch (error) {
       set({ error: friendlyError(error) })
     }
@@ -308,6 +358,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       error: undefined,
     })
     try {
+      await closeActiveCodexStream(false)
       const { api, credentials } = await serverSession.authenticate(config.baseUrl, identity)
       const preference = get().transportPreference
       const forceRelay = options.forceRelay === true || preference === 'relay'
@@ -348,13 +399,32 @@ export const useAppStore = create<AppState>((set, get) => ({
         proxy.workspaceList(),
         proxy.sessionList(),
       ])
-      set({
-        hostDescriptor,
-        workspaces: workspaceList.items,
-        archivedSessionIds: workspaceList.archivedSessionIds,
-        sessions,
-        connectionStage: 'ready',
-        connection: { phase: 'connected', stats: connection.getStats() ?? { mode: 'Relay', connected: true } },
+      let codexCatalog = { workspaces: [] as WorkspaceView[], sessions: [] as RemoteSession[] }
+      let codexError: string | undefined
+      if (connection.hasCodex()) {
+        try {
+          codexCatalog = await loadCodexCatalog(connection.requireCodex())
+        } catch (error) {
+          codexError = friendlyError(error)
+        }
+      }
+      set(state => {
+        const codexSessions = codexCatalog.sessions.map(session => {
+          const previous = state.sessions.find(item => item.sessionId === session.sessionId)
+            ?? (state.selectedSession?.sessionId === session.sessionId ? state.selectedSession : undefined)
+          return previous?.backend === 'codex'
+            ? withCodexPermission(session, codexPermissionPreset(previous))
+            : session
+        })
+        return {
+          hostDescriptor,
+          workspaces: [...workspaceList.items, ...codexCatalog.workspaces],
+          archivedSessionIds: workspaceList.archivedSessionIds,
+          sessions: [...sessions, ...codexSessions],
+          connectionStage: 'ready',
+          connection: { phase: 'connected', stats: connection.getStats() ?? { mode: 'Relay', connected: true } },
+          ...(codexError === undefined ? {} : { error: codexError }),
+        }
       })
       return true
     } catch (error) {
@@ -373,7 +443,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async disconnect() {
+    await closeActiveCodexStream(false)
     await connection.close()
+    codexModelSelections.clear()
     set({
       connection: disconnected,
       connectionStage: undefined,
@@ -394,6 +466,53 @@ export const useAppStore = create<AppState>((set, get) => ({
   async openSession(session) {
     set({ busyAction: `session:${session.sessionId}`, error: undefined })
     const load = async () => {
+      if (session.backend === 'codex') {
+        await closeActiveCodexStream()
+        const client = connection.requireCodex()
+        const threadId = codexThreadId(session)
+        const permission = codexPermissionPreset(session)
+        const [read, history] = await Promise.all([
+          readCodexSession(client, threadId, permission),
+          readCodexHistoryPage(client, threadId),
+        ])
+        const timeline = createCodexTimelineState({ ...read.thread, turns: [] })
+        if (timeline === undefined) throw new Error(zhCN.runtime.codexInvalidResponse)
+        activeCodexTimeline = timeline
+        const stream = await client.subscribe(
+          threadId,
+          frame => get().handleCodexFrame(frame),
+          undefined,
+          reason => {
+            if (activeCodexTimeline?.session.nativeId !== threadId) return
+            activeCodexStream = undefined
+            activeCodexTimeline = undefined
+            set(state => ({
+              sessions: state.sessions.map(item => item.sessionId === session.sessionId ? { ...item, running: false } : item),
+              selectedSession: state.selectedSession?.sessionId === session.sessionId
+                ? { ...state.selectedSession, running: false }
+                : state.selectedSession,
+              ...(reason === 'failed' ? { error: zhCN.runtime.codexUnavailable } : {}),
+            }))
+          },
+        )
+        activeCodexStream = stream
+        const items = foldHistory(history.events, session.sessionId)
+        const nextSession = { ...session, ...read.session }
+        set(state => ({
+          selectedSession: nextSession,
+          sessions: state.sessions.map(item => item.sessionId === session.sessionId ? nextSession : item),
+          messages: {
+            ...state.messages,
+            [session.sessionId]: mergeHistoryAndLive(items, state.messages[session.sessionId] ?? []),
+          },
+          historyHasMore: history.hasMore,
+          oldestLoadedSeq: oldestSeq(history.events),
+          busyAction: undefined,
+        }))
+        void refreshCodexModels(session.sessionId)
+        return
+      }
+      await closeActiveCodexStream()
       const history = await connection.requireProxy().sessionHistory(session.sessionId)
       const items = foldHistory(history.events, session.sessionId)
       set(state => ({
@@ -439,6 +558,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().connection.phase !== 'connected') return false
     set({ busyAction: 'create-session', error: undefined })
     try {
+      const workspace = workspaceId === undefined ? undefined : get().workspaces.find(item => item.workspaceId === workspaceId)
+      if (workspace?.backend === 'codex') {
+        const client = connection.requireCodex()
+        const result = record(await client.request('thread/start', {
+          cwd: workspace.path,
+          permissionPreset: 'workspace-write',
+        }))
+        const display = projectCodexThread(result.thread)
+        if (display === undefined) throw new Error(zhCN.runtime.codexInvalidResponse)
+        const created = codexSession(display)
+        set(state => ({
+          sessions: [created, ...state.sessions.filter(item => item.sessionId !== created.sessionId)],
+          workspaces: state.workspaces.map(item => item.workspaceId === workspace.workspaceId
+            ? { ...item, sessionIds: [created.sessionId, ...item.sessionIds.filter(id => id !== created.sessionId)] }
+            : item),
+          busyAction: undefined,
+        }))
+        await get().openSession(created)
+        return true
+      }
       const proxy = connection.requireProxy()
       const { sessionId } = await proxy.sessionCreate(workspaceId)
       const sessions = await proxy.sessionList()
@@ -456,6 +595,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().connection.phase !== 'connected') return false
     set({ busyAction: `archive:${sessionId}`, error: undefined })
     try {
+      const session = get().sessions.find(item => item.sessionId === sessionId)
+      if (session?.backend === 'codex') {
+        await connection.requireCodex().request('thread/archive', { threadId: codexThreadId(session) })
+        if (activeCodexTimeline?.session.id === sessionId) await closeActiveCodexStream()
+        set(state => ({
+          sessions: state.sessions.filter(item => item.sessionId !== sessionId),
+          workspaces: state.workspaces.map(workspace => ({
+            ...workspace,
+            sessionIds: workspace.sessionIds.filter(id => id !== sessionId),
+          })),
+          busyAction: undefined,
+          selectedSession: state.selectedSession?.sessionId === sessionId ? undefined : state.selectedSession,
+          sessionModels: state.selectedSession?.sessionId === sessionId ? undefined : state.sessionModels,
+        }))
+        return true
+      }
       const proxy = connection.requireProxy()
       const archivedSessionIds = await proxy.workspaceArchiveSession(sessionId)
       const sessions = await proxy.sessionList()
@@ -478,6 +633,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (session === undefined || get().connection.phase !== 'connected') return false
     set({ modelSelecting: true, error: undefined })
     try {
+      if (session.backend === 'codex') {
+        if (selection.provider !== 'codex') throw new Error(zhCN.runtime.codexInvalidResponse)
+        codexModelSelections.set(session.sessionId, selection)
+        set(state => ({
+          sessionModels: state.sessionModels === undefined ? undefined : { ...state.sessionModels, current: selection },
+          modelSelecting: false,
+        }))
+        return true
+      }
       const selected = await connection.requireProxy().sessionSelectModel(session.sessionId, selection)
       set(state => ({
         sessionModels: state.sessionModels === undefined ? undefined : { ...state.sessionModels, current: selected },
@@ -495,6 +659,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (session === undefined || get().connection.phase !== 'connected') return false
     set({ permissionSelecting: true, error: undefined })
     try {
+      if (session.backend === 'codex') {
+        if (preset !== 'workspace-write' && preset !== 'danger-full-access') {
+          throw new Error(zhCN.runtime.codexInvalidResponse)
+        }
+        set(state => ({
+          sessions: state.sessions.map(item => item.sessionId === session.sessionId ? withCodexPermission(item, preset) : item),
+          selectedSession: state.selectedSession === undefined ? undefined : withCodexPermission(state.selectedSession, preset),
+          permissionSelecting: false,
+        }))
+        return true
+      }
       await connection.requireProxy().sessionSelectPermission(session.sessionId, preset)
       set(state => {
         const update = (item: RemoteSession): RemoteSession => {
@@ -523,6 +698,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().connection.phase !== 'connected') return false
     set({ busyAction: `rename-workspace:${workspaceId}`, error: undefined })
     try {
+      if (get().workspaces.find(item => item.workspaceId === workspaceId)?.backend === 'codex') {
+        throw new Error(zhCN.runtime.codexWorkspaceReadOnly)
+      }
       const proxy = connection.requireProxy()
       const workspace = await proxy.workspaceRename(workspaceId, title)
       set(state => ({
@@ -540,6 +718,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().connection.phase !== 'connected') return false
     set({ busyAction: `delete-workspace:${workspaceId}`, error: undefined })
     try {
+      if (get().workspaces.find(item => item.workspaceId === workspaceId)?.backend === 'codex') {
+        throw new Error(zhCN.runtime.codexWorkspaceReadOnly)
+      }
       const proxy = connection.requireProxy()
       await proxy.workspaceDelete(workspaceId)
       set(state => ({
@@ -561,11 +742,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().connection.phase !== 'connected') return false
     set({ busyAction: `move-workspace:${workspaceId}`, error: undefined })
     try {
+      if (get().workspaces.find(item => item.workspaceId === workspaceId)?.backend === 'codex'
+        || beforeWorkspaceId !== undefined && get().workspaces.find(item => item.workspaceId === beforeWorkspaceId)?.backend === 'codex') {
+        throw new Error(zhCN.runtime.codexWorkspaceReadOnly)
+      }
       const proxy = connection.requireProxy()
       const workspaceIds = await proxy.workspaceInsertBefore(workspaceId, beforeWorkspaceId)
       const byId = new Map(get().workspaces.map(item => [item.workspaceId, item]))
       set({
-        workspaces: workspaceIds.flatMap(id => byId.get(id) === undefined ? [] : [byId.get(id)!]),
+        workspaces: [
+          ...workspaceIds.flatMap(id => byId.get(id) === undefined ? [] : [byId.get(id)!]),
+          ...get().workspaces.filter(item => item.backend === 'codex'),
+        ],
         busyAction: undefined,
       })
       return true
@@ -591,7 +779,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (session === undefined || beforeSeq === undefined || get().historyLoadingOlder || !get().historyHasMore) return
     set({ historyLoadingOlder: true })
     try {
-      const page = await connection.requireProxy().sessionHistory(session.sessionId, beforeSeq, 60)
+      const page = session.backend === 'codex'
+        ? await readCodexHistoryPage(connection.requireCodex(), codexThreadId(session), beforeSeq, 60)
+        : await connection.requireProxy().sessionHistory(session.sessionId, beforeSeq, 60)
       const items = foldHistory(page.events, session.sessionId)
       const older = oldestSeq(page.events)
       set(state => ({
@@ -646,7 +836,53 @@ export const useAppStore = create<AppState>((set, get) => ({
       error: undefined,
     }))
     try {
-      await connection.requireProxy().sessionPrompt(session.sessionId, text, requestRpcId, images)
+      if (session.backend === 'codex') {
+        const client = connection.requireCodex()
+        const threadId = codexThreadId(session)
+        const promptInput = [
+          ...(text.length === 0 ? [] : [{ type: 'text', text }]),
+          ...images.map(image => ({ type: 'image', mediaType: image.mediaType, data: image.data })),
+        ]
+        const activeTurnId = activeCodexTimeline?.session.nativeId === threadId
+          ? activeCodexTimeline.activeTurnId
+          : undefined
+        if (activeTurnId !== undefined) {
+          await client.request('turn/steer', { threadId, expectedTurnId: activeTurnId, input: promptInput })
+        } else {
+          const permissionPreset = codexPermissionPreset(session)
+          const selection = get().sessionModels?.current
+          await client.request('thread/resume', {
+            threadId,
+            permissionPreset,
+            ...(selection?.provider === 'codex' ? { model: selection.model } : {}),
+          })
+          const result = record(await client.request('turn/start', {
+            threadId,
+            input: promptInput,
+            permissionPreset,
+            ...(selection?.provider === 'codex' ? {
+              model: selection.model,
+              ...(selection.reasoningEffort === undefined ? {} : { effort: selection.reasoningEffort }),
+            } : {}),
+          }))
+          const turnId = stringValue(record(result.turn).id)
+          if (activeCodexTimeline?.session.nativeId === threadId) {
+            activeCodexTimeline = {
+              ...activeCodexTimeline,
+              ...(turnId === undefined ? {} : { activeTurnId: turnId }),
+              session: { ...activeCodexTimeline.session, status: 'running' },
+            }
+          }
+          set(state => ({
+            sessions: state.sessions.map(item => item.sessionId === session.sessionId ? { ...item, running: true } : item),
+            selectedSession: state.selectedSession?.sessionId === session.sessionId
+              ? { ...state.selectedSession, running: true }
+              : state.selectedSession,
+          }))
+        }
+      } else {
+        await connection.requireProxy().sessionPrompt(session.sessionId, text, requestRpcId, images)
+      }
       set({ busyAction: undefined })
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
       return true
@@ -668,7 +904,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (session === undefined) return
     set({ busyAction: 'stop-session' })
     try {
-      await connection.requireProxy().sessionCancel(session.sessionId)
+      if (session.backend === 'codex') {
+        const threadId = codexThreadId(session)
+        const turnId = activeCodexTimeline?.session.nativeId === threadId
+          ? activeCodexTimeline.activeTurnId
+          : undefined
+        if (turnId === undefined) throw new Error(zhCN.runtime.codexTurnUnavailable)
+        await connection.requireCodex().interrupt(threadId, turnId)
+      } else {
+        await connection.requireProxy().sessionCancel(session.sessionId)
+      }
     } catch (error) {
       set({ error: friendlyError(error) })
     } finally {
@@ -679,12 +924,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   async respondApproval(itemId, outcome) {
     set({ busyAction: `approval:${itemId}`, error: undefined })
     try {
-      const proxy = connection.requireProxy()
       const item = findApproval(get().messages, itemId)
-      if (item === undefined || item.frameRpcId === undefined) {
+      if (item === undefined) {
         throw new Error(zhCN.runtime.openSessionFirst)
       }
-      await proxy.respondApproval(item.frameRpcId, item.sessionId, item.approvalId, outcome)
+      const session = get().sessions.find(value => value.sessionId === item.sessionId) ?? get().selectedSession
+      if (session?.backend === 'codex') {
+        await connection.requireCodex().respond(item.approvalId, outcome === 'allowed-once' ? 'accept' : 'decline')
+      } else {
+        if (item.frameRpcId === undefined) throw new Error(zhCN.runtime.openSessionFirst)
+        await connection.requireProxy().respondApproval(item.frameRpcId, item.sessionId, item.approvalId, outcome)
+      }
       set(state => ({
         messages: mapApprovalOutcome(state.messages, itemId, outcome),
         busyAction: undefined,
@@ -802,7 +1052,36 @@ export const useAppStore = create<AppState>((set, get) => ({
       messages: applyMuxFrameToMessages(state.messages, frame),
     }))
   },
+
+  handleCodexFrame(frame) {
+    const timeline = activeCodexTimeline
+    if (timeline === undefined) return
+    const next = reduceCodexTimelineFrame(timeline, frame)
+    activeCodexTimeline = next
+    const live = codexItemsToChat(next.items)
+    set(state => {
+      const current = state.sessions.find(item => item.sessionId === next.session.id)
+        ?? state.selectedSession
+      if (current === undefined || current.backend !== 'codex') return {}
+      const session = updateCodexSession(current, next.session)
+      return {
+        sessions: state.sessions.map(item => item.sessionId === session.sessionId ? session : item),
+        selectedSession: state.selectedSession?.sessionId === session.sessionId ? session : state.selectedSession,
+        messages: {
+          ...state.messages,
+          [session.sessionId]: mergeCodexLive(state.messages[session.sessionId] ?? [], live),
+        },
+      }
+    })
+  },
 }))
+
+async function closeActiveCodexStream(notifyRemote = true): Promise<void> {
+  const stream = activeCodexStream
+  activeCodexStream = undefined
+  activeCodexTimeline = undefined
+  if (notifyRemote && stream !== undefined) await stream.close().catch(() => undefined)
+}
 
 function findApproval(messages: Record<string, ChatItem[]>, itemId: string) {
   for (const items of Object.values(messages)) {
@@ -875,10 +1154,37 @@ function oldestSeq(events: HistoryEntry[]): number | undefined {
 async function refreshSessionModels(sessionId: string): Promise<void> {
   try {
     const models = await connection.requireProxy().sessionModels(sessionId)
-    useAppStore.setState({ sessionModels: models })
+    useAppStore.setState(state => state.selectedSession?.sessionId === sessionId
+      ? { sessionModels: models }
+      : {})
   } catch {
     // ignored: the chat stays usable without a model catalog
   }
+}
+
+/** Best-effort CodeX model directory load; the Thread remains usable if the Host cannot list models. */
+async function refreshCodexModels(sessionId: string): Promise<void> {
+  try {
+    let models = await loadCodexModels(connection.requireCodex())
+    const selected = codexModelSelections.get(sessionId)
+    if (selected !== undefined && models.groups.some(provider => provider.id === selected.provider
+      && provider.models.some(model => model.id === selected.model))) {
+      models = { ...models, current: selected }
+    }
+    useAppStore.setState(state => state.selectedSession?.sessionId === sessionId
+      ? { sessionModels: models }
+      : {})
+  } catch {
+    // ignored: text/image prompts can use the Host's current CodeX default
+  }
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {}
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

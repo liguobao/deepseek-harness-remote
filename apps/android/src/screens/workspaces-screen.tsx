@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CirclePlus, Eye, EyeOff, Folder, FolderOpen, Laptop, MessageSquareText, MoreVertical, Pencil, Trash2, X } from 'lucide-react-native'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CirclePlus, Code2, Eye, EyeOff, Folder, FolderOpen, Laptop, MessageSquareText, MoreVertical, Pencil, Trash2, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import type { DirectoryListing, RemoteSession, WorkspaceView } from '../types'
 import { Button, EmptyState, IconButton, Screen, TopBar } from '../ui/components'
@@ -84,17 +84,18 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
     ],
   )
 
+  const manageableWorkspaces = workspaces.filter(workspace => workspace.backend !== 'codex')
   const actionsIndex = actionsTarget === undefined
     ? -1
-    : workspaces.findIndex(item => item.workspaceId === actionsTarget.workspaceId)
+    : manageableWorkspaces.findIndex(item => item.workspaceId === actionsTarget.workspaceId)
 
   const moveSelectedWorkspace = (direction: 'up' | 'down') => {
     if (actionsTarget === undefined || actionsIndex < 0) return
     const beforeWorkspaceId = direction === 'up'
-      ? workspaces[actionsIndex - 1]?.workspaceId
-      : workspaces[actionsIndex + 2]?.workspaceId
+      ? manageableWorkspaces[actionsIndex - 1]?.workspaceId
+      : manageableWorkspaces[actionsIndex + 2]?.workspaceId
     if (direction === 'up' && beforeWorkspaceId === undefined) return
-    if (direction === 'down' && actionsIndex >= workspaces.length - 1) return
+    if (direction === 'down' && actionsIndex >= manageableWorkspaces.length - 1) return
     setActionsTarget(undefined)
     void workspaceMove(actionsTarget.workspaceId, beforeWorkspaceId)
   }
@@ -139,12 +140,17 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
                       style={({ pressed }) => [styles.workspaceToggle, pressed && styles.workspaceRowPressed]}
                     >
                       <View style={styles.workspaceIcon}>
-                        {collapsed
-                          ? <Folder size={18} color={colors.primary} />
-                          : <FolderOpen size={18} color={colors.primary} />}
+                        {workspace.backend === 'codex'
+                          ? <Code2 size={18} color={colors.primary} />
+                          : collapsed
+                            ? <Folder size={18} color={colors.primary} />
+                            : <FolderOpen size={18} color={colors.primary} />}
                       </View>
                       <View style={styles.workspaceCopy}>
-                        <Text style={styles.workspaceTitle} numberOfLines={1}>{workspace.title}</Text>
+                        <View style={styles.workspaceTitleRow}>
+                          <Text style={styles.workspaceTitle} numberOfLines={1}>{workspace.title}</Text>
+                          {workspace.backend === 'codex' && <Text style={styles.codexBadge}>{zhCN.workspaces.codex}</Text>}
+                        </View>
                         <Text style={styles.workspacePath} numberOfLines={1} ellipsizeMode="tail">
                           {workspaceParentPath(workspace.path)}
                         </Text>
@@ -154,7 +160,7 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
                         : <ChevronDown size={18} color={colors.subtle} />}
                     </Pressable>
                     <IconButton label={zhCN.workspaces.newSessionIn(workspace.title)} icon={CirclePlus} onPress={() => void createInWorkspace(workspace.workspaceId)} />
-                    <IconButton label={zhCN.workspaces.options} icon={MoreVertical} onPress={() => setActionsTarget(workspace)} />
+                    {workspace.backend !== 'codex' && <IconButton label={zhCN.workspaces.options} icon={MoreVertical} onPress={() => setActionsTarget(workspace)} />}
                   </View>
                   {!collapsed && (workspaceSessions.length === 0
                     ? <Pressable onPress={() => void createInWorkspace(workspace.workspaceId)} style={styles.noSessions}><Text style={styles.noSessionsText}>{zhCN.workspaces.noSessions}</Text></Pressable>
@@ -168,7 +174,11 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
                           onPress={() => void open(session)}
                           style={({ pressed }) => [styles.sessionRow, pressed && styles.workspaceRowPressed, busy !== undefined && !opening && styles.disabled]}
                         >
-                          {opening ? <ActivityIndicator size="small" color={colors.primary} /> : <MessageSquareText size={17} color={colors.muted} />}
+                          {opening
+                            ? <ActivityIndicator size="small" color={colors.primary} />
+                            : session.backend === 'codex'
+                              ? <Code2 size={17} color={colors.muted} />
+                              : <MessageSquareText size={17} color={colors.muted} />}
                           <View style={styles.sessionCopy}>
                           <Text style={styles.sessionTitle} numberOfLines={1}>{resolveSessionTitle(session)}</Text>
                             <Text style={styles.sessionMeta}>{session.running ? zhCN.status.running : relativeTime(session.updatedAt)}</Text>
@@ -196,7 +206,7 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
       <WorkspaceActionsModal
         target={actionsTarget}
         canMoveUp={actionsIndex > 0}
-        canMoveDown={actionsIndex >= 0 && actionsIndex < workspaces.length - 1}
+        canMoveDown={actionsIndex >= 0 && actionsIndex < manageableWorkspaces.length - 1}
         busy={busy !== undefined}
         onClose={() => setActionsTarget(undefined)}
         onRename={() => {
@@ -490,7 +500,9 @@ function createStyles(colors: ThemeColors) {
   disabled: { opacity: 0.55 },
   workspaceIcon: { width: 38, height: 38, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   workspaceCopy: { flex: 1, gap: 2 },
+  workspaceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   workspaceTitle: { ...type.bodyStrong, color: colors.ink },
+  codexBadge: { ...type.caption, color: colors.primary, backgroundColor: colors.primarySoft, borderRadius: radius.sm, paddingHorizontal: spacing.xs, paddingVertical: 1 },
   workspacePath: { ...type.caption, color: colors.muted, fontFamily: 'monospace', writingDirection: 'ltr' },
   workspaceMeta: { ...type.caption, color: colors.muted },
   workspaceGroup: { marginBottom: spacing.lg, backgroundColor: colors.surface, borderRadius: radius.lg, paddingHorizontal: spacing.sm },

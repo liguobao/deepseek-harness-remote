@@ -52,6 +52,8 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 - [x] 增加独立 `codex.app.*` RPC/event/transfer、固定 method schema allowlist 与大 History 分块
 - [x] 增加按 connection 隔离的 stream、active-turn owner、opaque approval handle 与断线 fail-closed
 - [x] 增加共享 Client Core Codex client、`DisplaySession` / `DisplayHistoryItem` 纯展示投影
+- [x] Android 按动态 capability 直接接入 `codex.app.*`，将 `project/list`/Thread/分页 History/live frame 合并到现有 Workspace/Session/Chat
+- [x] Android 接入 CodeX 模型与 reasoning、固定权限预设、系统图片选择器 Prompt、interrupt 和单次命令/文件审批
 - [x] 在 Remote 工作区选择器中增加 CodeX 虚拟工作区入口，不增加本地入口或独立页面
 - [x] 增加 rc.2 ApiProxy / alpha Typert 内存虚拟载体，将 CodeX History/live 映射为原生 Session 事件
 - [x] 将 reasoning/plan delta、command/file/MCP progress、Thread status、model reroute 与 Web Search/Subagent/Image/Compaction/Review Mode Item 投影到原生 chunk、状态、projection 和工具卡片
@@ -64,8 +66,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 - [x] 迁移旧 `dsh-remote` 用户设置，并在 macOS 默认配置下自动发现 ChatGPT App 内置 Codex
 - [ ] 用两台真实 DSH Desktop 跑通加密跨机 resume/turn/event/approval/interrupt 与大 History 传输
 - [ ] 验证 App Server crash、Host transport 重连和多 Desktop Web Client 同时观察同一 Thread
-
-Android Codex navigation/store/screens 已按用户要求移出当前 Plugin-only 交付范围。
+- [ ] 用 Android 真机跑通 CodeX Workspace→Thread→Prompt/steer/approval/interrupt、大 History、图片分块与断线重连
 
 ## P0：协议与安全
 
@@ -124,11 +125,13 @@ capability 探测，以及 Host → Workspace → Session 层级导航、Prompt�
 
 ## Android 恢复开发
 
-`apps/android` 已迁移到当前 rc.2 ApiProxy / alpha Typert Remote 双数据面：账号登录注册、成员设备列表与 identity key
+`apps/android` 已迁移到当前 rc.2 ApiProxy / alpha Typert Remote 双数据面，并接入可选 CodeX Remote：账号登录注册、成员设备列表与 identity key
 固定、Adaptive transport + Noise secure channel、`harness.api.*` 或 `harness.remote.*`
 tunnel 与 mux/Gateway frame 聊天。功能已对标 Web 端 Remote 控制台：新建/继续/归档会话、历史分页、
 模型目录与切换、相册图片 Prompt（Host limits 预检 + transfer 分块）、Workspace 管理（创建+只读目录浏览/重命名/删除/排序）、连接详情面板与
-传输偏好（Auto/TURN/Relay），以及跟随系统/英文/简体中文语言设置。剩余工作：
+传输偏好（Auto/TURN/Relay），以及跟随系统/英文/简体中文语言设置。CodeX 侧直接消费独立
+`codex.app.*`，严格使用 `project/list` Workspace、分页 History/独立 stream、模型/权限、图片 Prompt、
+interrupt 与单次审批，不恢复旧 Android RPC。剩余工作：
 
 - [x] 数据面端到端联调（本地 Server + 真实插件 Host + smoke client）：账号授权、加密 Relay、
       mux 流、会话列表、`host.describe` 透传与 approval `client-response` 应答

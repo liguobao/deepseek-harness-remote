@@ -1,6 +1,8 @@
 import type { TransportStats } from '@dsh-remote/protocol'
 import { strings as zhCN } from './locales/i18n'
 
+export type AgentBackend = 'harness' | 'codex'
+
 export type ConnectionPhase =
   | 'disconnected'
   | 'connecting'
@@ -80,6 +82,8 @@ export interface HostDescriptor {
 
 export interface WorkspaceView {
   workspaceId: string
+  backend?: AgentBackend
+  nativeId?: string
   path: string
   title: string
   sessionIds: string[]
@@ -152,6 +156,8 @@ export interface SessionModels {
 /** Native ApiProxy session row projection (mirrors @deepseek-ai/dsh-host-apiproxy). */
 export interface RemoteSession {
   sessionId: string
+  backend?: AgentBackend
+  nativeId?: string
   updatedAt: number
   running: boolean
   blank: boolean

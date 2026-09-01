@@ -4662,7 +4662,7 @@ function projectCodexItem(value, threadId, turnId, sessionId, index) {
   if (type === "commandExecution") {
     return { ...base, kind: "tool", text: commandExecutionText(item), status: projectItemStatus(item.status), details: { type } };
   }
-  if (type === "mcpToolCall" || type === "dynamicToolCall") {
+  if (isToolItemType(type)) {
     return { ...base, kind: "tool", text: toolCallText(item), status: projectItemStatus(item.status), details: { type } };
   }
   if (type === "fileChange") {
@@ -4704,10 +4704,23 @@ function projectItemStatus(value) {
 function itemText(item) {
   if (typeof item.text === "string")
     return boundedText(item.text);
+  if (typeof item.content === "string")
+    return boundedText(item.content);
   if (!Array.isArray(item.content))
     return void 0;
-  const parts = item.content.flatMap((value) => isRecord(value) && value.type === "text" && typeof value.text === "string" ? [value.text] : []);
+  const parts = item.content.flatMap((value) => {
+    if (typeof value === "string")
+      return [value];
+    if (!isRecord(value))
+      return [];
+    if (typeof value.text === "string")
+      return [value.text];
+    return typeof value.content === "string" ? [value.content] : [];
+  });
   return parts.length > 0 ? boundedText(parts.join("\n")) : void 0;
+}
+function isToolItemType(type) {
+  return type === "mcpToolCall" || type === "dynamicToolCall" || type === "functionCallOutput" || type === "hookPrompt" || type === "collabAgentToolCall" || type === "subAgentActivity" || type === "webSearch" || type === "imageView" || type === "imageGeneration" || type === "sleep" || type === "enteredReviewMode" || type === "exitedReviewMode" || type === "contextCompaction";
 }
 function toolLabel(item) {
   if (typeof item.tool === "string")
@@ -4730,6 +4743,28 @@ function commandExecutionText(item) {
 ${output}`);
 }
 function toolCallText(item) {
+  const type = typeof item.type === "string" ? item.type : void 0;
+  if (type === "webSearch") {
+    const count = Array.isArray(item.results) ? item.results.length : 0;
+    return count === 0 ? "Web search completed." : `Web search returned ${count} result${count === 1 ? "" : "s"}.`;
+  }
+  if (type === "imageView")
+    return `Viewed image: ${typeof item.path === "string" ? item.path : "image"}`;
+  if (type === "imageGeneration") {
+    return typeof item.savedPath === "string" ? `Generated image: ${item.savedPath}` : `Image generation ${typeof item.status === "string" ? item.status : "completed"}.`;
+  }
+  if (type === "contextCompaction")
+    return "CodeX compacted the conversation context.";
+  if (type === "enteredReviewMode" || type === "exitedReviewMode") {
+    const action = type === "enteredReviewMode" ? "Entered" : "Exited";
+    return `${action} review mode${typeof item.review === "string" ? `: ${item.review}` : "."}`;
+  }
+  if (type === "sleep")
+    return `Waited ${typeof item.durationMs === "number" && Number.isFinite(item.durationMs) ? item.durationMs : 0} ms.`;
+  if (type === "subAgentActivity") {
+    const kind = isRecord(item.kind) && typeof item.kind.type === "string" ? item.kind.type : typeof item.kind === "string" ? item.kind : "Subagent activity";
+    return [kind, typeof item.agentPath === "string" ? item.agentPath : void 0].filter((value) => value !== void 0).join(": ");
+  }
   const label = toolLabel(item);
   const error = compactUnknown(item.error);
   const result = compactUnknown(item.result ?? item.contentItems);
@@ -14681,7 +14716,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       if (frame.method === "item/started" && itemId !== void 0) {
         follow.startedItems.add(itemId);
         follow.liveItems.set(itemId, item);
-        if (isToolItemType(string(item.type))) this.ensureToolStarted(follow, item);
+        if (isToolItemType2(string(item.type))) this.ensureToolStarted(follow, item);
       }
       if (frame.method === "item/completed") this.acceptCompletedItem(follow, item, true);
       return;
@@ -15596,7 +15631,7 @@ function itemEvents(item, turn, step, requestId, selection = modelSelection()) {
       }
     }
   }];
-  if (type !== void 0 && isToolItemType(type)) {
+  if (type !== void 0 && isToolItemType2(type)) {
     const name2 = toolEventName(type);
     const args = toolArguments(item);
     return [
@@ -15660,7 +15695,7 @@ function toolResultContentReplacement(event) {
     }
   };
 }
-function isToolItemType(type) {
+function isToolItemType2(type) {
   return type === "commandExecution" || type === "mcpToolCall" || type === "dynamicToolCall" || type === "fileChange" || type === "functionCallOutput" || type === "hookPrompt" || type === "collabAgentToolCall" || type === "subAgentActivity" || type === "webSearch" || type === "imageView" || type === "imageGeneration" || type === "sleep" || type === "enteredReviewMode" || type === "exitedReviewMode" || type === "contextCompaction";
 }
 function toolEventName(type) {

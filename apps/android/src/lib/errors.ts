@@ -16,6 +16,8 @@ export function friendlyError(error: unknown): string {
   const friendlyByCode: Record<string, string> = zhCN.errors
   if (error instanceof RemoteApiError) return friendlyByCode[error.code] ?? error.message
   if (error instanceof Error) {
+    const code = (error as Error & { code?: unknown }).code
+    if (typeof code === 'string' && friendlyByCode[code] !== undefined) return friendlyByCode[code]!
     if (/network request failed|failed to fetch|websocket/i.test(error.message)) {
       return zhCN.errors.serverUnreachable
     }

@@ -113,8 +113,8 @@ toolbar also lets you switch the active model and choose any reasoning effort de
 DSH Desktop / Remote Web / Android
   ↔ authenticated, end-to-end encrypted channel
 Remote Plugin on the Host
-  ↔ allowlisted native Harness API
-Harness sessions, tools, and workspaces
+  ↔ allowlisted native Harness API or optional CodeX App Server domain
+Harness sessions/workspaces or CodeX Threads/projects
 ```
 
 ## Experimental Codex virtual workspaces
@@ -125,9 +125,14 @@ DSH Workspace/Session data plane to an in-memory virtual carrier: CodeX threads 
 and their history and live frames are projected into native DSH Session events. The existing DSH
 workspace list, conversation renderer, composer, tool cards, and approval UI remain responsible for
 the interface; there is no separate CodeX page. The native Session permission control can switch
-between `Workspace write` and explicitly confirmed `Full access`. The CodeX Composer accepts text
-and clipboard-pasted PNG, JPEG, WebP, or GIF image prompts over the bounded
-encrypted transfer path. The “+” entry remains hidden because general file attachments are not exposed.
+between `Workspace write` and explicitly confirmed `Full access`. CodeX accepts text plus PNG, JPEG,
+WebP, or GIF image prompts from Desktop clipboard paste or Android's system image picker over the
+bounded encrypted transfer path. General file attachments are not exposed.
+
+Android consumes the same authenticated `codex.app.*` carrier directly after capability discovery.
+It merges CodeX projects into its existing workspace screen, keeps those project rows read-only,
+and reuses the mobile conversation, model, permission, image, tool, interrupt, and approval controls.
+The Android state is also an in-memory display projection; it never creates a second CodeX data store.
 
 The live projection covers assistant/reasoning/plan deltas, command and file output, file-change
 summaries, MCP progress, thread status, and model reroutes. Web Search, Subagent, Image, Compaction,
@@ -145,8 +150,8 @@ to DSH SessionStore, workspace storage, or Harness logs. CodeX App Server remain
 and `project/list` is the only source of truth for visible CodeX Workspaces. Create, rename, archive,
 prompt, interrupt, and approval actions are routed back to its allowlisted methods. The Host carrier
 still uses the existing account membership, pinned Host identity, Noise channel, and adaptive transport.
-CodeX is disabled by default. Real encrypted cross-machine turn/approval testing is still pending;
-Android is outside the current Plugin-only scope.
+CodeX is disabled by default. Real encrypted cross-machine turn/approval testing on Desktop and
+Android is still pending.
 
 ```yaml
 ds-harness-remote:

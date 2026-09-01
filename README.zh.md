@@ -109,8 +109,8 @@ Workspace 会在 Harness 原生界面中打开，顶部显示当前 Host 和加�
 DSH Desktop / Remote Web / Android
   ↔ 已认证的端到端加密通道
 Host 上的 Remote 插件
-  ↔ 白名单限制的 Harness 原生 API
-Harness 会话、工具和 Workspace
+  ↔ 白名单限制的 Harness 原生 API 或可选 CodeX App Server 领域
+Harness 会话/Workspace 或 CodeX Thread/项目
 ```
 
 ## 实验性 Codex 虚拟工作区
@@ -120,8 +120,12 @@ Codex 是同一个 Remote Plugin 内的可选独立领域。连接 Host 后，�
 CodeX Thread 以 Session 形式出现，History 与实时 frame 被投影成 DSH 原生 Session 事件。界面仍由
 DSH 原生工作区列表、Conversation Renderer、Composer、工具卡片和审批组件负责，不再提供独立
 CodeX 页面。原生 Session 权限控件可在 `Workspace write` 与显式确认风险后的 `Full access` 间切换。
-CodeX Composer 支持文本以及从剪贴板粘贴的 PNG、JPEG、WebP 或 GIF 图片 Prompt，图片通过有界的
-加密分块通道传输；由于仍不开放通用文件附件，“+”入口继续隐藏。
+CodeX 支持文本，以及桌面端剪贴板粘贴或 Android 系统图片选择器提供的 PNG、JPEG、WebP、GIF
+图片 Prompt，图片通过有界的加密分块通道传输；通用文件附件仍不开放。
+
+Android 会在 capability 探测后直接消费同一条已认证的 `codex.app.*` carrier，把 CodeX 项目合并到
+现有工作区页面，并保持项目行只读；会话页继续复用 Android 已有的模型、权限、图片、工具、停止和
+审批控件。Android 状态同样只是内存展示投影，不会创建第二套 CodeX 数据存储。
 
 实时投影覆盖 assistant/reasoning/plan 增量、命令与文件输出、文件变更摘要、MCP progress、Thread
 运行状态和 model reroute；Web Search、Subagent、Image、Compaction 与 Review Mode 等 Item 复用
@@ -136,8 +140,8 @@ Server 列表可见前由 Plugin 临时保留。History 由 Host 按 DSH 消息�
 这只是展示适配，不是导入。虚拟 Workspace/Session 不会写入 DSH SessionStore、工作区存储或
 Harness 日志；CodeX App Server 始终是唯一数据源，其中 `project/list` 是可见 CodeX Workspace 的
 唯一来源。新建、改名、归档、Prompt、停止和审批操作都路由回其白名单方法。Host carrier 继续复用
-账号 membership、Host identity 固定、Noise 安全通道和自适应传输。Codex 默认关闭。加密跨机
-turn/approval 联调仍待完成；Android 不属于当前 Plugin-only 范围。
+账号 membership、Host identity 固定、Noise 安全通道和自适应传输。Codex 默认关闭。Desktop 与
+Android 的加密跨机 turn/approval 联调仍待完成。
 
 ```yaml
 ds-harness-remote:

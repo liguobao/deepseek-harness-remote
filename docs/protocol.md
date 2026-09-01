@@ -646,7 +646,8 @@ Plugin Host 的业务路由只接受 capability 对应的官方 Harness tunnel�
 `fileviewer.read.v1` capability 下的 `fileviewer.call`。可选 Codex 领域仍属于同一个 Remote Plugin，
 但在线上仍使用独立的 `codex.appserver.v1` / `codex.appserver.transfer.v1` capability、
 `codex.app.*` RPC 和 event namespace；只有认证 Client Plugin 内的临时展示 target 可以把它包装成
-原生 Harness Session carrier，Host 与 Server 不得伪造或持久化 Harness Session。
+原生 Harness Session carrier，Android Client 则只能在本机内存中投影到已有移动端状态。Host、Server
+与 Android 都不得伪造或持久化第二份 Harness/CodeX Session。
 旧 `system.info`、`workspace.get`、`sessions.*`、`session.*`、
 `permissions.respond`、`connection.ping` 与 `sync.from` 已退出 Plugin 协议，Host 必须返回
 `METHOD_NOT_FOUND`。Android 旧原型不是兼容目标。
@@ -1163,6 +1164,9 @@ carrier 包装成临时 rc.2 `ApiProxy` 或 alpha Typert target。该 target 只
 Thread、History/live frame 映射为 DSH 原生 Workspace/Session/Event，使原生 Conversation Renderer
 和 Composer 可以消费；它不是新的线协议，也不得把虚拟记录写入 DSH SessionStore、Workspace
 数据库或 Harness 日志。退出 CodeX 模式或连接关闭时必须销毁 target 和全部 stream。
+Android Client 可在相同 capability 探测后直接消费该 `codex.app.*` carrier，并只在 Android 内存中
+把 `project/list`、Thread 与 History/live frame 投影到已有 Workspace/Session/Chat 状态；不得据此
+恢复冻结的旧 Android `sessions.*`/`session.*` RPC，也不得持久化第二份 CodeX 数据。
 
 业务 RPC 固定为：
 
@@ -1178,7 +1182,7 @@ Thread、History/live frame 映射为 DSH 原生 Workspace/Session/Event，使�
 `thread/shellCommand`、`thread/inject_items`、`thread/rollback`、background terminal、
 `command/*`、`process/*`、`config/*`、登录写接口和实验 API 一律返回 `METHOD_NOT_ALLOWED`。
 
-CodeX App Server 的 `project/list` 是虚拟 Workspace 的唯一来源。Client Plugin 不得根据
+CodeX App Server 的 `project/list` 是虚拟 Workspace 的唯一来源。Client Plugin 与 Android Client 不得根据
 `thread/list.cwd` 合成额外 Workspace；`thread/list` 里不能归属到任一 CodeX project id 或 project
 root 的 Thread 不得返回为可见 Session。其它带 `threadId` 的调用必须先用只读
 `thread/read(includeTurns:false)` 重新验证该 Thread 仍属于 `project/list` 暴露的项目；如果该只读
@@ -1193,7 +1197,8 @@ App Server 的审批与 sandbox 字段，不接受任意 sandbox、writable root
 重新注入 canonical 策略，不能依赖 Client 提交的底层字段或 Thread 历史里的旧策略。审批响应本身仍
 只允许单次 accept/decline/cancel，不提供 `allow_session`。
 
-CodeX 虚拟 Session 接受文本和 Composer 从剪贴板产生的 PNG、JPEG、WebP、GIF 图片 Prompt。
+CodeX 虚拟 Session 接受文本，以及 Desktop Composer 从剪贴板或 Android 系统图片选择器产生的
+PNG、JPEG、WebP、GIF 图片 Prompt。
 Client 只能把原生 `{ type: "image", mediaType, data }` 转为 CodeX 领域的同形受限 input，并在存在
 图片时使用 `codex.appserver.transfer.v1`；Host 必须验证 MIME、canonical base64、part 数量与
 288 MiB envelope 上限，再转换为 App Server 的 `{ type: "image", url: "data:..." }`。禁止外部
@@ -1217,7 +1222,8 @@ App Server 意外退出或 stdio 失效时，Host 立即撤回动态 capability�
 handle，并以 `failed` 结束全部旧 Codex stream。Host 按 `1s -> 2s -> 4s -> 8s -> 15s` 最多五次
 重启 App Server；重启只重新执行 initialize/account probe，禁止重放任何 call/mutation。Desktop
 Client 必须重新探测 capability，重新打开 stream，并以 `thread/read(includeTurns:true)` 替换本地
-baseline 后继续归并 live event。
+baseline 后继续归并 live event。Android Client 同样必须重新探测 capability、重开 stream，并以
+Host 分页 `dsh/sessionHistory` 替换移动端 baseline；任何一端都不得自动重放不确定的 mutation。
 
 Desktop 打开 Thread 时只用 `thread/read(includeTurns:true)` 建立持久化 baseline，Remote stream
 只是 Host 侧的事件过滤器，不得因纯查看自动调用 `thread/resume`。用户明确继续发送前才
@@ -1494,7 +1500,7 @@ Server/Host 可协商更小限制，但必须在 hello/system.info 中公布。�
 12. 日志禁止记录 token、code 明文、key、prompt、source、workspace 和 tool output。
 13. Admin 无法从数据库或 API 获取 E2EE conversation。
 14. 未协商 capability 的功能不得调用或展示为可用。
-15. Codex Thread 继续归 Codex App Server 所有；Remote 可在 Client Plugin 内临时伪装为原生 Workspace/Session/Event 供展示与操作，但不得写入 DSH SessionStore、Workspace 数据库或 Harness 日志。
+15. Codex Thread 继续归 Codex App Server 所有；Remote 可在 Client Plugin 内临时伪装为原生 Workspace/Session/Event，也可在 Android 内存中投影为已有移动端 Workspace/Session/Chat 供展示与操作，但不得写入 DSH SessionStore、Workspace 数据库、Harness 日志或另建 CodeX 数据存储。
 
 ## 26. Conformance 测试
 

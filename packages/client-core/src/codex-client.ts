@@ -374,6 +374,27 @@ export function reduceCodexTimelineFrame(
     return { ...state, items: next }
   }
 
+  if ((frame.method === 'item/reasoning/summaryTextDelta'
+    || frame.method === 'item/reasoning/textDelta'
+    || frame.method === 'item/plan/delta')
+    && typeof params.itemId === 'string'
+    && typeof params.delta === 'string') {
+    const turnId = extractNotificationTurnId(params) ?? state.activeTurnId ?? 'active'
+    const type = frame.method === 'item/plan/delta' ? 'plan' : 'reasoning'
+    return appendOrCreateStatusItem(state, params.itemId, turnId, type, params.delta)
+  }
+
+  if (frame.method === 'turn/plan/updated' && Array.isArray(params.plan)) {
+    const turnId = extractNotificationTurnId(params) ?? state.activeTurnId ?? 'active'
+    const text = params.plan.flatMap(value => {
+      const item = isRecord(value) ? value : undefined
+      if (typeof item?.step !== 'string') return []
+      const marker = item.status === 'completed' ? '[x]' : item.status === 'inProgress' ? '[~]' : '[ ]'
+      return [`${marker} ${item.step}`]
+    }).join('\n')
+    return replaceOrCreateStatusItem(state, `plan:${turnId}`, turnId, 'plan', text)
+  }
+
   if ((frame.method === 'item/commandExecution/outputDelta'
     || frame.method === 'item/fileChange/outputDelta')
     && typeof params.itemId === 'string'
@@ -441,6 +462,10 @@ export function reduceCodexTimelineFrame(
         ...(turnId === undefined ? {} : { turnId }),
         requestHandle: params.requestHandle,
       },
+      details: {
+        kind: approval.kind,
+        ...(approval.reason === undefined ? {} : { reason: approval.reason }),
+      },
     }
     return { ...state, approval, items: upsertItems(state.items, [approvalItem]), session: { ...state.session, status: 'waiting' } }
   }
@@ -469,7 +494,7 @@ export function projectCodexItem(
   if (type === 'commandExecution') {
     return { ...base, kind: 'tool', text: commandExecutionText(item), status: projectItemStatus(item.status), details: { type } }
   }
-  if (type === 'mcpToolCall' || type === 'dynamicToolCall') {
+  if (isToolItemType(type)) {
     return { ...base, kind: 'tool', text: toolCallText(item), status: projectItemStatus(item.status), details: { type } }
   }
   if (type === 'fileChange') {
@@ -513,6 +538,46 @@ function replaceItemText(state: CodexTimelineState, itemId: string, text: string
   if (index < 0) return state
   const items = [...state.items]
   items[index] = { ...items[index]!, text: boundedText(text), status: 'running' }
+  return { ...state, items }
+}
+
+function appendOrCreateStatusItem(
+  state: CodexTimelineState,
+  itemId: string,
+  turnId: string,
+  type: 'reasoning' | 'plan',
+  delta: string,
+): CodexTimelineState {
+  const index = state.items.findIndex(item => item.nativeRef.itemId === itemId && item.details?.type === type)
+  if (index < 0) return replaceOrCreateStatusItem(state, itemId, turnId, type, delta)
+  const items = [...state.items]
+  const current = items[index]!
+  items[index] = { ...current, text: boundedText(`${current.text ?? ''}${delta}`), status: 'running' }
+  return { ...state, items }
+}
+
+function replaceOrCreateStatusItem(
+  state: CodexTimelineState,
+  itemId: string,
+  turnId: string,
+  type: 'reasoning' | 'plan',
+  text: string,
+): CodexTimelineState {
+  const id = `codex:${state.session.nativeId}:${turnId}:${itemId}`
+  const incoming: DisplayHistoryItem = {
+    id,
+    sessionId: state.session.id,
+    backend: 'codex',
+    kind: 'status',
+    text: boundedText(text),
+    status: 'running',
+    nativeRef: { threadId: state.session.nativeId, turnId, itemId },
+    details: { type },
+  }
+  const index = state.items.findIndex(item => item.id === id || item.nativeRef.itemId === itemId)
+  if (index < 0) return { ...state, items: [...state.items, incoming] }
+  const items = [...state.items]
+  items[index] = incoming
   return { ...state, items }
 }
 
@@ -560,9 +625,31 @@ function projectItemStatus(value: unknown): DisplayHistoryItem['status'] {
 
 function itemText(item: Record<string, unknown>): string | undefined {
   if (typeof item.text === 'string') return boundedText(item.text)
+  if (typeof item.content === 'string') return boundedText(item.content)
   if (!Array.isArray(item.content)) return undefined
-  const parts = item.content.flatMap(value => isRecord(value) && value.type === 'text' && typeof value.text === 'string' ? [value.text] : [])
+  const parts = item.content.flatMap(value => {
+    if (typeof value === 'string') return [value]
+    if (!isRecord(value)) return []
+    if (typeof value.text === 'string') return [value.text]
+    return typeof value.content === 'string' ? [value.content] : []
+  })
   return parts.length > 0 ? boundedText(parts.join('\n')) : undefined
+}
+
+function isToolItemType(type: string): boolean {
+  return type === 'mcpToolCall'
+    || type === 'dynamicToolCall'
+    || type === 'functionCallOutput'
+    || type === 'hookPrompt'
+    || type === 'collabAgentToolCall'
+    || type === 'subAgentActivity'
+    || type === 'webSearch'
+    || type === 'imageView'
+    || type === 'imageGeneration'
+    || type === 'sleep'
+    || type === 'enteredReviewMode'
+    || type === 'exitedReviewMode'
+    || type === 'contextCompaction'
 }
 
 function toolLabel(item: Record<string, unknown>): string | undefined {
@@ -581,6 +668,30 @@ function commandExecutionText(item: Record<string, unknown>): string | undefined
 }
 
 function toolCallText(item: Record<string, unknown>): string | undefined {
+  const type = typeof item.type === 'string' ? item.type : undefined
+  if (type === 'webSearch') {
+    const count = Array.isArray(item.results) ? item.results.length : 0
+    return count === 0 ? 'Web search completed.' : `Web search returned ${count} result${count === 1 ? '' : 's'}.`
+  }
+  if (type === 'imageView') return `Viewed image: ${typeof item.path === 'string' ? item.path : 'image'}`
+  if (type === 'imageGeneration') {
+    return typeof item.savedPath === 'string'
+      ? `Generated image: ${item.savedPath}`
+      : `Image generation ${typeof item.status === 'string' ? item.status : 'completed'}.`
+  }
+  if (type === 'contextCompaction') return 'CodeX compacted the conversation context.'
+  if (type === 'enteredReviewMode' || type === 'exitedReviewMode') {
+    const action = type === 'enteredReviewMode' ? 'Entered' : 'Exited'
+    return `${action} review mode${typeof item.review === 'string' ? `: ${item.review}` : '.'}`
+  }
+  if (type === 'sleep') return `Waited ${typeof item.durationMs === 'number' && Number.isFinite(item.durationMs) ? item.durationMs : 0} ms.`
+  if (type === 'subAgentActivity') {
+    const kind = isRecord(item.kind) && typeof item.kind.type === 'string'
+      ? item.kind.type
+      : typeof item.kind === 'string' ? item.kind : 'Subagent activity'
+    return [kind, typeof item.agentPath === 'string' ? item.agentPath : undefined]
+      .filter((value): value is string => value !== undefined).join(': ')
+  }
   const label = toolLabel(item)
   const error = compactUnknown(item.error)
   const result = compactUnknown(item.result ?? item.contentItems)

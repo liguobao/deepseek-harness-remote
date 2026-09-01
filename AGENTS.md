@@ -7,7 +7,7 @@
 当前仓库实现：
 
 - DeepSeek Harness Plugin（Remote Host + 本地 Remote 工作区入口；无用户可见的 Client 模式）
-- Android Client（账号授权 + Adaptive transport + rc.2 ApiProxy / alpha.1/alpha.2 Typert Remote 双数据面）
+- Android Client（账号授权 + Adaptive transport + rc.2 ApiProxy / alpha.1/alpha.2 Typert Remote + 可选 CodeX Remote）
 - VS Code Client（账号授权 + Host 信任固定 + rc.2 ApiProxy / alpha.1/alpha.2 Typert Remote 会话/Prompt）
 - Protocol、Crypto、WebRTC、Client Core 等共享能力
 - 依赖外部 Server 的 Mock Host/Smoke Client
@@ -26,7 +26,7 @@ Server、Remote Web 和 Admin 必须由独立 Server 仓库作为同一站点实
 
 ```text
 apps/
-  android/             React Native / Expo Android Client（账号授权 + ApiProxy/Typert Remote tunnel）
+  android/             React Native / Expo Android Client（账号授权 + ApiProxy/Typert/CodeX Remote tunnel）
   vscode/              VS Code Extension Client（Host 列表、加密连接与远程会话）
   browser/             Chrome/Edge MV3 入口（Web 授权换取独立凭证 + 在线 Host + 打开 Remote Web）
 packages/
@@ -56,7 +56,7 @@ docs/
 | --- | --- | --- |
 | Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 rc.2 ApiProxy / alpha.1/alpha.2 Typert Remote allowlist bridge 已实现；无自定义 Harness 业务适配层 | rc.2 与 alpha 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
 | Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；Remote 模态框支持 GitHub/知乎扫码与账号密码登录、本机过滤、主机/版本信息、已有 Workspace、远端目录浏览、rc.2/alpha 图片 Prompt/回显，以及配合 dsh-file-viewer 的受限只读文件预览，随后复用原生 Harness UI；加密通道 capability 探测保留 legacy Host 降级并拒绝 rc.2/alpha 混连 | 真实 dsh-desktop 跨机 E2E、断线重连、页面级导航接口 |
-| Android | 已迁移到 rc.2 ApiProxy / alpha Typert Remote 双数据面：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、capability 探测、mux 或 Gateway frame 聊天与图片 Prompt（Host limits 预检 + transfer 分块）、跟随系统/英文/简体中文界面 | rc.2/alpha 真机 E2E 与 Server 联调、图片选择/大图传输真机验证、重连后 stream 重开与 history baseline、WebRTC 走通验证 |
+| Android | 已迁移到 rc.2 ApiProxy / alpha Typert Remote 双数据面，并直接接入可选 `codex.app.*`：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、capability 探测、Harness/CodeX Workspace 与 Session、分页 History/live frame、模型/权限、文字/图片 Prompt、interrupt 与审批，以及跟随系统/英文/简体中文界面 | rc.2/alpha/CodeX 真机跨机 E2E、图片选择/大图传输真机验证、重连后 stream 重开与 history baseline、WebRTC 走通验证 |
 | VS Code | Extension 基础已实现：SecretStorage 身份/凭证、账号/扫码登录、Host 指纹固定、Adaptive transport + Noise、rc.2 ApiProxy / alpha Typert Remote Host→Workspace→Session 导航、Prompt、permission command 与编辑区会话面板 | Extension Host 跨机 E2E、实时流式更新、question 界面与重连恢复 |
 | Browser | Chrome/Edge MV3 轻量入口已实现：临时读取已登录 Web 的授权并换取隔离的 device credential，popup 展示在线 Host，点击后直接打开同源 Remote Web；不承载账号登录、Remote transport、ApiProxy 或会话 UI | 与独立 Server 联调，并加载 unpacked 验证 |
 | Protocol | Control/Relay 与 ApiProxy tunnel 基础已实现 | 完整 Zod schema、limits、golden vectors |
@@ -64,7 +64,7 @@ docs/
 | Relay Transport | Protocol v1 control/relay 已实现 | 心跳、限制协商、断线状态传播 |
 | WebRTC | signaling、ICE、TURN、LAN/P2P/Relay 自适应路径基础已实现 | 真实跨网互操作、网络切换恢复和长期稳定性 |
 | Client Core | ApiProxy tunnel RPC/Event 关联基础已实现 | reconnect、pending call/stream 恢复 |
-| Codex Remote 领域 | 作为现有 Remote Plugin 内部可选领域：Host stdio App Server、显式开关/根目录、固定 allowlist 与连接隔离已实现；Remote 工作区选择器可选择 CodeX 虚拟工作区，Plugin 以 rc.2 ApiProxy / alpha Typert 内存载体把 Thread/History/live 投影为原生 Workspace/Session/Event，并复用 DSH 原生 Conversation/Composer；不落库且无独立页面 | 两台真实 DSH Desktop 的加密跨机 Workspace→Session→Prompt/approval/interrupt、大 History 与多 Client E2E；Android 不在当前 Plugin-only 范围 |
+| Codex Remote 领域 | 作为现有 Remote Plugin 内部可选领域：Host stdio App Server、显式开关/根目录、固定 allowlist 与连接隔离已实现；Desktop 以 rc.2 ApiProxy / alpha Typert 内存载体复用 DSH 原生 UI，Android 直接消费同一 `codex.app.*` 并复用移动端 Workspace/Session/Chat；两端都只保留内存展示投影 | 两台真实 DSH Desktop 与 Android 的加密跨机 Workspace→Session→Prompt/approval/interrupt、大 History、断线恢复与多 Client E2E |
 | Mock Host | 旧 Android Remote RPC 联调工具，当前冻结 | 若恢复 Android 再迁移或替换 |
 | Desktop | Host 设置、Remote 工作区模态框、远程 Header、连接链路与加密状态已接入 Harness Web UI | 完成原生窗口跨机 E2E |
 | Server/Remote Web/Admin | 本仓库仅保留文档；独立 Server 仓库已有实现 | runtime 变更只在独立 Server 仓库完成，并同步跨仓库契约 |
@@ -99,10 +99,10 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 
 ## Validation Baseline
 
-截至 2026-08-31：
+截至 2026-09-01：
 
 - workspace check 与 DSH bundle 校验通过
-- Plugin test 通过：25 个测试文件、143 个测试；完整 workspace 数量以当前 CI 输出为准
+- Plugin test 通过：25 个测试文件、163 个测试；Android test 通过：11 个测试文件、64 个测试；完整 workspace 数量以当前 CI 输出为准
 - workspace build 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 
@@ -119,7 +119,7 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 7. Token、私钥、主机匹配码、prompt、源码和工具输出不得写日志。
 8. Harness rc.2 业务层只使用官方 `ApiProxy`，alpha.1/alpha.2 业务层只使用官方 `TypertGateway` Remote carrier；可选文件预览只使用 dsh-file-viewer 的 provider 授权服务。除规则 10 规定的 CodeX 内存展示载体外，禁止增加 session/agent/workspace/permission adapter、另一套 Harness wire format 或通用文件系统协议。
 9. 不修改用户已有变更，不提交 `node_modules`、Expo cache、Android build 产物或个人 Agent 配置；唯一允许提交的 `dist` 是根 DSH GitHub Bundle 所需的 `packages/plugin/dist/index.js` 与 `client.github.js`，另需保留根 Host 入口 `index.js`。
-10. Codex 支持必须保留在现有 Remote Plugin 内，并作为 `packages/plugin/src/codex/` 独立业务领域实现；默认关闭，使用独立 capability/RPC/event/state。允许在 Client Plugin 内以临时 rc.2 ApiProxy / alpha Typert 载体把 CodeX Thread 伪装成原生 Workspace/Session/Event，仅用于 DSH 原生渲染与操作；禁止写入 DSH SessionStore、Workspace 数据库或 Harness 日志。远端只允许编译期固定 App Server allowlist，并以 CodeX App Server 的 `project/list` 作为 Workspace 唯一来源。
+10. Codex 支持必须保留在现有 Remote Plugin 内，并作为 `packages/plugin/src/codex/` 独立业务领域实现；默认关闭，使用独立 capability/RPC/event/state。允许 Client Plugin 以临时 rc.2 ApiProxy / alpha Typert 载体复用 DSH 原生 UI，也允许 Android 直接消费同一 `codex.app.*` 并只在内存中投影其移动端 Workspace/Session/Chat；两者都禁止写入 DSH SessionStore、Workspace 数据库或 Harness 日志。远端只允许编译期固定 App Server allowlist，并以 CodeX App Server 的 `project/list` 作为 Workspace 唯一来源。
 
 ## Test Policy
 

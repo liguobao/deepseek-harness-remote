@@ -5,11 +5,12 @@ import { fileURLToPath } from 'node:url'
 const androidRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repositoryRoot = resolve(androidRoot, '../..')
 
-const [appConfig, packageMetadata, remoteGateway, alphaClient] = await Promise.all([
+const [appConfig, packageMetadata, remoteGateway, alphaClient, codexClient] = await Promise.all([
   readJson(resolve(androidRoot, 'app.json')),
   readJson(resolve(androidRoot, 'package.json')),
   readFile(resolve(repositoryRoot, 'packages/client-core/dist/remote-gateway.js'), 'utf8'),
   readFile(resolve(repositoryRoot, 'packages/client-core/dist/harness-alpha-client.js'), 'utf8'),
+  readFile(resolve(repositoryRoot, 'packages/client-core/dist/codex-client.js'), 'utf8'),
 ])
 
 const appVersion = appConfig?.expo?.version
@@ -30,8 +31,13 @@ for (const marker of ['harness.api.v1', 'harness.remote.v1', 'harness.remote.cal
 if (!alphaClient.includes('HarnessAlphaClient')) {
   throw new Error('Compiled client-core is stale or incomplete: missing HarnessAlphaClient.')
 }
+for (const marker of ['CodexRemoteClient', 'codex.app.call', 'codex.app.stream.open', 'codex.app.transfer.open']) {
+  if (!codexClient.includes(marker)) {
+    throw new Error(`Compiled client-core is stale or incomplete: missing ${marker}.`)
+  }
+}
 
-console.log(`Android workspace data planes verified: rc.2 ApiProxy + alpha Typert Remote (${appVersion})`)
+console.log(`Android workspace data planes verified: rc.2 ApiProxy + alpha Typert Remote + CodeX Remote (${appVersion})`)
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, 'utf8'))

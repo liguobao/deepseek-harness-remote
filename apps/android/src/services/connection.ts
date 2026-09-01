@@ -1,4 +1,4 @@
-import { HarnessAlphaClient, RemoteClientCore, probeRemoteHostFeatures } from '@dsh-remote/client-core'
+import { CodexRemoteClient, HarnessAlphaClient, RemoteClientCore, probeRemoteHostFeatures } from '@dsh-remote/client-core'
 import { AdaptiveTransport, type RtcIceServer } from '@dsh-remote/webrtc'
 import { websocketUrl } from '../lib/server-url'
 import { strings } from '../locales/i18n'
@@ -21,6 +21,7 @@ export interface AndroidConnectionOptions {
 export class AndroidRemoteConnection {
   private core?: RemoteClientCore
   private proxy?: RemoteHarnessClient
+  private codex?: CodexRemoteClient
   private closeMux?: (notifyRemote?: boolean) => Promise<void>
   private unsubscribeClose?: () => void
   private muxHandler?: MuxFrameHandler
@@ -85,6 +86,7 @@ export class AndroidRemoteConnection {
         this.closeMux = undefined
         this.core = undefined
         this.proxy = undefined
+        this.codex = undefined
         if (!replacingFallback) options.onClose?.()
       })
       await core.connect()
@@ -107,6 +109,10 @@ export class AndroidRemoteConnection {
         core = await connectCore(true)
       }
       const features = await probeRemoteHostFeatures(core, host.clientVersion)
+      const capabilities = new Set(features.capabilities)
+      if (capabilities.has('codex.appserver.v1') && capabilities.has('codex.appserver.transfer.v1')) {
+        this.codex = new CodexRemoteClient(core)
+      }
       if (features.remoteGateway) {
         const alpha = new HarnessAlphaClient(
           core,
@@ -135,6 +141,16 @@ export class AndroidRemoteConnection {
     return this.proxy
   }
 
+  /** Optional CodeX business client; available only when the Host advertises both domain capabilities. */
+  requireCodex(): CodexRemoteClient {
+    if (this.codex === undefined) throw new Error(strings.runtime.codexUnavailable)
+    return this.codex
+  }
+
+  hasCodex(): boolean {
+    return this.codex !== undefined
+  }
+
   getStats() {
     return this.core?.getStats()
   }
@@ -152,6 +168,7 @@ export class AndroidRemoteConnection {
     const core = this.core
     this.core = undefined
     this.proxy = undefined
+    this.codex = undefined
     if (core !== undefined) await core.close()
   }
 }

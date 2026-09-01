@@ -188,10 +188,14 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
     setPermissionPickerOpen(false)
     const apply = () => void selectPermission(preset)
     if (preset === 'danger-full-access') {
-      Alert.alert(zhCN.chat.fullAccessTitle, zhCN.chat.fullAccessBody, [
+      Alert.alert(
+        session.backend === 'codex' ? zhCN.chat.codexFullAccessTitle : zhCN.chat.fullAccessTitle,
+        session.backend === 'codex' ? zhCN.chat.codexFullAccessBody : zhCN.chat.fullAccessBody,
+        [
         { text: zhCN.common.cancel, style: 'cancel' },
         { text: zhCN.chat.enable, style: 'destructive', onPress: apply },
-      ])
+        ],
+      )
     } else apply()
   }
   return (
@@ -239,7 +243,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         renderItem={renderChatItem}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
-        ListEmptyComponent={<WelcomeMessage />}
+        ListEmptyComponent={<WelcomeMessage backend={session.backend} />}
         ListHeaderComponent={historyHasMore ? (
           <Pressable
             accessibilityRole="button"
@@ -287,11 +291,11 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
               : <ImagePlus size={20} color={connected ? colors.primary : colors.disabled} />}
           </Pressable>
           <TextInput
-            accessibilityLabel={zhCN.chat.messageLabel}
+            accessibilityLabel={session.backend === 'codex' ? zhCN.chat.codexMessageLabel : zhCN.chat.messageLabel}
             style={styles.composerInput}
             value={draft}
             onChangeText={setDraft}
-            placeholder={zhCN.chat.placeholder}
+            placeholder={session.backend === 'codex' ? zhCN.chat.codexPlaceholder : zhCN.chat.placeholder}
             placeholderTextColor={colors.muted}
             multiline
             maxLength={12_000}
@@ -763,10 +767,11 @@ function ApprovalCard({ item, busy, onRespond }: {
   const styles = useThemedStyles(createStyles)
   if (item.outcome !== undefined) {
     const denied = item.outcome === 'rejected' || item.outcome === 'cancelled' || item.outcome === 'unavailable'
+    const handledElsewhere = item.outcome === 'unavailable'
     return (
       <View style={styles.permissionResolved}>
-        {denied ? <X size={18} color={colors.danger} /> : <Check size={18} color={colors.success} />}
-        <Text style={styles.permissionResolvedText}>{denied ? zhCN.chat.denied : zhCN.chat.allowedOnce}</Text>
+        {denied && !handledElsewhere ? <X size={18} color={colors.danger} /> : <Check size={18} color={colors.success} />}
+        <Text style={styles.permissionResolvedText}>{handledElsewhere ? zhCN.chat.approvalHandled : denied ? zhCN.chat.denied : zhCN.chat.allowedOnce}</Text>
       </View>
     )
   }
@@ -858,14 +863,14 @@ function QuestionCard({ item, busy, onRespond }: {
   )
 }
 
-function WelcomeMessage() {
+function WelcomeMessage({ backend }: { backend?: 'harness' | 'codex' }) {
   const { colors } = useTheme()
   const styles = useThemedStyles(createStyles)
   return (
     <View style={styles.welcome}>
       <View style={styles.welcomeIcon}><Bot size={25} color={colors.primary} /></View>
-      <Text style={styles.welcomeTitle}>{zhCN.chat.welcomeTitle}</Text>
-      <Text style={styles.welcomeBody}>{zhCN.chat.welcomeBody}</Text>
+      <Text style={styles.welcomeTitle}>{backend === 'codex' ? zhCN.chat.codexWelcomeTitle : zhCN.chat.welcomeTitle}</Text>
+      <Text style={styles.welcomeBody}>{backend === 'codex' ? zhCN.chat.codexWelcomeBody : zhCN.chat.welcomeBody}</Text>
     </View>
   )
 }
