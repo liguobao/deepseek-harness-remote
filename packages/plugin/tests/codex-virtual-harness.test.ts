@@ -388,6 +388,17 @@ describe('CodexVirtualHarness', () => {
     } })
 
     client.emit('thr_1', {
+      method: 'thread/name/updated',
+      params: { threadId: 'thr_1', name: 'Generated CodeX title' },
+    })
+    await expect(controlIterator.next()).resolves.toMatchObject({ value: {
+      type: 'projection',
+      sessionId: 'codex:thr_1',
+      key: 'title',
+      value: 'Generated CodeX title',
+    } })
+
+    client.emit('thr_1', {
       method: 'model/rerouted',
       params: { threadId: 'thr_1', turnId: 'turn_2', fromModel: 'gpt-5.6-sol', toModel: 'gpt-5.6-terra', reason: 'highRiskCyberActivity' },
     })
@@ -491,16 +502,46 @@ describe('CodexVirtualHarness', () => {
   })
 
   it('creates a blank Thread in the selected CodeX Workspace and searches visible Sessions locally', async () => {
-    const client = fakeCodex()
+    const client = fakeCodex([], { startName: 'Fresh Thread Title' })
     const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
     const workspace = (await target.workspaces())[0]!
     await target.selectWorkspace(workspace.workspaceId)
+    const controlController = new AbortController()
+    const control = await target.open('session/control', { args: {} }, controlController.signal)
+    const controlIterator = control[Symbol.asyncIterator]()
+    await controlIterator.next()
+    const eventsController = new AbortController()
+    const events = await target.open('$events', { args: {} }, eventsController.signal)
+    const eventsIterator = events[Symbol.asyncIterator]()
+    await eventsIterator.next()
 
     const created = await target.api.sessions.create({
       rpcId: 'create-1' as never,
       payload: { workspaceId: workspace.workspaceId as never },
     })
     expect(created.result).toMatchObject({ ok: true, value: { sessionId: 'codex:new_1' } })
+    const added = await eventsIterator.next()
+    expect(added.value).toMatchObject({
+      type: 'emit',
+      event: 'api-session/added',
+    })
+    const summary = (added.value as { args: Array<{ projections?: { values?: Record<string, unknown> } }> }).args[0]!
+    expect(summary).toMatchObject({
+      sessionId: 'codex:new_1',
+      projections: {
+        values: {
+          title: 'Fresh Thread Title',
+          sessionListMetadata: { blank: true, lastPromptAt: null },
+          modelSelection: { next: { provider: 'codex', model: 'gpt-5.6-sol', reasoningEffort: 'low' } },
+        },
+      },
+    })
+    await expect(controlIterator.next()).resolves.toMatchObject({ value: {
+      type: 'projection',
+      sessionId: 'codex:new_1',
+      key: 'title',
+      value: 'Fresh Thread Title',
+    } })
     expect(client.request).toHaveBeenCalledWith('thread/start', {
       cwd: '/workspace/repo',
       model: 'gpt-5.6-sol',
@@ -524,6 +565,10 @@ describe('CodexVirtualHarness', () => {
       items: [{ sessionId: 'codex:thr_1', snippet: 'Native renderer' }],
       hasMore: false,
     } })
+    controlController.abort()
+    eventsController.abort()
+    await controlIterator.return?.()
+    await eventsIterator.return?.()
     await target.close()
   })
 
@@ -759,6 +804,7 @@ describe('CodexVirtualHarness', () => {
 interface FakeCodexOptions {
   projects?: Array<Record<string, unknown>>
   projectListError?: Error
+  startName?: string
 }
 
 function fakeCodex(extraThreads: Array<Record<string, unknown>> = [], options: FakeCodexOptions = {}): {
@@ -853,7 +899,7 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = [], options: F
       )
     }
     if (method === 'thread/start') {
-      const created = codexThread(`new_${nextThread++}`, String(params?.cwd), '')
+      const created = codexThread(`new_${nextThread++}`, String(params?.cwd), options.startName ?? '')
       threads.push(created)
       return { thread: created }
     }

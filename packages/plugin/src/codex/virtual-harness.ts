@@ -189,6 +189,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private readonly selectedModels = new Map<string, CodexModelSelection>()
   private modelDirectory?: CodexModelDirectory
   private modelDirectoryPromise?: Promise<CodexModelDirectory>
+  private lastProjectionSeq = 0
   private selectedWorkspaceId?: string
   private closed = false
 
@@ -419,28 +420,59 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     this.broadcastRcMux({ type: 'session/projection', sessionId, key, value, seq })
   }
 
+  private nextProjectionSeq(): number {
+    const seq = Math.max(Date.now(), this.lastProjectionSeq + 1)
+    this.lastProjectionSeq = seq
+    return seq
+  }
+
+  private updateThreadName(threadId: string, name: string): void {
+    const pending = this.pendingThreads.get(threadId)
+    if (pending !== undefined) this.pendingThreads.set(threadId, { ...pending, name })
+    if (this.catalog === undefined) return
+
+    const threads = this.catalog.threads.map(thread => string(thread.id) === threadId ? { ...thread, name } : thread)
+    const sessions = this.catalog.sessions.map(session => {
+      if (session.nativeId !== threadId) return session
+      const { title: _title, ...rest } = session
+      return name.trim() === '' ? rest : { ...rest, title: name }
+    })
+    this.catalog = { ...this.catalog, threads, sessions }
+  }
+
   private async sessionSummaries(signal?: AbortSignal): Promise<unknown[]> {
     const catalog = await this.refreshCatalog(signal)
     const directory = await this.models(signal).catch(() => undefined)
     return catalog.sessions.map(session => {
       const blank = this.blankThreads.has(session.nativeId)
         || this.pendingThreads.has(session.nativeId)
-      return {
-        sessionId: session.id,
-        updatedAt: session.updatedAt,
-        running: session.status === 'running' || session.status === 'waiting',
+      return this.sessionSummary(session, {
         blank,
-        ...(session.cwd === undefined ? {} : { cwd: session.cwd }),
-        projections: {
-          asOfSeq: 0,
-          values: {
-            title: displayTitle(session),
-            sessionListMetadata: { blank, lastPromptAt: session.updatedAt || null },
-            modelSelection: modelSelectionProjection(this.modelSelection(session.id, directory)),
-          },
-        },
-      }
+        modelSelection: this.modelSelection(session.id, directory),
+        lastPromptAt: session.updatedAt || null,
+      })
     })
+  }
+
+  private sessionSummary(
+    session: DisplaySession,
+    options: { blank: boolean; modelSelection: CodexModelSelection; lastPromptAt: number | null; asOfSeq?: number },
+  ): unknown {
+    return {
+      sessionId: session.id,
+      updatedAt: session.updatedAt,
+      running: session.status === 'running' || session.status === 'waiting',
+      blank: options.blank,
+      ...(session.cwd === undefined ? {} : { cwd: session.cwd }),
+      projections: {
+        asOfSeq: options.asOfSeq ?? 0,
+        values: {
+          title: displayTitle(session),
+          sessionListMetadata: { blank: options.blank, lastPromptAt: options.lastPromptAt },
+          modelSelection: modelSelectionProjection(options.modelSelection),
+        },
+      },
+    }
   }
 
   private async searchSessions(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
@@ -557,6 +589,15 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
 
   private acceptCodexFrame(follow: FollowState, frame: { method: string; params: unknown }): void {
     const params = record(frame.params)
+    if (frame.method === 'thread/name/updated') {
+      const name = string(params.name)
+      if (name === undefined) return
+      const seq = this.nextProjectionSeq()
+      this.updateThreadName(follow.threadId, name)
+      const title = name.trim() === '' ? null : name.slice(0, 256)
+      this.publishProjection(follow.sessionId, 'title', title, seq)
+      return
+    }
     if (frame.method === 'turn/started') {
       const turn = record(params.turn)
       this.resetLiveTurn(follow)
@@ -1001,13 +1042,14 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     this.blankThreads.add(projected.nativeId)
     this.selectedModels.set(projected.id, selection)
     await this.refreshAndPublishWorkspaces()
-    this.emitRemoteEvent('api-session/added', [{
-      sessionId: projected.id,
-      updatedAt: projected.updatedAt,
-      running: false,
+    const seq = this.nextProjectionSeq()
+    this.emitRemoteEvent('api-session/added', [this.sessionSummary(projected, {
       blank: true,
-      ...(projected.cwd === undefined ? {} : { cwd: projected.cwd }),
-    }])
+      modelSelection: selection,
+      lastPromptAt: null,
+      asOfSeq: seq,
+    })])
+    this.publishProjection(projected.id, 'title', displayTitle(projected), seq)
     return success({ sessionId: projected.id })
   }
 
@@ -1018,6 +1060,8 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     if (projected === undefined) return failure('internal', 'CodeX returned an invalid forked Thread.')
     this.selectedModels.set(projected.id, this.modelSelection(sessionId, await this.models(signal)))
     await this.refreshAndPublishWorkspaces()
+    const seq = this.nextProjectionSeq()
+    this.publishProjection(projected.id, 'title', displayTitle(projected), seq)
     return success({ sessionId: projected.id })
   }
 
@@ -1062,8 +1106,9 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     const sessionId = requiredString(request.sessionId, 'sessionId')
     const title = requiredString(request.title, 'title')
     await this.client.request('thread/name/set', { threadId: nativeThreadId(sessionId), name: title }, signal)
-    const seq = Date.now()
-    for (const queue of this.controlStreams) queue.push({ type: 'projection', sessionId, key: 'title', value: title, seq })
+    const seq = this.nextProjectionSeq()
+    this.updateThreadName(nativeThreadId(sessionId), title)
+    this.publishProjection(sessionId, 'title', title, seq)
     await this.refreshAndPublishWorkspaces()
     return success({ title, seq })
   }

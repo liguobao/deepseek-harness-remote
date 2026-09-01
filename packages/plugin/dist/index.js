@@ -14224,6 +14224,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   selectedModels = /* @__PURE__ */ new Map();
   modelDirectory;
   modelDirectoryPromise;
+  lastProjectionSeq = 0;
   selectedWorkspaceId;
   closed = false;
   static remote(core, host) {
@@ -14443,27 +14444,51 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     for (const queue of this.controlStreams) queue.push({ type: "projection", sessionId, key, value, seq });
     this.broadcastRcMux({ type: "session/projection", sessionId, key, value, seq });
   }
+  nextProjectionSeq() {
+    const seq = Math.max(Date.now(), this.lastProjectionSeq + 1);
+    this.lastProjectionSeq = seq;
+    return seq;
+  }
+  updateThreadName(threadId, name2) {
+    const pending = this.pendingThreads.get(threadId);
+    if (pending !== void 0) this.pendingThreads.set(threadId, { ...pending, name: name2 });
+    if (this.catalog === void 0) return;
+    const threads = this.catalog.threads.map((thread) => string(thread.id) === threadId ? { ...thread, name: name2 } : thread);
+    const sessions = this.catalog.sessions.map((session) => {
+      if (session.nativeId !== threadId) return session;
+      const { title: _title, ...rest } = session;
+      return name2.trim() === "" ? rest : { ...rest, title: name2 };
+    });
+    this.catalog = { ...this.catalog, threads, sessions };
+  }
   async sessionSummaries(signal) {
     const catalog = await this.refreshCatalog(signal);
     const directory = await this.models(signal).catch(() => void 0);
     return catalog.sessions.map((session) => {
       const blank = this.blankThreads.has(session.nativeId) || this.pendingThreads.has(session.nativeId);
-      return {
-        sessionId: session.id,
-        updatedAt: session.updatedAt,
-        running: session.status === "running" || session.status === "waiting",
+      return this.sessionSummary(session, {
         blank,
-        ...session.cwd === void 0 ? {} : { cwd: session.cwd },
-        projections: {
-          asOfSeq: 0,
-          values: {
-            title: displayTitle(session),
-            sessionListMetadata: { blank, lastPromptAt: session.updatedAt || null },
-            modelSelection: modelSelectionProjection(this.modelSelection(session.id, directory))
-          }
-        }
-      };
+        modelSelection: this.modelSelection(session.id, directory),
+        lastPromptAt: session.updatedAt || null
+      });
     });
+  }
+  sessionSummary(session, options) {
+    return {
+      sessionId: session.id,
+      updatedAt: session.updatedAt,
+      running: session.status === "running" || session.status === "waiting",
+      blank: options.blank,
+      ...session.cwd === void 0 ? {} : { cwd: session.cwd },
+      projections: {
+        asOfSeq: options.asOfSeq ?? 0,
+        values: {
+          title: displayTitle(session),
+          sessionListMetadata: { blank: options.blank, lastPromptAt: options.lastPromptAt },
+          modelSelection: modelSelectionProjection(options.modelSelection)
+        }
+      }
+    };
   }
   async searchSessions(request, signal) {
     const query = requiredString(request.query, "query").trim();
@@ -14573,6 +14598,15 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   }
   acceptCodexFrame(follow, frame) {
     const params = record(frame.params);
+    if (frame.method === "thread/name/updated") {
+      const name2 = string(params.name);
+      if (name2 === void 0) return;
+      const seq = this.nextProjectionSeq();
+      this.updateThreadName(follow.threadId, name2);
+      const title = name2.trim() === "" ? null : name2.slice(0, 256);
+      this.publishProjection(follow.sessionId, "title", title, seq);
+      return;
+    }
     if (frame.method === "turn/started") {
       const turn = record(params.turn);
       this.resetLiveTurn(follow);
@@ -14951,13 +14985,14 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     this.blankThreads.add(projected.nativeId);
     this.selectedModels.set(projected.id, selection);
     await this.refreshAndPublishWorkspaces();
-    this.emitRemoteEvent("api-session/added", [{
-      sessionId: projected.id,
-      updatedAt: projected.updatedAt,
-      running: false,
+    const seq = this.nextProjectionSeq();
+    this.emitRemoteEvent("api-session/added", [this.sessionSummary(projected, {
       blank: true,
-      ...projected.cwd === void 0 ? {} : { cwd: projected.cwd }
-    }]);
+      modelSelection: selection,
+      lastPromptAt: null,
+      asOfSeq: seq
+    })]);
+    this.publishProjection(projected.id, "title", displayTitle(projected), seq);
     return success({ sessionId: projected.id });
   }
   async forkSession(request, signal) {
@@ -14967,6 +15002,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     if (projected === void 0) return failure("internal", "CodeX returned an invalid forked Thread.");
     this.selectedModels.set(projected.id, this.modelSelection(sessionId, await this.models(signal)));
     await this.refreshAndPublishWorkspaces();
+    const seq = this.nextProjectionSeq();
+    this.publishProjection(projected.id, "title", displayTitle(projected), seq);
     return success({ sessionId: projected.id });
   }
   async prompt(request, signal) {
@@ -15008,8 +15045,9 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     const sessionId = requiredString(request.sessionId, "sessionId");
     const title = requiredString(request.title, "title");
     await this.client.request("thread/name/set", { threadId: nativeThreadId(sessionId), name: title }, signal);
-    const seq = Date.now();
-    for (const queue of this.controlStreams) queue.push({ type: "projection", sessionId, key: "title", value: title, seq });
+    const seq = this.nextProjectionSeq();
+    this.updateThreadName(nativeThreadId(sessionId), title);
+    this.publishProjection(sessionId, "title", title, seq);
     await this.refreshAndPublishWorkspaces();
     return success({ title, seq });
   }
