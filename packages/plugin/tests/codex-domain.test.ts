@@ -145,7 +145,7 @@ describe('CodexRemoteDomain', () => {
       .toEqual([3, 4, 5])
     expect(app.calls.at(-1)).toEqual({
       method: 'thread/turns/list',
-      params: { threadId: 'allowed-thread', limit: 100, sortDirection: 'asc', itemsView: 'full' },
+      params: { threadId: 'allowed-thread', limit: 25, sortDirection: 'asc', itemsView: 'full' },
     })
 
     const older = await domain.call('connection-1', {

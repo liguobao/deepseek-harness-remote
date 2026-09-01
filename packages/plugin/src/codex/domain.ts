@@ -24,6 +24,7 @@ import { paginateCodexNativeHistory, projectCodexNativeHistory } from './virtual
 const APPROVAL_TTL_MS = 5 * 60_000
 const DEFAULT_RESTART_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const
 const CODEX_PAGE_LIMIT = 100
+const CODEX_HISTORY_PAGE_LIMIT = 25
 const MAX_CODEX_HISTORY_PAGES = 64
 
 interface PendingApproval {
@@ -137,7 +138,7 @@ export class CodexRemoteDomain {
     const threadId = threadIdFromParams(call.params)
 
     if (call.method === 'dsh/sessionHistory') {
-      const thread = await this.readThreadForHistory(threadId!)
+      const thread = await this.readThreadForHistory(connectionId, threadId!)
       return paginateCodexNativeHistory(
         projectCodexNativeHistory(thread, `codex:${threadId}`),
         {
@@ -438,34 +439,58 @@ export class CodexRemoteDomain {
     return { thread, ...(typeof thread.cwd === 'string' && thread.cwd.length > 0 ? { cwd: thread.cwd } : {}) }
   }
 
-  private async readThreadForHistory(threadId: string): Promise<Record<string, unknown>> {
-    const metadataResult = await this.callUpstream('thread/read', { threadId, includeTurns: false })
-    const metadata = extractThread(metadataResult)
-    if (metadata === undefined || metadata.id !== threadId) {
-      throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid Thread history.')
+  private async readThreadForHistory(connectionId: string, threadId: string): Promise<Record<string, unknown>> {
+    let metadata: Record<string, unknown> = { id: threadId }
+    try {
+      const metadataResult = await this.callUpstream('thread/read', { threadId, includeTurns: false })
+      const resolved = extractThread(metadataResult)
+      if (resolved === undefined || resolved.id !== threadId) {
+        throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid Thread history.')
+      }
+      metadata = resolved
+    } catch (metadataError) {
+      if (!isHistoryReadRecoverable(metadataError)) throw metadataError
+      this.logHistoryFallback(connectionId, 'thread-read-metadata', metadataError)
     }
     try {
-      return { ...metadata, turns: await this.readThreadTurns(threadId) }
-    } catch (error) {
-      if (!isHistoryPaginationUnavailable(error)) throw error
+      return { ...metadata, turns: await this.readThreadTurns(connectionId, threadId, 'full') }
+    } catch (fullError) {
+      if (!isHistoryReadRecoverable(fullError)) throw fullError
+      this.logHistoryFallback(connectionId, 'turns-full', fullError)
+    }
+    try {
+      return { ...metadata, turns: await this.readThreadTurns(connectionId, threadId, 'summary') }
+    } catch (summaryError) {
+      if (!isHistoryReadRecoverable(summaryError)) throw summaryError
+      this.logHistoryFallback(connectionId, 'turns-summary', summaryError)
+    }
+    try {
       const legacyResult = await this.callUpstream('thread/read', { threadId, includeTurns: true })
       const legacyThread = extractThread(legacyResult)
       if (legacyThread === undefined || legacyThread.id !== threadId) {
         throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid Thread history.')
       }
       return legacyThread
+    } catch (legacyError) {
+      if (!isHistoryReadRecoverable(legacyError)) throw legacyError
+      this.logHistoryFallback(connectionId, 'thread-read-full', legacyError)
+      return { ...metadata, turns: [] }
     }
   }
 
-  private async readThreadTurns(threadId: string): Promise<Record<string, unknown>[]> {
+  private async readThreadTurns(
+    connectionId: string,
+    threadId: string,
+    itemsView: 'full' | 'summary',
+  ): Promise<Record<string, unknown>[]> {
     const turns: Record<string, unknown>[] = []
     let cursor: string | undefined
     for (let page = 0; page < MAX_CODEX_HISTORY_PAGES; page += 1) {
       const result = await this.callUpstream('thread/turns/list', {
         threadId,
-        limit: CODEX_PAGE_LIMIT,
+        limit: CODEX_HISTORY_PAGE_LIMIT,
         sortDirection: 'asc',
-        itemsView: 'full',
+        itemsView,
         ...(cursor === undefined ? {} : { cursor }),
       })
       const pageResult = isRecord(result) ? result : {}
@@ -474,7 +499,7 @@ export class CodexRemoteDomain {
         const turnId = typeof rawTurn.id === 'string' ? rawTurn.id : undefined
         const items = rawTurn.itemsView === 'full' || turnId === undefined
           ? array(rawTurn.items)
-          : await this.readThreadItems(threadId, turnId)
+          : await this.readThreadItems(connectionId, threadId, turnId, array(rawTurn.items))
         turns.push({ ...rawTurn, items })
       }
       cursor = typeof pageResult.nextCursor === 'string' && pageResult.nextCursor.length > 0
@@ -485,27 +510,46 @@ export class CodexRemoteDomain {
     return turns
   }
 
-  private async readThreadItems(threadId: string, turnId: string): Promise<unknown[]> {
+  private async readThreadItems(
+    connectionId: string,
+    threadId: string,
+    turnId: string,
+    fallbackItems: unknown[],
+  ): Promise<unknown[]> {
     const items: unknown[] = []
     let cursor: string | undefined
-    for (let page = 0; page < MAX_CODEX_HISTORY_PAGES; page += 1) {
-      const result = await this.callUpstream('thread/items/list', {
-        threadId,
-        turnId,
-        limit: CODEX_PAGE_LIMIT,
-        sortDirection: 'asc',
-        ...(cursor === undefined ? {} : { cursor }),
-      })
-      const pageResult = isRecord(result) ? result : {}
-      for (const entry of array(pageResult.data)) {
-        if (isRecord(entry) && entry.item !== undefined) items.push(entry.item)
+    try {
+      for (let page = 0; page < MAX_CODEX_HISTORY_PAGES; page += 1) {
+        const result = await this.callUpstream('thread/items/list', {
+          threadId,
+          turnId,
+          limit: CODEX_HISTORY_PAGE_LIMIT,
+          sortDirection: 'asc',
+          ...(cursor === undefined ? {} : { cursor }),
+        })
+        const pageResult = isRecord(result) ? result : {}
+        for (const entry of array(pageResult.data)) {
+          if (isRecord(entry) && entry.item !== undefined) items.push(entry.item)
+        }
+        cursor = typeof pageResult.nextCursor === 'string' && pageResult.nextCursor.length > 0
+          ? pageResult.nextCursor
+          : undefined
+        if (cursor === undefined) break
       }
-      cursor = typeof pageResult.nextCursor === 'string' && pageResult.nextCursor.length > 0
-        ? pageResult.nextCursor
-        : undefined
-      if (cursor === undefined) break
+    } catch (error) {
+      if (!isHistoryReadRecoverable(error)) throw error
+      this.logHistoryFallback(connectionId, 'items', error)
+      return fallbackItems
     }
     return items
+  }
+
+  private logHistoryFallback(connectionId: string, stage: string, error: unknown): void {
+    this.logger.warn('Codex history read fallback', {
+      connectionId: maskId(connectionId),
+      stage,
+      code: errorCode(error),
+    })
   }
 
   private async assertResultThreadAllowed(result: unknown): Promise<void> {
@@ -781,9 +825,9 @@ function errorCode(error: unknown): string {
   return 'CODEX_START_FAILED'
 }
 
-function isHistoryPaginationUnavailable(error: unknown): boolean {
+function isHistoryReadRecoverable(error: unknown): boolean {
   return error instanceof RpcError
-    && ['METHOD_NOT_ALLOWED', 'METHOD_NOT_FOUND', 'CODEX_UPSTREAM_ERROR'].includes(error.code)
+    && ['METHOD_NOT_ALLOWED', 'METHOD_NOT_FOUND', 'CODEX_UPSTREAM_ERROR', 'CODEX_REQUEST_TIMEOUT'].includes(error.code)
 }
 
 function canTryNextBinary(error: unknown): boolean {
@@ -796,4 +840,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
+}
+
+function maskId(value: string): string {
+  return value.length <= 12 ? value : `${value.slice(0, 8)}…${value.slice(-4)}`
 }

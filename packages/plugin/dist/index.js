@@ -22257,7 +22257,7 @@ function concatChunks3(chunks, totalBytes) {
 // src/codex/domain.ts
 var APPROVAL_TTL_MS = 5 * 6e4;
 var DEFAULT_RESTART_DELAYS_MS = [1e3, 2e3, 4e3, 8e3, 15e3];
-var CODEX_PAGE_LIMIT2 = 100;
+var CODEX_HISTORY_PAGE_LIMIT = 25;
 var MAX_CODEX_HISTORY_PAGES = 64;
 var CodexRemoteDomain = class {
   constructor(config, logger, createAppServer = (binary, targetLogger) => new CodexAppServerClient(binary, targetLogger), restartDelaysMs = DEFAULT_RESTART_DELAYS_MS) {
@@ -22341,7 +22341,7 @@ var CodexRemoteDomain = class {
     }
     const threadId = threadIdFromParams(call.params);
     if (call.method === "dsh/sessionHistory") {
-      const thread = await this.readThreadForHistory(threadId);
+      const thread = await this.readThreadForHistory(connectionId, threadId);
       return paginateCodexNativeHistory(
         projectCodexNativeHistory(thread, `codex:${threadId}`),
         {
@@ -22611,40 +22611,60 @@ var CodexRemoteDomain = class {
     }
     return { thread, ...typeof thread.cwd === "string" && thread.cwd.length > 0 ? { cwd: thread.cwd } : {} };
   }
-  async readThreadForHistory(threadId) {
-    const metadataResult = await this.callUpstream("thread/read", { threadId, includeTurns: false });
-    const metadata = extractThread(metadataResult);
-    if (metadata === void 0 || metadata.id !== threadId) {
-      throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Thread history.");
+  async readThreadForHistory(connectionId, threadId) {
+    let metadata = { id: threadId };
+    try {
+      const metadataResult = await this.callUpstream("thread/read", { threadId, includeTurns: false });
+      const resolved = extractThread(metadataResult);
+      if (resolved === void 0 || resolved.id !== threadId) {
+        throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Thread history.");
+      }
+      metadata = resolved;
+    } catch (metadataError) {
+      if (!isHistoryReadRecoverable(metadataError)) throw metadataError;
+      this.logHistoryFallback(connectionId, "thread-read-metadata", metadataError);
     }
     try {
-      return { ...metadata, turns: await this.readThreadTurns(threadId) };
-    } catch (error) {
-      if (!isHistoryPaginationUnavailable(error)) throw error;
+      return { ...metadata, turns: await this.readThreadTurns(connectionId, threadId, "full") };
+    } catch (fullError) {
+      if (!isHistoryReadRecoverable(fullError)) throw fullError;
+      this.logHistoryFallback(connectionId, "turns-full", fullError);
+    }
+    try {
+      return { ...metadata, turns: await this.readThreadTurns(connectionId, threadId, "summary") };
+    } catch (summaryError) {
+      if (!isHistoryReadRecoverable(summaryError)) throw summaryError;
+      this.logHistoryFallback(connectionId, "turns-summary", summaryError);
+    }
+    try {
       const legacyResult = await this.callUpstream("thread/read", { threadId, includeTurns: true });
       const legacyThread = extractThread(legacyResult);
       if (legacyThread === void 0 || legacyThread.id !== threadId) {
         throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Thread history.");
       }
       return legacyThread;
+    } catch (legacyError) {
+      if (!isHistoryReadRecoverable(legacyError)) throw legacyError;
+      this.logHistoryFallback(connectionId, "thread-read-full", legacyError);
+      return { ...metadata, turns: [] };
     }
   }
-  async readThreadTurns(threadId) {
+  async readThreadTurns(connectionId, threadId, itemsView) {
     const turns = [];
     let cursor2;
     for (let page = 0; page < MAX_CODEX_HISTORY_PAGES; page += 1) {
       const result = await this.callUpstream("thread/turns/list", {
         threadId,
-        limit: CODEX_PAGE_LIMIT2,
+        limit: CODEX_HISTORY_PAGE_LIMIT,
         sortDirection: "asc",
-        itemsView: "full",
+        itemsView,
         ...cursor2 === void 0 ? {} : { cursor: cursor2 }
       });
       const pageResult = isRecord9(result) ? result : {};
       for (const rawTurn of array2(pageResult.data)) {
         if (!isRecord9(rawTurn)) continue;
         const turnId = typeof rawTurn.id === "string" ? rawTurn.id : void 0;
-        const items = rawTurn.itemsView === "full" || turnId === void 0 ? array2(rawTurn.items) : await this.readThreadItems(threadId, turnId);
+        const items = rawTurn.itemsView === "full" || turnId === void 0 ? array2(rawTurn.items) : await this.readThreadItems(connectionId, threadId, turnId, array2(rawTurn.items));
         turns.push({ ...rawTurn, items });
       }
       cursor2 = typeof pageResult.nextCursor === "string" && pageResult.nextCursor.length > 0 ? pageResult.nextCursor : void 0;
@@ -22652,25 +22672,38 @@ var CodexRemoteDomain = class {
     }
     return turns;
   }
-  async readThreadItems(threadId, turnId) {
+  async readThreadItems(connectionId, threadId, turnId, fallbackItems) {
     const items = [];
     let cursor2;
-    for (let page = 0; page < MAX_CODEX_HISTORY_PAGES; page += 1) {
-      const result = await this.callUpstream("thread/items/list", {
-        threadId,
-        turnId,
-        limit: CODEX_PAGE_LIMIT2,
-        sortDirection: "asc",
-        ...cursor2 === void 0 ? {} : { cursor: cursor2 }
-      });
-      const pageResult = isRecord9(result) ? result : {};
-      for (const entry of array2(pageResult.data)) {
-        if (isRecord9(entry) && entry.item !== void 0) items.push(entry.item);
+    try {
+      for (let page = 0; page < MAX_CODEX_HISTORY_PAGES; page += 1) {
+        const result = await this.callUpstream("thread/items/list", {
+          threadId,
+          turnId,
+          limit: CODEX_HISTORY_PAGE_LIMIT,
+          sortDirection: "asc",
+          ...cursor2 === void 0 ? {} : { cursor: cursor2 }
+        });
+        const pageResult = isRecord9(result) ? result : {};
+        for (const entry of array2(pageResult.data)) {
+          if (isRecord9(entry) && entry.item !== void 0) items.push(entry.item);
+        }
+        cursor2 = typeof pageResult.nextCursor === "string" && pageResult.nextCursor.length > 0 ? pageResult.nextCursor : void 0;
+        if (cursor2 === void 0) break;
       }
-      cursor2 = typeof pageResult.nextCursor === "string" && pageResult.nextCursor.length > 0 ? pageResult.nextCursor : void 0;
-      if (cursor2 === void 0) break;
+    } catch (error) {
+      if (!isHistoryReadRecoverable(error)) throw error;
+      this.logHistoryFallback(connectionId, "items", error);
+      return fallbackItems;
     }
     return items;
+  }
+  logHistoryFallback(connectionId, stage, error) {
+    this.logger.warn("Codex history read fallback", {
+      connectionId: maskId(connectionId),
+      stage,
+      code: errorCode3(error)
+    });
   }
   async assertResultThreadAllowed(result) {
     const thread = extractThread(result);
@@ -22900,8 +22933,8 @@ function errorCode3(error) {
   if (error instanceof RpcError || error instanceof CodexAppServerError) return error.code;
   return "CODEX_START_FAILED";
 }
-function isHistoryPaginationUnavailable(error) {
-  return error instanceof RpcError && ["METHOD_NOT_ALLOWED", "METHOD_NOT_FOUND", "CODEX_UPSTREAM_ERROR"].includes(error.code);
+function isHistoryReadRecoverable(error) {
+  return error instanceof RpcError && ["METHOD_NOT_ALLOWED", "METHOD_NOT_FOUND", "CODEX_UPSTREAM_ERROR", "CODEX_REQUEST_TIMEOUT"].includes(error.code);
 }
 function canTryNextBinary(error) {
   return !(error instanceof RpcError) || !["CODEX_AUTH_REQUIRED", "CODEX_CLOSED"].includes(error.code);
@@ -22911,6 +22944,9 @@ function isRecord9(value) {
 }
 function array2(value) {
   return Array.isArray(value) ? value : [];
+}
+function maskId(value) {
+  return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
 }
 
 // src/service.ts
