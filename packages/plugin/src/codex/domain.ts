@@ -815,6 +815,9 @@ function sanitizeApprovalParams(params: unknown, requestHandle: string): unknown
 function mapAppServerError(error: unknown): Error {
   if (error instanceof RpcError) return error
   if (error instanceof CodexAppServerError) {
+    if (error.code === 'CODEX_UPSTREAM_ERROR' && isActiveWriterMessage(error.message)) {
+      return new RpcError('CODEX_THREAD_BUSY', 'The selected CodeX thread is already active in another CodeX client.')
+    }
     return new RpcError(error.code, error.message, undefined, error.code === 'CODEX_REQUEST_TIMEOUT')
   }
   return new RpcError('CODEX_UPSTREAM_ERROR', 'Codex App Server could not complete the request.')
@@ -827,7 +830,7 @@ function errorCode(error: unknown): string {
 
 function isHistoryReadRecoverable(error: unknown): boolean {
   return error instanceof RpcError
-    && ['METHOD_NOT_ALLOWED', 'METHOD_NOT_FOUND', 'CODEX_UPSTREAM_ERROR', 'CODEX_REQUEST_TIMEOUT'].includes(error.code)
+    && ['METHOD_NOT_ALLOWED', 'METHOD_NOT_FOUND', 'CODEX_UPSTREAM_ERROR', 'CODEX_REQUEST_TIMEOUT', 'CODEX_THREAD_BUSY'].includes(error.code)
 }
 
 function canTryNextBinary(error: unknown): boolean {
@@ -844,4 +847,8 @@ function array(value: unknown): unknown[] {
 
 function maskId(value: string): string {
   return value.length <= 12 ? value : `${value.slice(0, 8)}…${value.slice(-4)}`
+}
+
+function isActiveWriterMessage(message: string): boolean {
+  return message.toLowerCase().includes('active writer')
 }

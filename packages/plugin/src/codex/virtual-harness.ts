@@ -1024,8 +1024,9 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     }
     const threadId = nativeThreadId(sessionId)
     const selection = this.modelSelection(sessionId, await this.models(signal))
+    const isFreshBlankThread = this.blankThreads.has(threadId) || this.pendingThreads.has(threadId)
     await this.ensureRcFollow(sessionId)
-    await this.client.request('thread/resume', { threadId, model: selection.model }, signal)
+    if (!isFreshBlankThread) await this.client.request('thread/resume', { threadId, model: selection.model }, signal)
     this.pendingRequestIds.set(sessionId, string(request.requestId) ?? '')
     const mode = request.mode === 'steer' ? 'turn/steer' : 'turn/start'
     if (mode === 'turn/steer') {

@@ -287,6 +287,27 @@ describe('CodexRemoteDomain', () => {
     await domain.close()
   })
 
+  it('maps active writer rejections to a CodeX busy error', async () => {
+    const { root } = await directories()
+    const app = new FakeAppServer(root)
+    app.rejectTurnStartBusy = true
+    const domain = new CodexRemoteDomain(
+      { enabled: true, binary: 'codex', allowedRoots: [root] },
+      logger(),
+      () => app,
+    )
+    await domain.start()
+
+    await expect(domain.call('connection-1', {
+      method: 'turn/start',
+      params: { threadId: 'allowed-thread', input: [{ type: 'text', text: 'Run tests' }] },
+    })).rejects.toMatchObject({
+      code: 'CODEX_THREAD_BUSY',
+      message: 'The selected CodeX thread is already active in another CodeX client.',
+    })
+    await domain.close()
+  })
+
   it('closes live streams and restarts after an App Server crash without replaying mutations', async () => {
     const { root } = await directories()
     const first = new FakeAppServer(root)
@@ -338,6 +359,7 @@ class FakeAppServer implements CodexAppServerLike {
   readonly calls: Array<{ method: string; params: unknown }> = []
   rejectResume = false
   rejectTurnPagination = false
+  rejectTurnStartBusy = false
 
   constructor(private readonly root: string, private readonly outside = root) {}
 
@@ -421,7 +443,12 @@ class FakeAppServer implements CodexAppServerLike {
     if (method === 'thread/resume' || method === 'thread/fork' || method === 'thread/unarchive') {
       return { thread: { id: 'allowed-thread', cwd: this.root } }
     }
-    if (method === 'turn/start') return { turn: { id: 'turn-1', status: 'inProgress', items: [] } }
+    if (method === 'turn/start') {
+      if (this.rejectTurnStartBusy) {
+        throw new CodexAppServerError('CODEX_UPSTREAM_ERROR', 'Codex thread already has an active writer.')
+      }
+      return { turn: { id: 'turn-1', status: 'inProgress', items: [] } }
+    }
     return {}
   }
 

@@ -290,7 +290,9 @@ function safeUpstreamError(value: unknown): string {
   if (!isRecord(value) || typeof value.message !== 'string') return 'Codex App Server rejected the request.'
   // Upstream messages may contain paths or prompt fragments. Only retain a
   // short generic category for the Remote boundary.
-  return value.message.toLowerCase().includes('not initialized')
+  const message = value.message.toLowerCase()
+  if (message.includes('active writer')) return 'Codex thread already has an active writer.'
+  return message.includes('not initialized')
     ? 'Codex App Server is not initialized.'
     : 'Codex App Server rejected the request.'
 }

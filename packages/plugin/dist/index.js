@@ -14956,8 +14956,9 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     }
     const threadId = nativeThreadId(sessionId);
     const selection = this.modelSelection(sessionId, await this.models(signal));
+    const isFreshBlankThread = this.blankThreads.has(threadId) || this.pendingThreads.has(threadId);
     await this.ensureRcFollow(sessionId);
-    await this.client.request("thread/resume", { threadId, model: selection.model }, signal);
+    if (!isFreshBlankThread) await this.client.request("thread/resume", { threadId, model: selection.model }, signal);
     this.pendingRequestIds.set(sessionId, string(request.requestId) ?? "");
     const mode = request.mode === "steer" ? "turn/steer" : "turn/start";
     if (mode === "turn/steer") {
@@ -21889,7 +21890,9 @@ var CodexAppServerClient = class {
 };
 function safeUpstreamError(value) {
   if (!isRecord7(value) || typeof value.message !== "string") return "Codex App Server rejected the request.";
-  return value.message.toLowerCase().includes("not initialized") ? "Codex App Server is not initialized." : "Codex App Server rejected the request.";
+  const message = value.message.toLowerCase();
+  if (message.includes("active writer")) return "Codex thread already has an active writer.";
+  return message.includes("not initialized") ? "Codex App Server is not initialized." : "Codex App Server rejected the request.";
 }
 function isRecord7(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -22925,6 +22928,9 @@ function sanitizeApprovalParams(params, requestHandle) {
 function mapAppServerError(error) {
   if (error instanceof RpcError) return error;
   if (error instanceof CodexAppServerError) {
+    if (error.code === "CODEX_UPSTREAM_ERROR" && isActiveWriterMessage(error.message)) {
+      return new RpcError("CODEX_THREAD_BUSY", "The selected CodeX thread is already active in another CodeX client.");
+    }
     return new RpcError(error.code, error.message, void 0, error.code === "CODEX_REQUEST_TIMEOUT");
   }
   return new RpcError("CODEX_UPSTREAM_ERROR", "Codex App Server could not complete the request.");
@@ -22934,7 +22940,7 @@ function errorCode3(error) {
   return "CODEX_START_FAILED";
 }
 function isHistoryReadRecoverable(error) {
-  return error instanceof RpcError && ["METHOD_NOT_ALLOWED", "METHOD_NOT_FOUND", "CODEX_UPSTREAM_ERROR", "CODEX_REQUEST_TIMEOUT"].includes(error.code);
+  return error instanceof RpcError && ["METHOD_NOT_ALLOWED", "METHOD_NOT_FOUND", "CODEX_UPSTREAM_ERROR", "CODEX_REQUEST_TIMEOUT", "CODEX_THREAD_BUSY"].includes(error.code);
 }
 function canTryNextBinary(error) {
   return !(error instanceof RpcError) || !["CODEX_AUTH_REQUIRED", "CODEX_CLOSED"].includes(error.code);
@@ -22947,6 +22953,9 @@ function array2(value) {
 }
 function maskId(value) {
   return value.length <= 12 ? value : `${value.slice(0, 8)}\u2026${value.slice(-4)}`;
+}
+function isActiveWriterMessage(message) {
+  return message.toLowerCase().includes("active writer");
 }
 
 // src/service.ts

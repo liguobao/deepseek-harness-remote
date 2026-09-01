@@ -73,6 +73,31 @@ describe('CodexAppServerClient', () => {
     expect(unavailable).toHaveBeenCalledWith('CODEX_APP_SERVER_EXITED')
     await client.close()
   })
+
+  it('keeps active-writer upstream errors specific without exposing the thread id', async () => {
+    const fake = fakeProcess()
+    const outbound: Array<Record<string, unknown>> = []
+    fake.child.stdin.on('data', chunk => {
+      for (const line of String(chunk).trim().split('\n')) {
+        const message = JSON.parse(line) as Record<string, unknown>
+        outbound.push(message)
+        if (message.method === 'initialize') {
+          fake.stdout.write(`${JSON.stringify({ id: message.id, result: { userAgent: 'codex' } })}\n`)
+        } else if (message.method === 'turn/start') {
+          fake.stdout.write(`${JSON.stringify({
+            id: message.id,
+            error: { code: -32600, message: 'thread 01a05bd0-8d55-7e23-bc95-97fec98aa8f4 already has an active writer' },
+          })}\n`)
+        }
+      }
+    })
+    const client = new CodexAppServerClient('codex', logger(), () => fake.child)
+    await client.start()
+
+    await expect(client.call('turn/start', { threadId: 'redacted' }))
+      .rejects.toMatchObject({ message: 'Codex thread already has an active writer.' })
+    await client.close()
+  })
 })
 
 function fakeProcess(): { child: ChildProcessWithoutNullStreams; stdout: PassThrough; kill: ReturnType<typeof vi.fn> } {

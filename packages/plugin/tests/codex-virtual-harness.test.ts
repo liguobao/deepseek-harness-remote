@@ -524,6 +524,38 @@ describe('CodexVirtualHarness', () => {
     await target.close()
   })
 
+  it('starts the first turn in a freshly created CodeX Thread without resuming it first', async () => {
+    const client = fakeCodex()
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    await target.selectWorkspace('codex-workspace:project:repo-project')
+
+    const created = await target.dispatch('session/create', {
+      args: { request: { workspaceId: 'codex-workspace:project:repo-project' } },
+    }, new AbortController().signal)
+    expect(created).toEqual({ ok: true, value: { sessionId: 'codex:new_1' } })
+
+    const prompted = await target.dispatch('session/prompt', {
+      args: {
+        request: {
+          sessionId: 'codex:new_1',
+          content: [{ type: 'text', text: 'Start here' }],
+        },
+      },
+    }, new AbortController().signal)
+
+    expect(prompted).toEqual({ ok: true, value: { accepted: true } })
+    expect(client.request).not.toHaveBeenCalledWith('thread/resume', expect.objectContaining({
+      threadId: 'new_1',
+    }), expect.any(AbortSignal))
+    expect(client.request).toHaveBeenCalledWith('turn/start', {
+      threadId: 'new_1',
+      input: [{ type: 'text', text: 'Start here' }],
+      model: 'gpt-5.6-sol',
+      effort: 'low',
+    }, expect.any(AbortSignal))
+    await target.close()
+  })
+
   it('falls back to thread/read history when a remote Host lacks the paginated DSH method', async () => {
     const client = fakeCodex()
     const originalRequest = client.request.getMockImplementation() as
