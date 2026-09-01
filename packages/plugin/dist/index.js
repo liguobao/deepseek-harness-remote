@@ -16327,7 +16327,7 @@ function normalizeServerUrl(value) {
 }
 
 // src/version.ts
-var PLUGIN_VERSION = "0.4.2";
+var PLUGIN_VERSION = "0.4.3";
 
 // src/server-api.ts
 var HostServerApi = class {
@@ -21989,7 +21989,7 @@ var CodexAppServerClient = class {
         clientInfo: {
           name: "deepseek_harness_remote",
           title: "DeepSeek Harness Remote",
-          version: "0.4.2"
+          version: PLUGIN_VERSION
         },
         capabilities: {
           experimentalApi: true,

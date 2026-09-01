@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { Buffer } from 'node:buffer'
 import type { SafeLogger } from '../logging.js'
+import { PLUGIN_VERSION } from '../version.js'
 
 const APP_SERVER_REQUEST_TIMEOUT_MS = 60_000
 const APP_SERVER_START_TIMEOUT_MS = 15_000
@@ -165,7 +166,7 @@ export class CodexAppServerClient implements CodexAppServerLike {
         clientInfo: {
           name: 'deepseek_harness_remote',
           title: 'DeepSeek Harness Remote',
-          version: '0.4.2',
+          version: PLUGIN_VERSION,
         },
         capabilities: {
           experimentalApi: true,

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.3
+
+- Adds the opt-in Codex Remote domain to the existing encrypted Plugin channel,
+  with a fixed App Server allowlist, project-backed virtual Workspaces, paged
+  Thread history, live turn projection, prompts, interrupt, and approvals.
+- Reuses the native DSH Workspace, Session, conversation, tool, permission, and
+  approval surfaces for the Desktop in-memory projection without writing Codex
+  data into DSH stores or logs.
+- Extends Android with the same `codex.app.*` capability, including project and
+  Thread navigation, paged history, model/reasoning controls, image prompts,
+  interrupt, and one-time approvals.
+- Adds Protocol v1 conformance fixtures and enforces bounded Control, Relay,
+  WebRTC, and encrypted transport frames before payload decoding.
+- Advances the Plugin and Android app to `0.4.3` (`versionCode 23`).
+
 ## 0.4.2
 
 - Adds DeepSeek Harness `dsh-v0.1.2-alpha.2` compatibility while retaining the
