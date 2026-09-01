@@ -191,7 +191,7 @@ export class CodexRemoteDomain {
               sandboxPolicy: {
                 type: 'workspaceWrite',
                 writableRoots: [allowedThread.cwd],
-                networkAccess: 'enabled',
+                networkAccess: false,
                 excludeTmpdirEnvVar: false,
                 excludeSlashTmp: false,
               },

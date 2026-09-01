@@ -237,7 +237,7 @@ describe('CodexRemoteDomain', () => {
       approvalPolicy: 'on-request',
       sandboxPolicy: {
         type: 'workspaceWrite',
-        networkAccess: 'enabled',
+        networkAccess: false,
         excludeTmpdirEnvVar: false,
         excludeSlashTmp: false,
       },
