@@ -105,7 +105,7 @@ describe('CodexVirtualHarness', () => {
     await emptyTarget.close()
   })
 
-  it('falls back to legacy cwd grouping when the Host cannot read CodeX projects', async () => {
+  it('does not synthesize legacy workspaces when CodeX projects are unavailable', async () => {
     const client = fakeCodex([
       codexThread('thr_2', '/workspace/other', 'Other workspace'),
     ], {
@@ -115,9 +115,36 @@ describe('CodexVirtualHarness', () => {
     })
 
     const workspaces = await discoverCodexVirtualWorkspaces(client)
-    expect(workspaces).toHaveLength(2)
-    expect(workspaces.map(item => item.title)).toEqual(['repo', 'other'])
-    expect(workspaces.map(item => item.sessionIds)).toEqual([['codex:thr_1'], ['codex:thr_2']])
+    expect(workspaces).toHaveLength(0)
+
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const sessions = await target.dispatch('session/list', { args: {} }, new AbortController().signal)
+    expect(sessions).toMatchObject({ ok: true, value: { items: [] } })
+    await target.close()
+  })
+
+  it('filters CodeX threads that do not belong to an advertised project', async () => {
+    const client = fakeCodex([
+      codexThread('thr_2', '/workspace/other', 'Other workspace'),
+      codexThread('thr_3', undefined, 'Project metadata only', 'repo-project'),
+    ])
+
+    const workspaces = await discoverCodexVirtualWorkspaces(client)
+    expect(workspaces).toHaveLength(1)
+    expect(workspaces[0]).toMatchObject({
+      workspaceId: 'codex-workspace:project:repo-project',
+      sessionIds: ['codex:thr_1', 'codex:thr_3'],
+      sessionCount: 2,
+    })
+
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const sessions = await target.dispatch('session/list', { args: {} }, new AbortController().signal)
+    expect(sessions).toMatchObject({ ok: true, value: { items: [
+      { sessionId: 'codex:thr_1' },
+      { sessionId: 'codex:thr_3' },
+    ] } })
+    expect(JSON.stringify(sessions)).not.toContain('codex:thr_2')
+    await target.close()
   })
 
   it('does not mark listed CodeX Sessions blank when thread/list omits turns', async () => {
@@ -650,11 +677,38 @@ describe('CodexVirtualHarness', () => {
     await target.close()
   })
 
+  it('reopens rc.2 live follow after the Host closes a CodeX stream', async () => {
+    const client = fakeCodex()
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+
+    const first = await target.api.sessions.history({
+      rpcId: 'history-1' as never,
+      payload: { sessionId: 'codex:thr_1' as never },
+    })
+    expect(first.result.ok).toBe(true)
+    expect(client.subscribe).toHaveBeenCalledTimes(1)
+
+    client.closeStream('thr_1', 'failed')
+
+    const second = await target.api.sessions.history({
+      rpcId: 'history-2' as never,
+      payload: { sessionId: 'codex:thr_1' as never },
+    })
+    expect(second.result.ok).toBe(true)
+    expect(client.subscribe).toHaveBeenCalledTimes(2)
+    await target.close()
+  })
+
   it('loads every CodeX workspace while using the Remote picker selection only for initial navigation', async () => {
     const client = fakeCodex([
       codexThread('thr_2', '/workspace/other', 'Other workspace'),
       codexThread('thr_3', undefined, 'Ungrouped thread'),
-    ])
+    ], {
+      projects: [
+        codexProject('repo-project', 'repo', ['/workspace/repo'], 0),
+        codexProject('other-project', 'other', ['/workspace/other'], 1),
+      ],
+    })
     const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
     const workspace = (await target.workspaces()).find(item => item.path === '/workspace/repo')
     expect(workspace).toBeDefined()
@@ -670,8 +724,8 @@ describe('CodexVirtualHarness', () => {
     expect(sessions).toMatchObject({ ok: true, value: { items: [
       { sessionId: 'codex:thr_1' },
       { sessionId: 'codex:thr_2' },
-      { sessionId: 'codex:thr_3' },
     ] } })
+    expect(JSON.stringify(sessions)).not.toContain('codex:thr_3')
 
     const events = await target.open('$events', { args: {} }, new AbortController().signal)
     const iterator = events[Symbol.asyncIterator]()
@@ -682,13 +736,16 @@ describe('CodexVirtualHarness', () => {
 
   it('skips an unreadable latest thread when choosing the initial workspace session', async () => {
     const client = fakeCodex([codexThread('thr_2', '/workspace/repo', 'Readable fallback')])
+    const originalRequest = client.request.getMockImplementation() as
+      | ((method: string, params?: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>)
+      | undefined
     client.request.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
       if (method === 'thread/list') return {
         data: [codexThread('thr_1', '/workspace/repo', 'Busy latest'), codexThread('thr_2', '/workspace/repo', 'Readable fallback')],
       }
       if (method === 'thread/read' && params?.threadId === 'thr_1') throw new Error('busy')
       if (method === 'thread/read') return { thread: codexThread('thr_2', '/workspace/repo', 'Readable fallback') }
-      return {}
+      return originalRequest?.(method, params)
     })
     const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
     const workspace = (await target.workspaces())[0]!
@@ -709,8 +766,12 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = [], options: F
   subscribe: ReturnType<typeof vi.fn>
   respond: ReturnType<typeof vi.fn>
   emit(threadId: string, frame: { method: string; params: unknown }): void
+  closeStream(threadId: string, reason: 'cancelled' | 'completed' | 'failed' | 'peer-disconnected'): void
 } {
-  const subscribers = new Map<string, Set<(frame: { method: string; params: unknown }) => void>>()
+  const subscribers = new Map<string, Set<{
+    onFrame: (frame: { method: string; params: unknown }) => void
+    onClose?: (reason: 'cancelled' | 'completed' | 'failed' | 'peer-disconnected') => void
+  }>>()
   const thread = {
     id: 'thr_1',
     name: 'Native renderer',
@@ -803,26 +864,37 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = [], options: F
   const subscribe = vi.fn(async (
     threadId: string,
     onFrame: (frame: { method: string; params: unknown }) => void,
+    _signal?: AbortSignal,
+    onClose?: (reason: 'cancelled' | 'completed' | 'failed' | 'peer-disconnected') => void,
   ) => {
     const listeners = subscribers.get(threadId) ?? new Set()
-    listeners.add(onFrame)
+    const listener = { onFrame, onClose }
+    listeners.add(listener)
     subscribers.set(threadId, listeners)
-    return { close: vi.fn(async () => { listeners.delete(onFrame) }) }
+    return { close: vi.fn(async () => { listeners.delete(listener) }) }
   })
   return {
     request,
     subscribe,
     respond: vi.fn(async () => undefined),
     emit(threadId, frame) {
-      for (const listener of subscribers.get(threadId) ?? []) listener(frame)
+      for (const listener of subscribers.get(threadId) ?? []) listener.onFrame(frame)
+    },
+    closeStream(threadId, reason) {
+      const listeners = subscribers.get(threadId)
+      for (const listener of [...(listeners ?? [])]) {
+        listeners?.delete(listener)
+        listener.onClose?.(reason)
+      }
     },
   }
 }
 
-function codexThread(id: string, cwd: string | undefined, name: string): Record<string, unknown> {
+function codexThread(id: string, cwd: string | undefined, name: string, projectId?: string): Record<string, unknown> {
   return {
     id,
     name,
+    ...(projectId === undefined ? {} : { projectId }),
     ...(cwd === undefined ? {} : { cwd }),
     createdAt: 1_700_000_000,
     updatedAt: 1_700_000_100,

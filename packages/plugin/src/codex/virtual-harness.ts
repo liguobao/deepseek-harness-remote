@@ -52,6 +52,7 @@ interface CodexClientLike {
     threadId: string,
     onFrame: (frame: { method: string; params: unknown }) => void,
     signal?: AbortSignal,
+    onClose?: (reason: 'cancelled' | 'completed' | 'failed' | 'peer-disconnected') => void,
   ): Promise<{ close(): Promise<void> }>
   respond(requestHandle: string, decision: 'accept' | 'decline' | 'cancel', signal?: AbortSignal): Promise<void>
 }
@@ -158,7 +159,7 @@ interface ProjectedNativeEvent {
   view?: ToolEventView
 }
 
-/** Discover the CodeX projects visible through the Host root policy. */
+/** Discover the CodeX projects visible through the Host App Server. */
 export async function discoverCodexVirtualWorkspaces(
   client: CodexClientLike,
   signal?: AbortSignal,
@@ -536,7 +537,12 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       },
     })
     try {
-      const stream = await this.client.subscribe(threadId, frame => this.acceptCodexFrame(follow, frame), signal)
+      const stream = await this.client.subscribe(
+        threadId,
+        frame => this.acceptCodexFrame(follow, frame),
+        signal,
+        () => this.closeFollowAfterRemoteStreamClosed(follow),
+      )
       follow.close = () => stream.close()
     } catch (error) {
       this.follows.delete(follow)
@@ -1182,7 +1188,12 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     }
     this.follows.add(follow)
     try {
-      const stream = await this.client.subscribe(threadId, frame => this.acceptCodexFrame(follow, frame), controller.signal)
+      const stream = await this.client.subscribe(
+        threadId,
+        frame => this.acceptCodexFrame(follow, frame),
+        controller.signal,
+        () => this.closeFollowAfterRemoteStreamClosed(follow),
+      )
       follow.close = async () => {
         controller.abort()
         await stream.close()
@@ -1198,6 +1209,12 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private followsHas(sessionId: string): boolean {
     for (const follow of this.follows) if (follow.sessionId === sessionId) return true
     return false
+  }
+
+  private closeFollowAfterRemoteStreamClosed(follow: FollowState): void {
+    this.follows.delete(follow)
+    follow.queue.close()
+    this.emitRemoteEvent('api-session/status', [follow.sessionId, false])
   }
 
   private async refreshAndPublishWorkspaces(): Promise<void> {
@@ -1348,41 +1365,28 @@ async function loadCatalog(
     const session = projectCodexThread(thread)
     return session === undefined ? undefined : { thread, session }
   }).filter((value): value is { thread: JsonRecord; session: DisplaySession } => value !== undefined)
-  const sessions = projected.map(value => value.session)
   const projectWorkspaces = projects.map(projectWorkspace)
   const workspaceByProjectId = new Map(projects.map((project, index) => [project.id, projectWorkspaces[index]!]))
-  const fallbackWorkspaceByPath = new Map<string, CodexVirtualWorkspaceView>()
+  const visibleSessionIds = new Set<string>()
+  const visibleThreads: JsonRecord[] = []
 
   for (const { thread, session } of projected) {
-    if (session.cwd === undefined || session.cwd.length === 0) continue
     const projectWorkspaceForSession = findProjectWorkspace(thread, session, projects, workspaceByProjectId)
     if (projectWorkspaceForSession !== undefined) {
       addSessionToWorkspace(projectWorkspaceForSession, session)
-      continue
-    }
-    const current = fallbackWorkspaceByPath.get(session.cwd)
-    if (current === undefined) {
-      const workspace: CodexVirtualWorkspaceView = {
-        workspaceId: `${CODEX_WORKSPACE_PREFIX}${hashString(session.cwd)}`,
-        path: session.cwd,
-        title: basename(session.cwd),
-        sessionIds: [],
-        sessionCount: 0,
-        createdAt: isoTime(session.createdAt),
-        updatedAt: isoTime(session.updatedAt || session.createdAt),
-      }
-      addSessionToWorkspace(workspace, session)
-      fallbackWorkspaceByPath.set(session.cwd, workspace)
-    } else {
-      addSessionToWorkspace(current, session)
+      visibleSessionIds.add(session.id)
+      visibleThreads.push(thread)
     }
   }
+  const sessions = projected
+    .map(value => value.session)
+    .filter(session => visibleSessionIds.has(session.id))
 
   return {
-    threads,
+    threads: visibleThreads,
     sessions,
     projects,
-    workspaces: [...projectWorkspaces, ...fallbackWorkspaceByPath.values()],
+    workspaces: projectWorkspaces,
   }
 }
 

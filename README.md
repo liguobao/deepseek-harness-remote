@@ -132,26 +132,24 @@ and Review Mode items reuse native tool cards. Large live tool output is kept in
 window, while file patch events expose only paths and change kinds rather than forwarding raw diffs as
 Workspace file content.
 
-Native Workspace creation starts a Thread in that Workspace directory and keeps an empty Thread attached
-until it becomes visible in the App Server listing. The Host pages History on DSH message boundaries with
-`beforeSeq` / `maxMessages` before transfer; the Client searches the visible Thread title, preview, directory,
-and identifier locally.
+Native Workspace creation starts a Thread in the selected CodeX project root and keeps an empty Thread
+attached until it becomes visible in the App Server listing. The Host pages History on DSH message
+boundaries with `beforeSeq` / `maxMessages` before transfer; the Client searches the visible Thread
+title, preview, directory, and identifier locally.
 
 This is a presentation adapter, not an import. The virtual Workspace/Session records are never written
 to DSH SessionStore, workspace storage, or Harness logs. CodeX App Server remains the source of truth,
-and create, rename, archive, prompt, interrupt, and approval actions are routed back to its allowlisted
-methods. The Host carrier still uses the existing account membership, pinned Host identity, Noise
-channel, and adaptive transport. CodeX is disabled by default and requires explicit Host-local allowed
-roots. Real encrypted cross-machine turn/approval testing is still pending; Android is outside the
-current Plugin-only scope.
+and `project/list` is the only source of truth for visible CodeX Workspaces. Create, rename, archive,
+prompt, interrupt, and approval actions are routed back to its allowlisted methods. The Host carrier
+still uses the existing account membership, pinned Host identity, Noise channel, and adaptive transport.
+CodeX is disabled by default. Real encrypted cross-machine turn/approval testing is still pending;
+Android is outside the current Plugin-only scope.
 
 ```yaml
 ds-harness-remote:
   codex:
     enabled: true
     binary: codex
-    allowedRoots:
-      - /absolute/path/to/project
 ```
 
 `binary` must resolve to a Codex CLI that provides `codex app-server`. With the default `codex` value
@@ -193,7 +191,7 @@ validation status.
 - The workspace picker lists folders only and returns bounded, read-only directory metadata.
 - Optional File Viewer access is limited to authenticated, encrypted range reads and continues to enforce provider root and locator authorization.
 - Remote file preview cannot write, delete, upload, execute, or open a path in an external application.
-- Codex Remote is opt-in, root-scoped, and rejects raw shell/process/config App Server methods.
+- Codex Remote is opt-in, exposes only CodeX `project/list` Workspaces, and rejects raw shell/process/config App Server methods.
 - Removing a device revokes its credentials, membership, and active Remote connections.
 
 ## Compatibility

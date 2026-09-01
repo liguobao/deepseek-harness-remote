@@ -31,11 +31,7 @@ describe('CodexRemoteDomain', () => {
 
   it('stays unavailable when the optional domain is disabled', async () => {
     const create = vi.fn(() => new FakeAppServer('/unused'))
-    const domain = new CodexRemoteDomain(
-      { enabled: false, binary: 'codex', allowedRoots: [] },
-      logger(),
-      create,
-    )
+    const domain = new CodexRemoteDomain({ enabled: false, binary: 'codex' }, logger(), create)
 
     await domain.start()
 
@@ -45,27 +41,24 @@ describe('CodexRemoteDomain', () => {
       available: false,
       state: 'disabled',
       restartAttempt: 0,
-      allowedRootCount: 0,
     })
     await domain.close()
   })
 
-  it('sanitizes CodeX listings without filtering by Remote allowed roots', async () => {
+  it('sanitizes CodeX listings using CodeX as the workspace source of truth', async () => {
     const { root, outside } = await directories()
     const app = new FakeAppServer(root, outside)
-    const domain = new CodexRemoteDomain(
-      { enabled: true, binary: 'codex', allowedRoots: [root] },
-      logger(),
-      () => app,
-    )
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
     await domain.start()
 
     const result = await domain.call('connection-1', { method: 'thread/list', params: {} })
     expect(result).toMatchObject({ data: [
-      { id: 'allowed-thread', cwd: root },
-      { id: 'outside-thread', cwd: outside },
-      { id: 'missing-cwd' },
+      { id: 'allowed-thread', cwd: root, projectId: 'allowed-project' },
+      { id: 'outside-thread', cwd: outside, projectId: 'outside-project' },
+      { id: 'project-only-thread', projectId: 'allowed-project' },
     ] })
+    expect(JSON.stringify(result)).not.toContain('unprojected-thread')
+    expect(JSON.stringify(result)).not.toContain('missing-cwd')
     const projects = await domain.call('connection-1', { method: 'project/list', params: {} })
     expect(projects).toMatchObject({ data: [
       {
@@ -89,6 +82,10 @@ describe('CodexRemoteDomain', () => {
       method: 'thread/read',
       params: { threadId: 'outside-thread', includeTurns: true },
     })).resolves.toMatchObject({ thread: { id: 'outside-thread', cwd: outside } })
+    await expect(domain.call('connection-1', {
+      method: 'thread/read',
+      params: { threadId: 'unprojected-thread', includeTurns: true },
+    })).rejects.toMatchObject({ code: 'CODEX_THREAD_NOT_ALLOWED' })
     await domain.close()
   })
 
@@ -97,11 +94,7 @@ describe('CodexRemoteDomain', () => {
     const link = join(root, 'outside-link')
     await symlink(outside, link, 'dir')
     const app = new FakeAppServer(root, outside)
-    const domain = new CodexRemoteDomain(
-      { enabled: true, binary: 'codex', allowedRoots: [root] },
-      logger(),
-      () => app,
-    )
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
     await domain.start()
 
     await expect(domain.call('connection-1', {
@@ -129,11 +122,7 @@ describe('CodexRemoteDomain', () => {
   it('projects and paginates CodeX History on the Host before returning it to the Client', async () => {
     const { root } = await directories()
     const app = new FakeAppServer(root)
-    const domain = new CodexRemoteDomain(
-      { enabled: true, binary: 'codex', allowedRoots: [root] },
-      logger(),
-      () => app,
-    )
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
     await domain.start()
 
     const tail = await domain.call('connection-1', {
@@ -161,11 +150,7 @@ describe('CodexRemoteDomain', () => {
     const { root } = await directories()
     const app = new FakeAppServer(root)
     app.rejectTurnPagination = true
-    const domain = new CodexRemoteDomain(
-      { enabled: true, binary: 'codex', allowedRoots: [root] },
-      logger(),
-      () => app,
-    )
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
     await domain.start()
 
     const history = await domain.call('connection-1', {
@@ -186,11 +171,7 @@ describe('CodexRemoteDomain', () => {
     const { root } = await directories()
     const app = new FakeAppServer(root)
     app.rejectResume = true
-    const domain = new CodexRemoteDomain(
-      { enabled: true, binary: '/custom/codex', allowedRoots: [root] },
-      logger(),
-      () => app,
-    )
+    const domain = new CodexRemoteDomain({ enabled: true, binary: '/custom/codex' }, logger(), () => app)
     await domain.start()
 
     await expect(domain.call('connection-1', {
@@ -204,11 +185,7 @@ describe('CodexRemoteDomain', () => {
   it('isolates streams and approval handles to the active turn owner', async () => {
     const { root, outside } = await directories()
     const app = new FakeAppServer(root, outside)
-    const domain = new CodexRemoteDomain(
-      { enabled: true, binary: 'codex', allowedRoots: [root] },
-      logger(),
-      () => app,
-    )
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
     await domain.start()
     const peerOneFrames: Array<{ event: string; data: unknown }> = []
     const peerTwoFrames: Array<{ event: string; data: unknown }> = []
@@ -291,11 +268,7 @@ describe('CodexRemoteDomain', () => {
     const { root } = await directories()
     const app = new FakeAppServer(root)
     app.rejectTurnStartBusy = true
-    const domain = new CodexRemoteDomain(
-      { enabled: true, binary: 'codex', allowedRoots: [root] },
-      logger(),
-      () => app,
-    )
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
     await domain.start()
 
     await expect(domain.call('connection-1', {
@@ -315,12 +288,7 @@ describe('CodexRemoteDomain', () => {
     const create = vi.fn()
       .mockReturnValueOnce(first)
       .mockReturnValueOnce(second)
-    const domain = new CodexRemoteDomain(
-      { enabled: true, binary: 'codex', allowedRoots: [root] },
-      logger(),
-      create,
-      [0],
-    )
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), create, [0])
     await domain.start()
     const frames: Array<{ event: string; data: unknown }> = []
     const peer = domain.createPeer(
@@ -371,8 +339,10 @@ class FakeAppServer implements CodexAppServerLike {
     if (method === 'account/read') return { account: { type: 'chatgpt', email: 'private@example.com' }, requiresOpenaiAuth: true }
     if (method === 'thread/list') return {
       data: [
-        { id: 'allowed-thread', cwd: this.root, createdAt: 1, updatedAt: 2, path: 'private rollout path' },
-        { id: 'outside-thread', cwd: this.outside, createdAt: 1, updatedAt: 2, path: 'private rollout path' },
+        { id: 'allowed-thread', projectId: 'allowed-project', cwd: this.root, createdAt: 1, updatedAt: 2, path: 'private rollout path' },
+        { id: 'outside-thread', projectId: 'outside-project', cwd: this.outside, createdAt: 1, updatedAt: 2, path: 'private rollout path' },
+        { id: 'project-only-thread', projectId: 'allowed-project', createdAt: 1, updatedAt: 2, path: 'private rollout path' },
+        { id: 'unprojected-thread', cwd: `${this.root}-unprojected`, createdAt: 1, updatedAt: 2, path: 'private rollout path' },
         { id: 'missing-cwd', createdAt: 1, updatedAt: 2 },
       ],
       nextCursor: null,
@@ -402,9 +372,14 @@ class FakeAppServer implements CodexAppServerLike {
     if (method === 'thread/read') {
       const threadId = isRecord(params) ? params.threadId : undefined
       const includeTurns = isRecord(params) && params.includeTurns === true
+      const cwd = threadId === 'outside-thread'
+        ? this.outside
+        : threadId === 'unprojected-thread'
+          ? `${this.root}-unprojected`
+          : this.root
       return { thread: {
         id: threadId,
-        cwd: threadId === 'outside-thread' ? this.outside : this.root,
+        ...(threadId === 'project-only-thread' ? { projectId: 'allowed-project' } : { cwd }),
         turns: includeTurns ? [{
           id: 'turn-1',
           status: 'completed',

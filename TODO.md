@@ -47,7 +47,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 提供虚拟 Workspace/Session 数据源，并把 `Thread -> Turn -> Item` 临时投影为 DSH 原生 Session
 事件；不迁移数据，也不写入 DSH SessionStore。
 
-- [x] 增加默认关闭的 `codex.enabled`、本机 `binary` 与 canonical `allowedRoots` 配置
+- [x] 增加默认关闭的 `codex.enabled`、本机 `binary` 配置，并以 CodeX `project/list` 作为 Workspace 唯一来源
 - [x] 增加 Host 单例 stdio App Server 生命周期、initialize/account probe 与动态 capability
 - [x] 增加独立 `codex.app.*` RPC/event/transfer、固定 method schema allowlist 与大 History 分块
 - [x] 增加按 connection 隔离的 stream、active-turn owner、opaque approval handle 与断线 fail-closed
@@ -58,7 +58,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 - [x] 将新建空 Thread 稳定挂载到当前 CodeX Workspace，并增加 Host 端消息边界 History 分页与 Client 端 Session 元数据搜索
 - [x] 复用 DSH 原生 Workspace/Session 列表、Conversation Renderer、Composer、工具与审批 UI
 - [x] 增加 App Server crash 后有界指数退避重启；关闭旧 stream 且不自动重放 mutation
-- [x] 使用当前 v2 schema 与真实 Codex App Server 完成 stdio initialize/account/list/read/root-filter 冒烟
+- [x] 使用当前 v2 schema 与真实 Codex App Server 完成 stdio initialize/account/project/list/read 冒烟
 - [x] 使用真实 Codex App Server 完成本机 thread/start、幂等 resume、streamed turn/completed、History 回读与归档清理冒烟
 - [x] 迁移旧 `dsh-remote` 用户设置，并在 macOS 默认配置下自动发现 ChatGPT App 内置 Codex
 - [ ] 用两台真实 DSH Desktop 跑通加密跨机 resume/turn/event/approval/interrupt 与大 History 传输

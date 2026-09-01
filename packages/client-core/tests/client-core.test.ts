@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createEvent, createRpcError, createRpcResponse, encodeMessage } from '@dsh-remote/protocol'
 import { BaseTransport } from '@dsh-remote/webrtc'
 import {
+  CodexRemoteClient,
   HarnessAlphaClient,
   RemoteClientCore,
   RemoteClientError,
@@ -292,6 +293,45 @@ describe('RemoteTypertGateway', () => {
     })
     transport.push(encodeMessage(createRpcResponse(close.id, {})))
     await closing
+  })
+})
+
+describe('CodexRemoteClient', () => {
+  it('cleans up subscriptions when the Host closes a CodeX stream', async () => {
+    const transport = new LoopbackTransport()
+    const client = new RemoteClientCore(transport)
+    const codex = new CodexRemoteClient(client)
+    const frames: unknown[] = []
+    const closed: string[] = []
+    await client.connect()
+
+    const opening = codex.subscribe('thr_1', frame => frames.push(frame), undefined, reason => closed.push(reason))
+    const request = JSON.parse(new TextDecoder().decode(transport.sent[0]!))
+    expect(request.payload).toMatchObject({
+      method: 'codex.app.stream.open',
+      params: { threadId: 'thr_1' },
+    })
+    const streamId = request.payload.params.streamId as string
+    transport.push(encodeMessage(createRpcResponse(request.id, { opened: true })))
+    const stream = await opening
+
+    transport.push(encodeMessage(createEvent('codex.app.frame', {
+      streamId,
+      frame: { method: 'turn/started', params: { threadId: 'thr_1' } },
+    })))
+    expect(frames).toEqual([{ method: 'turn/started', params: { threadId: 'thr_1' } }])
+
+    transport.push(encodeMessage(createEvent('codex.app.stream.closed', { streamId, reason: 'failed' })))
+    expect(closed).toEqual(['failed'])
+    transport.push(encodeMessage(createEvent('codex.app.frame', {
+      streamId,
+      frame: { method: 'turn/completed', params: { threadId: 'thr_1' } },
+    })))
+    expect(frames).toHaveLength(1)
+
+    await stream.close()
+    expect(transport.sent).toHaveLength(1)
+    await client.close()
   })
 })
 

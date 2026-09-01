@@ -18,15 +18,12 @@ export interface Config {
   codex?: {
     enabled?: boolean
     binary?: string
-    /** @deprecated CodeX Workspace visibility is owned by Codex project/list. */
-    allowedRoots?: string[]
   }
 }
 
 export interface ResolvedCodexConfig {
   enabled: boolean
   binary: string
-  allowedRoots: string[]
 }
 
 export interface ResolvedConfig {
@@ -87,7 +84,6 @@ const configSchema = z.object({
   codex: z.object({
     enabled: z.boolean().optional(),
     binary: z.string().trim().min(1).max(4096).optional(),
-    allowedRoots: z.array(z.string().trim().min(1).max(4096)).max(32).optional(),
   }).strict().optional(),
 }).strict()
 
@@ -117,7 +113,6 @@ export function resolveConfig(input: Config = {}, env: NodeJS.ProcessEnv = proce
     codex: {
       enabled: parsed.codex?.enabled ?? false,
       binary: parsed.codex?.binary ?? 'codex',
-      allowedRoots: [...new Set(parsed.codex?.allowedRoots ?? [])],
     },
   }
 }

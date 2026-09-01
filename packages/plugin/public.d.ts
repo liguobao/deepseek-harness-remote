@@ -15,7 +15,6 @@ export interface Config {
   codex?: {
     enabled?: boolean
     binary?: string
-    allowedRoots?: string[]
   }
 }
 

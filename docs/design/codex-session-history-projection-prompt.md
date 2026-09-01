@@ -66,17 +66,18 @@ DSH 原生 Workspace / Session / Conversation / Composer
 ```
 
 已有 Remote Host 认证、账号 membership、pinned identity、Noise IK、LAN/P2P/TURN/Relay、连接隔离与
-root policy 必须继续复用。Server 只中继密文，不理解 CodeX 内容。
+固定 App Server allowlist 必须继续复用。Server 只中继密文，不理解 CodeX 内容。
 
 ## 虚拟标识
 
 ```text
-Workspace ID = codex-workspace:<stable hash of canonical cwd>
+Workspace ID = codex-workspace:project:<projectId>
 Session ID   = codex:<threadId>
 ```
 
-Workspace 按 canonical `cwd` 对允许根目录内的可见 Thread 分组。一个 CodeX 工作目录对应一个虚拟
-Workspace，该目录下的 Thread 对应 Session。映射只代表当前 CodeX catalog，不创建 DSH 本地记录。
+Workspace 只来自 CodeX App Server 的 `project/list`。一个 CodeX project 对应一个虚拟 Workspace；
+该 project id 或 project root 能归属的 Thread 对应 Session。Client 不根据 `thread/list.cwd` 合成额外
+Workspace。映射只代表当前 CodeX catalog，不创建 DSH 本地记录。
 
 ## 官方 CodeX 契约
 
@@ -90,8 +91,8 @@ Host 只通过 stdio 启动 `codex app-server`。实现以当前官方 schema �
 禁止 raw App Server 代理、Shell、PTY、`command/*`、`process/*`、任意 `config/*`、任意文件读取、
 `thread/delete`、`thread/shellCommand`、`thread/inject_items` 与远程 API Key 登录。
 
-`thread/list` 必须经过 Host canonical `allowedRoots` 过滤；其它带 `threadId` 的调用必须再次验证该
-Thread 属于允许根目录，不能只信任 Client 发来的 ID。
+`project/list` 是 CodeX Workspace 的唯一来源。`thread/list` 必须经过 Host 项目归属过滤；其它带
+`threadId` 的调用必须再次验证该 Thread 属于 CodeX 暴露的 project，不能只信任 Client 发来的 ID。
 
 ## DSH 原生数据面
 
@@ -201,7 +202,7 @@ git diff --check
 3. History 和 live frame 能由原生 renderer 正确消费；
 4. 原生操作正确路由回 CodeX App Server；
 5. 虚拟记录不进入 DSH SessionStore、Workspace 数据库或 Harness 日志；
-6. Host allowlist、allowedRoots、membership、identity 固定、Noise 与连接隔离仍然生效；
+6. Host allowlist、CodeX `project/list` authority、membership、identity 固定、Noise 与连接隔离仍然生效；
 7. 退出或断线后无残留虚拟 target、stream 或 approval；
 8. 不修改 Android、VS Code、Server runtime 或 DSH 主仓库；
 9. 核心测试、check、bundle 校验、build、test 与 `git diff --check` 通过；

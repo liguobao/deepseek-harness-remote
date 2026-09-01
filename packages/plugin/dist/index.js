@@ -4520,10 +4520,27 @@ var CodexRemoteClient = class {
   async respond(requestHandle, decision, signal) {
     await this.core.rpc("codex.app.respond", { requestHandle, decision }, signal);
   }
-  async subscribe(threadId, onFrame, signal) {
+  async subscribe(threadId, onFrame, signal, onClose) {
     const streamId = createRemoteId();
-    const unsubscribe = this.core.onEvent((event) => {
-      if (event.event !== "codex.app.frame" || !isRecord(event.data) || event.data.streamId !== streamId || !isRecord(event.data.frame) || typeof event.data.frame.method !== "string")
+    let closed = false;
+    let unsubscribe = () => void 0;
+    const markClosed = () => {
+      if (closed)
+        return false;
+      closed = true;
+      unsubscribe();
+      return true;
+    };
+    unsubscribe = this.core.onEvent((event) => {
+      if (!isRecord(event.data) || event.data.streamId !== streamId)
+        return;
+      if (event.event === "codex.app.stream.closed") {
+        if (!markClosed())
+          return;
+        onClose?.(codexStreamCloseReason(event.data.reason));
+        return;
+      }
+      if (event.event !== "codex.app.frame" || !isRecord(event.data.frame) || typeof event.data.frame.method !== "string")
         return;
       onFrame(event.data.frame);
     });
@@ -4533,14 +4550,11 @@ var CodexRemoteClient = class {
       unsubscribe();
       throw error;
     }
-    let closed = false;
     return {
       streamId,
       close: async () => {
-        if (closed)
+        if (!markClosed())
           return;
-        closed = true;
-        unsubscribe();
         await this.core.rpc("codex.app.stream.close", { streamId }).catch(() => void 0);
       }
     };
@@ -4774,6 +4788,9 @@ function base64ToBytes(value) {
 }
 function invalidResponse(part) {
   return new RemoteGatewayError("INVALID_MESSAGE", `The Host returned an invalid Codex ${part}.`);
+}
+function codexStreamCloseReason(value) {
+  return value === "cancelled" || value === "completed" || value === "failed" || value === "peer-disconnected" ? value : "failed";
 }
 function createCodexTransferId() {
   if (globalThis.crypto?.randomUUID !== void 0)
@@ -14537,7 +14554,12 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       }
     });
     try {
-      const stream = await this.client.subscribe(threadId, (frame) => this.acceptCodexFrame(follow, frame), signal);
+      const stream = await this.client.subscribe(
+        threadId,
+        (frame) => this.acceptCodexFrame(follow, frame),
+        signal,
+        () => this.closeFollowAfterRemoteStreamClosed(follow)
+      );
       follow.close = () => stream.close();
     } catch (error) {
       this.follows.delete(follow);
@@ -15096,7 +15118,12 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     };
     this.follows.add(follow);
     try {
-      const stream = await this.client.subscribe(threadId, (frame) => this.acceptCodexFrame(follow, frame), controller.signal);
+      const stream = await this.client.subscribe(
+        threadId,
+        (frame) => this.acceptCodexFrame(follow, frame),
+        controller.signal,
+        () => this.closeFollowAfterRemoteStreamClosed(follow)
+      );
       follow.close = async () => {
         controller.abort();
         await stream.close();
@@ -15111,6 +15138,11 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   followsHas(sessionId) {
     for (const follow of this.follows) if (follow.sessionId === sessionId) return true;
     return false;
+  }
+  closeFollowAfterRemoteStreamClosed(follow) {
+    this.follows.delete(follow);
+    follow.queue.close();
+    this.emitRemoteEvent("api-session/status", [follow.sessionId, false]);
   }
   async refreshAndPublishWorkspaces() {
     const catalog = await this.refreshCatalog().catch(() => void 0);
@@ -15245,39 +15277,24 @@ async function loadCatalog(client, signal, pendingThreads) {
     const session = projectCodexThread(thread);
     return session === void 0 ? void 0 : { thread, session };
   }).filter((value) => value !== void 0);
-  const sessions = projected.map((value) => value.session);
   const projectWorkspaces = projects.map(projectWorkspace);
   const workspaceByProjectId = new Map(projects.map((project, index) => [project.id, projectWorkspaces[index]]));
-  const fallbackWorkspaceByPath = /* @__PURE__ */ new Map();
+  const visibleSessionIds = /* @__PURE__ */ new Set();
+  const visibleThreads = [];
   for (const { thread, session } of projected) {
-    if (session.cwd === void 0 || session.cwd.length === 0) continue;
     const projectWorkspaceForSession = findProjectWorkspace(thread, session, projects, workspaceByProjectId);
     if (projectWorkspaceForSession !== void 0) {
       addSessionToWorkspace(projectWorkspaceForSession, session);
-      continue;
-    }
-    const current = fallbackWorkspaceByPath.get(session.cwd);
-    if (current === void 0) {
-      const workspace = {
-        workspaceId: `${CODEX_WORKSPACE_PREFIX}${hashString(session.cwd)}`,
-        path: session.cwd,
-        title: basename(session.cwd),
-        sessionIds: [],
-        sessionCount: 0,
-        createdAt: isoTime(session.createdAt),
-        updatedAt: isoTime(session.updatedAt || session.createdAt)
-      };
-      addSessionToWorkspace(workspace, session);
-      fallbackWorkspaceByPath.set(session.cwd, workspace);
-    } else {
-      addSessionToWorkspace(current, session);
+      visibleSessionIds.add(session.id);
+      visibleThreads.push(thread);
     }
   }
+  const sessions = projected.map((value) => value.session).filter((session) => visibleSessionIds.has(session.id));
   return {
-    threads,
+    threads: visibleThreads,
     sessions,
     projects,
-    workspaces: [...projectWorkspaces, ...fallbackWorkspaceByPath.values()]
+    workspaces: projectWorkspaces
   };
 }
 async function loadCodexProjects(client, signal) {
@@ -16062,8 +16079,7 @@ var configSchema = external_exports.object({
   reconnect: reconnectSchema.optional(),
   codex: external_exports.object({
     enabled: external_exports.boolean().optional(),
-    binary: external_exports.string().trim().min(1).max(4096).optional(),
-    allowedRoots: external_exports.array(external_exports.string().trim().min(1).max(4096)).max(32).optional()
+    binary: external_exports.string().trim().min(1).max(4096).optional()
   }).strict().optional()
 }).strict();
 function resolveConfig(input2 = {}, env = process.env) {
@@ -16091,8 +16107,7 @@ function resolveConfig(input2 = {}, env = process.env) {
     },
     codex: {
       enabled: parsed.codex?.enabled ?? false,
-      binary: parsed.codex?.binary ?? "codex",
-      allowedRoots: [...new Set(parsed.codex?.allowedRoots ?? [])]
+      binary: parsed.codex?.binary ?? "codex"
     }
   };
 }
@@ -22305,8 +22320,7 @@ var CodexRemoteDomain = class {
       available: this.isAvailable(),
       state: this.state,
       restartAttempt: this.restartAttempt,
-      ...this.unavailableCode === void 0 ? {} : { error: this.unavailableCode },
-      allowedRootCount: this.config.allowedRoots.length
+      ...this.unavailableCode === void 0 ? {} : { error: this.unavailableCode }
     };
   }
   createPeer(context, publish) {
@@ -22326,7 +22340,10 @@ var CodexRemoteDomain = class {
       return sanitizeProjectList(await this.callUpstream(call.method, call.params));
     }
     if (call.method === "thread/list") {
-      return sanitizeThreadList(await this.callUpstream(call.method, call.params));
+      return filterThreadListByProjectAuthority(
+        sanitizeThreadList(await this.callUpstream(call.method, call.params)),
+        await this.readProjectAuthority()
+      );
     }
     if (call.method === "thread/start") {
       const cwd = await this.requireCodexWorkspacePath(call.params.cwd);
@@ -22607,26 +22624,26 @@ var CodexRemoteDomain = class {
     }
   }
   async readKnownThread(threadId) {
-    const result = await this.callUpstream("thread/read", { threadId, includeTurns: false });
+    const authority = await this.readProjectAuthority();
+    let result;
+    try {
+      result = await this.callUpstream("thread/read", { threadId, includeTurns: false });
+    } catch (error) {
+      if (!isHistoryReadRecoverable(error)) throw error;
+      const listed = await this.findKnownThreadInList(threadId, authority);
+      if (listed === void 0) {
+        throw new RpcError("CODEX_THREAD_NOT_ALLOWED", "The Codex thread is not available through this Remote Host.");
+      }
+      return { thread: listed, ...typeof listed.cwd === "string" && listed.cwd.length > 0 ? { cwd: listed.cwd } : {} };
+    }
     const thread = extractThread(result);
-    if (thread === void 0 || thread.id !== threadId) {
+    if (thread === void 0 || thread.id !== threadId || !isThreadAllowedByProjectAuthority(thread, authority)) {
       throw new RpcError("CODEX_THREAD_NOT_ALLOWED", "The Codex thread is not available through this Remote Host.");
     }
     return { thread, ...typeof thread.cwd === "string" && thread.cwd.length > 0 ? { cwd: thread.cwd } : {} };
   }
   async readThreadForHistory(connectionId, threadId) {
-    let metadata = { id: threadId };
-    try {
-      const metadataResult = await this.callUpstream("thread/read", { threadId, includeTurns: false });
-      const resolved = extractThread(metadataResult);
-      if (resolved === void 0 || resolved.id !== threadId) {
-        throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid Thread history.");
-      }
-      metadata = resolved;
-    } catch (metadataError) {
-      if (!isHistoryReadRecoverable(metadataError)) throw metadataError;
-      this.logHistoryFallback(connectionId, "thread-read-metadata", metadataError);
-    }
+    const { thread: metadata } = await this.readKnownThread(threadId);
     try {
       return { ...metadata, turns: await this.readThreadTurns(connectionId, threadId, "full") };
     } catch (fullError) {
@@ -22713,6 +22730,9 @@ var CodexRemoteDomain = class {
     if (thread === void 0 || typeof thread.id !== "string") {
       throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread.");
     }
+    if (!isThreadAllowedByProjectAuthority(thread, await this.readProjectAuthority())) {
+      throw new RpcError("CODEX_THREAD_NOT_ALLOWED", "The Codex thread is not available through this Remote Host.");
+    }
   }
   claimTurn(threadId, connectionId, method) {
     const owner = this.turnOwners.get(threadId);
@@ -22776,29 +22796,28 @@ var CodexRemoteDomain = class {
       throw mapAppServerError(error);
     }
   }
-  async requireCodexWorkspacePath(path) {
-    if (!isAbsolute3(path)) {
-      throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
-    }
-    const paths = await this.listCodexWorkspacePaths();
-    if (!paths.has(path)) {
-      throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
-    }
-    return path;
-  }
-  async listCodexWorkspacePaths() {
-    const paths = /* @__PURE__ */ new Set();
+  async readProjectAuthority() {
+    const projectIds = /* @__PURE__ */ new Set();
+    const roots = [];
     let cursor2;
     for (let page = 0; page < 32; page += 1) {
       const result = sanitizeProjectList(await this.callUpstream("project/list", {
         limit: 100,
         ...cursor2 === void 0 ? {} : { cursor: cursor2 }
       }));
-      for (const project of result.data) for (const root of project.roots) paths.add(root.path);
+      for (const project of result.data) {
+        const projectRoots = project.roots.map((root) => root.path).filter((path) => isAbsolute3(path));
+        if (projectRoots.length === 0) continue;
+        projectIds.add(project.id);
+        roots.push(...projectRoots);
+      }
       cursor2 = typeof result.nextCursor === "string" && result.nextCursor.length > 0 ? result.nextCursor : void 0;
       if (cursor2 === void 0) break;
     }
-    cursor2 = void 0;
+    return { projectIds, roots };
+  }
+  async findKnownThreadInList(threadId, authority) {
+    let cursor2;
     for (let page = 0; page < 32; page += 1) {
       const result = sanitizeThreadList(await this.callUpstream("thread/list", {
         limit: 100,
@@ -22807,10 +22826,30 @@ var CodexRemoteDomain = class {
         archived: false,
         ...cursor2 === void 0 ? {} : { cursor: cursor2 }
       }));
-      for (const thread of result.data) if (typeof thread.cwd === "string" && thread.cwd.length > 0) paths.add(thread.cwd);
+      const thread = result.data.find((item) => item.id === threadId);
+      if (thread !== void 0) {
+        return isThreadAllowedByProjectAuthority(thread, authority) ? thread : void 0;
+      }
       cursor2 = typeof result.nextCursor === "string" && result.nextCursor.length > 0 ? result.nextCursor : void 0;
       if (cursor2 === void 0) break;
     }
+    return void 0;
+  }
+  async requireCodexWorkspacePath(path) {
+    if (!isAbsolute3(path)) {
+      throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
+    }
+    const paths = await this.listCodexProjectWorkspacePaths();
+    const canonical = paths.get(normalizeCodexPathForCompare(path));
+    if (canonical === void 0) {
+      throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
+    }
+    return canonical;
+  }
+  async listCodexProjectWorkspacePaths() {
+    const paths = /* @__PURE__ */ new Map();
+    const authority = await this.readProjectAuthority();
+    for (const root of authority.roots) paths.set(normalizeCodexPathForCompare(root), root);
     return paths;
   }
 };
@@ -22878,6 +22917,15 @@ function sanitizeThreadList(result) {
     ...typeof result.backwardsCursor === "string" && result.backwardsCursor.length > 0 ? { backwardsCursor: result.backwardsCursor } : {}
   };
 }
+function filterThreadListByProjectAuthority(result, authority) {
+  if (!isRecord9(result) || !Array.isArray(result.data)) {
+    throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread list.");
+  }
+  return {
+    ...result,
+    data: result.data.map((record4) => isRecord9(record4) ? record4 : void 0).filter((thread) => thread !== void 0 && isThreadAllowedByProjectAuthority(thread, authority))
+  };
+}
 function sanitizeProjectList(result) {
   if (!isRecord9(result) || !Array.isArray(result.data)) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid project list.");
@@ -22886,7 +22934,7 @@ function sanitizeProjectList(result) {
     if (!isRecord9(value) || typeof value.id !== "string" || typeof value.name !== "string") return [];
     const roots = Array.isArray(value.roots) ? value.roots.flatMap((root) => {
       const path = isRecord9(root) && typeof root.path === "string" && root.path.length > 0 ? root.path : void 0;
-      return path === void 0 ? [] : [{ path }];
+      return path === void 0 || !isAbsolute3(path) ? [] : [{ path }];
     }) : [];
     if (roots.length === 0) return [];
     return [{
@@ -22902,6 +22950,20 @@ function sanitizeProjectList(result) {
     data,
     ...typeof result.nextCursor === "string" && result.nextCursor.length > 0 ? { nextCursor: result.nextCursor } : { nextCursor: null }
   };
+}
+function isThreadAllowedByProjectAuthority(thread, authority) {
+  const projectId = typeof thread.projectId === "string" ? thread.projectId : void 0;
+  if (projectId !== void 0 && authority.projectIds.has(projectId)) return true;
+  const cwd = typeof thread.cwd === "string" ? thread.cwd : void 0;
+  return cwd !== void 0 && authority.roots.some((root) => containsCodexPath(root, cwd));
+}
+function containsCodexPath(root, candidate) {
+  const normalizedRoot = normalizeCodexPathForCompare(root);
+  const normalizedCandidate = normalizeCodexPathForCompare(candidate);
+  return normalizedCandidate === normalizedRoot || normalizedCandidate.startsWith(`${normalizedRoot}/`) || normalizedCandidate.startsWith(`${normalizedRoot}\\`);
+}
+function normalizeCodexPathForCompare(path) {
+  return path.replace(/[\\/]+$/u, "") || path;
 }
 function extractThread(result) {
   return isRecord9(result) && isRecord9(result.thread) ? result.thread : void 0;

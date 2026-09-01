@@ -1,5 +1,6 @@
 import type {
   CodexAppFrameData,
+  CodexAppStreamClosedData,
   CodexAppTransferCommitResult,
   CodexAppTransferReadResult,
 } from '@dsh-remote/protocol'
@@ -156,11 +157,26 @@ export class CodexRemoteClient {
     threadId: string,
     onFrame: (frame: CodexAppFrameData['frame']) => void,
     signal?: AbortSignal,
+    onClose?: (reason: CodexAppStreamClosedData['reason']) => void,
   ): Promise<CodexStream> {
     const streamId = createRemoteId()
-    const unsubscribe = this.core.onEvent(event => {
-      if (event.event !== 'codex.app.frame' || !isRecord(event.data) || event.data.streamId !== streamId
-        || !isRecord(event.data.frame) || typeof event.data.frame.method !== 'string') return
+    let closed = false
+    let unsubscribe: () => void = () => undefined
+    const markClosed = () => {
+      if (closed) return false
+      closed = true
+      unsubscribe()
+      return true
+    }
+    unsubscribe = this.core.onEvent(event => {
+      if (!isRecord(event.data) || event.data.streamId !== streamId) return
+      if (event.event === 'codex.app.stream.closed') {
+        if (!markClosed()) return
+        onClose?.(codexStreamCloseReason(event.data.reason))
+        return
+      }
+      if (event.event !== 'codex.app.frame' || !isRecord(event.data.frame)
+        || typeof event.data.frame.method !== 'string') return
       onFrame(event.data.frame as CodexAppFrameData['frame'])
     })
     try {
@@ -169,13 +185,10 @@ export class CodexRemoteClient {
       unsubscribe()
       throw error
     }
-    let closed = false
     return {
       streamId,
       close: async () => {
-        if (closed) return
-        closed = true
-        unsubscribe()
+        if (!markClosed()) return
         await this.core.rpc('codex.app.stream.close', { streamId }).catch(() => undefined)
       },
     }
@@ -627,6 +640,15 @@ function base64ToBytes(value: string): Uint8Array {
 
 function invalidResponse(part: string): RemoteGatewayError {
   return new RemoteGatewayError('INVALID_MESSAGE', `The Host returned an invalid Codex ${part}.`)
+}
+
+function codexStreamCloseReason(value: unknown): CodexAppStreamClosedData['reason'] {
+  return value === 'cancelled'
+    || value === 'completed'
+    || value === 'failed'
+    || value === 'peer-disconnected'
+    ? value
+    : 'failed'
 }
 
 function createCodexTransferId(): string {

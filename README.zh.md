@@ -126,23 +126,22 @@ CodeX 页面。
 原生工具卡片展示。大段实时工具输出只保留有界的内存窗口，文件 patch 只传递路径和变更类型，
 不会把原始 diff 写入或透传为 Workspace 文件内容。
 
-原生 Workspace 的“新建会话”会在对应工作目录执行 `thread/start`，空 Thread 在 App Server 列表可见前
-由 Plugin 临时保留。History 由 Host 按 DSH 消息边界处理 `beforeSeq` / `maxMessages` 分页后再传输，
-Session 搜索则在 Client 端针对当前可见的 Thread 标题、预览、目录和标识执行。
+原生 Workspace 的“新建会话”会在选中的 CodeX 项目根目录执行 `thread/start`，空 Thread 在 App
+Server 列表可见前由 Plugin 临时保留。History 由 Host 按 DSH 消息边界处理 `beforeSeq` /
+`maxMessages` 分页后再传输，Session 搜索则在 Client 端针对当前可见的 Thread 标题、预览、目录和
+标识执行。
 
 这只是展示适配，不是导入。虚拟 Workspace/Session 不会写入 DSH SessionStore、工作区存储或
-Harness 日志；CodeX App Server 始终是唯一数据源，新建、改名、归档、Prompt、停止和审批操作都
-路由回其白名单方法。Host carrier 继续复用账号 membership、Host identity 固定、Noise 安全通道和
-自适应传输。Codex 默认关闭，并要求 Host 本机显式配置允许根目录。加密跨机 turn/approval 联调仍
-待完成；Android 不属于当前 Plugin-only 范围。
+Harness 日志；CodeX App Server 始终是唯一数据源，其中 `project/list` 是可见 CodeX Workspace 的
+唯一来源。新建、改名、归档、Prompt、停止和审批操作都路由回其白名单方法。Host carrier 继续复用
+账号 membership、Host identity 固定、Noise 安全通道和自适应传输。Codex 默认关闭。加密跨机
+turn/approval 联调仍待完成；Android 不属于当前 Plugin-only 范围。
 
 ```yaml
 ds-harness-remote:
   codex:
     enabled: true
     binary: codex
-    allowedRoots:
-      - /项目的绝对路径
 ```
 
 `binary` 必须指向支持 `codex app-server` 的 Codex CLI。在 macOS 保持默认 `codex` 时，Plugin
@@ -178,7 +177,7 @@ WebSocket Relay。所有路径都承载同一份 Noise 密文，并保持相同�
 - Workspace 选择器只列出文件夹，并且只返回受限的只读目录元数据。
 - 可选 File Viewer 只通过已认证、已加密的分块读取访问文件，并继续执行 provider 根目录与 locator 授权。
 - 远端文件预览不能写入、删除、上传、执行文件，也不能调用远端系统的“外部打开”。
-- Codex Remote 默认关闭并受根目录约束，拒绝 App Server 的原始 Shell、process 和 config 方法。
+- Codex Remote 默认关闭，只暴露 CodeX `project/list` 中的 Workspace，并拒绝 App Server 的原始 Shell、process 和 config 方法。
 - 移除设备后，其凭证、membership 和已建立的 Remote 连接均会失效。
 
 ## 版本兼容

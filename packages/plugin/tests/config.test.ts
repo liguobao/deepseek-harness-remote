@@ -8,19 +8,18 @@ describe('plugin config', () => {
       role: 'host',
       forceRelay: false,
       reconnect: { enabled: true, initialDelayMs: 1_000, maxDelayMs: 30_000, jitter: 0.2 },
-      codex: { enabled: false, binary: 'codex', allowedRoots: [] },
+      codex: { enabled: false, binary: 'codex' },
     })
   })
 
-  it('keeps the nested Codex domain opt-in and bounded', () => {
+  it('keeps the nested Codex domain opt-in and rejects obsolete workspace filters', () => {
     expect(resolveConfig({ codex: {
       enabled: true,
       binary: '/opt/codex/bin/codex',
-      allowedRoots: ['/workspace', '/workspace'],
     } }, {})).toMatchObject({
-      codex: { enabled: true, binary: '/opt/codex/bin/codex', allowedRoots: ['/workspace'] },
+      codex: { enabled: true, binary: '/opt/codex/bin/codex' },
     })
-    expect(() => resolveConfig({ codex: { enabled: true, allowedRoots: Array.from({ length: 33 }, (_, index) => `/w/${index}`) } })).toThrow()
+    expect(() => resolveConfig({ codex: { enabled: true, allowedRoots: ['/workspace'] } } as never)).toThrow()
   })
 
   it('rejects insecure non-local servers and embedded credentials', () => {

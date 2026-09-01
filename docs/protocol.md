@@ -1151,10 +1151,10 @@ Host 必须调用 `fileViewerHost` 服务，让被选中的 File Viewer provider
 ### Codex App Server domain
 
 Codex 是现有 Remote Plugin 内部的可选独立业务领域，不是第二个 Plugin。Host 本机配置
-`codex.enabled: true` 且至少一个绝对 `allowedRoots` 后，Plugin
-才可使用配置的 `codex.binary` 启动 `codex app-server`。Plugin 与 App Server 只使用默认 stdio
-JSONL；App Server 不监听 Remote/公网端口。初始化、账户状态和 canonical root policy 全部成功后，
-Host 才宣告 `codex.appserver.v1` 与 `codex.appserver.transfer.v1`。
+`codex.enabled: true` 后，Plugin 才可使用配置的 `codex.binary` 启动 `codex app-server`。Plugin
+与 App Server 只使用默认 stdio JSONL；App Server 不监听 Remote/公网端口。初始化、账户状态和
+CodeX `project/list` 探测全部成功后，Host 才宣告 `codex.appserver.v1` 与
+`codex.appserver.transfer.v1`。
 当 `codex.binary` 保持默认值时，macOS Host 可以优先发现 ChatGPT App 内置 Codex 后再回退到
 `PATH`；用户显式配置的 binary 不得被替换或补充候选项。
 
@@ -1171,19 +1171,22 @@ Thread、History/live frame 映射为 DSH 原生 Workspace/Session/Event，使�
 - `codex.app.transfer.open|chunk|commit|read|close`。
 
 `codex.app.call` envelope 为 `{ "method": string, "params": unknown }`，但它不是通用 JSON-RPC
-代理。Host 编译期 allowlist 仅包含 `account/read`、`model/list`、`thread/list`、`thread/read`、
-`thread/start`、`thread/resume`、`thread/fork`、`thread/name/set`、`thread/archive`、
-`thread/unarchive`、`thread/unsubscribe`、`turn/start`、`turn/steer` 与 `turn/interrupt`，且每个
-params 都必须通过严格 schema。`thread/delete`、`thread/shellCommand`、`thread/inject_items`、
-`thread/rollback`、background terminal、`command/*`、`process/*`、`config/*`、登录写接口和实验
-API 一律返回 `METHOD_NOT_ALLOWED`。
+代理。Host 编译期 allowlist 仅包含 `account/read`、`model/list`、`project/list`、`thread/list`、
+`thread/read`、`dsh/sessionHistory`、`thread/start`、`thread/resume`、`thread/fork`、
+`thread/name/set`、`thread/archive`、`thread/unarchive`、`thread/unsubscribe`、`turn/start`、
+`turn/steer` 与 `turn/interrupt`，且每个 params 都必须通过严格 schema。`thread/delete`、
+`thread/shellCommand`、`thread/inject_items`、`thread/rollback`、background terminal、
+`command/*`、`process/*`、`config/*`、登录写接口和实验 API 一律返回 `METHOD_NOT_ALLOWED`。
 
-`thread/list` 响应必须按 canonical `cwd` 过滤；没有合法 `cwd`、路径不存在、symlink 越界、
-相似字符串前缀或不属于任一 `allowedRoots` 的 Thread 不得返回。其它带 `threadId` 的调用必须先
-用只读 `thread/read(includeTurns:false)` 重新验证归属。Remote 创建 Thread 时 Host 固定使用单次
-审批语义与 workspace sandbox，不接受 Client 提交的任意 sandbox、writable roots 或持久授权。
-对 `thread/resume` 与 `thread/fork`，Host 同样重新注入已验证的 canonical cwd、单次审批与
-workspace sandbox，不使用 Remote Client 提供的越界覆盖。
+CodeX App Server 的 `project/list` 是虚拟 Workspace 的唯一来源。Client Plugin 不得根据
+`thread/list.cwd` 合成额外 Workspace；`thread/list` 里不能归属到任一 CodeX project id 或 project
+root 的 Thread 不得返回为可见 Session。其它带 `threadId` 的调用必须先用只读
+`thread/read(includeTurns:false)` 重新验证该 Thread 仍属于 `project/list` 暴露的项目；如果该只读
+验证因 App Server 当前状态临时失败，Host 最多只能用同一项目 authority 下的 `thread/list` 结果兜底。
+Remote 创建 Thread 时 Host 只能接受 `project/list` 暴露的项目根目录，并固定使用单次审批语义与
+workspace sandbox，不接受 Client 提交的任意 sandbox、writable roots 或持久授权。对 `thread/resume`
+与 `thread/fork`，Host 同样重新注入已验证的 cwd、单次审批与 workspace sandbox，不使用 Remote
+Client 提供的越界覆盖。
 当前 App Server wire 中 Thread 级覆盖固定为 `approvalPolicy: "on-request"` 与
 `sandbox: "workspace-write"`；每次 `turn/start` 还必须由 Host 注入 canonical cwd、
 `approvalPolicy: "on-request"` 以及 `sandboxPolicy.type: "workspaceWrite"`，不能依赖 Client 或
@@ -1199,7 +1202,7 @@ Remote frame。
 
 `codex.appserver.transfer.v1` 使用独立的 512 KiB chunk、288 MiB 总上限、canonical base64、
 严格有序/恰好一次、每连接输入/输出各两个 transfer 和 2 分钟 idle 清理。重组后的内容必须再次
-解析为 `codex.app.call` 并经过同一 allowlist/root policy，不能借分块扩权。
+解析为 `codex.app.call` 并经过同一 allowlist / project-list policy，不能借分块扩权。
 
 App Server 意外退出或 stdio 失效时，Host 立即撤回动态 capability、清空 active-turn lease 与审批
 handle，并以 `failed` 结束全部旧 Codex stream。Host 按 `1s -> 2s -> 4s -> 8s -> 15s` 最多五次
