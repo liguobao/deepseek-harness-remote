@@ -4462,7 +4462,7 @@ var CodexRemoteClient = class {
   /** Low-level allowlisted request used by the Desktop Web loopback facade. */
   request(method, params, signal) {
     const largeHistory = method === "dsh/sessionHistory" || method === "thread/read" && isRecord(params) && params.includeTurns === true;
-    return this.call(method, params, largeHistory, signal);
+    return this.call(method, params, largeHistory || hasImageInput(params), signal);
   }
   async account(signal) {
     return this.call("account/read", { refreshToken: false }, false, signal);
@@ -4606,6 +4606,9 @@ var CodexRemoteClient = class {
     }
   }
 };
+function hasImageInput(params) {
+  return isRecord(params) && Array.isArray(params.input) && params.input.some((value) => isRecord(value) && value.type === "image");
+}
 function projectCodexThread(value) {
   if (!isRecord(value) || typeof value.id !== "string")
     return void 0;
