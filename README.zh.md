@@ -26,7 +26,7 @@
   &nbsp;·&nbsp;
   <a href="https://github.com/liguobao/ds-harness-remote">GitHub</a>
   &nbsp;·&nbsp;
-  <a href="https://dshfind.com/zh/plugins/liguobao/deepseek-harness-remote?ref=badge"><img src="https://dshfind.com/api/badge/liguobao/deepseek-harness-remote?metric=downloads&amp;lang=zh" alt="dshfind 下载量" width="137" height="20" align="absmiddle"></a>
+  <a href="https://dshfind.com/zh/plugins/liguobao/ds-harness-remote?ref=badge"><img src="https://dshfind.com/api/badge/liguobao/ds-harness-remote?metric=downloads&amp;lang=zh" alt="dshfind 下载量" width="137" height="20" align="absmiddle"></a>
 </p>
 
 ## 一次连接，随时可用。
