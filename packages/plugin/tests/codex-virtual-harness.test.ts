@@ -60,6 +60,26 @@ describe('CodexVirtualHarness', () => {
     await target.close()
   })
 
+  it('does not mark listed CodeX Sessions blank when thread/list omits turns', async () => {
+    const client = fakeCodex()
+    const originalRequest = client.request.getMockImplementation() as
+      | ((method: string, params?: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>)
+      | undefined
+    client.request.mockImplementation(async (method: string, params?: Record<string, unknown>, signal?: AbortSignal) => {
+      if (method === 'thread/list') return { data: [codexThread('thr_1', '/workspace/repo', 'Native renderer')] }
+      return originalRequest?.(method, params, signal)
+    })
+
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const result = await target.dispatch('session/list', { args: {} }, new AbortController().signal)
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { items: [expect.objectContaining({ sessionId: 'codex:thr_1', blank: false })] },
+    })
+    await target.close()
+  })
+
   it('projects persisted CodeX history and live frames into native session events', async () => {
     const client = fakeCodex()
     const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
@@ -441,6 +461,33 @@ describe('CodexVirtualHarness', () => {
     if (!older.ok) throw new Error('older history failed')
     expect((older.value as { records: Array<{ event: { seq: number } }> }).records.map(entry => entry.event.seq))
       .toEqual([0, 1, 2])
+    await target.close()
+  })
+
+  it('falls back to thread/read history when a remote Host lacks the paginated DSH method', async () => {
+    const client = fakeCodex()
+    const originalRequest = client.request.getMockImplementation() as
+      | ((method: string, params?: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>)
+      | undefined
+    client.request.mockImplementation(async (method: string, params?: Record<string, unknown>, signal?: AbortSignal) => {
+      if (method === 'dsh/sessionHistory') {
+        throw Object.assign(new Error('The requested Codex method is not available over Remote.'), {
+          code: 'METHOD_NOT_ALLOWED',
+        })
+      }
+      return originalRequest?.(method, params, signal)
+    })
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+
+    const history = await target.api.sessions.history({
+      rpcId: 'history-legacy' as never,
+      payload: { sessionId: 'codex:thr_1' as never, maxMessages: 3 },
+    })
+
+    expect(history.result).toMatchObject({ ok: true, value: { hasMore: true } })
+    if (!history.result.ok) throw new Error('history failed')
+    expect(history.result.value.events.map(entry => entry.event.seq)).toEqual([3, 4, 5, 6, 7, 8, 9])
+    expect(client.request).toHaveBeenCalledWith('thread/read', { threadId: 'thr_1', includeTurns: true }, expect.any(AbortSignal))
     await target.close()
   })
 

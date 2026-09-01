@@ -14425,10 +14425,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   async sessionSummaries(signal) {
     const catalog = await this.refreshCatalog(signal);
     const directory = await this.models(signal).catch(() => void 0);
-    const threadById = new Map(catalog.threads.map((thread) => [string(thread.id), thread]));
     return catalog.sessions.map((session) => {
-      const turns = threadById.get(session.nativeId)?.turns;
-      const blank = this.blankThreads.has(session.nativeId) || this.pendingThreads.has(session.nativeId) || Array.isArray(turns) && turns.length === 0;
+      const blank = this.blankThreads.has(session.nativeId) || this.pendingThreads.has(session.nativeId);
       return {
         sessionId: session.id,
         updatedAt: session.updatedAt,
@@ -15008,12 +15006,28 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     return thread;
   }
   async readHistoryPage(threadId, page, signal) {
-    const value = record(await this.client.request("dsh/sessionHistory", {
-      threadId,
-      ...page.beforeSeq === void 0 ? {} : { beforeSeq: page.beforeSeq },
-      ...page.throughSeq === void 0 ? {} : { throughSeq: page.throughSeq },
-      ...page.maxMessages === void 0 ? {} : { maxMessages: page.maxMessages }
-    }, signal));
+    let value;
+    try {
+      value = record(await this.client.request("dsh/sessionHistory", {
+        threadId,
+        ...page.beforeSeq === void 0 ? {} : { beforeSeq: page.beforeSeq },
+        ...page.throughSeq === void 0 ? {} : { throughSeq: page.throughSeq },
+        ...page.maxMessages === void 0 ? {} : { maxMessages: page.maxMessages }
+      }, signal));
+    } catch (error) {
+      if (!isLegacySessionHistoryUnsupported(error)) throw error;
+      const result = record(await this.client.request("thread/read", { threadId, includeTurns: true }, signal));
+      const thread = record(result.thread);
+      if (string(thread.id) !== threadId) throw new Error("CodeX returned an invalid Thread history.");
+      value = paginateCodexNativeHistory(
+        projectCodexNativeHistory(thread, `codex:${threadId}`),
+        {
+          beforeSeq: page.beforeSeq,
+          throughSeq: page.throughSeq,
+          maxMessages: page.maxMessages
+        }
+      );
+    }
     if (!isCodexNativeHistoryPage(value, `codex:${threadId}`)) {
       throw new Error("CodeX Remote returned an invalid paginated History.");
     }
@@ -15766,7 +15780,17 @@ function fail(code, message, details = {}) {
 }
 function failFrom(error) {
   const source = error instanceof Error ? error : new Error(String(error));
-  return fail("internal", source.message);
+  return fail(errorCode(source) ?? "internal", source.message, errorDetails(source));
+}
+function isLegacySessionHistoryUnsupported(error) {
+  if (!(error instanceof Error)) return false;
+  return errorCode(error) === "METHOD_NOT_ALLOWED" || errorCode(error) === "METHOD_NOT_FOUND" || error.message.includes("The requested Codex method is not available over Remote.");
+}
+function errorCode(error) {
+  return "code" in error && typeof error.code === "string" ? error.code : void 0;
+}
+function errorDetails(error) {
+  return "details" in error && isRecord3(error.details) ? error.details : {};
 }
 function record(value) {
   return isRecord3(value) ? value : {};
@@ -15800,8 +15824,9 @@ function optionalPositiveInteger(value) {
   return parsed;
 }
 function isCodexNativeHistoryPage(value, sessionId) {
-  const header = record(value.header);
-  return header.id === sessionId && integer(value.cursor) !== void 0 && integer(value.nextTurn) !== void 0 && Array.isArray(value.records) && typeof value.hasMore === "boolean";
+  const page = record(value);
+  const header = record(page.header);
+  return header.id === sessionId && integer(page.cursor) !== void 0 && integer(page.nextTurn) !== void 0 && Array.isArray(page.records) && typeof page.hasMore === "boolean";
 }
 function truncateCodePoints(value, maximum) {
   return [...value].slice(0, maximum).join("");
@@ -19649,7 +19674,7 @@ var HostServerConnection = class {
         await this.connectOnce();
         delayMs = this.config.reconnect.initialDelayMs;
       } catch (error) {
-        const code = errorCode(error);
+        const code = errorCode2(error);
         this.terminalError = code;
         this.logger.warn("server control connection failed", { code, retryable: isRetryable(error) });
         if (TERMINAL_AUTH_ERRORS.has(code) || !this.config.reconnect.enabled) return;
@@ -19728,7 +19753,7 @@ var HostServerConnection = class {
           if (!acknowledged) throw new ControlConnectionError("INVALID_MESSAGE", "Server sent a frame before hello.ack.");
           await this.handleFrame(frame);
         }).catch((error) => {
-          const code = errorCode(error);
+          const code = errorCode2(error);
           this.terminalError = code;
           this.logger.error("server control frame failed", {
             code,
@@ -19825,7 +19850,7 @@ var HostServerConnection = class {
       this.sendControl("connect.rejected", { connectionId: payload.connectionId });
       this.logger.warn("connection rejected by account authorization", {
         clientDeviceId: shortId3(payload.clientDeviceId),
-        code: errorCode(error)
+        code: errorCode2(error)
       });
       return;
     }
@@ -19974,7 +19999,7 @@ var HostServerConnection = class {
     } catch (error) {
       this.logger.warn("TURN credentials unavailable; trying direct candidates", {
         connectionId: shortId3(tunnel.connectionId),
-        code: errorCode(error)
+        code: errorCode2(error)
       });
     }
     if (!tunnel.preferredTransports.includes("turn")) iceServers = stunOnlyIceServers(iceServers);
@@ -20403,11 +20428,11 @@ function rtcDiagnostics(rtc) {
     return void 0;
   }
 }
-function errorCode(error) {
+function errorCode2(error) {
   return error instanceof ServerApiError || error instanceof ControlConnectionError ? error.code : "CONNECTION_FAILED";
 }
 function isRetryable(error) {
-  return error instanceof ServerApiError ? error.retryable : errorCode(error) !== "DEVICE_REVOKED";
+  return error instanceof ServerApiError ? error.retryable : errorCode2(error) !== "DEVICE_REVOKED";
 }
 function closeCode(code) {
   if (code === 4002) return "AUTH_INVALID";
@@ -22179,7 +22204,7 @@ var CodexRemoteDomain = class {
     } catch (error) {
       this.available = false;
       this.state = "unavailable";
-      this.unavailableCode = errorCode2(error);
+      this.unavailableCode = errorCode3(error);
       await this.disposeAppServer(this.appServer);
       this.logger.warn("Codex Remote domain unavailable", { code: this.unavailableCode });
     }
@@ -22363,7 +22388,7 @@ var CodexRemoteDomain = class {
     this.appServer = appServer;
     this.unsubscribeInbound = appServer.onInbound((message) => {
       void this.handleInbound(message).catch((error) => {
-        this.logger.warn("Codex inbound handling failed", { code: errorCode2(error) });
+        this.logger.warn("Codex inbound handling failed", { code: errorCode3(error) });
       });
     });
     this.unsubscribeUnavailable = appServer.onUnavailable((code) => {
@@ -22428,7 +22453,7 @@ var CodexRemoteDomain = class {
     } catch (error) {
       this.available = false;
       this.state = "restarting";
-      this.unavailableCode = errorCode2(error);
+      this.unavailableCode = errorCode3(error);
       this.logger.warn("Codex App Server restart failed", {
         attempt: this.restartAttempt,
         code: this.unavailableCode
@@ -22581,7 +22606,7 @@ var CodexRemoteDomain = class {
     this.approvalExpiryTimer = setTimeout(() => {
       this.approvalExpiryTimer = void 0;
       void this.expireApprovals().catch((error) => {
-        this.logger.warn("Codex approval expiry failed", { code: errorCode2(error) });
+        this.logger.warn("Codex approval expiry failed", { code: errorCode3(error) });
       });
     }, Math.max(0, nextExpiry - Date.now()));
     this.approvalExpiryTimer.unref?.();
@@ -22671,7 +22696,7 @@ function mapAppServerError(error) {
   }
   return new RpcError("CODEX_UPSTREAM_ERROR", "Codex App Server could not complete the request.");
 }
-function errorCode2(error) {
+function errorCode3(error) {
   if (error instanceof RpcError || error instanceof CodexAppServerError) return error.code;
   return "CODEX_START_FAILED";
 }
@@ -22897,12 +22922,12 @@ var HostPluginRuntime = class {
   }
   async readHarnessVersion() {
     let reportedVersion;
-    let errorCode3;
+    let errorCode4;
     try {
       const response = await this.apiProxy?.host.describe({ rpcId: randomUUID2(), payload: {} });
       if (response === void 0) throw new Error("ApiProxy is unavailable");
       if (!response.result.ok) {
-        errorCode3 = response.result.error.code;
+        errorCode4 = response.result.error.code;
       } else {
         reportedVersion = normalizeHarnessVersion(response.result.value.version);
       }
@@ -22911,7 +22936,7 @@ var HostPluginRuntime = class {
     const distributionVersion = reportedVersion === void 0 || reportedVersion === "0.0.1" ? await readHarnessDistributionVersion() : void 0;
     const version = selectHarnessVersion(reportedVersion, distributionVersion);
     if (version !== void 0) return version;
-    this.logger.warn("Harness version is unavailable", errorCode3 === void 0 ? void 0 : { code: errorCode3 });
+    this.logger.warn("Harness version is unavailable", errorCode4 === void 0 ? void 0 : { code: errorCode4 });
     return void 0;
   }
   hostCapabilities() {

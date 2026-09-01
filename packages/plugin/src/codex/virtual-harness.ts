@@ -402,12 +402,9 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private async sessionSummaries(signal?: AbortSignal): Promise<unknown[]> {
     const catalog = await this.refreshCatalog(signal)
     const directory = await this.models(signal).catch(() => undefined)
-    const threadById = new Map(catalog.threads.map(thread => [string(thread.id), thread]))
     return catalog.sessions.map(session => {
-      const turns = threadById.get(session.nativeId)?.turns
       const blank = this.blankThreads.has(session.nativeId)
         || this.pendingThreads.has(session.nativeId)
-        || Array.isArray(turns) && turns.length === 0
       return {
         sessionId: session.id,
         updatedAt: session.updatedAt,
@@ -1072,12 +1069,28 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     page: { beforeSeq?: number; throughSeq?: number; maxMessages?: number },
     signal?: AbortSignal,
   ): Promise<CodexNativeHistoryPage> {
-    const value = record(await this.client.request('dsh/sessionHistory', {
-      threadId,
-      ...(page.beforeSeq === undefined ? {} : { beforeSeq: page.beforeSeq }),
-      ...(page.throughSeq === undefined ? {} : { throughSeq: page.throughSeq }),
-      ...(page.maxMessages === undefined ? {} : { maxMessages: page.maxMessages }),
-    }, signal))
+    let value: unknown
+    try {
+      value = record(await this.client.request('dsh/sessionHistory', {
+        threadId,
+        ...(page.beforeSeq === undefined ? {} : { beforeSeq: page.beforeSeq }),
+        ...(page.throughSeq === undefined ? {} : { throughSeq: page.throughSeq }),
+        ...(page.maxMessages === undefined ? {} : { maxMessages: page.maxMessages }),
+      }, signal))
+    } catch (error) {
+      if (!isLegacySessionHistoryUnsupported(error)) throw error
+      const result = record(await this.client.request('thread/read', { threadId, includeTurns: true }, signal))
+      const thread = record(result.thread)
+      if (string(thread.id) !== threadId) throw new Error('CodeX returned an invalid Thread history.')
+      value = paginateCodexNativeHistory(
+        projectCodexNativeHistory(thread, `codex:${threadId}`),
+        {
+          beforeSeq: page.beforeSeq,
+          throughSeq: page.throughSeq,
+          maxMessages: page.maxMessages,
+        },
+      )
+    }
     if (!isCodexNativeHistoryPage(value, `codex:${threadId}`)) {
       throw new Error('CodeX Remote returned an invalid paginated History.')
     }
@@ -1943,7 +1956,22 @@ function fail(code: string, message: string, details: JsonRecord = {}): TypertRp
 
 function failFrom(error: unknown): TypertRpcResult {
   const source = error instanceof Error ? error : new Error(String(error))
-  return fail('internal', source.message)
+  return fail(errorCode(source) ?? 'internal', source.message, errorDetails(source))
+}
+
+function isLegacySessionHistoryUnsupported(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  return errorCode(error) === 'METHOD_NOT_ALLOWED'
+    || errorCode(error) === 'METHOD_NOT_FOUND'
+    || error.message.includes('The requested Codex method is not available over Remote.')
+}
+
+function errorCode(error: Error): string | undefined {
+  return 'code' in error && typeof error.code === 'string' ? error.code : undefined
+}
+
+function errorDetails(error: Error): JsonRecord {
+  return 'details' in error && isRecord(error.details) ? error.details : {}
 }
 
 function record(value: unknown): JsonRecord {
@@ -1985,13 +2013,14 @@ function optionalPositiveInteger(value: unknown): number | undefined {
   return parsed
 }
 
-function isCodexNativeHistoryPage(value: JsonRecord, sessionId: string): value is JsonRecord & CodexNativeHistoryPage {
-  const header = record(value.header)
+function isCodexNativeHistoryPage(value: unknown, sessionId: string): value is CodexNativeHistoryPage {
+  const page = record(value)
+  const header = record(page.header)
   return header.id === sessionId
-    && integer(value.cursor) !== undefined
-    && integer(value.nextTurn) !== undefined
-    && Array.isArray(value.records)
-    && typeof value.hasMore === 'boolean'
+    && integer(page.cursor) !== undefined
+    && integer(page.nextTurn) !== undefined
+    && Array.isArray(page.records)
+    && typeof page.hasMore === 'boolean'
 }
 
 function truncateCodePoints(value: string, maximum: number): string {
