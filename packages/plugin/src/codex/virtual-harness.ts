@@ -33,6 +33,19 @@ export interface CodexVirtualWorkspaceView {
   updatedAt: string
 }
 
+interface CodexProjectRoot {
+  path: string
+}
+
+interface CodexProject {
+  id: string
+  name: string
+  roots: CodexProjectRoot[]
+  position: number
+  createdAt: number
+  updatedAt: number
+}
+
 interface CodexClientLike {
   request(method: string, params: unknown, signal?: AbortSignal): Promise<unknown>
   subscribe(
@@ -46,6 +59,7 @@ interface CodexClientLike {
 interface CatalogState {
   threads: JsonRecord[]
   sessions: DisplaySession[]
+  projects: CodexProject[]
   workspaces: CodexVirtualWorkspaceView[]
 }
 
@@ -144,7 +158,7 @@ interface ProjectedNativeEvent {
   view?: ToolEventView
 }
 
-/** Discover the CodeX working directories visible through the Host root policy. */
+/** Discover the CodeX projects visible through the Host root policy. */
 export async function discoverCodexVirtualWorkspaces(
   client: CodexClientLike,
   signal?: AbortSignal,
@@ -251,14 +265,19 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       const args = carrierArgs(payload)
       switch (endpoint) {
         case '$events/result': return business(await this.answerRemoteEvent(args, signal))
-        case 'workspace/list': return business(success({
-          items: (await this.refreshCatalog(signal)).workspaces.map(nativeWorkspace),
-          archivedSessionIds: (await this.currentCatalog(signal)).sessions.filter(item => item.archived).map(item => item.id),
-        }))
+        case 'workspace/list': {
+          const catalog = await this.refreshCatalog(signal)
+          return business(success({
+            items: nativeVisibleWorkspaces(catalog, this.selectedWorkspaceId).map(nativeWorkspace),
+            archivedSessionIds: catalog.sessions.filter(item => item.archived).map(item => item.id),
+          }))
+        }
         case 'workspace/create': return business(await this.createWorkspace(requestArg(args), signal))
         case 'workspace/rename': return business(await this.renameWorkspace(requestArg(args)))
         case 'workspace/delete': return business(failure('workspace-read-only', 'CodeX virtual Workspaces cannot be deleted.'))
-        case 'workspace/insertBefore': return business({ workspaceIds: (await this.currentCatalog(signal)).workspaces.map(item => item.workspaceId) })
+        case 'workspace/insertBefore': return business({
+          workspaceIds: nativeVisibleWorkspaces(await this.currentCatalog(signal), this.selectedWorkspaceId).map(item => item.workspaceId),
+        })
         case 'workspace/insertSessionBefore': return business(await this.workspaceForSession(requestArg(args), signal))
         case 'workspace/archiveSession': return business(await this.archiveSession(requestArg(args), signal))
         case 'session/list': return business(success({ items: await this.sessionSummaries(signal) }))
@@ -452,7 +471,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     queue.push({
       type: 'baseline',
       value: {
-        items: catalog.workspaces.map(nativeWorkspace),
+        items: nativeVisibleWorkspaces(catalog, this.selectedWorkspaceId).map(nativeWorkspace),
         archivedSessionIds: catalog.sessions.filter(item => item.archived).map(item => item.id),
       },
     })
@@ -1187,7 +1206,9 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
 
   private publishWorkspaceBaseline(catalog: CatalogState): void {
     for (const queue of this.workspaceStreams) {
-      for (const workspace of catalog.workspaces) queue.push({ type: 'upsert', workspace: nativeWorkspace(workspace) })
+      for (const workspace of nativeVisibleWorkspaces(catalog, this.selectedWorkspaceId)) {
+        queue.push({ type: 'upsert', workspace: nativeWorkspace(workspace) })
+      }
       queue.push({ type: 'archived', archivedSessionIds: catalog.sessions.filter(item => item.archived).map(item => item.id) })
     }
   }
@@ -1297,6 +1318,7 @@ async function loadCatalog(
   signal?: AbortSignal,
   pendingThreads?: Map<string, JsonRecord>,
 ): Promise<CatalogState> {
+  const projects = await loadCodexProjects(client, signal)
   const threads: JsonRecord[] = []
   let cursor: string | null | undefined
   for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
@@ -1321,31 +1343,69 @@ async function loadCatalog(
       else threads.unshift(thread)
     }
   }
-  const sessions = threads.map(projectCodexThread).filter((value): value is DisplaySession => value !== undefined)
-  const workspaceByPath = new Map<string, CodexVirtualWorkspaceView>()
-  for (const session of sessions) {
+  const projected = threads.map(thread => {
+    const session = projectCodexThread(thread)
+    return session === undefined ? undefined : { thread, session }
+  }).filter((value): value is { thread: JsonRecord; session: DisplaySession } => value !== undefined)
+  const sessions = projected.map(value => value.session)
+  const projectWorkspaces = projects.map(projectWorkspace)
+  const workspaceByProjectId = new Map(projects.map((project, index) => [project.id, projectWorkspaces[index]!]))
+  const fallbackWorkspaceByPath = new Map<string, CodexVirtualWorkspaceView>()
+
+  for (const { thread, session } of projected) {
     if (session.cwd === undefined || session.cwd.length === 0) continue
-    const current = workspaceByPath.get(session.cwd)
-    const createdAt = new Date(session.createdAt || Date.now()).toISOString()
-    const updatedAt = new Date(session.updatedAt || session.createdAt || Date.now()).toISOString()
+    const projectWorkspaceForSession = findProjectWorkspace(thread, session, projects, workspaceByProjectId)
+    if (projectWorkspaceForSession !== undefined) {
+      addSessionToWorkspace(projectWorkspaceForSession, session)
+      continue
+    }
+    const current = fallbackWorkspaceByPath.get(session.cwd)
     if (current === undefined) {
-      workspaceByPath.set(session.cwd, {
+      const workspace: CodexVirtualWorkspaceView = {
         workspaceId: `${CODEX_WORKSPACE_PREFIX}${hashString(session.cwd)}`,
         path: session.cwd,
         title: basename(session.cwd),
-        sessionIds: [session.id],
-        sessionCount: 1,
-        createdAt,
-        updatedAt,
-      })
+        sessionIds: [],
+        sessionCount: 0,
+        createdAt: isoTime(session.createdAt),
+        updatedAt: isoTime(session.updatedAt || session.createdAt),
+      }
+      addSessionToWorkspace(workspace, session)
+      fallbackWorkspaceByPath.set(session.cwd, workspace)
     } else {
-      current.sessionIds.push(session.id)
-      current.sessionCount += 1
-      if (createdAt < current.createdAt) current.createdAt = createdAt
-      if (updatedAt > current.updatedAt) current.updatedAt = updatedAt
+      addSessionToWorkspace(current, session)
     }
   }
-  return { threads, sessions, workspaces: [...workspaceByPath.values()] }
+
+  return {
+    threads,
+    sessions,
+    projects,
+    workspaces: [...projectWorkspaces, ...fallbackWorkspaceByPath.values()],
+  }
+}
+
+async function loadCodexProjects(client: CodexClientLike, signal?: AbortSignal): Promise<CodexProject[]> {
+  const projects: CodexProject[] = []
+  let cursor: string | null | undefined
+  try {
+    for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
+      const result = record(await client.request('project/list', {
+        limit: CODEX_PAGE_LIMIT,
+        ...(cursor === undefined ? {} : { cursor }),
+      }, signal))
+      for (const value of array(result.data)) {
+        const project = projectCodexProject(value, projects.length)
+        if (project !== undefined && !projects.some(item => item.id === project.id)) projects.push(project)
+      }
+      cursor = typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? result.nextCursor : undefined
+      if (cursor === undefined) break
+    }
+  } catch (error) {
+    if (isProjectListUnsupported(error)) return []
+    throw error
+  }
+  return projects.sort((left, right) => left.position - right.position || left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
 }
 
 async function loadModelDirectory(client: CodexClientLike, signal?: AbortSignal): Promise<CodexModelDirectory> {
@@ -1438,7 +1498,7 @@ export function projectCodexNativeHistory(thread: JsonRecord, sessionId: string)
   for (const rawTurn of array(thread.turns)) {
     const turn = record(rawTurn)
     turnNumber += 1
-    const time = normalizeTime(turn.createdAt) || normalizeTime(thread.createdAt) || Date.now()
+    const time = normalizeTime(turn.createdAt) || normalizeTime(turn.startedAt) || normalizeTime(thread.createdAt) || Date.now()
     append('turn/start', { turn: turnNumber }, time)
     append('step/start', { turn: turnNumber, step: 1 }, time)
     for (const rawItem of array(turn.items)) {
@@ -1455,13 +1515,13 @@ export function projectCodexNativeHistory(thread: JsonRecord, sessionId: string)
         if (event.type === 'tool/call') toolCallSeq = eventSeq
       }
     }
-    append('step/end', { turn: turnNumber, step: 1 }, normalizeTime(turn.updatedAt) || time)
+    append('step/end', { turn: turnNumber, step: 1 }, normalizeTime(turn.updatedAt) || normalizeTime(turn.completedAt) || time)
     append('turn/end', {
       turn: turnNumber,
       reason: turn.status === 'failed' || turn.error !== undefined && turn.error !== null
         ? { kind: 'error', error: { message: 'CodeX turn failed.', code: 'codex-turn-failed' } }
         : { kind: 'completed' },
-    }, normalizeTime(turn.updatedAt) || time)
+    }, normalizeTime(turn.updatedAt) || normalizeTime(turn.completedAt) || time)
   }
   const projected = projectCodexThread(thread)
   return {
@@ -1756,6 +1816,88 @@ function nativeWorkspace(view: CodexVirtualWorkspaceView): Omit<CodexVirtualWork
   return workspace
 }
 
+function nativeVisibleWorkspaces(catalog: CatalogState, selectedWorkspaceId?: string): CodexVirtualWorkspaceView[] {
+  return catalog.workspaces.filter(workspace => workspace.sessionIds.length > 0 || workspace.workspaceId === selectedWorkspaceId)
+}
+
+function projectWorkspace(project: CodexProject): CodexVirtualWorkspaceView {
+  const root = project.roots[0]!
+  return {
+    workspaceId: `${CODEX_WORKSPACE_PREFIX}project:${project.id}`,
+    path: root.path,
+    title: project.name.trim() || basename(root.path),
+    sessionIds: [],
+    sessionCount: 0,
+    createdAt: isoTime(project.createdAt),
+    updatedAt: isoTime(project.updatedAt || project.createdAt),
+  }
+}
+
+function projectCodexProject(value: unknown, fallbackPosition: number): CodexProject | undefined {
+  const source = record(value)
+  const id = string(source.id)
+  if (id === undefined) return undefined
+  const roots = array(source.roots)
+    .map(root => string(record(root).path))
+    .filter((path): path is string => path !== undefined && path.length > 0)
+    .map(path => ({ path }))
+  if (roots.length === 0) return undefined
+  return {
+    id,
+    name: string(source.name) ?? basename(roots[0]!.path),
+    roots,
+    position: finiteNumber(source.position) ?? fallbackPosition,
+    createdAt: normalizeTime(source.createdAt),
+    updatedAt: normalizeTime(source.updatedAt),
+  }
+}
+
+function findProjectWorkspace(
+  thread: JsonRecord,
+  session: DisplaySession,
+  projects: CodexProject[],
+  workspaceByProjectId: Map<string, CodexVirtualWorkspaceView>,
+): CodexVirtualWorkspaceView | undefined {
+  const explicitProjectId = string(thread.projectId)
+  const explicitWorkspace = explicitProjectId === undefined ? undefined : workspaceByProjectId.get(explicitProjectId)
+  if (explicitWorkspace !== undefined) return explicitWorkspace
+  if (session.cwd === undefined) return undefined
+  const match = projects
+    .flatMap(project => project.roots.map(root => ({ project, root })))
+    .filter(value => containsPath(value.root.path, session.cwd!))
+    .sort((left, right) => {
+      const length = right.root.path.length - left.root.path.length
+      if (length !== 0) return length
+      const position = left.project.position - right.project.position
+      if (position !== 0) return position
+      return left.project.id.localeCompare(right.project.id)
+    })[0]
+  return match === undefined ? undefined : workspaceByProjectId.get(match.project.id)
+}
+
+function addSessionToWorkspace(workspace: CodexVirtualWorkspaceView, session: DisplaySession): void {
+  if (!workspace.sessionIds.includes(session.id)) {
+    workspace.sessionIds.push(session.id)
+    workspace.sessionCount = workspace.sessionIds.length
+  }
+  const createdAt = isoTime(session.createdAt)
+  const updatedAt = isoTime(session.updatedAt || session.createdAt)
+  if (createdAt < workspace.createdAt) workspace.createdAt = createdAt
+  if (updatedAt > workspace.updatedAt) workspace.updatedAt = updatedAt
+}
+
+function containsPath(root: string, candidate: string): boolean {
+  const normalizedRoot = normalizePathForCompare(root)
+  const normalizedCandidate = normalizePathForCompare(candidate)
+  return normalizedCandidate === normalizedRoot
+    || normalizedCandidate.startsWith(`${normalizedRoot}/`)
+    || normalizedCandidate.startsWith(`${normalizedRoot}\\`)
+}
+
+function normalizePathForCompare(path: string): string {
+  return path.replace(/[\\/]+$/u, '') || path
+}
+
 function modelSelection(): CodexModelSelection {
   return { provider: CODEX_PROVIDER, model: CODEX_MODEL }
 }
@@ -1994,6 +2136,10 @@ function integer(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined
 }
 
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
 function optionalInteger(value: unknown): number | undefined {
   if (value === undefined) return undefined
   const parsed = integer(value)
@@ -2035,6 +2181,19 @@ function requiredString(value: unknown, field: string): string {
 function normalizeTime(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0
   return value < 10_000_000_000 ? Math.floor(value * 1000) : Math.floor(value)
+}
+
+function isoTime(value: unknown): string {
+  return new Date(normalizeTime(value) || Date.now()).toISOString()
+}
+
+function isProjectListUnsupported(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const code = errorCode(error)
+  return code === 'METHOD_NOT_ALLOWED'
+    || code === 'METHOD_NOT_FOUND'
+    || code === 'CODEX_UPSTREAM_ERROR'
+    || error.message.includes('The requested Codex method is not available over Remote.')
 }
 
 function basename(path: string): string {

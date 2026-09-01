@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, realpath, rm, symlink } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -50,7 +50,7 @@ describe('CodexRemoteDomain', () => {
     await domain.close()
   })
 
-  it('filters thread listings by canonical allowed root and rejects unlisted methods', async () => {
+  it('sanitizes CodeX listings without filtering by Remote allowed roots', async () => {
     const { root, outside } = await directories()
     const app = new FakeAppServer(root, outside)
     const domain = new CodexRemoteDomain(
@@ -61,7 +61,26 @@ describe('CodexRemoteDomain', () => {
     await domain.start()
 
     const result = await domain.call('connection-1', { method: 'thread/list', params: {} })
-    expect(result).toMatchObject({ data: [{ id: 'allowed-thread', cwd: root }] })
+    expect(result).toMatchObject({ data: [
+      { id: 'allowed-thread', cwd: root },
+      { id: 'outside-thread', cwd: outside },
+      { id: 'missing-cwd' },
+    ] })
+    const projects = await domain.call('connection-1', { method: 'project/list', params: {} })
+    expect(projects).toMatchObject({ data: [
+      {
+        id: 'allowed-project',
+        name: 'Allowed Project',
+        roots: [{ path: root }],
+      },
+      {
+        id: 'outside-project',
+        name: 'Outside Project',
+        roots: [{ path: outside }],
+      },
+    ] })
+    expect(JSON.stringify(projects)).not.toContain('private metadata')
+    expect(JSON.stringify(result)).not.toContain('private rollout path')
     await expect(domain.call('connection-1', {
       method: 'thread/shellCommand',
       params: { threadId: 'allowed-thread', command: 'whoami' },
@@ -69,11 +88,11 @@ describe('CodexRemoteDomain', () => {
     await expect(domain.call('connection-1', {
       method: 'thread/read',
       params: { threadId: 'outside-thread', includeTurns: true },
-    })).rejects.toMatchObject({ code: 'CODEX_THREAD_NOT_ALLOWED' })
+    })).resolves.toMatchObject({ thread: { id: 'outside-thread', cwd: outside } })
     await domain.close()
   })
 
-  it('rejects sibling-prefix and symlink escapes for new threads', async () => {
+  it('starts new threads only from CodeX advertised workspace paths', async () => {
     const { base, root, outside } = await directories()
     const link = join(root, 'outside-link')
     await symlink(outside, link, 'dir')
@@ -86,7 +105,7 @@ describe('CodexRemoteDomain', () => {
     await domain.start()
 
     await expect(domain.call('connection-1', {
-      method: 'thread/start', params: { cwd: `${root}-sibling` },
+      method: 'thread/start', params: { cwd: join(base, 'missing') },
     })).rejects.toMatchObject({ code: 'CODEX_PATH_NOT_ALLOWED' })
     await expect(domain.call('connection-1', {
       method: 'thread/start', params: { cwd: link },
@@ -94,13 +113,15 @@ describe('CodexRemoteDomain', () => {
     await expect(domain.call('connection-1', {
       method: 'thread/start', params: { cwd: root },
     })).resolves.toMatchObject({ thread: { id: 'new-thread' } })
-    const canonicalRoot = await realpath(root)
     expect(app.calls.find(call => call.method === 'thread/start')?.params).toMatchObject({
-      cwd: canonicalRoot,
+      cwd: root,
       approvalPolicy: 'on-request',
       sandbox: 'workspace-write',
       serviceName: 'deepseek_harness_remote',
     })
+    await expect(domain.call('connection-1', {
+      method: 'thread/start', params: { cwd: outside },
+    })).resolves.toMatchObject({ thread: { id: 'new-thread' } })
     expect(base).toContain(tmpdir())
     await domain.close()
   })
@@ -123,8 +144,8 @@ describe('CodexRemoteDomain', () => {
     expect((tail as { records: Array<{ event: { seq: number } }> }).records.map(entry => entry.event.seq))
       .toEqual([3, 4, 5])
     expect(app.calls.at(-1)).toEqual({
-      method: 'thread/read',
-      params: { threadId: 'allowed-thread', includeTurns: true },
+      method: 'thread/turns/list',
+      params: { threadId: 'allowed-thread', limit: 100, sortDirection: 'asc', itemsView: 'full' },
     })
 
     const older = await domain.call('connection-1', {
@@ -133,6 +154,31 @@ describe('CodexRemoteDomain', () => {
     })
     expect((older as { records: Array<{ event: { seq: number } }> }).records.map(entry => entry.event.seq))
       .toEqual([2])
+    await domain.close()
+  })
+
+  it('falls back to legacy full Thread reads when paginated history is unavailable', async () => {
+    const { root } = await directories()
+    const app = new FakeAppServer(root)
+    app.rejectTurnPagination = true
+    const domain = new CodexRemoteDomain(
+      { enabled: true, binary: 'codex', allowedRoots: [root] },
+      logger(),
+      () => app,
+    )
+    await domain.start()
+
+    const history = await domain.call('connection-1', {
+      method: 'dsh/sessionHistory',
+      params: { threadId: 'allowed-thread', maxMessages: 1 },
+    })
+
+    expect(history).toMatchObject({ cursor: 5, hasMore: true })
+    expect(app.calls.map(call => call.method)).toContain('thread/turns/list')
+    expect(app.calls.at(-1)).toEqual({
+      method: 'thread/read',
+      params: { threadId: 'allowed-thread', includeTurns: true },
+    })
     await domain.close()
   })
 
@@ -177,9 +223,8 @@ describe('CodexRemoteDomain', () => {
     await peerOne.openStream({ streamId: 'stream-1', threadId: 'allowed-thread' })
     await peerTwo.openStream({ streamId: 'stream-2', threadId: 'allowed-thread' })
     await peerOne.call({ method: 'thread/fork', params: { threadId: 'allowed-thread' } })
-    const canonicalRoot = await realpath(root)
     expect(app.calls.find(call => call.method === 'thread/fork')?.params).toMatchObject({
-      cwd: canonicalRoot,
+      cwd: root,
       approvalPolicy: 'on-request',
       sandbox: 'workspace-write',
     })
@@ -192,7 +237,7 @@ describe('CodexRemoteDomain', () => {
       approvalPolicy: 'on-request',
       sandboxPolicy: {
         type: 'workspaceWrite',
-        networkAccess: false,
+        networkAccess: 'enabled',
         excludeTmpdirEnvVar: false,
         excludeSlashTmp: false,
       },
@@ -292,6 +337,7 @@ class FakeAppServer implements CodexAppServerLike {
   readonly responses: Array<{ id: string | number; result?: unknown; error?: unknown }> = []
   readonly calls: Array<{ method: string; params: unknown }> = []
   rejectResume = false
+  rejectTurnPagination = false
 
   constructor(private readonly root: string, private readonly outside = root) {}
 
@@ -303,9 +349,31 @@ class FakeAppServer implements CodexAppServerLike {
     if (method === 'account/read') return { account: { type: 'chatgpt', email: 'private@example.com' }, requiresOpenaiAuth: true }
     if (method === 'thread/list') return {
       data: [
-        { id: 'allowed-thread', cwd: this.root, createdAt: 1, updatedAt: 2 },
-        { id: 'outside-thread', cwd: this.outside, createdAt: 1, updatedAt: 2 },
+        { id: 'allowed-thread', cwd: this.root, createdAt: 1, updatedAt: 2, path: 'private rollout path' },
+        { id: 'outside-thread', cwd: this.outside, createdAt: 1, updatedAt: 2, path: 'private rollout path' },
         { id: 'missing-cwd', createdAt: 1, updatedAt: 2 },
+      ],
+      nextCursor: null,
+    }
+    if (method === 'project/list') return {
+      data: [
+        {
+          id: 'allowed-project',
+          name: 'Allowed Project',
+          roots: [{ path: this.root }],
+          metadata: { secret: 'private metadata' },
+          position: 0,
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        {
+          id: 'outside-project',
+          name: 'Outside Project',
+          roots: [{ path: this.outside }],
+          position: 1,
+          createdAt: 1,
+          updatedAt: 2,
+        },
       ],
       nextCursor: null,
     }
@@ -325,6 +393,27 @@ class FakeAppServer implements CodexAppServerLike {
         }] : [],
       } }
     }
+    if (method === 'thread/turns/list') {
+      if (this.rejectTurnPagination) {
+        throw new CodexAppServerError('CODEX_UPSTREAM_ERROR', 'Codex App Server rejected the request.')
+      }
+      return {
+        data: [{
+          id: 'turn-1',
+          status: 'completed',
+          startedAt: 1,
+          completedAt: 2,
+          itemsView: 'full',
+          items: [
+            { id: 'user-1', type: 'userMessage', text: 'First' },
+            { id: 'assistant-1', type: 'agentMessage', text: 'Second' },
+          ],
+        }],
+        nextCursor: null,
+        backwardsCursor: null,
+      }
+    }
+    if (method === 'thread/items/list') return { data: [], nextCursor: null, backwardsCursor: null }
     if (method === 'thread/start') return { thread: { id: 'new-thread', cwd: isRecord(params) ? params.cwd : undefined } }
     if (method === 'thread/resume' && this.rejectResume) {
       throw new CodexAppServerError('CODEX_UPSTREAM_ERROR', 'Codex App Server rejected the request.')

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import type { CodexAppFrameData, CodexAppStreamClosedData } from '@dsh-remote/protocol'
 import type { ResolvedCodexConfig } from '../config.js'
 import type { PeerConnectionContext } from '../connection-controller.js'
@@ -18,12 +18,13 @@ import {
   threadIdFromParams,
   type AllowedCodexAppMethod,
 } from './method-policy.js'
-import { CodexPathPolicy } from './path-policy.js'
 import { CodexPeerBridge, type PublishCodexFrame } from './peer-bridge.js'
 import { paginateCodexNativeHistory, projectCodexNativeHistory } from './virtual-harness.js'
 
 const APPROVAL_TTL_MS = 5 * 60_000
 const DEFAULT_RESTART_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const
+const CODEX_PAGE_LIMIT = 100
+const MAX_CODEX_HISTORY_PAGES = 64
 
 interface PendingApproval {
   upstreamId: string | number
@@ -42,7 +43,6 @@ type AppServerFactory = (binary: string, logger: SafeLogger) => CodexAppServerLi
  */
 export class CodexRemoteDomain {
   private appServer?: CodexAppServerLike
-  private pathPolicy?: CodexPathPolicy
   private unsubscribeInbound?: () => void
   private unsubscribeUnavailable?: () => void
   private readonly peers = new Map<string, CodexPeerBridge>()
@@ -67,7 +67,6 @@ export class CodexRemoteDomain {
     if (this.closed) throw new RpcError('CODEX_CLOSED', 'The Codex Remote domain is closed.')
     if (!this.config.enabled) return
     try {
-      this.pathPolicy = await CodexPathPolicy.create(this.config.allowedRoots)
       this.state = 'starting'
       await this.launchAppServer()
     } catch (error) {
@@ -95,12 +94,12 @@ export class CodexRemoteDomain {
       state: this.state,
       restartAttempt: this.restartAttempt,
       ...(this.unavailableCode === undefined ? {} : { error: this.unavailableCode }),
-      allowedRootCount: this.pathPolicy?.list().length ?? 0,
+      allowedRootCount: this.config.allowedRoots.length,
     }
   }
 
   createPeer(context: PeerConnectionContext, publish: PublishCodexFrame): CodexPeerBridge | undefined {
-    if (!this.config.enabled || this.pathPolicy === undefined) return undefined
+    if (!this.config.enabled) return undefined
     const bridge = new CodexPeerBridge(this, context, publish, this.logger)
     this.peers.set(context.connectionId, bridge)
     return bridge
@@ -114,12 +113,14 @@ export class CodexRemoteDomain {
     if (call.method === 'account/read') {
       return sanitizeAccount(await this.callUpstream(call.method, call.params))
     }
+    if (call.method === 'project/list') {
+      return sanitizeProjectList(await this.callUpstream(call.method, call.params))
+    }
     if (call.method === 'thread/list') {
-      const params = await this.normalizeThreadList(call.params)
-      return this.filterThreadList(await this.callUpstream(call.method, params))
+      return sanitizeThreadList(await this.callUpstream(call.method, call.params))
     }
     if (call.method === 'thread/start') {
-      const cwd = await this.requirePathPolicy().canonicalizeAllowed(call.params.cwd as string)
+      const cwd = await this.requireCodexWorkspacePath(call.params.cwd as string)
       const result = await this.callUpstream(call.method, {
         ...call.params,
         cwd,
@@ -134,19 +135,9 @@ export class CodexRemoteDomain {
     }
 
     const threadId = threadIdFromParams(call.params)
-    const allowedThread = threadId === undefined ? undefined : await this.readAllowedThread(threadId)
 
-    if (call.method === 'thread/read') {
-      // assertThreadAllowed already produced a bounded summary, but make the
-      // requested read again so includeTurns has its official semantics.
-      return this.callUpstream(call.method, call.params)
-    }
     if (call.method === 'dsh/sessionHistory') {
-      const result = await this.callUpstream('thread/read', { threadId: threadId!, includeTurns: true })
-      const thread = extractThread(result)
-      if (thread === undefined || thread.id !== threadId) {
-        throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid Thread history.')
-      }
+      const thread = await this.readThreadForHistory(threadId!)
       return paginateCodexNativeHistory(
         projectCodexNativeHistory(thread, `codex:${threadId}`),
         {
@@ -155,6 +146,14 @@ export class CodexRemoteDomain {
           maxMessages: optionalInteger(call.params.maxMessages),
         },
       )
+    }
+
+    const allowedThread = threadId === undefined ? undefined : await this.readKnownThread(threadId)
+
+    if (call.method === 'thread/read') {
+      // assertThreadAllowed already produced a bounded summary, but make the
+      // requested read again so includeTurns has its official semantics.
+      return this.callUpstream(call.method, call.params)
     }
     if (call.method === 'thread/unsubscribe') {
       const bridge = this.peers.get(connectionId)
@@ -171,18 +170,19 @@ export class CodexRemoteDomain {
       const upstreamParams = call.method === 'thread/resume' && allowedThread !== undefined
         ? {
             ...call.params,
-            cwd: allowedThread.cwd,
+            ...(allowedThread.cwd === undefined ? {} : { cwd: allowedThread.cwd }),
             approvalPolicy: 'on-request',
             sandbox: 'workspace-write',
+            excludeTurns: true,
           }
         : call.method === 'thread/fork' && allowedThread !== undefined
           ? {
               ...call.params,
-              cwd: allowedThread.cwd,
+              ...(allowedThread.cwd === undefined ? {} : { cwd: allowedThread.cwd }),
               approvalPolicy: 'on-request',
               sandbox: 'workspace-write',
             }
-        : call.method === 'turn/start' && allowedThread !== undefined
+        : call.method === 'turn/start' && allowedThread?.cwd !== undefined
           ? {
               ...call.params,
               cwd: allowedThread.cwd,
@@ -190,7 +190,7 @@ export class CodexRemoteDomain {
               sandboxPolicy: {
                 type: 'workspaceWrite',
                 writableRoots: [allowedThread.cwd],
-                networkAccess: false,
+                networkAccess: 'enabled',
                 excludeTmpdirEnvVar: false,
                 excludeSlashTmp: false,
               },
@@ -311,7 +311,7 @@ export class CodexRemoteDomain {
       this.state = 'ready'
       this.restartAttempt = 0
       this.unavailableCode = undefined
-      this.logger.info('Codex Remote domain ready', { allowedRootCount: this.requirePathPolicy().list().length })
+      this.logger.info('Codex Remote domain ready')
     } catch (error) {
       await this.disposeAppServer(appServer)
       throw error
@@ -429,17 +429,83 @@ export class CodexRemoteDomain {
     }
   }
 
-  private async readAllowedThread(threadId: string): Promise<{ thread: Record<string, unknown>; cwd: string }> {
+  private async readKnownThread(threadId: string): Promise<{ thread: Record<string, unknown>; cwd?: string }> {
     const result = await this.callUpstream('thread/read', { threadId, includeTurns: false })
     const thread = extractThread(result)
-    if (thread === undefined || thread.id !== threadId || typeof thread.cwd !== 'string') {
+    if (thread === undefined || thread.id !== threadId) {
       throw new RpcError('CODEX_THREAD_NOT_ALLOWED', 'The Codex thread is not available through this Remote Host.')
+    }
+    return { thread, ...(typeof thread.cwd === 'string' && thread.cwd.length > 0 ? { cwd: thread.cwd } : {}) }
+  }
+
+  private async readThreadForHistory(threadId: string): Promise<Record<string, unknown>> {
+    const metadataResult = await this.callUpstream('thread/read', { threadId, includeTurns: false })
+    const metadata = extractThread(metadataResult)
+    if (metadata === undefined || metadata.id !== threadId) {
+      throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid Thread history.')
     }
     try {
-      return { thread, cwd: await this.requirePathPolicy().canonicalizeAllowed(thread.cwd) }
-    } catch {
-      throw new RpcError('CODEX_THREAD_NOT_ALLOWED', 'The Codex thread is not available through this Remote Host.')
+      return { ...metadata, turns: await this.readThreadTurns(threadId) }
+    } catch (error) {
+      if (!isHistoryPaginationUnavailable(error)) throw error
+      const legacyResult = await this.callUpstream('thread/read', { threadId, includeTurns: true })
+      const legacyThread = extractThread(legacyResult)
+      if (legacyThread === undefined || legacyThread.id !== threadId) {
+        throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid Thread history.')
+      }
+      return legacyThread
     }
+  }
+
+  private async readThreadTurns(threadId: string): Promise<Record<string, unknown>[]> {
+    const turns: Record<string, unknown>[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < MAX_CODEX_HISTORY_PAGES; page += 1) {
+      const result = await this.callUpstream('thread/turns/list', {
+        threadId,
+        limit: CODEX_PAGE_LIMIT,
+        sortDirection: 'asc',
+        itemsView: 'full',
+        ...(cursor === undefined ? {} : { cursor }),
+      })
+      const pageResult = isRecord(result) ? result : {}
+      for (const rawTurn of array(pageResult.data)) {
+        if (!isRecord(rawTurn)) continue
+        const turnId = typeof rawTurn.id === 'string' ? rawTurn.id : undefined
+        const items = rawTurn.itemsView === 'full' || turnId === undefined
+          ? array(rawTurn.items)
+          : await this.readThreadItems(threadId, turnId)
+        turns.push({ ...rawTurn, items })
+      }
+      cursor = typeof pageResult.nextCursor === 'string' && pageResult.nextCursor.length > 0
+        ? pageResult.nextCursor
+        : undefined
+      if (cursor === undefined) break
+    }
+    return turns
+  }
+
+  private async readThreadItems(threadId: string, turnId: string): Promise<unknown[]> {
+    const items: unknown[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < MAX_CODEX_HISTORY_PAGES; page += 1) {
+      const result = await this.callUpstream('thread/items/list', {
+        threadId,
+        turnId,
+        limit: CODEX_PAGE_LIMIT,
+        sortDirection: 'asc',
+        ...(cursor === undefined ? {} : { cursor }),
+      })
+      const pageResult = isRecord(result) ? result : {}
+      for (const entry of array(pageResult.data)) {
+        if (isRecord(entry) && entry.item !== undefined) items.push(entry.item)
+      }
+      cursor = typeof pageResult.nextCursor === 'string' && pageResult.nextCursor.length > 0
+        ? pageResult.nextCursor
+        : undefined
+      if (cursor === undefined) break
+    }
+    return items
   }
 
   private async assertResultThreadAllowed(result: unknown): Promise<void> {
@@ -447,32 +513,6 @@ export class CodexRemoteDomain {
     if (thread === undefined || typeof thread.id !== 'string') {
       throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid thread.')
     }
-    if (thread.cwd === undefined) {
-      await this.readAllowedThread(thread.id)
-      return
-    }
-    if (!await this.requirePathPolicy().allows(thread.cwd)) {
-      throw new RpcError('CODEX_THREAD_NOT_ALLOWED', 'The Codex thread is outside the configured Remote roots.')
-    }
-  }
-
-  private async normalizeThreadList(params: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if (params.cwd === undefined) return params
-    const values = Array.isArray(params.cwd) ? params.cwd : [params.cwd]
-    const cwd = await Promise.all(values.map(value => this.requirePathPolicy().canonicalizeAllowed(value as string)))
-    return { ...params, cwd: Array.isArray(params.cwd) ? cwd : cwd[0] }
-  }
-
-  private async filterThreadList(result: unknown): Promise<unknown> {
-    if (!isRecord(result) || !Array.isArray(result.data)) {
-      throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid thread list.')
-    }
-    const allowed: unknown[] = []
-    for (const value of result.data) {
-      if (!isRecord(value) || typeof value.id !== 'string') continue
-      if (await this.requirePathPolicy().allows(value.cwd)) allowed.push(value)
-    }
-    return { ...result, data: allowed }
   }
 
   private claimTurn(threadId: string, connectionId: string, method: AllowedCodexAppMethod): boolean {
@@ -547,9 +587,43 @@ export class CodexRemoteDomain {
     }
   }
 
-  private requirePathPolicy(): CodexPathPolicy {
-    if (this.pathPolicy === undefined) throw new RpcError('CODEX_UNAVAILABLE', 'Codex Remote path policy is unavailable.')
-    return this.pathPolicy
+  private async requireCodexWorkspacePath(path: string): Promise<string> {
+    if (!isAbsolute(path)) {
+      throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
+    }
+    const paths = await this.listCodexWorkspacePaths()
+    if (!paths.has(path)) {
+      throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
+    }
+    return path
+  }
+
+  private async listCodexWorkspacePaths(): Promise<Set<string>> {
+    const paths = new Set<string>()
+    let cursor: string | null | undefined
+    for (let page = 0; page < 32; page += 1) {
+      const result = sanitizeProjectList(await this.callUpstream('project/list', {
+        limit: 100,
+        ...(cursor === undefined ? {} : { cursor }),
+      })) as { data: Array<{ roots: Array<{ path: string }> }>; nextCursor?: string | null }
+      for (const project of result.data) for (const root of project.roots) paths.add(root.path)
+      cursor = typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? result.nextCursor : undefined
+      if (cursor === undefined) break
+    }
+    cursor = undefined
+    for (let page = 0; page < 32; page += 1) {
+      const result = sanitizeThreadList(await this.callUpstream('thread/list', {
+        limit: 100,
+        sortKey: 'updated_at',
+        sortDirection: 'desc',
+        archived: false,
+        ...(cursor === undefined ? {} : { cursor }),
+      })) as { data: Array<{ cwd?: string }>; nextCursor?: string | null }
+      for (const thread of result.data) if (typeof thread.cwd === 'string' && thread.cwd.length > 0) paths.add(thread.cwd)
+      cursor = typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? result.nextCursor : undefined
+      if (cursor === undefined) break
+    }
+    return paths
   }
 }
 
@@ -611,6 +685,63 @@ function sanitizeAccount(result: unknown): unknown {
   }
 }
 
+function sanitizeThreadList(result: unknown): unknown {
+  if (!isRecord(result) || !Array.isArray(result.data)) {
+    throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid thread list.')
+  }
+  const data = result.data.flatMap(value => {
+    if (!isRecord(value) || typeof value.id !== 'string') return []
+    return [{
+      id: value.id,
+      ...(typeof value.sessionId === 'string' ? { sessionId: value.sessionId } : {}),
+      ...(typeof value.projectId === 'string' ? { projectId: value.projectId } : {}),
+      ...(typeof value.name === 'string' ? { name: value.name } : {}),
+      ...(typeof value.preview === 'string' ? { preview: value.preview } : {}),
+      ...(typeof value.cwd === 'string' ? { cwd: value.cwd } : {}),
+      ...(typeof value.createdAt === 'number' && Number.isFinite(value.createdAt) ? { createdAt: value.createdAt } : {}),
+      ...(typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt) ? { updatedAt: value.updatedAt } : {}),
+      ...(typeof value.archived === 'boolean' ? { archived: value.archived } : {}),
+      ...(typeof value.isPinned === 'boolean' ? { isPinned: value.isPinned } : {}),
+      ...(isRecord(value.status) ? { status: value.status } : {}),
+    }]
+  })
+  return {
+    data,
+    ...(typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? { nextCursor: result.nextCursor } : { nextCursor: null }),
+    ...(typeof result.backwardsCursor === 'string' && result.backwardsCursor.length > 0
+      ? { backwardsCursor: result.backwardsCursor }
+      : {}),
+  }
+}
+
+function sanitizeProjectList(result: unknown): unknown {
+  if (!isRecord(result) || !Array.isArray(result.data)) {
+    throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid project list.')
+  }
+  const data = result.data.flatMap(value => {
+    if (!isRecord(value) || typeof value.id !== 'string' || typeof value.name !== 'string') return []
+    const roots = Array.isArray(value.roots)
+      ? value.roots.flatMap(root => {
+          const path = isRecord(root) && typeof root.path === 'string' && root.path.length > 0 ? root.path : undefined
+          return path === undefined ? [] : [{ path }]
+        })
+      : []
+    if (roots.length === 0) return []
+    return [{
+      id: value.id,
+      name: value.name,
+      roots,
+      ...(typeof value.position === 'number' && Number.isFinite(value.position) ? { position: value.position } : {}),
+      ...(typeof value.createdAt === 'number' && Number.isFinite(value.createdAt) ? { createdAt: value.createdAt } : {}),
+      ...(typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt) ? { updatedAt: value.updatedAt } : {}),
+    }]
+  })
+  return {
+    data,
+    ...(typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? { nextCursor: result.nextCursor } : { nextCursor: null }),
+  }
+}
+
 function extractThread(result: unknown): Record<string, unknown> | undefined {
   return isRecord(result) && isRecord(result.thread) ? result.thread : undefined
 }
@@ -650,10 +781,19 @@ function errorCode(error: unknown): string {
   return 'CODEX_START_FAILED'
 }
 
+function isHistoryPaginationUnavailable(error: unknown): boolean {
+  return error instanceof RpcError
+    && ['METHOD_NOT_ALLOWED', 'METHOD_NOT_FOUND', 'CODEX_UPSTREAM_ERROR'].includes(error.code)
+}
+
 function canTryNextBinary(error: unknown): boolean {
   return !(error instanceof RpcError) || !['CODEX_AUTH_REQUIRED', 'CODEX_CLOSED'].includes(error.code)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function array(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
 }

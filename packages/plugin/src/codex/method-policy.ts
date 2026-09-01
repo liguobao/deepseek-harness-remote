@@ -16,6 +16,10 @@ const schemas = {
     limit: z.number().int().min(1).max(100).optional(),
     includeHidden: z.boolean().optional(),
   }).strict(),
+  'project/list': z.object({
+    cursor,
+    limit: z.number().int().min(1).max(100).optional(),
+  }).strict(),
   'thread/list': z.object({
     cursor,
     limit: z.number().int().min(1).max(100).optional(),

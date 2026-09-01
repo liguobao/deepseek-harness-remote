@@ -76,9 +76,23 @@ export class CodexPeerBridge {
     private readonly logger?: SafeLogger,
   ) {}
 
-  call(input: unknown): Promise<unknown> {
+  async call(input: unknown): Promise<unknown> {
+    return this.callDomain(input, true)
+  }
+
+  private async callDomain(input: unknown, logFailure: boolean): Promise<unknown> {
     this.requireOpen()
-    return this.domain.call(this.context.connectionId, input)
+    try {
+      return await this.domain.call(this.context.connectionId, input)
+    } catch (error) {
+      if (logFailure) {
+        this.logger?.warn('Codex call failed', {
+          method: safeMethod(input),
+          code: safeErrorCode(error),
+        })
+      }
+      throw error
+    }
   }
 
   respond(input: unknown): Promise<{ resolved: true }> {
@@ -174,10 +188,11 @@ export class CodexPeerBridge {
     }
     let response: unknown
     try {
-      response = await this.call(request)
+      response = await this.callDomain(request, false)
     } catch (error) {
       this.logger?.warn('Codex transfer call failed', {
-        method: isRecord(request) && typeof request.method === 'string' ? request.method : 'invalid',
+        method: safeMethod(request),
+        code: safeErrorCode(error),
       })
       throw error
     }
@@ -307,6 +322,15 @@ function decodeCanonicalBase64(value: string): Uint8Array {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function safeErrorCode(error: unknown): string {
+  if (isRecord(error) && typeof error.code === 'string') return error.code
+  return 'UNKNOWN'
+}
+
+function safeMethod(input: unknown): string {
+  return isRecord(input) && typeof input.method === 'string' ? input.method : 'invalid'
 }
 
 function concatChunks(chunks: readonly Uint8Array[], totalBytes: number): Uint8Array {

@@ -18,6 +18,7 @@ export interface Config {
   codex?: {
     enabled?: boolean
     binary?: string
+    /** @deprecated CodeX Workspace visibility is owned by Codex project/list. */
     allowedRoots?: string[]
   }
 }
@@ -63,7 +64,6 @@ export const Config: s<Config> = s.object({
   codex: s.object({
     enabled: s.boolean(),
     binary: s.string(),
-    allowedRoots: s.array(s.string()),
   }),
 })
 

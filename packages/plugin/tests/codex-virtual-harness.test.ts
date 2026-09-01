@@ -60,6 +60,66 @@ describe('CodexVirtualHarness', () => {
     await target.close()
   })
 
+  it('uses the CodeX project list as the virtual Workspace baseline', async () => {
+    const client = fakeCodex([], {
+      projects: [
+        codexProject('repo-project', 'Repo from CodeX', ['/workspace/repo'], 2),
+        codexProject('empty-project', 'Empty CodeX', ['/workspace/empty'], 1),
+      ],
+    })
+
+    const workspaces = await discoverCodexVirtualWorkspaces(client)
+    expect(workspaces).toHaveLength(2)
+    expect(workspaces.map(item => item.title)).toEqual(['Empty CodeX', 'Repo from CodeX'])
+    expect(workspaces[0]).toMatchObject({
+      workspaceId: 'codex-workspace:project:empty-project',
+      path: '/workspace/empty',
+      sessionIds: [],
+      sessionCount: 0,
+    })
+    expect(workspaces[1]).toMatchObject({
+      workspaceId: 'codex-workspace:project:repo-project',
+      path: '/workspace/repo',
+      sessionIds: ['codex:thr_1'],
+      sessionCount: 1,
+    })
+
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    await target.selectWorkspace('codex-workspace:project:repo-project')
+    const result = await target.dispatch('workspace/list', { args: {} }, new AbortController().signal)
+    expect(result).toMatchObject({ ok: true, value: { items: [
+      { workspaceId: 'codex-workspace:project:repo-project', sessionIds: ['codex:thr_1'] },
+    ] } })
+    expect(result).not.toMatchObject({ value: { items: [
+      expect.objectContaining({ workspaceId: 'codex-workspace:project:empty-project' }),
+    ] } })
+    await target.close()
+
+    const emptyTarget = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    await emptyTarget.selectWorkspace('codex-workspace:project:empty-project')
+    const emptyResult = await emptyTarget.dispatch('workspace/list', { args: {} }, new AbortController().signal)
+    expect(emptyResult).toMatchObject({ ok: true, value: { items: [
+      { workspaceId: 'codex-workspace:project:empty-project', sessionIds: [] },
+      { workspaceId: 'codex-workspace:project:repo-project', sessionIds: ['codex:thr_1'] },
+    ] } })
+    await emptyTarget.close()
+  })
+
+  it('falls back to legacy cwd grouping when the Host cannot read CodeX projects', async () => {
+    const client = fakeCodex([
+      codexThread('thr_2', '/workspace/other', 'Other workspace'),
+    ], {
+      projectListError: Object.assign(new Error('The requested Codex method is not available over Remote.'), {
+        code: 'METHOD_NOT_ALLOWED',
+      }),
+    })
+
+    const workspaces = await discoverCodexVirtualWorkspaces(client)
+    expect(workspaces).toHaveLength(2)
+    expect(workspaces.map(item => item.title)).toEqual(['repo', 'other'])
+    expect(workspaces.map(item => item.sessionIds)).toEqual([['codex:thr_1'], ['codex:thr_2']])
+  })
+
   it('does not mark listed CodeX Sessions blank when thread/list omits turns', async () => {
     const client = fakeCodex()
     const originalRequest = client.request.getMockImplementation() as
@@ -607,7 +667,12 @@ describe('CodexVirtualHarness', () => {
   })
 })
 
-function fakeCodex(extraThreads: Array<Record<string, unknown>> = []): {
+interface FakeCodexOptions {
+  projects?: Array<Record<string, unknown>>
+  projectListError?: Error
+}
+
+function fakeCodex(extraThreads: Array<Record<string, unknown>> = [], options: FakeCodexOptions = {}): {
   request: ReturnType<typeof vi.fn>
   subscribe: ReturnType<typeof vi.fn>
   respond: ReturnType<typeof vi.fn>
@@ -647,6 +712,7 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = []): {
     }],
   }
   const threads = [thread, ...extraThreads]
+  const projects = options.projects ?? [codexProject('repo-project', 'repo', ['/workspace/repo'], 0)]
   let nextThread = 1
   const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
     if (method === 'model/list') return { data: [
@@ -674,6 +740,10 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = []): {
         isDefault: false,
       },
     ], nextCursor: null }
+    if (method === 'project/list') {
+      if (options.projectListError !== undefined) throw options.projectListError
+      return { data: projects, nextCursor: null }
+    }
     if (method === 'thread/list') return { data: threads }
     if (method === 'thread/read') {
       return { thread: threads.find(item => item.id === params?.threadId) ?? thread }
@@ -726,5 +796,17 @@ function codexThread(id: string, cwd: string | undefined, name: string): Record<
     updatedAt: 1_700_000_100,
     status: { type: 'idle' },
     turns: [],
+  }
+}
+
+function codexProject(id: string, name: string, roots: string[], position: number): Record<string, unknown> {
+  return {
+    id,
+    name,
+    roots: roots.map(path => ({ path })),
+    metadata: {},
+    position,
+    createdAt: 1_700_000_000,
+    updatedAt: 1_700_000_100,
   }
 }

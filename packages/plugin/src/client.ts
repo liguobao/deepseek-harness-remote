@@ -162,7 +162,8 @@ interface WorkspacesClientServiceLike {
   list: {
     getSnapshot(): {
       items: ReadonlyArray<{ workspaceId: string }>
-      baselinesReady: boolean
+      baselinesReady?: boolean
+      phase?: string
     }
     subscribe(listener: () => void): () => void
   }
@@ -175,6 +176,10 @@ interface SessionsClientServiceLike {
     subscribe(listener: () => void): () => void
   }
   open(sessionId: string): void
+}
+
+function workspacesReady(snapshot: ReturnType<WorkspacesClientServiceLike['list']['getSnapshot']>): boolean {
+  return snapshot.baselinesReady === true || snapshot.phase === 'ready'
 }
 
 interface PluginSettings {
@@ -2232,11 +2237,12 @@ window.__ModuleLoader__.load({
         const reconcile = (): void => {
           if (disposed || opening || selection === undefined) return
           const pending = selection
-          if (pending.backend !== 'codex' || pending.sessionId === undefined) {
-            const snapshot = ctx.workspaces.list.getSnapshot()
-            if (!snapshot.baselinesReady
-              || !snapshot.items.some(workspace => workspace.workspaceId === pending.workspaceId)) return
-          }
+          const workspaceSnapshot = ctx.workspaces.list.getSnapshot()
+          if (!workspacesReady(workspaceSnapshot)
+            || !workspaceSnapshot.items.some(workspace => workspace.workspaceId === pending.workspaceId)) return
+          const sessionSnapshot = ctx.sessions.list.getSnapshot()
+          if (pending.backend === 'codex' && pending.sessionId !== undefined
+            && sessionSnapshot.phase !== 'ready') return
 
           opening = true
           unsubscribeWorkspaces?.()
@@ -2244,9 +2250,9 @@ window.__ModuleLoader__.load({
           unsubscribeWorkspaces = undefined
           unsubscribeSessions = undefined
           const open = pending.backend === 'codex' && pending.sessionId !== undefined
-            ? new Promise<string>(resolve => {
-              window.setTimeout(() => resolve(pending.sessionId!), 1_000)
-            })
+            ? sessionSnapshot.ids.includes(pending.sessionId)
+              ? Promise.resolve(pending.sessionId)
+              : ctx.workspaces.connectWorkspace(pending.workspaceId)
             : ctx.workspaces.connectWorkspace(pending.workspaceId)
           void open.then(async sessionId => {
             if (disposed) return

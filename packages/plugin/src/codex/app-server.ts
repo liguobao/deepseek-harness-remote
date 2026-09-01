@@ -168,7 +168,7 @@ export class CodexAppServerClient implements CodexAppServerLike {
           version: '0.4.2',
         },
         capabilities: {
-          experimentalApi: false,
+          experimentalApi: true,
           mcpServerOpenaiFormElicitation: false,
         },
       }, APP_SERVER_START_TIMEOUT_MS)

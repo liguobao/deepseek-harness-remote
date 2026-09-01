@@ -1712,6 +1712,9 @@ Minimum version required to store current data is: ` + bestVersion + `.
         return;
       }
   }
+  function workspacesReady(snapshot) {
+    return snapshot.baselinesReady === !0 || snapshot.phase === "ready";
+  }
   var localeNamespace = "ds-harness-remote", en = {
     pluginTitle: "DeepSeek Remote",
     pluginDescription: "Connect once. Available anytime.",
@@ -3456,14 +3459,11 @@ Minimum version required to store current data is: ` + bestVersion + `.
         ctx.effect(() => {
           let disposed = !1, unsubscribeWorkspaces, unsubscribeSessions, selection, opening = !1, reconcile = () => {
             if (disposed || opening || selection === void 0) return;
-            let pending = selection;
-            if (pending.backend !== "codex" || pending.sessionId === void 0) {
-              let snapshot = ctx.workspaces.list.getSnapshot();
-              if (!snapshot.baselinesReady || !snapshot.items.some((workspace) => workspace.workspaceId === pending.workspaceId)) return;
-            }
-            opening = !0, unsubscribeWorkspaces?.(), unsubscribeSessions?.(), unsubscribeWorkspaces = void 0, unsubscribeSessions = void 0, (pending.backend === "codex" && pending.sessionId !== void 0 ? new Promise((resolve) => {
-              window.setTimeout(() => resolve(pending.sessionId), 1e3);
-            }) : ctx.workspaces.connectWorkspace(pending.workspaceId)).then(async (sessionId) => {
+            let pending = selection, workspaceSnapshot = ctx.workspaces.list.getSnapshot();
+            if (!workspacesReady(workspaceSnapshot) || !workspaceSnapshot.items.some((workspace) => workspace.workspaceId === pending.workspaceId)) return;
+            let sessionSnapshot = ctx.sessions.list.getSnapshot();
+            if (pending.backend === "codex" && pending.sessionId !== void 0 && sessionSnapshot.phase !== "ready") return;
+            opening = !0, unsubscribeWorkspaces?.(), unsubscribeSessions?.(), unsubscribeWorkspaces = void 0, unsubscribeSessions = void 0, (pending.backend === "codex" && pending.sessionId !== void 0 && sessionSnapshot.ids.includes(pending.sessionId) ? Promise.resolve(pending.sessionId) : ctx.workspaces.connectWorkspace(pending.workspaceId)).then(async (sessionId) => {
               disposed || (ctx.sessions.open(sessionId), window.sessionStorage.removeItem(pendingWorkspaceSelectionKey), await control("workspace.selection.consume", pending).catch(() => {
               }));
             }).catch((reason) => {
