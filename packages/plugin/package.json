@@ -12,6 +12,10 @@
   },
   "type": "module",
   "main": "./dist/index.js",
+  "bin": {
+    "ds-harness-remote": "./bin/ds-harness-remote.js",
+    "remote": "./bin/ds-harness-remote.js"
+  },
   "types": "./public.d.ts",
   "exports": {
     ".": {
@@ -23,6 +27,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "bin",
     "dist",
     "cordis.patch.yml",
     "public.d.ts",

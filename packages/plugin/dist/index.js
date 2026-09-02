@@ -538,18 +538,18 @@ var ParseStatus = class _ParseStatus {
     if (this.value !== "aborted")
       this.value = "aborted";
   }
-  static mergeArray(status, results) {
+  static mergeArray(status2, results) {
     const arrayValue = [];
     for (const s2 of results) {
       if (s2.status === "aborted")
         return INVALID;
       if (s2.status === "dirty")
-        status.dirty();
+        status2.dirty();
       arrayValue.push(s2.value);
     }
-    return { status: status.value, value: arrayValue };
+    return { status: status2.value, value: arrayValue };
   }
-  static async mergeObjectAsync(status, pairs) {
+  static async mergeObjectAsync(status2, pairs) {
     const syncPairs = [];
     for (const pair of pairs) {
       const key = await pair.key;
@@ -559,9 +559,9 @@ var ParseStatus = class _ParseStatus {
         value
       });
     }
-    return _ParseStatus.mergeObjectSync(status, syncPairs);
+    return _ParseStatus.mergeObjectSync(status2, syncPairs);
   }
-  static mergeObjectSync(status, pairs) {
+  static mergeObjectSync(status2, pairs) {
     const finalObject = {};
     for (const pair of pairs) {
       const { key, value } = pair;
@@ -570,14 +570,14 @@ var ParseStatus = class _ParseStatus {
       if (value.status === "aborted")
         return INVALID;
       if (key.status === "dirty")
-        status.dirty();
+        status2.dirty();
       if (value.status === "dirty")
-        status.dirty();
+        status2.dirty();
       if (key.value !== "__proto__" && (typeof value.value !== "undefined" || pair.alwaysSet)) {
         finalObject[key.value] = value.value;
       }
     }
-    return { status: status.value, value: finalObject };
+    return { status: status2.value, value: finalObject };
   }
 };
 var INVALID = Object.freeze({
@@ -1037,7 +1037,7 @@ var ZodString = class _ZodString extends ZodType {
       });
       return INVALID;
     }
-    const status = new ParseStatus();
+    const status2 = new ParseStatus();
     let ctx = void 0;
     for (const check of this._def.checks) {
       if (check.kind === "min") {
@@ -1051,7 +1051,7 @@ var ZodString = class _ZodString extends ZodType {
             exact: false,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "max") {
         if (input2.data.length > check.value) {
@@ -1064,7 +1064,7 @@ var ZodString = class _ZodString extends ZodType {
             exact: false,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "length") {
         const tooBig = input2.data.length > check.value;
@@ -1090,7 +1090,7 @@ var ZodString = class _ZodString extends ZodType {
               message: check.message
             });
           }
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "email") {
         if (!emailRegex.test(input2.data)) {
@@ -1100,7 +1100,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "emoji") {
         if (!emojiRegex) {
@@ -1113,7 +1113,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "uuid") {
         if (!uuidRegex.test(input2.data)) {
@@ -1123,7 +1123,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "nanoid") {
         if (!nanoidRegex.test(input2.data)) {
@@ -1133,7 +1133,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "cuid") {
         if (!cuidRegex.test(input2.data)) {
@@ -1143,7 +1143,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "cuid2") {
         if (!cuid2Regex.test(input2.data)) {
@@ -1153,7 +1153,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "ulid") {
         if (!ulidRegex.test(input2.data)) {
@@ -1163,7 +1163,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "url") {
         try {
@@ -1175,7 +1175,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "regex") {
         check.regex.lastIndex = 0;
@@ -1187,7 +1187,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "trim") {
         input2.data = input2.data.trim();
@@ -1199,7 +1199,7 @@ var ZodString = class _ZodString extends ZodType {
             validation: { includes: check.value, position: check.position },
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "toLowerCase") {
         input2.data = input2.data.toLowerCase();
@@ -1213,7 +1213,7 @@ var ZodString = class _ZodString extends ZodType {
             validation: { startsWith: check.value },
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "endsWith") {
         if (!input2.data.endsWith(check.value)) {
@@ -1223,7 +1223,7 @@ var ZodString = class _ZodString extends ZodType {
             validation: { endsWith: check.value },
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "datetime") {
         const regex = datetimeRegex(check);
@@ -1234,7 +1234,7 @@ var ZodString = class _ZodString extends ZodType {
             validation: "datetime",
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "date") {
         const regex = dateRegex;
@@ -1245,7 +1245,7 @@ var ZodString = class _ZodString extends ZodType {
             validation: "date",
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "time") {
         const regex = timeRegex(check);
@@ -1256,7 +1256,7 @@ var ZodString = class _ZodString extends ZodType {
             validation: "time",
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "duration") {
         if (!durationRegex.test(input2.data)) {
@@ -1266,7 +1266,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "ip") {
         if (!isValidIP(input2.data, check.version)) {
@@ -1276,7 +1276,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "jwt") {
         if (!isValidJWT(input2.data, check.alg)) {
@@ -1286,7 +1286,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "cidr") {
         if (!isValidCidr(input2.data, check.version)) {
@@ -1296,7 +1296,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "base64") {
         if (!base64Regex.test(input2.data)) {
@@ -1306,7 +1306,7 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "base64url") {
         if (!base64urlRegex.test(input2.data)) {
@@ -1316,13 +1316,13 @@ var ZodString = class _ZodString extends ZodType {
             code: ZodIssueCode.invalid_string,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else {
         util.assertNever(check);
       }
     }
-    return { status: status.value, value: input2.data };
+    return { status: status2.value, value: input2.data };
   }
   _regex(regex, validation, message) {
     return this.refinement((data) => regex.test(data), {
@@ -1598,7 +1598,7 @@ var ZodNumber = class _ZodNumber extends ZodType {
       return INVALID;
     }
     let ctx = void 0;
-    const status = new ParseStatus();
+    const status2 = new ParseStatus();
     for (const check of this._def.checks) {
       if (check.kind === "int") {
         if (!util.isInteger(input2.data)) {
@@ -1609,7 +1609,7 @@ var ZodNumber = class _ZodNumber extends ZodType {
             received: "float",
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "min") {
         const tooSmall = check.inclusive ? input2.data < check.value : input2.data <= check.value;
@@ -1623,7 +1623,7 @@ var ZodNumber = class _ZodNumber extends ZodType {
             exact: false,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "max") {
         const tooBig = check.inclusive ? input2.data > check.value : input2.data >= check.value;
@@ -1637,7 +1637,7 @@ var ZodNumber = class _ZodNumber extends ZodType {
             exact: false,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "multipleOf") {
         if (floatSafeRemainder(input2.data, check.value) !== 0) {
@@ -1647,7 +1647,7 @@ var ZodNumber = class _ZodNumber extends ZodType {
             multipleOf: check.value,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "finite") {
         if (!Number.isFinite(input2.data)) {
@@ -1656,13 +1656,13 @@ var ZodNumber = class _ZodNumber extends ZodType {
             code: ZodIssueCode.not_finite,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else {
         util.assertNever(check);
       }
     }
-    return { status: status.value, value: input2.data };
+    return { status: status2.value, value: input2.data };
   }
   gte(value, message) {
     return this.setLimit("min", value, true, errorUtil.toString(message));
@@ -1827,7 +1827,7 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
       return this._getInvalidInput(input2);
     }
     let ctx = void 0;
-    const status = new ParseStatus();
+    const status2 = new ParseStatus();
     for (const check of this._def.checks) {
       if (check.kind === "min") {
         const tooSmall = check.inclusive ? input2.data < check.value : input2.data <= check.value;
@@ -1840,7 +1840,7 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
             inclusive: check.inclusive,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "max") {
         const tooBig = check.inclusive ? input2.data > check.value : input2.data >= check.value;
@@ -1853,7 +1853,7 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
             inclusive: check.inclusive,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "multipleOf") {
         if (input2.data % check.value !== BigInt(0)) {
@@ -1863,13 +1863,13 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
             multipleOf: check.value,
             message: check.message
           });
-          status.dirty();
+          status2.dirty();
         }
       } else {
         util.assertNever(check);
       }
     }
-    return { status: status.value, value: input2.data };
+    return { status: status2.value, value: input2.data };
   }
   _getInvalidInput(input2) {
     const ctx = this._getOrReturnCtx(input2);
@@ -2027,7 +2027,7 @@ var ZodDate = class _ZodDate extends ZodType {
       });
       return INVALID;
     }
-    const status = new ParseStatus();
+    const status2 = new ParseStatus();
     let ctx = void 0;
     for (const check of this._def.checks) {
       if (check.kind === "min") {
@@ -2041,7 +2041,7 @@ var ZodDate = class _ZodDate extends ZodType {
             minimum: check.value,
             type: "date"
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (check.kind === "max") {
         if (input2.data.getTime() > check.value) {
@@ -2054,14 +2054,14 @@ var ZodDate = class _ZodDate extends ZodType {
             maximum: check.value,
             type: "date"
           });
-          status.dirty();
+          status2.dirty();
         }
       } else {
         util.assertNever(check);
       }
     }
     return {
-      status: status.value,
+      status: status2.value,
       value: new Date(input2.data.getTime())
     };
   }
@@ -2247,7 +2247,7 @@ ZodVoid.create = (params) => {
 };
 var ZodArray = class _ZodArray extends ZodType {
   _parse(input2) {
-    const { ctx, status } = this._processInputParams(input2);
+    const { ctx, status: status2 } = this._processInputParams(input2);
     const def = this._def;
     if (ctx.parsedType !== ZodParsedType.array) {
       addIssueToContext(ctx, {
@@ -2270,7 +2270,7 @@ var ZodArray = class _ZodArray extends ZodType {
           exact: true,
           message: def.exactLength.message
         });
-        status.dirty();
+        status2.dirty();
       }
     }
     if (def.minLength !== null) {
@@ -2283,7 +2283,7 @@ var ZodArray = class _ZodArray extends ZodType {
           exact: false,
           message: def.minLength.message
         });
-        status.dirty();
+        status2.dirty();
       }
     }
     if (def.maxLength !== null) {
@@ -2296,20 +2296,20 @@ var ZodArray = class _ZodArray extends ZodType {
           exact: false,
           message: def.maxLength.message
         });
-        status.dirty();
+        status2.dirty();
       }
     }
     if (ctx.common.async) {
       return Promise.all([...ctx.data].map((item, i) => {
         return def.type._parseAsync(new ParseInputLazyPath(ctx, item, ctx.path, i));
       })).then((result2) => {
-        return ParseStatus.mergeArray(status, result2);
+        return ParseStatus.mergeArray(status2, result2);
       });
     }
     const result = [...ctx.data].map((item, i) => {
       return def.type._parseSync(new ParseInputLazyPath(ctx, item, ctx.path, i));
     });
-    return ParseStatus.mergeArray(status, result);
+    return ParseStatus.mergeArray(status2, result);
   }
   get element() {
     return this._def.type;
@@ -2398,7 +2398,7 @@ var ZodObject = class _ZodObject extends ZodType {
       });
       return INVALID;
     }
-    const { status, ctx } = this._processInputParams(input2);
+    const { status: status2, ctx } = this._processInputParams(input2);
     const { shape, keys: shapeKeys } = this._getCached();
     const extraKeys = [];
     if (!(this._def.catchall instanceof ZodNever && this._def.unknownKeys === "strip")) {
@@ -2433,7 +2433,7 @@ var ZodObject = class _ZodObject extends ZodType {
             code: ZodIssueCode.unrecognized_keys,
             keys: extraKeys
           });
-          status.dirty();
+          status2.dirty();
         }
       } else if (unknownKeys === "strip") {
       } else {
@@ -2467,10 +2467,10 @@ var ZodObject = class _ZodObject extends ZodType {
         }
         return syncPairs;
       }).then((syncPairs) => {
-        return ParseStatus.mergeObjectSync(status, syncPairs);
+        return ParseStatus.mergeObjectSync(status2, syncPairs);
       });
     } else {
-      return ParseStatus.mergeObjectSync(status, pairs);
+      return ParseStatus.mergeObjectSync(status2, pairs);
     }
   }
   get shape() {
@@ -2948,7 +2948,7 @@ function mergeValues(a, b) {
 }
 var ZodIntersection = class extends ZodType {
   _parse(input2) {
-    const { status, ctx } = this._processInputParams(input2);
+    const { status: status2, ctx } = this._processInputParams(input2);
     const handleParsed = (parsedLeft, parsedRight) => {
       if (isAborted(parsedLeft) || isAborted(parsedRight)) {
         return INVALID;
@@ -2961,9 +2961,9 @@ var ZodIntersection = class extends ZodType {
         return INVALID;
       }
       if (isDirty(parsedLeft) || isDirty(parsedRight)) {
-        status.dirty();
+        status2.dirty();
       }
-      return { status: status.value, value: merged.data };
+      return { status: status2.value, value: merged.data };
     };
     if (ctx.common.async) {
       return Promise.all([
@@ -3001,7 +3001,7 @@ ZodIntersection.create = (left, right, params) => {
 };
 var ZodTuple = class _ZodTuple extends ZodType {
   _parse(input2) {
-    const { status, ctx } = this._processInputParams(input2);
+    const { status: status2, ctx } = this._processInputParams(input2);
     if (ctx.parsedType !== ZodParsedType.array) {
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
@@ -3029,7 +3029,7 @@ var ZodTuple = class _ZodTuple extends ZodType {
         exact: false,
         type: "array"
       });
-      status.dirty();
+      status2.dirty();
     }
     const items = [...ctx.data].map((item, itemIndex) => {
       const schema = this._def.items[itemIndex] || this._def.rest;
@@ -3039,10 +3039,10 @@ var ZodTuple = class _ZodTuple extends ZodType {
     }).filter((x) => !!x);
     if (ctx.common.async) {
       return Promise.all(items).then((results) => {
-        return ParseStatus.mergeArray(status, results);
+        return ParseStatus.mergeArray(status2, results);
       });
     } else {
-      return ParseStatus.mergeArray(status, items);
+      return ParseStatus.mergeArray(status2, items);
     }
   }
   get items() {
@@ -3074,7 +3074,7 @@ var ZodRecord = class _ZodRecord extends ZodType {
     return this._def.valueType;
   }
   _parse(input2) {
-    const { status, ctx } = this._processInputParams(input2);
+    const { status: status2, ctx } = this._processInputParams(input2);
     if (ctx.parsedType !== ZodParsedType.object) {
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
@@ -3094,9 +3094,9 @@ var ZodRecord = class _ZodRecord extends ZodType {
       });
     }
     if (ctx.common.async) {
-      return ParseStatus.mergeObjectAsync(status, pairs);
+      return ParseStatus.mergeObjectAsync(status2, pairs);
     } else {
-      return ParseStatus.mergeObjectSync(status, pairs);
+      return ParseStatus.mergeObjectSync(status2, pairs);
     }
   }
   get element() {
@@ -3127,7 +3127,7 @@ var ZodMap = class extends ZodType {
     return this._def.valueType;
   }
   _parse(input2) {
-    const { status, ctx } = this._processInputParams(input2);
+    const { status: status2, ctx } = this._processInputParams(input2);
     if (ctx.parsedType !== ZodParsedType.map) {
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
@@ -3154,11 +3154,11 @@ var ZodMap = class extends ZodType {
             return INVALID;
           }
           if (key.status === "dirty" || value.status === "dirty") {
-            status.dirty();
+            status2.dirty();
           }
           finalMap.set(key.value, value.value);
         }
-        return { status: status.value, value: finalMap };
+        return { status: status2.value, value: finalMap };
       });
     } else {
       const finalMap = /* @__PURE__ */ new Map();
@@ -3169,11 +3169,11 @@ var ZodMap = class extends ZodType {
           return INVALID;
         }
         if (key.status === "dirty" || value.status === "dirty") {
-          status.dirty();
+          status2.dirty();
         }
         finalMap.set(key.value, value.value);
       }
-      return { status: status.value, value: finalMap };
+      return { status: status2.value, value: finalMap };
     }
   }
 };
@@ -3187,7 +3187,7 @@ ZodMap.create = (keyType, valueType, params) => {
 };
 var ZodSet = class _ZodSet extends ZodType {
   _parse(input2) {
-    const { status, ctx } = this._processInputParams(input2);
+    const { status: status2, ctx } = this._processInputParams(input2);
     if (ctx.parsedType !== ZodParsedType.set) {
       addIssueToContext(ctx, {
         code: ZodIssueCode.invalid_type,
@@ -3207,7 +3207,7 @@ var ZodSet = class _ZodSet extends ZodType {
           exact: false,
           message: def.minSize.message
         });
-        status.dirty();
+        status2.dirty();
       }
     }
     if (def.maxSize !== null) {
@@ -3220,7 +3220,7 @@ var ZodSet = class _ZodSet extends ZodType {
           exact: false,
           message: def.maxSize.message
         });
-        status.dirty();
+        status2.dirty();
       }
     }
     const valueType = this._def.valueType;
@@ -3230,10 +3230,10 @@ var ZodSet = class _ZodSet extends ZodType {
         if (element.status === "aborted")
           return INVALID;
         if (element.status === "dirty")
-          status.dirty();
+          status2.dirty();
         parsedSet.add(element.value);
       }
-      return { status: status.value, value: parsedSet };
+      return { status: status2.value, value: parsedSet };
     }
     const elements = [...ctx.data.values()].map((item, i) => valueType._parse(new ParseInputLazyPath(ctx, item, ctx.path, i)));
     if (ctx.common.async) {
@@ -3564,15 +3564,15 @@ var ZodEffects = class extends ZodType {
     return this._def.schema._def.typeName === ZodFirstPartyTypeKind.ZodEffects ? this._def.schema.sourceType() : this._def.schema;
   }
   _parse(input2) {
-    const { status, ctx } = this._processInputParams(input2);
+    const { status: status2, ctx } = this._processInputParams(input2);
     const effect = this._def.effect || null;
     const checkCtx = {
       addIssue: (arg) => {
         addIssueToContext(ctx, arg);
         if (arg.fatal) {
-          status.abort();
+          status2.abort();
         } else {
-          status.dirty();
+          status2.dirty();
         }
       },
       get path() {
@@ -3584,7 +3584,7 @@ var ZodEffects = class extends ZodType {
       const processed = effect.transform(ctx.data, checkCtx);
       if (ctx.common.async) {
         return Promise.resolve(processed).then(async (processed2) => {
-          if (status.value === "aborted")
+          if (status2.value === "aborted")
             return INVALID;
           const result = await this._def.schema._parseAsync({
             data: processed2,
@@ -3595,12 +3595,12 @@ var ZodEffects = class extends ZodType {
             return INVALID;
           if (result.status === "dirty")
             return DIRTY(result.value);
-          if (status.value === "dirty")
+          if (status2.value === "dirty")
             return DIRTY(result.value);
           return result;
         });
       } else {
-        if (status.value === "aborted")
+        if (status2.value === "aborted")
           return INVALID;
         const result = this._def.schema._parseSync({
           data: processed,
@@ -3611,7 +3611,7 @@ var ZodEffects = class extends ZodType {
           return INVALID;
         if (result.status === "dirty")
           return DIRTY(result.value);
-        if (status.value === "dirty")
+        if (status2.value === "dirty")
           return DIRTY(result.value);
         return result;
       }
@@ -3636,17 +3636,17 @@ var ZodEffects = class extends ZodType {
         if (inner.status === "aborted")
           return INVALID;
         if (inner.status === "dirty")
-          status.dirty();
+          status2.dirty();
         executeRefinement(inner.value);
-        return { status: status.value, value: inner.value };
+        return { status: status2.value, value: inner.value };
       } else {
         return this._def.schema._parseAsync({ data: ctx.data, path: ctx.path, parent: ctx }).then((inner) => {
           if (inner.status === "aborted")
             return INVALID;
           if (inner.status === "dirty")
-            status.dirty();
+            status2.dirty();
           return executeRefinement(inner.value).then(() => {
-            return { status: status.value, value: inner.value };
+            return { status: status2.value, value: inner.value };
           });
         });
       }
@@ -3664,13 +3664,13 @@ var ZodEffects = class extends ZodType {
         if (result instanceof Promise) {
           throw new Error(`Asynchronous transform encountered during synchronous parse operation. Use .parseAsync instead.`);
         }
-        return { status: status.value, value: result };
+        return { status: status2.value, value: result };
       } else {
         return this._def.schema._parseAsync({ data: ctx.data, path: ctx.path, parent: ctx }).then((base) => {
           if (!isValid(base))
             return INVALID;
           return Promise.resolve(effect.transform(base.value, checkCtx)).then((result) => ({
-            status: status.value,
+            status: status2.value,
             value: result
           }));
         });
@@ -3849,7 +3849,7 @@ var ZodBranded = class extends ZodType {
 };
 var ZodPipeline = class _ZodPipeline extends ZodType {
   _parse(input2) {
-    const { status, ctx } = this._processInputParams(input2);
+    const { status: status2, ctx } = this._processInputParams(input2);
     if (ctx.common.async) {
       const handleAsync = async () => {
         const inResult = await this._def.in._parseAsync({
@@ -3860,7 +3860,7 @@ var ZodPipeline = class _ZodPipeline extends ZodType {
         if (inResult.status === "aborted")
           return INVALID;
         if (inResult.status === "dirty") {
-          status.dirty();
+          status2.dirty();
           return DIRTY(inResult.value);
         } else {
           return this._def.out._parseAsync({
@@ -3880,7 +3880,7 @@ var ZodPipeline = class _ZodPipeline extends ZodType {
       if (inResult.status === "aborted")
         return INVALID;
       if (inResult.status === "dirty") {
-        status.dirty();
+        status2.dirty();
         return {
           status: "dirty",
           value: inResult.value
@@ -14840,8 +14840,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         const item = record(value);
         const content = string(item.step);
         if (content === void 0) return [];
-        const status = item.status === "inProgress" ? "in_progress" : item.status === "completed" ? "completed" : "pending";
-        return [{ content, status }];
+        const status2 = item.status === "inProgress" ? "in_progress" : item.status === "completed" ? "completed" : "pending";
+        return [{ content, status: status2 }];
       });
       this.pushEvent(follow, "todo/write", { todos });
       return;
@@ -14871,10 +14871,10 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       return;
     }
     if (frame.method === "thread/status/changed") {
-      const status = record(params.status);
-      const running = status.type === "active";
+      const status2 = record(params.status);
+      const running = status2.type === "active";
       this.emitRemoteEvent("api-session/status", [follow.sessionId, running]);
-      if (status.type === "systemError") {
+      if (status2.type === "systemError") {
         this.broadcastRcHost({
           type: "host/agent-error",
           sessionId: follow.sessionId,
@@ -16554,6 +16554,7 @@ import { platform } from "node:os";
 // src/config.ts
 import { hostname } from "node:os";
 import s from "@deepseek-ai/schemastery";
+var DEFAULT_REMOTE_SERVER_URL = "https://dsh.r2049.cn";
 var Config = s.object({
   enabled: s.boolean(),
   role: s.union(["host", "client", "both"]),
@@ -16694,20 +16695,20 @@ var HostServerApi = class {
     if (account.length === 0 || password.length === 0) {
       throw new ServerApiError("INVALID_MESSAGE", "Email and password are required.", false);
     }
-    const login = validateWebLogin(await this.publicRequest("/api/v1/auth/login", {
+    const login2 = validateWebLogin(await this.publicRequest("/api/v1/auth/login", {
       method: "POST",
       body: JSON.stringify({ email: account, password })
     }));
     await this.register(identity, {
-      accountToken: login.token,
-      account: login.account,
+      accountToken: login2.token,
+      account: login2.account,
       authorizationMethod: "account"
     });
     return {
       method: "account",
-      account: login.account,
-      expiresAt: login.expiresAt,
-      isAdmin: login.isAdmin
+      account: login2.account,
+      expiresAt: login2.expiresAt,
+      isAdmin: login2.isAdmin
     };
   }
   async startOAuthQrLogin(provider = "zhihu") {
@@ -16939,11 +16940,11 @@ var ClientServerApi = class extends HostServerApi {
   }
 };
 var ServerApiError = class extends Error {
-  constructor(code, message, retryable, status) {
+  constructor(code, message, retryable, status2) {
     super(message);
     this.code = code;
     this.retryable = retryable;
-    this.status = status;
+    this.status = status2;
   }
 };
 function validateTokens(value) {
@@ -16974,12 +16975,12 @@ async function parseBody(response) {
     throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid JSON.", false, response.status);
   }
 }
-function mapStatus(status) {
-  if (status === 401) return "AUTH_INVALID";
-  if (status === 403) return "AUTH_REQUIRED";
-  if (status === 404) return "DEVICE_NOT_FOUND";
-  if (status === 429) return "RATE_LIMITED";
-  return status >= 500 ? "CONNECTION_FAILED" : "INVALID_MESSAGE";
+function mapStatus(status2) {
+  if (status2 === 401) return "AUTH_INVALID";
+  if (status2 === 403) return "AUTH_REQUIRED";
+  if (status2 === 404) return "DEVICE_NOT_FOUND";
+  if (status2 === 429) return "RATE_LIMITED";
+  return status2 >= 500 ? "CONNECTION_FAILED" : "INVALID_MESSAGE";
 }
 function parseHostDevice(value) {
   const item = requireRecord(value, "host device");
@@ -17281,10 +17282,10 @@ function isUsableExternalNode(candidate, requireFrom) {
 }
 function isExecutableFile(candidate) {
   try {
-    const stat4 = statSync(candidate);
-    if (!stat4.isFile()) return false;
+    const stat5 = statSync(candidate);
+    if (!stat5.isFile()) return false;
     if (process.platform === "win32") return true;
-    return (stat4.mode & 73) !== 0;
+    return (stat5.mode & 73) !== 0;
   } catch {
     return false;
   }
@@ -23930,13 +23931,254 @@ function decodeBase64(value) {
   return bytes;
 }
 
+// src/cli.ts
+import { stat as stat4 } from "node:fs/promises";
+import { hostname as hostname3 } from "node:os";
+import { join as join6 } from "node:path";
+var QR_POLL_INTERVAL_MS = 2e3;
+var TERMINAL_QR_MARGIN = 4;
+async function runCli(args = process.argv.slice(2), dependencies = {}) {
+  const runtime = resolveDependencies(dependencies);
+  const [command, ...rest] = args;
+  try {
+    if (command === "login") return await login(rest, runtime);
+    if (command === "status") return await status(rest, runtime);
+    if (command === "logout") return await logout(rest, runtime);
+    if (command === "help" || command === "--help" || command === "-h" || command === void 0) {
+      write(runtime.stdout, helpText());
+      return 0;
+    }
+    throw new CliUsageError(`Unknown command: ${command}`);
+  } catch (error) {
+    write(runtime.stderr, `${cliErrorMessage(error)}
+`);
+    if (error instanceof CliUsageError) write(runtime.stderr, `
+${helpText()}`);
+    return error instanceof CliUsageError ? 2 : 1;
+  }
+}
+async function login(args, runtime) {
+  if (args.length > 1) throw new CliUsageError("Usage: ds-harness-remote login [github|zhihu]");
+  const provider = args[0] ?? "zhihu";
+  if (provider !== "github" && provider !== "zhihu") {
+    throw new CliUsageError("Login provider must be github or zhihu.");
+  }
+  const context = await hostContext(runtime);
+  const session = await context.api.startOAuthQrLogin(provider);
+  const qr = await runtime.renderQr(session.scanUrl);
+  const providerName = provider === "github" ? "GitHub" : "Zhihu";
+  write(runtime.stdout, `Using ${providerName} QR login. ${alternativeProviderHint(provider)}
+`);
+  write(runtime.stdout, "Scan this QR code to authorize this Host:\n\n");
+  write(runtime.stdout, `${qr.trimEnd()}
+`);
+  write(runtime.stdout, `Authorization URL: ${terminalLink(session.scanUrl, runtime.stdout)}
+
+Waiting for authorization...
+`);
+  const deadline = runtime.now() + session.expiresIn * 1e3;
+  let identity = context.identity;
+  while (runtime.now() < deadline) {
+    let result;
+    try {
+      result = await context.api.pollOAuthQrLogin(identity, session.qrId, async () => {
+        identity = await context.identities.reset(context.deviceName);
+        return identity;
+      });
+    } catch (error) {
+      if (!(error instanceof ServerApiError) || !error.retryable) throw error;
+      await runtime.wait(Math.min(QR_POLL_INTERVAL_MS, Math.max(1, deadline - runtime.now())));
+      continue;
+    }
+    if (result.status === "complete") {
+      write(runtime.stdout, `${authorizedMessage(result.authorization)} Restart dsh-tui to bring the Remote Host online.
+`);
+      return 0;
+    }
+    if (result.status === "expired") break;
+    await runtime.wait(Math.min(QR_POLL_INTERVAL_MS, Math.max(1, deadline - runtime.now())));
+  }
+  write(runtime.stderr, "The QR login expired. Run the login command again to generate a new code.\n");
+  return 1;
+}
+async function status(args, runtime) {
+  if (args.length !== 0) throw new CliUsageError("Usage: ds-harness-remote status");
+  const serverUrl = selectedServer();
+  const root = new IdentityStore({ env: runtime.env }).directory;
+  const directory = serverStorageDirectory(root, serverUrl, "host");
+  const lines = [
+    "Remote Host status",
+    `Server: ${serverUrl}`,
+    "Host control: enabled (dsh-TUI default)"
+  ];
+  if (!await exists3(join6(directory, "device.json"))) {
+    lines.push("Device: not initialized", "Authorization: logged out", "Credential: unavailable");
+    write(runtime.stdout, `${lines.join("\n")}
+
+Run "remote login" to authorize this Host.
+`);
+    return 0;
+  }
+  const identities = runtime.createIdentityStore({ directory, env: runtime.env });
+  const identity = await identities.loadOrCreate(hostname3());
+  const store = new ServerCredentialStore(directory);
+  const stored = await store.load(serverUrl, identity.deviceId);
+  lines.push(`Device: ${identity.name} (${identity.deviceId})`);
+  if (stored === void 0) {
+    lines.push("Authorization: logged out", "Credential: unavailable");
+    write(runtime.stdout, `${lines.join("\n")}
+
+Run "remote login" to authorize this Host.
+`);
+    return 0;
+  }
+  lines.push(`Authorization: logged in (${authorizationLabel(stored.authorizationMethod)})`);
+  if (stored.account !== void 0) lines.push(`Account: ${stored.account}`);
+  const api = runtime.createHostApi(serverUrl, store);
+  api.bindIdentity(identity);
+  try {
+    await api.authenticate(identity);
+    lines.push("Credential: ready");
+    lines.push("Presence: published while dsh-tui is running");
+    write(runtime.stdout, `${lines.join("\n")}
+`);
+    return 0;
+  } catch (error) {
+    lines.push(`Credential: unavailable (${statusErrorCode(error)})`);
+    write(runtime.stdout, `${lines.join("\n")}
+`);
+    return 1;
+  }
+}
+async function logout(args, runtime) {
+  if (args.length !== 0) throw new CliUsageError("Usage: ds-harness-remote logout");
+  const serverUrl = selectedServer();
+  const root = new IdentityStore({ env: runtime.env }).directory;
+  const directory = serverStorageDirectory(root, serverUrl, "host");
+  if (!await exists3(join6(directory, "device.json"))) {
+    await new ServerCredentialStore(directory).clear();
+    write(runtime.stdout, "This Host is already logged out.\n");
+    return 0;
+  }
+  const deviceName = hostname3();
+  const identities = runtime.createIdentityStore({ directory, env: runtime.env });
+  const identity = await identities.loadOrCreate(deviceName);
+  const api = runtime.createHostApi(serverUrl, new ServerCredentialStore(directory));
+  api.bindIdentity(identity);
+  let revokeFailure;
+  try {
+    await api.revokeCurrentDevice();
+  } catch (error) {
+    revokeFailure = error;
+  }
+  await identities.reset(deviceName);
+  if (revokeFailure !== void 0) {
+    throw new Error(`Local Host credentials were cleared, but Server revocation failed: ${cliErrorMessage(revokeFailure)}`);
+  }
+  write(runtime.stdout, "Remote Host logged out and its local device identity was rotated. Restart dsh-tui.\n");
+  return 0;
+}
+async function hostContext(runtime) {
+  const serverUrl = selectedServer();
+  const root = new IdentityStore({ env: runtime.env }).directory;
+  const directory = serverStorageDirectory(root, serverUrl, "host");
+  const deviceName = hostname3();
+  const identities = runtime.createIdentityStore({ directory, env: runtime.env });
+  const identity = await identities.loadOrCreate(deviceName);
+  const api = runtime.createHostApi(serverUrl, new ServerCredentialStore(directory));
+  return { api, identities, identity, deviceName };
+}
+function selectedServer() {
+  return normalizeServerUrl(DEFAULT_REMOTE_SERVER_URL);
+}
+function resolveDependencies(input2) {
+  return {
+    env: input2.env ?? process.env,
+    stdout: input2.stdout ?? process.stdout,
+    stderr: input2.stderr ?? process.stderr,
+    now: input2.now ?? Date.now,
+    wait: input2.wait ?? ((milliseconds) => new Promise((resolve2) => setTimeout(resolve2, milliseconds))),
+    renderQr: input2.renderQr ?? renderTerminalQr,
+    createIdentityStore: input2.createIdentityStore ?? ((options) => new IdentityStore(options)),
+    createHostApi: input2.createHostApi ?? ((serverUrl, store) => new HostServerApi(serverUrl, store))
+  };
+}
+async function renderTerminalQr(url) {
+  const { default: QRCode } = await import("qrcode");
+  const modules = QRCode.create(url, { errorCorrectionLevel: "M" }).modules;
+  const width = modules.size + TERMINAL_QR_MARGIN * 2;
+  const quietLine = `\x1B[47m${" ".repeat(width * 2)}\x1B[0m`;
+  const lines = Array.from({ length: TERMINAL_QR_MARGIN }, () => quietLine);
+  for (let row = 0; row < modules.size; row += 1) {
+    let line = `\x1B[47m${" ".repeat(TERMINAL_QR_MARGIN * 2)}`;
+    for (let column = 0; column < modules.size; column += 1) {
+      line += modules.get(row, column) === 1 ? "\x1B[40m  " : "\x1B[47m  ";
+    }
+    line += `\x1B[47m${" ".repeat(TERMINAL_QR_MARGIN * 2)}\x1B[0m`;
+    lines.push(line);
+  }
+  lines.push(...Array.from({ length: TERMINAL_QR_MARGIN }, () => quietLine));
+  return lines.join("\n");
+}
+function authorizedMessage(authorization) {
+  return authorization.account === void 0 ? "Remote Host login complete." : `Remote Host login complete for ${authorization.account}.`;
+}
+function alternativeProviderHint(provider) {
+  return provider === "zhihu" ? "GitHub is also supported: ds-harness-remote login github" : "Zhihu is also supported: ds-harness-remote login zhihu";
+}
+function authorizationLabel(method) {
+  if (method === "host_registration_code") return "Host registration code";
+  if (method === "owned_device") return "owned device";
+  return "account";
+}
+function statusErrorCode(error) {
+  return error instanceof ServerApiError ? error.code : "CONNECTION_FAILED";
+}
+function cliErrorMessage(error) {
+  const message = error instanceof Error ? error.message : "The Remote command failed.";
+  const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : void 0;
+  return code === void 0 ? message : `${message} (${code})`;
+}
+function helpText() {
+  return [
+    "Usage:",
+    "  ds-harness-remote login [github|zhihu]",
+    "  ds-harness-remote status",
+    "  ds-harness-remote logout",
+    "",
+    'The shorter "remote" command supports the same subcommands.',
+    "login defaults to Zhihu and authorizes this computer as a Remote Host with a terminal QR code.",
+    `The Server is ${DEFAULT_REMOTE_SERVER_URL}.`,
+    "Host configuration is not exposed by this CLI yet. Restart dsh-tui after login or logout.",
+    ""
+  ].join("\n");
+}
+function write(target, value) {
+  target.write(value);
+}
+function terminalLink(url, target) {
+  if (target.isTTY !== true) return url;
+  return `\x1B]8;;${url}\x07${url}\x1B]8;;\x07`;
+}
+async function exists3(path) {
+  try {
+    await stat4(path);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+var CliUsageError = class extends Error {
+};
+
 // src/index.ts
 var name = "ds-harness-remote";
 var legacyLoaderModuleNames = /* @__PURE__ */ new Set(["dsh-remote", "@dsh-remote/plugin"]);
 var pluginSettingsNamespace = "ds-harness-remote";
 var legacySettingsNamespace = "dsh-remote";
 function apply(ctx, input2 = {}) {
-  ctx.inject(["settings", "connection", "typertGateway"], (runtimeContext) => {
+  ctx.inject(["settings", "typertGateway"], (runtimeContext) => {
     const gateway = runtimeContext.get("typertGateway");
     if (runtimeContext.get("apiProxy") !== void 0 || new TypertGatewaySwitch(gateway).supportsCarrier()) {
       return activate(runtimeContext, input2);
@@ -23958,7 +24200,9 @@ async function activate(ctx, input2) {
     if (migration === "migrated") ctx.logger.info("migrated legacy Remote settings namespace");
     if (migration === "failed") ctx.logger.warn("failed to migrate legacy Remote settings namespace");
   }
-  const config = resolveConfig(settingsScope?.get() ?? input2);
+  const connection = ctx.get("connection");
+  const resolvedConfig = resolveConfig(settingsScope?.get() ?? input2);
+  const config = connection === void 0 && resolvedConfig.serverUrl === void 0 ? { ...resolvedConfig, serverUrl: DEFAULT_REMOTE_SERVER_URL } : resolvedConfig;
   if (!config.enabled) return;
   const logger = new SafeLogger({
     debug: (message) => {
@@ -23984,7 +24228,6 @@ async function activate(ctx, input2) {
     directory: config.serverUrl === void 0 ? defaultIdentityDirectory : serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, "host")
   });
   const apiProxy = ctx.get("apiProxy");
-  const connection = ctx.get("connection");
   const nativeTypertGateway = ctx.get("typertGateway");
   const localTypertGateway = new TypertGatewaySwitch(nativeTypertGateway).local();
   const runtime = new HostPluginRuntime(
@@ -24131,6 +24374,7 @@ export {
   migrateLegacySettings,
   name,
   resolveConfig,
+  runCli,
   serverStorageDirectory
 };
 /*! Bundled license information:

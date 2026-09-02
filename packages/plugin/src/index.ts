@@ -2,7 +2,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SettingsNamespace, SettingsProvider, SettingsScope } from '@deepseek-ai/dsh-settings'
 import { ClientModeRuntime, type HostConnectionHandle } from './client-runtime.js'
-import { Config, resolveConfig, type Config as ConfigInput, type ResolvedConfig } from './config.js'
+import {
+  Config,
+  DEFAULT_REMOTE_SERVER_URL,
+  resolveConfig,
+  type Config as ConfigInput,
+  type ResolvedConfig,
+} from './config.js'
 import { PluginControlRuntime } from './control-runtime.js'
 import { IdentityStore, serverStorageDirectory } from './identity-store.js'
 import { SafeLogger } from './logging.js'
@@ -45,7 +51,11 @@ interface LoaderLike {
 }
 
 export function apply(ctx: Context, input: ConfigInput = {}): void {
-  ctx.inject(['settings', 'connection', 'typertGateway'], runtimeContext => {
+  // A terminal-only dsh-TUI profile has no browser `connection` service.
+  // Host startup only needs settings plus one official Harness carrier;
+  // Desktop control/client features continue to soft-probe `connection` in
+  // activate() below.
+  ctx.inject(['settings', 'typertGateway'], runtimeContext => {
     const gateway = runtimeContext.get('typertGateway') as TypertGatewayLike
     if (runtimeContext.get('apiProxy') !== undefined || new TypertGatewaySwitch(gateway).supportsCarrier()) {
       return activate(runtimeContext, input)
@@ -66,7 +76,13 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
     if (migration === 'migrated') ctx.logger.info('migrated legacy Remote settings namespace')
     if (migration === 'failed') ctx.logger.warn('failed to migrate legacy Remote settings namespace')
   }
-  const config: ResolvedConfig = resolveConfig(settingsScope?.get() ?? input)
+  const connection = ctx.get('connection') as HostConnectionHandle | undefined
+  const resolvedConfig = resolveConfig(settingsScope?.get() ?? input)
+  // dsh-TUI has no settings UI or browser connection. In that profile the
+  // QR-authorized Host is enabled against the hosted Server by default.
+  const config: ResolvedConfig = connection === undefined && resolvedConfig.serverUrl === undefined
+    ? { ...resolvedConfig, serverUrl: DEFAULT_REMOTE_SERVER_URL }
+    : resolvedConfig
   if (!config.enabled) return
   // Mirrors SafeLogger output to the process stdout/stderr as well as the DSH
   // logger: the web process stdout is captured by the Desktop shell into
@@ -85,7 +101,6 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
       : serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, 'host'),
   })
   const apiProxy = ctx.get('apiProxy') as ApiProxy | undefined
-  const connection = ctx.get('connection') as HostConnectionHandle | undefined
   // The official Typert gateway (`typertGateway` from dsh-api-gateway) is the
   // dispatch path behind `/api/commands/*` on the host. It is an explicit
   // activation dependency so a peer bridge never silently omits commands.
@@ -245,6 +260,8 @@ export { CodexAppServerClient, CodexAppServerError } from './codex/app-server.js
 export { CODEX_APP_ALLOWLIST } from './codex/method-policy.js'
 export { createRemoteFileContentProvider } from './remote-file-content-provider.js'
 export { TypertGatewaySwitch } from './typert-gateway-switch.js'
+export { runCli } from './cli.js'
+export type { RemoteCliDependencies } from './cli.js'
 export type {
   LocalTypertGateway,
   RemoteTypertGatewayTarget,

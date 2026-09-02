@@ -21,3 +21,4 @@ export interface Config {
 export declare const name: 'ds-harness-remote'
 export declare const Config: unknown
 export declare function apply(ctx: Context, config?: Config): void
+export declare function runCli(args?: readonly string[]): Promise<number>

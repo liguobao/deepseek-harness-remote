@@ -6,6 +6,10 @@
   "private": true,
   "type": "module",
   "main": "./index.js",
+  "bin": {
+    "ds-harness-remote": "./packages/plugin/bin/ds-harness-remote.js",
+    "remote": "./packages/plugin/bin/ds-harness-remote.js"
+  },
   "types": "./packages/plugin/public.d.ts",
   "exports": {
     ".": {
@@ -20,6 +24,7 @@
     "index.js",
     "packages/plugin/dist/index.js",
     "packages/plugin/dist/client.github.js",
+    "packages/plugin/bin/ds-harness-remote.js",
     "packages/plugin/public.d.ts",
     "packages/plugin/LICENSE",
     "cordis.patch.yml",
@@ -45,6 +50,7 @@
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.2",
+    "qrcode": "^1.5.4",
     "werift": "0.24.4",
     "zod": "^3.24.1"
   },

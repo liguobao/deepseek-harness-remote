@@ -43,6 +43,7 @@ Return to the same Harness session from whichever device is with you. Harness ke
 - Open workspaces from another authorized computer on the same account
 - Reuse the native Harness interface instead of maintaining a separate desktop conversation UI
 - Preview remote files between two Harness installations with the optional `dsh-file-viewer` plugin
+- Run a terminal-only [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) profile as a Host and authorize it with a GitHub or Zhihu QR code
 - The Harness Host does not need a public listening port. Connect securely from anywhere with internet access over a bidirectional end-to-end encrypted channel
 
 ## Install
@@ -61,6 +62,42 @@ dsh plugin --profile web add ds-harness-remote@0.4.3
 ```
 
 Restart Harness after installation.
+
+### Path C: dsh-TUI Host
+
+Remote can run as a Host in a terminal-only [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)
+profile; it does not require the Desktop browser `connection` service. Install the plugin in the
+TUI profile and expose its companion command on `PATH`:
+
+```sh
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.3
+npm install -g ds-harness-remote@0.4.3
+```
+
+Authorize the Host by scanning a terminal QR code, then start or restart dsh-TUI:
+
+```sh
+ds-harness-remote login zhihu
+# or
+ds-harness-remote login github
+dsh-tui
+```
+
+`login` defaults to Zhihu when the provider is omitted and prints a clickable authorization URL
+below the QR code. After login, dsh-TUI enables Host control by default. Use
+`ds-harness-remote logout` to revoke the Host and rotate its local device identity. The CLI
+intentionally does not expose Host configuration yet and uses `https://dsh.r2049.cn`. Remote
+currently supports the TUI when its Harness transport is `dsh-v0.1.1-rc.2` or
+`dsh-v0.1.2-alpha.1`–`alpha.2`.
+
+The package also installs `remote` as a shorter command name. Both names support the same commands:
+
+```sh
+remote login              # Zhihu by default; the output also shows the GitHub command
+remote login github
+remote status             # authorization, account, device, and credential readiness
+remote logout
+```
 
 ## Quick start
 

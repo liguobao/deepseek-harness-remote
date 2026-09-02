@@ -18,6 +18,26 @@ assert.ok(
   'root browser client must load after the official plugin settings surface',
 )
 assert.equal(manifest.main, './index.js', 'root package must expose a prebuilt Host entry at package root')
+assert.equal(
+  manifest.bin?.['ds-harness-remote'],
+  './packages/plugin/bin/ds-harness-remote.js',
+  'root package must expose the TUI-compatible Remote CLI',
+)
+assert.equal(
+  manifest.bin?.remote,
+  './packages/plugin/bin/ds-harness-remote.js',
+  'root package must expose the short remote command',
+)
+assert.equal(
+  pluginManifest.bin?.['ds-harness-remote'],
+  './bin/ds-harness-remote.js',
+  'npm plugin package must expose the Remote CLI',
+)
+assert.equal(
+  pluginManifest.bin?.remote,
+  './bin/ds-harness-remote.js',
+  'npm plugin package must expose the short remote command',
+)
 assert.equal(manifest.exports?.['./client'], './packages/plugin/dist/client.github.js', 'root package must export the GitHub-root browser client entry')
 
 for (const file of [
@@ -26,6 +46,7 @@ for (const file of [
   'packages/plugin/dist/index.js',
   'packages/plugin/dist/client.github.js',
   'packages/plugin/public.d.ts',
+  'packages/plugin/bin/ds-harness-remote.js',
 ]) {
   assert.ok(existsSync(join(root, file)), `DSH plugin artifact is missing: ${file}`)
 }

@@ -119,6 +119,42 @@ Settings are written to `$DSH_HOME/settings.yaml` under `ds-harness-remote` (res
 
 配置写入 `$DSH_HOME/settings.yaml` 的 `ds-harness-remote`（重启后生效）。
 
+### dsh-TUI Host login / dsh-TUI Host 登录
+
+The Host runtime can start without the Desktop browser `connection` service. For a terminal-only
+[dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) profile, install the plugin and its command, scan
+either provider's QR code, then start or restart `dsh-tui`:
+
+纯终端 [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) profile 不需要 Desktop 浏览器的
+`connection` 服务。安装插件与配套命令后，扫描任一平台的二维码，再启动或重启 `dsh-tui`：
+
+```sh
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.3
+npm install -g ds-harness-remote@0.4.3
+
+ds-harness-remote login zhihu
+# or / 或
+ds-harness-remote login github
+```
+
+`login` defaults to Zhihu and prints a clickable authorization URL below the QR code. After login,
+dsh-TUI enables Host control by default. `ds-harness-remote logout` revokes the Host and rotates its
+local identity. Host configuration is intentionally not part of this CLI yet; the default Server is
+`https://dsh.r2049.cn`.
+
+`login` 默认使用知乎，二维码下方会显示可点击的授权 URL；完成登录后，dsh-TUI 默认开启 Host
+控制。`ds-harness-remote logout` 会撤销 Host 并轮换本地身份。CLI 暂时不提供 Host 配置；Server
+固定为 `https://dsh.r2049.cn`。
+
+The package also installs `remote` as a shorter alias. Both command names provide
+`login [github|zhihu]`, `status`, and `logout`. `status` reports Host authorization and credential
+readiness without printing credentials. Server presence remains visible to authorized Remote clients
+while dsh-TUI is running.
+
+npm 包也会安装较短的 `remote` 命令别名。两个命令名称都提供 `login [github|zhihu]`、`status`
+和 `logout`；`status` 会查询 Host 授权和凭证可用状态，但不会输出凭证。dsh-TUI 运行时，Server
+presence 仍由已授权的 Remote Client 查询。
+
 Codex Session/History is an experimental optional domain inside this same plugin. It is enabled by
 default and can be disabled from the DeepSeek Remote settings card; CodeX App Server `project/list`
 is the only source of truth for virtual Workspaces. The current release includes the Host carrier,

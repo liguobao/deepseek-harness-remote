@@ -6,7 +6,7 @@
 
 当前仓库实现：
 
-- DeepSeek Harness Plugin（Remote Host + 本地 Remote 工作区入口；无用户可见的 Client 模式）
+- DeepSeek Harness Plugin（Remote Host + 本地 Remote 工作区入口 + dsh-TUI Host 二维码登录命令；无用户可见的 Client 模式）
 - Android Client（账号授权 + Adaptive transport + rc.2 ApiProxy / alpha.1/alpha.2 Typert Remote + 可选 CodeX Remote）
 - VS Code Client（账号授权 + Host 信任固定 + rc.2 ApiProxy / alpha.1/alpha.2 Typert Remote 会话/Prompt）
 - Protocol、Crypto、WebRTC、Client Core 等共享能力
@@ -45,8 +45,9 @@ docs/
 ```
 
 仓库根包同时是 DSH Desktop 的 GitHub 安装边界：根 `package.json` 必须保留
-`dsh.bundle.patch`、Host/Client exports 和 `cordis.patch.yml`；GitHub 默认禁用
-构建脚本，所以根 `index.js`、`packages/plugin/dist/index.js` 与 `client.github.js` 是需要提交的发布入口。
+`dsh.bundle.patch`、Host/Client exports、CLI bin 和 `cordis.patch.yml`；GitHub 默认禁用
+构建脚本，所以根 `index.js`、`packages/plugin/dist/index.js`、`client.github.js` 与
+`packages/plugin/bin/ds-harness-remote.js` 是需要提交的发布入口。
 
 空的 Web/UI 预留目录不应创建。Expo 生成的 `.expo/web` cache、`.webp` 图片格式和 `packages/webrtc` 不属于 Remote Web 项目。
 
@@ -54,7 +55,7 @@ docs/
 
 | 模块 | 状态 | 主要剩余工作 |
 | --- | --- | --- |
-| Plugin Host | 账号密码/主机匹配码接入、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 rc.2 ApiProxy / alpha.1/alpha.2 Typert Remote allowlist bridge 已实现；无自定义 Harness 业务适配层 | rc.2 与 alpha 真实 Harness 跨机 E2E、legacy owner 恢复体验 |
+| Plugin Host | 账号密码/主机匹配码接入、dsh-TUI 无 browser connection 时默认开启 Host、GitHub/知乎 CLI 二维码授权与可点击 URL、`remote` 命令别名及 Host 状态查询、同账号 peer 校验、隔离身份/凭证、Relay/Noise IK、并发 Client 与按连接隔离的 rc.2 ApiProxy / alpha.1/alpha.2 Typert Remote allowlist bridge 已实现；无自定义 Harness 业务适配层 | rc.2 与 alpha 真实 Harness 跨机 E2E、legacy owner 恢复体验、真实 dsh-TUI 跨机验证 |
 | Plugin Remote Client | 与 Host runtime 同时启动，无需 Client 模式；Remote 模态框支持 GitHub/知乎扫码与账号密码登录、本机过滤、主机/版本信息、已有 Workspace、远端目录浏览、rc.2/alpha 图片 Prompt/回显，以及配合 dsh-file-viewer 的受限只读文件预览，随后复用原生 Harness UI；加密通道 capability 探测保留 legacy Host 降级并拒绝 rc.2/alpha 混连 | 真实 dsh-desktop 跨机 E2E、断线重连、页面级导航接口 |
 | Android | 已迁移到 rc.2 ApiProxy / alpha Typert Remote 双数据面，并直接接入可选 `codex.app.*`：账号登录注册、成员设备列表与 identity key 固定、Adaptive transport + Noise、capability 探测、Harness/CodeX Workspace 与 Session、分页 History/live frame、模型/权限、文字/图片 Prompt、interrupt 与审批，以及跟随系统/英文/简体中文界面 | rc.2/alpha/CodeX 真机跨机 E2E、图片选择/大图传输真机验证、重连后 stream 重开与 history baseline、WebRTC 走通验证 |
 | VS Code | Extension 基础已实现：SecretStorage 身份/凭证、账号/扫码登录、Host 指纹固定、Adaptive transport + Noise、rc.2 ApiProxy / alpha Typert Remote Host→Workspace→Session 导航、Prompt、permission command 与编辑区会话面板 | Extension Host 跨机 E2E、实时流式更新、question 界面与重连恢复 |
@@ -99,10 +100,10 @@ Android 不能使用 Expo Go，因为 `react-native-webrtc` 依赖原生模块�
 
 ## Validation Baseline
 
-截至 2026-09-01：
+截至 2026-09-02：
 
 - workspace check 与 DSH bundle 校验通过
-- Plugin test 通过：25 个测试文件、163 个测试；Android test 通过：11 个测试文件、64 个测试；完整 workspace 数量以当前 CI 输出为准
+- Plugin test 通过：26 个测试文件、168 个测试；Android test 通过：11 个测试文件、66 个测试；完整 workspace 数量以当前 CI 输出为准
 - workspace build 通过，包括 Android Hermes bundle
 - `git diff --check` 通过
 

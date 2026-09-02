@@ -43,6 +43,7 @@
 - 打开同一账号下另一台已授权电脑上的 Workspace
 - 复用 Harness 原生界面，不另外维护一套桌面会话 UI
 - 两端 Harness 都安装可选 `dsh-file-viewer` 插件时，可以预览远端文件
+- 可将纯终端 [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) profile 作为 Host，并通过 GitHub 或知乎终端二维码授权
 - Harness 主机无需开放公网监听端口。你可以从任意可上网的地方，通过双向端到端加密链路安全连接
 
 ## 安装
@@ -61,6 +62,40 @@ dsh plugin --profile web add ds-harness-remote@0.4.3
 ```
 
 安装后请重启 Harness。
+
+### 方式 C：dsh-TUI Host
+
+Remote 可以在纯终端 [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) profile 中作为 Host
+运行，不再依赖 Desktop 浏览器的 `connection` 服务。先把插件安装进 TUI profile，并把配套命令安装到
+`PATH`：
+
+```sh
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.3
+npm install -g ds-harness-remote@0.4.3
+```
+
+扫描终端二维码授权 Host，然后启动或重启 dsh-TUI：
+
+```sh
+ds-harness-remote login zhihu
+# 或
+ds-harness-remote login github
+dsh-tui
+```
+
+省略平台时，`login` 默认使用知乎，二维码下方会同时显示可点击的授权 URL。完成登录后，dsh-TUI
+会默认开启 Host 控制。`ds-harness-remote logout` 会撤销 Host 并轮换本地设备身份。CLI 暂时不开放
+Host 配置，固定使用 `https://dsh.r2049.cn`。Remote 当前支持使用 `dsh-v0.1.1-rc.2` 或
+`dsh-v0.1.2-alpha.1`–`alpha.2` transport 的 TUI。
+
+npm 包同时安装更短的 `remote` 命令别名，两个命令名称支持完全相同的子命令：
+
+```sh
+remote login              # 默认知乎；输出中也会提示 GitHub 登录命令
+remote login github
+remote status             # 查询授权、账号、设备与凭证可用状态
+remote logout
+```
 
 ## 快速开始
 

@@ -88,7 +88,7 @@ describe('Cordis plugin lifecycle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('loads against the alpha Remote Gateway when ApiProxy is absent', async () => {
+  it('loads a TUI Host against the alpha Remote Gateway without a Desktop connection service', async () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-remote-alpha-cordis-'))
     directories.push(dshHome)
     vi.stubEnv('DSH_HOME', dshHome)
@@ -104,14 +104,13 @@ describe('Cordis plugin lifecycle', () => {
         failure: vi.fn(() => ({ code: 'internal', message: 'failed', details: {} })),
       },
     } as never)
-    ctx.provide('connection', connection())
-
     const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis alpha host' })
 
     await vi.waitFor(() => {
       expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis alpha host' })
-      expect(ctx.dshRemote.diagnostics()).toMatchObject({ loaded: true })
+      expect(ctx.dshRemote.diagnostics()).toMatchObject({ loaded: true, serverConfigured: true })
     })
+    expect(ctx.get('dshRemoteClient')).toBeUndefined()
 
     await fiber.dispose()
     expect(ctx.get('dshRemote')).toBeUndefined()

@@ -18,6 +18,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [x] 同账号 membership、受保护 peer descriptor 与本地 pinned trust 双重授权
 - [x] Relay control、标准 Noise IK、counter/replay 拒绝与 opaque ciphertext
 - [x] Desktop Plugin Host runtime、Settings 配置和 GitHub/npm Bundle 入口
+- [x] dsh-TUI profile 在无 Desktop `connection` 服务时默认启动 Host，并通过 `ds-harness-remote` / `remote` 的 `login [github|zhihu]`、`status`、`logout` 完成终端授权和状态管理
 - [x] Host ApiProxy allowlist bridge、mux/host stream 与后台 Local/Remote ApiProxy switch
 - [x] Harness alpha.1/alpha.2 Typert Remote unary/stream/event carrier、固定 endpoint allowlist、加密 capability 探测与 rc.2 激活兼容
 - [x] Android 与 VS Code Client 按 Host capability 在 rc.2 ApiProxy 和 alpha Typert Remote 之间选择数据面
@@ -31,6 +32,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 ## P0：Plugin 可用链路
 
 - [ ] 在真实 dsh-desktop 中验证 GitHub 安装、重启、Host/Client 配置和 Bundle 入口
+- [ ] 在真实 dsh-TUI alpha.2 profile 中验证 npm bin、GitHub/知乎扫码、重启上线与跨机 Session/Prompt/approval
 - [ ] 分别用 `dsh-v0.1.1-rc.2`、`dsh-v0.1.2-alpha.1` 与 `dsh-v0.1.2-alpha.2` 跑通双机 Workspace/Session/Prompt/approval E2E，并验证混合代际在 mutation 前拒绝
 - [ ] 用两台真实 Harness + 外部 Server 跑通同账号授权、选择 Remote、创建/继续会话
 - [ ] 验证原生 mux/host stream、approval/question respond 与断线关闭行为
