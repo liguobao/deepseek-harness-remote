@@ -168,7 +168,7 @@ WebP, or GIF image prompts from Desktop clipboard paste or Android's system imag
 bounded encrypted transfer path. General file attachments are not exposed.
 
 Android consumes the same authenticated `codex.app.*` carrier directly after capability discovery.
-It merges CodeX projects into its existing workspace screen, keeps those project rows read-only,
+It merges the CodeX workspace catalog into its existing workspace screen, keeps those rows read-only,
 and reuses the mobile conversation, model, permission, image, tool, interrupt, and approval controls.
 The Android state is also an in-memory display projection; it never creates a second CodeX data store.
 
@@ -178,14 +178,15 @@ and Review Mode items reuse native tool cards. Large live tool output is kept in
 window, while file patch events expose only paths and change kinds rather than forwarding raw diffs as
 Workspace file content.
 
-Native Workspace creation starts a Thread in the selected CodeX project root and keeps an empty Thread
+Native Workspace creation starts a Thread in the selected CodeX workspace root and keeps an empty Thread
 attached until it becomes visible in the App Server listing. The Host pages History on DSH message
 boundaries with `beforeSeq` / `maxMessages` before transfer; the Client searches the visible Thread
 title, preview, directory, and identifier locally.
 
 This is a presentation adapter, not an import. The virtual Workspace/Session records are never written
-to DSH SessionStore, workspace storage, or Harness logs. CodeX App Server remains the source of truth,
-and `project/list` is the only source of truth for visible CodeX Workspaces. Create, rename, archive,
+to DSH SessionStore, workspace storage, or Harness logs. CodeX App Server remains the source of truth.
+`project/list` is preferred for visible Workspaces; when it is unavailable or has no usable roots, the
+exact absolute `cwd` values already exposed by `thread/list` become read-only fallback Workspaces. Create, rename, archive,
 prompt, interrupt, and approval actions are routed back to its allowlisted methods. The Host carrier
 still uses the existing account membership, pinned Host identity, Noise channel, and adaptive transport.
 CodeX is enabled by default and can be disabled from the DeepSeek Remote settings card. Changes to
@@ -238,7 +239,7 @@ validation status.
 - The workspace picker lists folders only and returns bounded, read-only directory metadata.
 - Optional File Viewer access is limited to authenticated, encrypted range reads and continues to enforce provider root and locator authorization.
 - Remote file preview cannot write, delete, upload, execute, or open a path in an external application.
-- Codex Remote is enabled by default with a settings toggle to disable it, exposes only CodeX `project/list` Workspaces, and rejects raw shell/process/config App Server methods.
+- Codex Remote is enabled by default with a settings toggle to disable it, exposes CodeX `project/list` Workspaces or exact `thread/list.cwd` fallbacks, and rejects raw shell/process/config App Server methods.
 - Removing a device revokes its credentials, membership, and active Remote connections.
 
 ## Compatibility

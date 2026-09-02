@@ -89,6 +89,37 @@ describe('CodexRemoteDomain', () => {
     await domain.close()
   })
 
+  it.each(['empty', 'unsupported'] as const)(
+    'uses exact thread cwd authority when project/list is %s',
+    async projectListMode => {
+      const { base, root, outside } = await directories()
+      const app = new FakeAppServer(root, outside)
+      app.projectListMode = projectListMode
+      const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
+      await domain.start()
+
+      const result = await domain.call('connection-1', { method: 'thread/list', params: {} })
+      expect(result).toMatchObject({ data: [
+        { id: 'allowed-thread', cwd: root },
+        { id: 'outside-thread', cwd: outside },
+        { id: 'unprojected-thread', cwd: `${root}-unprojected` },
+      ] })
+      expect(JSON.stringify(result)).not.toContain('project-only-thread')
+      expect(JSON.stringify(result)).not.toContain('missing-cwd')
+      expect(app.calls.filter(call => call.method === 'thread/list')).toHaveLength(1)
+      await expect(domain.call('connection-1', {
+        method: 'thread/read', params: { threadId: 'unprojected-thread' },
+      })).resolves.toMatchObject({ thread: { id: 'unprojected-thread', cwd: `${root}-unprojected` } })
+      await expect(domain.call('connection-1', {
+        method: 'thread/start', params: { cwd: root },
+      })).resolves.toMatchObject({ thread: { id: 'new-thread', cwd: root } })
+      await expect(domain.call('connection-1', {
+        method: 'thread/start', params: { cwd: join(base, 'never-advertised') },
+      })).rejects.toMatchObject({ code: 'CODEX_PATH_NOT_ALLOWED' })
+      await domain.close()
+    },
+  )
+
   it('starts new threads only from CodeX advertised workspace paths', async () => {
     const { base, root, outside } = await directories()
     const link = join(root, 'outside-link')
@@ -392,6 +423,7 @@ class FakeAppServer implements CodexAppServerLike {
   rejectResume = false
   rejectTurnPagination = false
   rejectTurnStartBusy = false
+  projectListMode: 'normal' | 'empty' | 'unsupported' = 'normal'
 
   constructor(private readonly root: string, private readonly outside = root) {}
 
@@ -411,27 +443,33 @@ class FakeAppServer implements CodexAppServerLike {
       ],
       nextCursor: null,
     }
-    if (method === 'project/list') return {
-      data: [
-        {
-          id: 'allowed-project',
-          name: 'Allowed Project',
-          roots: [{ path: this.root }],
-          metadata: { secret: 'private metadata' },
-          position: 0,
-          createdAt: 1,
-          updatedAt: 2,
-        },
-        {
-          id: 'outside-project',
-          name: 'Outside Project',
-          roots: [{ path: this.outside }],
-          position: 1,
-          createdAt: 1,
-          updatedAt: 2,
-        },
-      ],
-      nextCursor: null,
+    if (method === 'project/list') {
+      if (this.projectListMode === 'unsupported') {
+        throw new CodexAppServerError('CODEX_UPSTREAM_ERROR', 'Codex App Server rejected the request.')
+      }
+      if (this.projectListMode === 'empty') return { data: [], nextCursor: null }
+      return {
+        data: [
+          {
+            id: 'allowed-project',
+            name: 'Allowed Project',
+            roots: [{ path: this.root }],
+            metadata: { secret: 'private metadata' },
+            position: 0,
+            createdAt: 1,
+            updatedAt: 2,
+          },
+          {
+            id: 'outside-project',
+            name: 'Outside Project',
+            roots: [{ path: this.outside }],
+            position: 1,
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        ],
+        nextCursor: null,
+      }
     }
     if (method === 'thread/read') {
       const threadId = isRecord(params) ? params.threadId : undefined

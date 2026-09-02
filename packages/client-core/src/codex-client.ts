@@ -28,6 +28,15 @@ export interface DisplaySession {
   pinned?: boolean
 }
 
+export interface CodexCwdWorkspace {
+  id: string
+  name: string
+  path: string
+  position: number
+  createdAt: number
+  updatedAt: number
+}
+
 export interface DisplayImage {
   uri: string
   name?: string
@@ -285,6 +294,42 @@ export function projectCodexThread(value: unknown): DisplaySession | undefined {
     ...(typeof value.archived === 'boolean' ? { archived: value.archived } : {}),
     ...(typeof value.isPinned === 'boolean' ? { pinned: value.isPinned } : {}),
   }
+}
+
+/**
+ * Builds a deterministic, bounded Workspace fallback from cwd values that the
+ * App Server already exposed through thread/list. Callers should use this only
+ * when project/list has no usable projects.
+ */
+export function deriveCodexCwdWorkspaces(values: unknown[]): CodexCwdWorkspace[] {
+  const byPath = new Map<string, CodexCwdWorkspace>()
+  const usedIds = new Set<string>()
+  for (const value of values) {
+    const session = projectCodexThread(value)
+    if (session === undefined || session.cwd === undefined || session.cwd.length === 0) continue
+    const path = session.cwd
+    if (!isAbsoluteWorkspacePath(path)) continue
+    const key = normalizeWorkspacePath(path)
+    const existing = byPath.get(key)
+    if (existing !== undefined) {
+      existing.createdAt = earliestTimestamp(existing.createdAt, session.createdAt)
+      existing.updatedAt = Math.max(existing.updatedAt, session.updatedAt)
+      continue
+    }
+    const baseId = `cwd-${hashWorkspacePath(key)}`
+    let id = baseId
+    for (let suffix = 2; usedIds.has(id); suffix += 1) id = `${baseId}-${suffix}`
+    usedIds.add(id)
+    byPath.set(key, {
+      id,
+      name: workspaceBasename(path),
+      path,
+      position: byPath.size,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    })
+  }
+  return [...byPath.values()]
 }
 
 export function projectCodexHistory(thread: unknown): DisplayHistoryItem[] {
@@ -855,6 +900,36 @@ function boundedText(value: string): string {
   return value.length <= MAX_DISPLAY_ITEM_TEXT
     ? value
     : `${value.slice(0, MAX_DISPLAY_ITEM_TEXT)}\n…`
+}
+
+function normalizeWorkspacePath(value: string): string {
+  return value.replace(/[\\/]+$/u, '') || value
+}
+
+function isAbsoluteWorkspacePath(value: string): boolean {
+  return value.startsWith('/')
+    || /^\\\\[^\\]+\\[^\\]+/u.test(value)
+    || /^[A-Za-z]:[\\/]/u.test(value)
+}
+
+function workspaceBasename(value: string): string {
+  const normalized = normalizeWorkspacePath(value)
+  return normalized.split(/[\\/]/u).at(-1) || value
+}
+
+function earliestTimestamp(left: number, right: number): number {
+  if (left <= 0) return right
+  if (right <= 0) return left
+  return Math.min(left, right)
+}
+
+function hashWorkspacePath(value: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(36)
 }
 
 function normalizeTimestamp(value: unknown): number {

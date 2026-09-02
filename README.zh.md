@@ -157,8 +157,8 @@ CodeX 页面。原生 Session 权限控件可在 `Workspace write` 与显式确�
 CodeX 支持文本，以及桌面端剪贴板粘贴或 Android 系统图片选择器提供的 PNG、JPEG、WebP、GIF
 图片 Prompt，图片通过有界的加密分块通道传输；通用文件附件仍不开放。
 
-Android 会在 capability 探测后直接消费同一条已认证的 `codex.app.*` carrier，把 CodeX 项目合并到
-现有工作区页面，并保持项目行只读；会话页继续复用 Android 已有的模型、权限、图片、工具、停止和
+Android 会在 capability 探测后直接消费同一条已认证的 `codex.app.*` carrier，把 CodeX 工作区目录合并到
+现有工作区页面，并保持工作区行只读；会话页继续复用 Android 已有的模型、权限、图片、工具、停止和
 审批控件。Android 状态同样只是内存展示投影，不会创建第二套 CodeX 数据存储。
 
 实时投影覆盖 assistant/reasoning/plan 增量、命令与文件输出、文件变更摘要、MCP progress、Thread
@@ -166,14 +166,15 @@ Android 会在 capability 探测后直接消费同一条已认证的 `codex.app.
 原生工具卡片展示。大段实时工具输出只保留有界的内存窗口，文件 patch 只传递路径和变更类型，
 不会把原始 diff 写入或透传为 Workspace 文件内容。
 
-原生 Workspace 的“新建会话”会在选中的 CodeX 项目根目录执行 `thread/start`，空 Thread 在 App
+原生 Workspace 的“新建会话”会在选中的 CodeX 工作区根目录执行 `thread/start`，空 Thread 在 App
 Server 列表可见前由 Plugin 临时保留。History 由 Host 按 DSH 消息边界处理 `beforeSeq` /
 `maxMessages` 分页后再传输，Session 搜索则在 Client 端针对当前可见的 Thread 标题、预览、目录和
 标识执行。
 
 这只是展示适配，不是导入。虚拟 Workspace/Session 不会写入 DSH SessionStore、工作区存储或
-Harness 日志；CodeX App Server 始终是唯一数据源，其中 `project/list` 是可见 CodeX Workspace 的
-唯一来源。新建、改名、归档、Prompt、停止和审批操作都路由回其白名单方法。Host carrier 继续复用
+Harness 日志；CodeX App Server 始终是唯一数据源。可见 Workspace 优先来自 `project/list`；当该接口
+不可用或没有可用根目录时，使用 `thread/list` 已返回的绝对 `cwd` 精确生成只读后备 Workspace。新建、
+改名、归档、Prompt、停止和审批操作都路由回其白名单方法。Host carrier 继续复用
 账号 membership、Host identity 固定、Noise 安全通道和自适应传输。Codex 默认开启，可在
 DeepSeek Remote 设置卡片中关闭，修改后重启 DSH 生效。本实验版本已完成 Desktop 加密跨机
 turn/approval 整机验证；Android 真机 CodeX E2E 仍待完成。
@@ -218,7 +219,7 @@ WebSocket Relay。所有路径都承载同一份 Noise 密文，并保持相同�
 - Workspace 选择器只列出文件夹，并且只返回受限的只读目录元数据。
 - 可选 File Viewer 只通过已认证、已加密的分块读取访问文件，并继续执行 provider 根目录与 locator 授权。
 - 远端文件预览不能写入、删除、上传、执行文件，也不能调用远端系统的“外部打开”。
-- Codex Remote 默认开启并可在设置中关闭，只暴露 CodeX `project/list` 中的 Workspace，并拒绝 App Server 的原始 Shell、process 和 config 方法。
+- Codex Remote 默认开启并可在设置中关闭，只暴露 CodeX `project/list` Workspace 或精确的 `thread/list.cwd` 后备 Workspace，并拒绝 App Server 的原始 Shell、process 和 config 方法。
 - 移除设备后，其凭证、membership 和已建立的 Remote 连接均会失效。
 
 ## 版本兼容

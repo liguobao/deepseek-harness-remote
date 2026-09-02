@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   CodexRemoteClient,
   createCodexTimelineState,
+  deriveCodexCwdWorkspaces,
   projectCodexHistory,
   projectCodexThread,
   reduceCodexTimelineFrame,
@@ -50,6 +51,38 @@ describe('Codex display projection', () => {
       status: 'waiting',
       pinned: true,
     })
+  })
+
+  it('derives deterministic fallback workspaces from unique Thread cwd values', () => {
+    const workspaces = deriveCodexCwdWorkspaces([
+      { id: 'thr_1', cwd: '/workspace/repo/', createdAt: 20, updatedAt: 30 },
+      { id: 'thr_2', cwd: '/workspace/repo', createdAt: 10, updatedAt: 40 },
+      { id: 'thr_3', cwd: '/workspace/other', createdAt: 15, updatedAt: 25 },
+      { id: 'thr_4' },
+      { id: 'thr_5', cwd: 'relative/not-allowed' },
+    ])
+
+    expect(workspaces).toEqual([
+      {
+        id: expect.stringMatching(/^cwd-/u),
+        name: 'repo',
+        path: '/workspace/repo/',
+        position: 0,
+        createdAt: 10_000,
+        updatedAt: 40_000,
+      },
+      {
+        id: expect.stringMatching(/^cwd-/u),
+        name: 'other',
+        path: '/workspace/other',
+        position: 1,
+        createdAt: 15_000,
+        updatedAt: 25_000,
+      },
+    ])
+    expect(workspaces[0]!.id).not.toBe(workspaces[1]!.id)
+    expect(deriveCodexCwdWorkspaces([{ id: 'thr_5', cwd: '/workspace/repo/' }])[0]!.id)
+      .toBe(workspaces[0]!.id)
   })
 
   it('projects messages and tool lifecycle with a safe unknown fallback', () => {

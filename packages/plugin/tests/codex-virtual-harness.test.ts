@@ -148,7 +148,7 @@ describe('CodexVirtualHarness', () => {
     await emptyTarget.close()
   })
 
-  it('does not synthesize legacy workspaces when CodeX projects are unavailable', async () => {
+  it('derives exact cwd workspaces when CodeX project/list is unavailable', async () => {
     const client = fakeCodex([
       codexThread('thr_2', '/workspace/other', 'Other workspace'),
     ], {
@@ -158,11 +158,32 @@ describe('CodexVirtualHarness', () => {
     })
 
     const workspaces = await discoverCodexVirtualWorkspaces(client)
-    expect(workspaces).toHaveLength(0)
+    expect(workspaces).toHaveLength(2)
+    expect(workspaces).toEqual([
+      expect.objectContaining({ path: '/workspace/repo', title: 'repo', sessionIds: ['codex:thr_1'] }),
+      expect.objectContaining({ path: '/workspace/other', title: 'other', sessionIds: ['codex:thr_2'] }),
+    ])
 
     const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
     const sessions = await target.dispatch('session/list', { args: {} }, new AbortController().signal)
-    expect(sessions).toMatchObject({ ok: true, value: { items: [] } })
+    expect(sessions).toMatchObject({ ok: true, value: { items: [
+      { sessionId: 'codex:thr_1' },
+      { sessionId: 'codex:thr_2' },
+    ] } })
+    await target.close()
+  })
+
+  it('derives exact cwd workspaces when CodeX project/list is empty', async () => {
+    const client = fakeCodex([], { projects: [] })
+
+    const workspaces = await discoverCodexVirtualWorkspaces(client)
+    expect(workspaces).toEqual([
+      expect.objectContaining({ path: '/workspace/repo', title: 'repo', sessionIds: ['codex:thr_1'] }),
+    ])
+
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const sessions = await target.dispatch('session/list', { args: {} }, new AbortController().signal)
+    expect(sessions).toMatchObject({ ok: true, value: { items: [{ sessionId: 'codex:thr_1' }] } })
     await target.close()
   })
 

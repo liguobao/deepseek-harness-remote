@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
+import { deriveCodexCwdWorkspaces } from '@dsh-remote/client-core'
 import type { CodexAppFrameData, CodexAppStreamClosedData } from '@dsh-remote/protocol'
 import type { ResolvedCodexConfig } from '../config.js'
 import type { PeerConnectionContext } from '../connection-controller.js'
@@ -24,6 +25,7 @@ import { paginateCodexNativeHistory, projectCodexNativeHistory } from './virtual
 const APPROVAL_TTL_MS = 5 * 60_000
 const DEFAULT_RESTART_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const
 const CODEX_PAGE_LIMIT = 100
+const MAX_CODEX_PAGES = 32
 const CODEX_HISTORY_PAGE_LIMIT = 25
 const MAX_CODEX_HISTORY_PAGES = 64
 
@@ -35,7 +37,7 @@ interface PendingApproval {
   expiresAt: number
 }
 
-interface CodexProjectAuthority {
+interface CodexWorkspaceAuthority {
   projectIds: Set<string>
   roots: string[]
 }
@@ -121,9 +123,12 @@ export class CodexRemoteDomain {
       return sanitizeProjectList(await this.callUpstream(call.method, call.params))
     }
     if (call.method === 'thread/list') {
-      return filterThreadListByProjectAuthority(
-        sanitizeThreadList(await this.callUpstream(call.method, call.params)),
-        await this.readProjectAuthority(),
+      const result = sanitizeThreadList(await this.callUpstream(call.method, call.params)) as {
+        data: Record<string, unknown>[]
+      }
+      return filterThreadListByWorkspaceAuthority(
+        result,
+        await this.readWorkspaceAuthority(result.data),
       )
     }
     if (call.method === 'thread/start') {
@@ -441,7 +446,7 @@ export class CodexRemoteDomain {
   }
 
   private async readKnownThread(threadId: string): Promise<{ thread: Record<string, unknown>; cwd?: string }> {
-    const authority = await this.readProjectAuthority()
+    const authority = await this.readWorkspaceAuthority()
     let result: unknown
     try {
       result = await this.callUpstream('thread/read', { threadId, includeTurns: false })
@@ -454,7 +459,7 @@ export class CodexRemoteDomain {
       return { thread: listed, ...(typeof listed.cwd === 'string' && listed.cwd.length > 0 ? { cwd: listed.cwd } : {}) }
     }
     const thread = extractThread(result)
-    if (thread === undefined || thread.id !== threadId || !isThreadAllowedByProjectAuthority(thread, authority)) {
+    if (thread === undefined || thread.id !== threadId || !isThreadAllowedByWorkspaceAuthority(thread, authority)) {
       throw new RpcError('CODEX_THREAD_NOT_ALLOWED', 'The Codex thread is not available through this Remote Host.')
     }
     return { thread, ...(typeof thread.cwd === 'string' && thread.cwd.length > 0 ? { cwd: thread.cwd } : {}) }
@@ -567,7 +572,7 @@ export class CodexRemoteDomain {
     if (thread === undefined || typeof thread.id !== 'string') {
       throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid thread.')
     }
-    if (!isThreadAllowedByProjectAuthority(thread, await this.readProjectAuthority())) {
+    if (!isThreadAllowedByWorkspaceAuthority(thread, await this.readWorkspaceAuthority())) {
       throw new RpcError('CODEX_THREAD_NOT_ALLOWED', 'The Codex thread is not available through this Remote Host.')
     }
   }
@@ -644,33 +649,60 @@ export class CodexRemoteDomain {
     }
   }
 
-  private async readProjectAuthority(): Promise<CodexProjectAuthority> {
+  private async readWorkspaceAuthority(
+    listedThreads?: Record<string, unknown>[],
+  ): Promise<CodexWorkspaceAuthority> {
     const projectIds = new Set<string>()
     const roots: string[] = []
     let cursor: string | null | undefined
-    for (let page = 0; page < 32; page += 1) {
-      const result = sanitizeProjectList(await this.callUpstream('project/list', {
-        limit: 100,
-        ...(cursor === undefined ? {} : { cursor }),
-      })) as { data: Array<{ id: string; roots: Array<{ path: string }> }>; nextCursor?: string | null }
-      for (const project of result.data) {
-        const projectRoots = project.roots.map(root => root.path).filter(path => isAbsolute(path))
-        if (projectRoots.length === 0) continue
-        projectIds.add(project.id)
-        roots.push(...projectRoots)
+    try {
+      for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
+        const result = sanitizeProjectList(await this.callUpstream('project/list', {
+          limit: CODEX_PAGE_LIMIT,
+          ...(cursor === undefined ? {} : { cursor }),
+        })) as { data: Array<{ id: string; roots: Array<{ path: string }> }>; nextCursor?: string | null }
+        for (const project of result.data) {
+          const projectRoots = project.roots.map(root => root.path).filter(path => isAbsolute(path))
+          if (projectRoots.length === 0) continue
+          projectIds.add(project.id)
+          roots.push(...projectRoots)
+        }
+        cursor = typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? result.nextCursor : undefined
+        if (cursor === undefined) break
       }
-      cursor = typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? result.nextCursor : undefined
-      if (cursor === undefined) break
+    } catch (error) {
+      if (!isProjectListFallbackError(error)) throw error
+    }
+    if (roots.length > 0) return { projectIds, roots }
+
+    const threads: Record<string, unknown>[] = listedThreads === undefined ? [] : [...listedThreads]
+    if (listedThreads === undefined) {
+      cursor = undefined
+      for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
+        const result = sanitizeThreadList(await this.callUpstream('thread/list', {
+          limit: CODEX_PAGE_LIMIT,
+          sortKey: 'updated_at',
+          sortDirection: 'desc',
+          archived: false,
+          ...(cursor === undefined ? {} : { cursor }),
+        })) as { data: Record<string, unknown>[]; nextCursor?: string | null }
+        threads.push(...result.data)
+        cursor = typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? result.nextCursor : undefined
+        if (cursor === undefined) break
+      }
+    }
+    for (const workspace of deriveCodexCwdWorkspaces(threads)) {
+      if (isAbsolute(workspace.path)) roots.push(workspace.path)
     }
     return { projectIds, roots }
   }
 
   private async findKnownThreadInList(
     threadId: string,
-    authority: CodexProjectAuthority,
+    authority: CodexWorkspaceAuthority,
   ): Promise<Record<string, unknown> | undefined> {
     let cursor: string | null | undefined
-    for (let page = 0; page < 32; page += 1) {
+    for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
       const result = sanitizeThreadList(await this.callUpstream('thread/list', {
         limit: 100,
         sortKey: 'updated_at',
@@ -680,7 +712,7 @@ export class CodexRemoteDomain {
       })) as { data: Record<string, unknown>[]; nextCursor?: string | null }
       const thread = result.data.find(item => item.id === threadId)
       if (thread !== undefined) {
-        return isThreadAllowedByProjectAuthority(thread, authority) ? thread : undefined
+        return isThreadAllowedByWorkspaceAuthority(thread, authority) ? thread : undefined
       }
       cursor = typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? result.nextCursor : undefined
       if (cursor === undefined) break
@@ -692,7 +724,7 @@ export class CodexRemoteDomain {
     if (!isAbsolute(path)) {
       throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
     }
-    const paths = await this.listCodexProjectWorkspacePaths()
+    const paths = await this.listCodexWorkspacePaths()
     const canonical = paths.get(normalizeCodexPathForCompare(path))
     if (canonical === undefined) {
       throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
@@ -700,9 +732,9 @@ export class CodexRemoteDomain {
     return canonical
   }
 
-  private async listCodexProjectWorkspacePaths(): Promise<Map<string, string>> {
+  private async listCodexWorkspacePaths(): Promise<Map<string, string>> {
     const paths = new Map<string, string>()
-    const authority = await this.readProjectAuthority()
+    const authority = await this.readWorkspaceAuthority()
     for (const root of authority.roots) paths.set(normalizeCodexPathForCompare(root), root)
     return paths
   }
@@ -795,7 +827,7 @@ function sanitizeThreadList(result: unknown): unknown {
   }
 }
 
-function filterThreadListByProjectAuthority(result: unknown, authority: CodexProjectAuthority): unknown {
+function filterThreadListByWorkspaceAuthority(result: unknown, authority: CodexWorkspaceAuthority): unknown {
   if (!isRecord(result) || !Array.isArray(result.data)) {
     throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid thread list.')
   }
@@ -804,7 +836,7 @@ function filterThreadListByProjectAuthority(result: unknown, authority: CodexPro
     data: result.data
       .map(record => isRecord(record) ? record : undefined)
       .filter((thread): thread is Record<string, unknown> => (
-        thread !== undefined && isThreadAllowedByProjectAuthority(thread, authority)
+        thread !== undefined && isThreadAllowedByWorkspaceAuthority(thread, authority)
       )),
   }
 }
@@ -837,7 +869,7 @@ function sanitizeProjectList(result: unknown): unknown {
   }
 }
 
-function isThreadAllowedByProjectAuthority(thread: Record<string, unknown>, authority: CodexProjectAuthority): boolean {
+function isThreadAllowedByWorkspaceAuthority(thread: Record<string, unknown>, authority: CodexWorkspaceAuthority): boolean {
   const projectId = typeof thread.projectId === 'string' ? thread.projectId : undefined
   if (projectId !== undefined && authority.projectIds.has(projectId)) return true
   const cwd = typeof thread.cwd === 'string' ? thread.cwd : undefined
@@ -927,6 +959,11 @@ function errorCode(error: unknown): string {
 function isHistoryReadRecoverable(error: unknown): boolean {
   return error instanceof RpcError
     && ['METHOD_NOT_ALLOWED', 'METHOD_NOT_FOUND', 'CODEX_UPSTREAM_ERROR', 'CODEX_REQUEST_TIMEOUT', 'CODEX_THREAD_BUSY'].includes(error.code)
+}
+
+function isProjectListFallbackError(error: unknown): boolean {
+  return error instanceof RpcError
+    && ['METHOD_NOT_ALLOWED', 'METHOD_NOT_FOUND', 'CODEX_UPSTREAM_ERROR'].includes(error.code)
 }
 
 function canTryNextBinary(error: unknown): boolean {

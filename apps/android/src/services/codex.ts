@@ -1,4 +1,5 @@
 import {
+  deriveCodexCwdWorkspaces,
   projectCodexThread,
   type CodexRemoteClient,
   type DisplayHistoryItem,
@@ -43,10 +44,20 @@ export interface CodexSessionRead {
 }
 
 export async function loadCodexCatalog(client: CodexRemoteClient): Promise<CodexCatalog> {
-  const [projects, threads] = await Promise.all([
+  const [listedProjects, threads] = await Promise.all([
     loadProjects(client),
     loadThreads(client),
   ])
+  const projects = listedProjects.length > 0
+    ? listedProjects
+    : deriveCodexCwdWorkspaces(threads).map(workspace => ({
+        id: workspace.id,
+        name: workspace.name,
+        roots: [workspace.path],
+        position: workspace.position,
+        createdAt: workspace.createdAt,
+        updatedAt: workspace.updatedAt,
+      }))
   const workspaces = projects.map(projectWorkspace)
   const workspaceByProjectId = new Map(projects.map((project, index) => [project.id, workspaces[index]!]))
   const sessions: RemoteSession[] = []
@@ -341,31 +352,35 @@ function preserveLocalOutcome(current: ChatItem, incoming: ChatItem): ChatItem {
 async function loadProjects(client: CodexRemoteClient): Promise<CodexProject[]> {
   const projects: CodexProject[] = []
   let cursor: string | undefined
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    const result = record(await client.request('project/list', {
-      limit: PAGE_LIMIT,
-      ...(cursor === undefined ? {} : { cursor }),
-    }))
-    if (!Array.isArray(result.data)) throw new Error(strings.runtime.codexInvalidResponse)
-    for (const value of result.data) {
-      const source = record(value)
-      const id = string(source.id)
-      const name = string(source.name)
-      const roots = Array.isArray(source.roots)
-        ? source.roots.flatMap(root => string(record(root).path) ?? [])
-        : []
-      if (id === undefined || name === undefined || roots.length === 0 || projects.some(project => project.id === id)) continue
-      projects.push({
-        id,
-        name,
-        roots,
-        position: finiteNumber(source.position) ?? projects.length,
-        createdAt: timestamp(source.createdAt),
-        updatedAt: timestamp(source.updatedAt),
-      })
+  try {
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const result = record(await client.request('project/list', {
+        limit: PAGE_LIMIT,
+        ...(cursor === undefined ? {} : { cursor }),
+      }))
+      if (!Array.isArray(result.data)) throw new Error(strings.runtime.codexInvalidResponse)
+      for (const value of result.data) {
+        const source = record(value)
+        const id = string(source.id)
+        const name = string(source.name)
+        const roots = Array.isArray(source.roots)
+          ? source.roots.flatMap(root => string(record(root).path) ?? [])
+          : []
+        if (id === undefined || name === undefined || roots.length === 0 || projects.some(project => project.id === id)) continue
+        projects.push({
+          id,
+          name,
+          roots,
+          position: finiteNumber(source.position) ?? projects.length,
+          createdAt: timestamp(source.createdAt),
+          updatedAt: timestamp(source.updatedAt),
+        })
+      }
+      cursor = string(result.nextCursor)
+      if (cursor === undefined) break
     }
-    cursor = string(result.nextCursor)
-    if (cursor === undefined) break
+  } catch (error) {
+    if (!isProjectListUnavailable(error)) throw error
   }
   return projects.sort((left, right) => left.position - right.position || left.name.localeCompare(right.name))
 }
@@ -463,6 +478,15 @@ function reasoningEffortName(effort: string): string {
 
 function isCodexPermissionPreset(value: string): value is 'workspace-write' | 'danger-full-access' {
   return value === 'workspace-write' || value === 'danger-full-access'
+}
+
+function isProjectListUnavailable(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : undefined
+  return code === 'METHOD_NOT_ALLOWED'
+    || code === 'METHOD_NOT_FOUND'
+    || code === 'CODEX_UPSTREAM_ERROR'
+    || error.message.includes('The requested Codex method is not available over Remote.')
 }
 
 function containsPath(root: string, candidate: string): boolean {

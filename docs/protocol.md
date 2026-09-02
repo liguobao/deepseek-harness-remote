@@ -1153,9 +1153,9 @@ Host 必须调用 `fileViewerHost` 服务，让被选中的 File Viewer provider
 
 Codex 是现有 Remote Plugin 内部的可选独立业务领域，不是第二个 Plugin。Host 本机配置
 `codex.enabled: true` 后，Plugin 才可使用配置的 `codex.binary` 启动 `codex app-server`。Plugin
-与 App Server 只使用默认 stdio JSONL；App Server 不监听 Remote/公网端口。初始化、账户状态和
-CodeX `project/list` 探测全部成功后，Host 才宣告 `codex.appserver.v1` 与
-`codex.appserver.transfer.v1`。
+与 App Server 只使用默认 stdio JSONL；App Server 不监听 Remote/公网端口。初始化与账户状态探测
+成功后，Host 才宣告 `codex.appserver.v1` 与 `codex.appserver.transfer.v1`；Workspace authority 在
+首次读取时按下述规则解析，空 `project/list` 不得让已经可用的 Codex domain 整体降级。
 当 `codex.binary` 保持默认值时，macOS Host 可以优先发现 ChatGPT App 内置 Codex 后再回退到
 `PATH`；用户显式配置的 binary 不得被替换或补充候选项。
 
@@ -1165,7 +1165,7 @@ Thread、History/live frame 映射为 DSH 原生 Workspace/Session/Event，使�
 和 Composer 可以消费；它不是新的线协议，也不得把虚拟记录写入 DSH SessionStore、Workspace
 数据库或 Harness 日志。退出 CodeX 模式或连接关闭时必须销毁 target 和全部 stream。
 Android Client 可在相同 capability 探测后直接消费该 `codex.app.*` carrier，并只在 Android 内存中
-把 `project/list`、Thread 与 History/live frame 投影到已有 Workspace/Session/Chat 状态；不得据此
+把 Workspace catalog、Thread 与 History/live frame 投影到已有 Workspace/Session/Chat 状态；不得据此
 恢复冻结的旧 Android `sessions.*`/`session.*` RPC，也不得持久化第二份 CodeX 数据。
 
 业务 RPC 固定为：
@@ -1182,12 +1182,18 @@ Android Client 可在相同 capability 探测后直接消费该 `codex.app.*` ca
 `thread/shellCommand`、`thread/inject_items`、`thread/rollback`、background terminal、
 `command/*`、`process/*`、`config/*`、登录写接口和实验 API 一律返回 `METHOD_NOT_ALLOWED`。
 
-CodeX App Server 的 `project/list` 是虚拟 Workspace 的唯一来源。Client Plugin 与 Android Client 不得根据
-`thread/list.cwd` 合成额外 Workspace；`thread/list` 里不能归属到任一 CodeX project id 或 project
-root 的 Thread 不得返回为可见 Session。其它带 `threadId` 的调用必须先用只读
-`thread/read(includeTurns:false)` 重新验证该 Thread 仍属于 `project/list` 暴露的项目；如果该只读
-验证因 App Server 当前状态临时失败，Host 最多只能用同一项目 authority 下的 `thread/list` 结果兜底。
-Remote 创建 Thread 时 Host 只能接受 `project/list` 暴露的项目根目录。虚拟 Session 的原生权限控件
+CodeX App Server 的 `project/list` 是虚拟 Workspace 的首选来源。只要它返回至少一个带绝对根目录的
+有效项目，Client Plugin 与 Android Client 就只投影这些项目，`thread/list` 里不能归属到任一 project id
+或 project root 的 Thread 不得返回为可见 Session。当 `project/list` 返回空列表、全部项目均无有效根
+目录，或该方法不可用时，Host 才可把 App Server 自己通过 `thread/list` 返回的绝对 `cwd` 作为精确
+Workspace authority；Client Plugin 与 Android Client 可为这些 `cwd` 生成只读后备 Workspace。不得
+从多个 `cwd` 推测或提升到共同父目录，也不得接受 Client 自报路径。没有绝对 `cwd` 的 Thread 在后备
+模式下不可见。
+
+其它带 `threadId` 的调用必须先用只读 `thread/read(includeTurns:false)` 重新验证该 Thread 仍属于当前
+Workspace authority；如果该只读验证因 App Server 当前状态临时失败，Host 最多只能用同一 authority
+下的 `thread/list` 结果兜底。Remote 创建 Thread 时 Host 只能接受 `project/list` 暴露的项目根目录，
+或后备模式中 `thread/list` 已精确返回的绝对 `cwd`。虚拟 Session 的原生权限控件
 只暴露 `workspace-write` 与 `danger-full-access` 两个固定 preset；Client 传 preset 名，Host 映射为
 App Server 的审批与 sandbox 字段，不接受任意 sandbox、writable roots 或额外授权。默认
 `workspace-write` 映射为 `approvalPolicy: "on-request"`、`sandbox: "workspace-write"` 和

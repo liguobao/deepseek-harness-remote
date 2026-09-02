@@ -1,6 +1,7 @@
 import type { ApiProxy, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api'
 import {
   CodexRemoteClient,
+  deriveCodexCwdWorkspaces,
   projectCodexThread,
   type DisplaySession,
 } from '@dsh-remote/client-core'
@@ -1509,7 +1510,7 @@ async function loadCatalog(
   signal?: AbortSignal,
   pendingThreads?: Map<string, JsonRecord>,
 ): Promise<CatalogState> {
-  const projects = await loadCodexProjects(client, signal)
+  let projects = await loadCodexProjects(client, signal)
   const threads: JsonRecord[] = []
   let cursor: string | null | undefined
   for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
@@ -1533,6 +1534,16 @@ async function loadCatalog(
       if (listedIds.has(threadId)) pendingThreads.delete(threadId)
       else threads.unshift(thread)
     }
+  }
+  if (projects.length === 0) {
+    projects = deriveCodexCwdWorkspaces(threads).map(workspace => ({
+      id: workspace.id,
+      name: workspace.name,
+      roots: [{ path: workspace.path }],
+      position: workspace.position,
+      createdAt: workspace.createdAt,
+      updatedAt: workspace.updatedAt,
+    }))
   }
   const projected = threads.map(thread => {
     const session = projectCodexThread(thread)

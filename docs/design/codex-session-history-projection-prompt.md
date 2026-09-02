@@ -71,13 +71,14 @@ DSH 原生 Workspace / Session / Conversation / Composer
 ## 虚拟标识
 
 ```text
-Workspace ID = codex-workspace:project:<projectId>
+Workspace ID = codex-workspace:project:<projectId-or-cwd-derived-id>
 Session ID   = codex:<threadId>
 ```
 
-Workspace 只来自 CodeX App Server 的 `project/list`。一个 CodeX project 对应一个虚拟 Workspace；
-该 project id 或 project root 能归属的 Thread 对应 Session。Client 不根据 `thread/list.cwd` 合成额外
-Workspace。映射只代表当前 CodeX catalog，不创建 DSH 本地记录。
+Workspace 优先来自 CodeX App Server 的 `project/list`。一个 CodeX project 对应一个虚拟 Workspace；
+该 project id 或 project root 能归属的 Thread 对应 Session。当 `project/list` 不可用或没有可用根目录时，
+Client 可按 `thread/list` 已返回的绝对 `cwd` 精确合成只读后备 Workspace；不得合并到推测的父目录，也
+不得接受 Client 自报路径。映射只代表当前 CodeX catalog，不创建 DSH 本地记录。
 
 ## 官方 CodeX 契约
 
@@ -91,8 +92,9 @@ Host 只通过 stdio 启动 `codex app-server`。实现以当前官方 schema �
 禁止 raw App Server 代理、Shell、PTY、`command/*`、`process/*`、任意 `config/*`、任意文件读取、
 `thread/delete`、`thread/shellCommand`、`thread/inject_items` 与远程 API Key 登录。
 
-`project/list` 是 CodeX Workspace 的唯一来源。`thread/list` 必须经过 Host 项目归属过滤；其它带
-`threadId` 的调用必须再次验证该 Thread 属于 CodeX 暴露的 project，不能只信任 Client 发来的 ID。
+`project/list` 是 CodeX Workspace 的首选来源。该接口不可用或没有可用根目录时，Host 可使用
+`thread/list` 已返回的绝对 `cwd` 作为精确 Workspace authority；其它带 `threadId` 的调用必须再次验证
+该 Thread 属于当前 authority，不能只信任 Client 发来的 ID。
 
 ## DSH 原生数据面
 
@@ -204,7 +206,7 @@ git diff --check
 3. History 和 live frame 能由原生 renderer 正确消费；
 4. 原生操作正确路由回 CodeX App Server；
 5. 虚拟记录不进入 DSH SessionStore、Workspace 数据库或 Harness 日志；
-6. Host allowlist、CodeX `project/list` authority、membership、identity 固定、Noise 与连接隔离仍然生效；
+6. Host allowlist、CodeX Workspace authority、membership、identity 固定、Noise 与连接隔离仍然生效；
 7. 退出或断线后无残留虚拟 target、stream 或 approval；
 8. 不修改 Android、VS Code、Server runtime 或 DSH 主仓库；
 9. 核心测试、check、bundle 校验、build、test 与 `git diff --check` 通过；

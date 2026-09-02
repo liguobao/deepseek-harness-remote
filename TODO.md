@@ -49,7 +49,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 提供虚拟 Workspace/Session 数据源，并把 `Thread -> Turn -> Item` 临时投影为 DSH 原生 Session
 事件；不迁移数据，也不写入 DSH SessionStore。
 
-- [x] 增加默认开启、可在设置中关闭的 `codex.enabled` 与本机 `binary` 配置，并以 CodeX `project/list` 作为 Workspace 唯一来源
+- [x] 增加默认开启、可在设置中关闭的 `codex.enabled` 与本机 `binary` 配置；Workspace 优先使用 CodeX `project/list`，为空或不支持时回退到 `thread/list.cwd`
 - [x] 增加 Host 单例 stdio App Server 生命周期、initialize/account probe 与动态 capability
 - [x] 增加独立 `codex.app.*` RPC/event/transfer、固定 method schema allowlist 与大 History 分块
 - [x] 增加按 connection 隔离的 stream、active-turn owner、opaque approval handle 与断线 fail-closed
@@ -132,7 +132,7 @@ capability 探测，以及 Host → Workspace → Session 层级导航、Prompt�
 tunnel 与 mux/Gateway frame 聊天。功能已对标 Web 端 Remote 控制台：新建/继续/归档会话、历史分页、
 模型目录与切换、相册图片 Prompt（Host limits 预检 + transfer 分块）、Workspace 管理（创建+只读目录浏览/重命名/删除/排序）、连接详情面板与
 传输偏好（Auto/TURN/Relay），以及跟随系统/英文/简体中文语言设置。CodeX 侧直接消费独立
-`codex.app.*`，严格使用 `project/list` Workspace、分页 History/独立 stream、模型/权限、图片 Prompt、
+`codex.app.*`，使用 `project/list` Workspace 或精确的 `thread/list.cwd` 后备 Workspace、分页 History/独立 stream、模型/权限、图片 Prompt、
 interrupt 与单次审批，不恢复旧 Android RPC。剩余工作：
 
 - [x] 数据面端到端联调（本地 Server + 真实插件 Host + smoke client）：账号授权、加密 Relay、
