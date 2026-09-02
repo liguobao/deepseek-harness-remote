@@ -1186,14 +1186,15 @@ CodeX App Server 的 `project/list` 是虚拟 Workspace 的首选来源。只要
 有效项目，Client Plugin 与 Android Client 就只投影这些项目，`thread/list` 里不能归属到任一 project id
 或 project root 的 Thread 不得返回为可见 Session。当 `project/list` 返回空列表、全部项目均无有效根
 目录，或该方法不可用时，Host 才可把 App Server 自己通过 `thread/list` 返回的绝对 `cwd` 作为精确
-Workspace authority；Client Plugin 与 Android Client 可为这些 `cwd` 生成只读后备 Workspace。不得
-从多个 `cwd` 推测或提升到共同父目录，也不得接受 Client 自报路径。没有绝对 `cwd` 的 Thread 在后备
-模式下不可见。
+Workspace authority；Client Plugin、Remote Web 与 Android Client 可为这些 `cwd` 生成只读后备
+Workspace。不得从多个 `cwd` 推测或提升到共同父目录。没有绝对 `cwd` 的 Thread 在后备模式下不可见。
 
 其它带 `threadId` 的调用必须先用只读 `thread/read(includeTurns:false)` 重新验证该 Thread 仍属于当前
 Workspace authority；如果该只读验证因 App Server 当前状态临时失败，Host 最多只能用同一 authority
-下的 `thread/list` 结果兜底。Remote 创建 Thread 时 Host 只能接受 `project/list` 暴露的项目根目录，
-或后备模式中 `thread/list` 已精确返回的绝对 `cwd`。虚拟 Session 的原生权限控件
+下的 `thread/list` 结果兜底。Remote 创建 Thread 时 Host 只能接受 `project/list` 暴露的项目根目录、
+后备模式中 `thread/list` 已返回的绝对 `cwd`，或这些 authority 根目录经过词法路径与 `realpath` 双重
+校验后仍位于根内的真实子目录。不得接受越过 authority 根的 Client 自报路径、`..` 跳转或符号链接
+逃逸。虚拟 Session 的原生权限控件
 只暴露 `workspace-write` 与 `danger-full-access` 两个固定 preset；Client 传 preset 名，Host 映射为
 App Server 的审批与 sandbox 字段，不接受任意 sandbox、writable roots 或额外授权。默认
 `workspace-write` 映射为 `approvalPolicy: "on-request"`、`sandbox: "workspace-write"` 和

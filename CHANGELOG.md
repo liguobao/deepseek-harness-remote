@@ -4,7 +4,8 @@
 
 - Adds the default-on Codex Remote domain with a settings toggle to the existing encrypted Plugin channel,
   with a fixed App Server allowlist, `project/list`-backed virtual Workspaces plus exact
-  `thread/list.cwd` fallback when no projects are available, paged
+  `thread/list.cwd` fallback when no projects are available, real descendant Workspace creation
+  guarded by lexical and `realpath` containment, paged
   Thread history, live turn projection, prompts, interrupt, and approvals.
 - Reuses the native DSH Workspace, Session, conversation, tool, permission, and
   approval surfaces for the Desktop in-memory projection without writing Codex

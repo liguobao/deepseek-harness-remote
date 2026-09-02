@@ -173,7 +173,8 @@ Server 列表可见前由 Plugin 临时保留。History 由 Host 按 DSH 消息�
 
 这只是展示适配，不是导入。虚拟 Workspace/Session 不会写入 DSH SessionStore、工作区存储或
 Harness 日志；CodeX App Server 始终是唯一数据源。可见 Workspace 优先来自 `project/list`；当该接口
-不可用或没有可用根目录时，使用 `thread/list` 已返回的绝对 `cwd` 精确生成只读后备 Workspace。新建、
+不可用或没有可用根目录时，使用 `thread/list` 已返回的绝对 `cwd` 精确生成只读后备 Workspace。目录
+选择器还可以在这些 authority 根目录的真实子目录中创建 Thread；Host 会拒绝 `..` 和符号链接越界。新建、
 改名、归档、Prompt、停止和审批操作都路由回其白名单方法。Host carrier 继续复用
 账号 membership、Host identity 固定、Noise 安全通道和自适应传输。Codex 默认开启，可在
 DeepSeek Remote 设置卡片中关闭，修改后重启 DSH 生效。本实验版本已完成 Desktop 加密跨机

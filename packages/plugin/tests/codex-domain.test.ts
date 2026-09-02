@@ -122,6 +122,8 @@ describe('CodexRemoteDomain', () => {
 
   it('starts new threads only from CodeX advertised workspace paths', async () => {
     const { base, root, outside } = await directories()
+    const child = join(root, 'new-workspace')
+    await mkdir(child)
     const link = join(root, 'outside-link')
     await symlink(outside, link, 'dir')
     const app = new FakeAppServer(root, outside)
@@ -143,6 +145,10 @@ describe('CodexRemoteDomain', () => {
       sandbox: 'workspace-write',
       serviceName: 'deepseek_harness_remote',
     })
+    await expect(domain.call('connection-1', {
+      method: 'thread/start', params: { cwd: child },
+    })).resolves.toMatchObject({ thread: { id: 'new-thread', cwd: child } })
+    expect(app.calls.filter(call => call.method === 'thread/start').at(-1)?.params).toMatchObject({ cwd: child })
     await expect(domain.call('connection-1', {
       method: 'thread/start', params: { cwd: outside },
     })).resolves.toMatchObject({ thread: { id: 'new-thread' } })

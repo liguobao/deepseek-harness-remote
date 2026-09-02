@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import { deriveCodexCwdWorkspaces } from '@dsh-remote/client-core'
 import type { CodexAppFrameData, CodexAppStreamClosedData } from '@dsh-remote/protocol'
 import type { ResolvedCodexConfig } from '../config.js'
@@ -725,11 +726,24 @@ export class CodexRemoteDomain {
       throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
     }
     const paths = await this.listCodexWorkspacePaths()
-    const canonical = paths.get(normalizeCodexPathForCompare(path))
-    if (canonical === undefined) {
+    const lexicalCandidate = resolve(path)
+    let candidate: string
+    try {
+      candidate = await realpath(path)
+      if (!(await stat(candidate)).isDirectory()) throw new Error('not a directory')
+    } catch {
       throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
     }
-    return canonical
+    for (const root of paths.values()) {
+      try {
+        if (!containsCodexPath(resolve(root), lexicalCandidate)) continue
+        const canonicalRoot = await realpath(root)
+        if (containsCodexPath(canonicalRoot, candidate)) return lexicalCandidate
+      } catch {
+        // A stale project or Thread cwd is not authority for a new Thread.
+      }
+    }
+    throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
   }
 
   private async listCodexWorkspacePaths(): Promise<Map<string, string>> {

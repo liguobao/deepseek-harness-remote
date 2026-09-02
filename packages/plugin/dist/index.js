@@ -5034,13 +5034,13 @@ var RemoteClientCore = class {
     if (signal?.aborted)
       throw rpcAbortedError(method, signal.reason);
     const request = createRpcRequest(method, params);
-    const result = new Promise((resolve2, reject) => {
+    const result = new Promise((resolve3, reject) => {
       const timer = setTimeout(() => {
         this.rejectPending(request.id, new RemoteClientError("RPC_TIMEOUT", `RPC ${method} timed out after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
       const pending = {
         method,
-        resolve: resolve2,
+        resolve: resolve3,
         reject,
         timer
       };
@@ -5604,8 +5604,8 @@ var RtcDataChannelTransport = class {
     if (this.connectPromise !== void 0)
       return this.connectPromise;
     this.armAbort(signal);
-    this.connectPromise = new Promise((resolve2, reject) => {
-      this.openResolve = resolve2;
+    this.connectPromise = new Promise((resolve3, reject) => {
+      this.openResolve = resolve3;
       this.openReject = reject;
       this.negotiateTimer = setTimeout(() => {
         void this.failOpenAfterStats(new RtcConnectError("RTC_CONNECT_TIMEOUT", `WebRTC negotiation timed out after ${this.negotiateTimeoutMs}ms.`));
@@ -5820,9 +5820,9 @@ var RtcDataChannelTransport = class {
       if (this.closed || this.opened)
         return;
       this.opened = true;
-      const resolve2 = this.openResolve;
+      const resolve3 = this.openResolve;
       this.clearNegotiation();
-      void this.resolveSelectedTransport().then(() => resolve2?.());
+      void this.resolveSelectedTransport().then(() => resolve3?.());
     };
     channel.onmessage = (event) => {
       if (this.closed || !this.opened)
@@ -6216,7 +6216,7 @@ function asError(error) {
   return error instanceof Error ? error : new RtcConnectError("RTC_FAILED", "WebRTC negotiation failed.");
 }
 function sleep(ms) {
-  return new Promise((resolve2) => setTimeout(resolve2, ms));
+  return new Promise((resolve3) => setTimeout(resolve3, ms));
 }
 
 // ../webrtc/dist/adaptive-transport.js
@@ -6254,8 +6254,8 @@ var AdaptiveTransport = class extends BaseTransport {
     this.socket = new WebSocket(this.url);
     this.controlFrameLimits = {};
     this.socket.binaryType = "arraybuffer";
-    await new Promise((resolve2, reject) => {
-      this.readyResolve = resolve2;
+    await new Promise((resolve3, reject) => {
+      this.readyResolve = resolve3;
       this.readyReject = reject;
       this.handshakeTimer = setTimeout(() => this.failConnection(new Error("Adaptive control handshake timed out")), this.options.handshakeTimeoutMs ?? 15e3);
       const socket = this.socket;
@@ -13832,7 +13832,7 @@ var ClientSecureTransport = class {
   }
 };
 async function waitForResponder(inner, noise) {
-  await new Promise((resolve2, reject) => {
+  await new Promise((resolve3, reject) => {
     let settled = false;
     const timer = setTimeout(() => finish(new Error("Noise IK handshake timed out.")), 1e4);
     const unsubscribe = inner.onHandshake((step, data) => {
@@ -13851,7 +13851,7 @@ async function waitForResponder(inner, noise) {
       settled = true;
       clearTimeout(timer);
       unsubscribe();
-      if (error === void 0) resolve2();
+      if (error === void 0) resolve3();
       else reject(error);
     };
     void inner.sendHandshake(1, noise.writeHandshake()).catch((error) => {
@@ -14109,7 +14109,7 @@ var AsyncFrameQueue = class {
         continue;
       }
       if (this.closed) return;
-      const next = await new Promise((resolve2) => this.waiters.push(resolve2));
+      const next = await new Promise((resolve3) => this.waiters.push(resolve3));
       if (next.done) return;
       yield next.value;
     }
@@ -14297,7 +14297,7 @@ var AsyncValueQueue = class {
         if (this.error !== void 0) throw this.error;
         return;
       }
-      const next = await new Promise((resolve2) => this.waiters.push(resolve2));
+      const next = await new Promise((resolve3) => this.waiters.push(resolve3));
       if (next.done) {
         if (this.error !== void 0) throw this.error;
         return;
@@ -16609,7 +16609,7 @@ var AsyncValueQueue2 = class {
         continue;
       }
       if (this.closed) return;
-      const next = await new Promise((resolve2) => this.waiters.push(resolve2));
+      const next = await new Promise((resolve3) => this.waiters.push(resolve3));
       if (next.done) return;
       yield next.value;
     }
@@ -17361,10 +17361,10 @@ function isUsableExternalNode(candidate, requireFrom) {
 }
 function isExecutableFile(candidate) {
   try {
-    const stat5 = statSync(candidate);
-    if (!stat5.isFile()) return false;
+    const stat6 = statSync(candidate);
+    if (!stat6.isFile()) return false;
     if (process.platform === "win32") return true;
-    return (stat5.mode & 73) !== 0;
+    return (stat6.mode & 73) !== 0;
   } catch {
     return false;
   }
@@ -17453,8 +17453,8 @@ var ExternalNativePeerConnection = class {
   request(method, payload) {
     if (this.closed) return Promise.reject(new Error("native rtc helper is closed"));
     const id2 = this.nextRequestId++;
-    const promise = new Promise((resolve2, reject) => {
-      this.pending.set(id2, { resolve: resolve2, reject });
+    const promise = new Promise((resolve3, reject) => {
+      this.pending.set(id2, { resolve: resolve3, reject });
     });
     this.write({ id: id2, method, payload });
     return promise;
@@ -18248,10 +18248,10 @@ function parseRouteTarget(value) {
 async function detectRouteHostIpv4(target, timeoutMs) {
   const socket = createSocket("udp4");
   try {
-    return await new Promise((resolve2, reject) => {
+    return await new Promise((resolve3, reject) => {
       const timer = setTimeout(() => {
         cleanup();
-        resolve2(void 0);
+        resolve3(void 0);
       }, timeoutMs);
       const cleanup = () => {
         clearTimeout(timer);
@@ -18265,7 +18265,7 @@ async function detectRouteHostIpv4(target, timeoutMs) {
       socket.connect(target.port, target.host, () => {
         cleanup();
         const address = socket.address();
-        resolve2(typeof address === "string" ? void 0 : address.address);
+        resolve3(typeof address === "string" ? void 0 : address.address);
       });
     });
   } finally {
@@ -19219,7 +19219,7 @@ async function probeRemoteHostFeatures(client, clientVersion) {
 }
 async function waitForCodexFrames(stream, signal) {
   if (signal?.aborted) throw new ClientModeError("RPC_ABORTED", "The Codex event poll was cancelled.");
-  await new Promise((resolve2, reject) => {
+  await new Promise((resolve3, reject) => {
     const previousWake = stream.wake;
     const timer = setTimeout(done, 25e3);
     const onAbort = () => {
@@ -19233,7 +19233,7 @@ async function waitForCodexFrames(stream, signal) {
     }
     function done() {
       cleanup();
-      resolve2();
+      resolve3();
     }
     stream.wake = () => {
       previousWake();
@@ -20448,7 +20448,7 @@ var HostServerConnection = class {
     this.controlFrameLimits = {};
     let acknowledged = false;
     let messageQueue = Promise.resolve();
-    await new Promise((resolve2, reject) => {
+    await new Promise((resolve3, reject) => {
       let settled = false;
       const helloTimer = setTimeout(() => socket.close(4001, "hello timeout"), 1e4);
       const finish = (error) => {
@@ -20457,7 +20457,7 @@ var HostServerConnection = class {
         clearTimeout(helloTimer);
         this.online = false;
         if (this.socket === socket) this.socket = void 0;
-        void this.dropTunnels().finally(() => error === void 0 ? resolve2() : reject(error));
+        void this.dropTunnels().finally(() => error === void 0 ? resolve3() : reject(error));
       };
       socket.onopen = () => {
         this.sendControl("hello", {
@@ -20975,14 +20975,14 @@ var HostServerConnection = class {
   waitBeforeRetry(baseDelay) {
     const spread = baseDelay * this.config.reconnect.jitter;
     const delay = Math.max(0, Math.round(baseDelay - spread + Math.random() * spread * 2));
-    return new Promise((resolve2) => {
+    return new Promise((resolve3) => {
       const timer = setTimeout(() => {
         this.retryWake = void 0;
-        resolve2();
+        resolve3();
       }, delay);
       this.retryWake = () => {
         clearTimeout(timer);
-        resolve2();
+        resolve3();
       };
     });
   }
@@ -21948,7 +21948,7 @@ function historyRequestPayload(payload, maxMessages) {
   return { ...payload, maxMessages };
 }
 function withTimeout(promise, ms, message) {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve3, reject) => {
     const timer = setTimeout(() => {
       reject(new RpcError("TIMEOUT", message, void 0, true));
     }, ms);
@@ -21956,7 +21956,7 @@ function withTimeout(promise, ms, message) {
     promise.then(
       (value) => {
         clearTimeout(timer);
-        resolve2(value);
+        resolve3(value);
       },
       (error) => {
         clearTimeout(timer);
@@ -22286,8 +22286,9 @@ function concatChunks2(chunks, totalBytes) {
 
 // src/codex/domain.ts
 import { randomUUID } from "node:crypto";
+import { realpath, stat as stat4 } from "node:fs/promises";
 import { homedir as homedir3 } from "node:os";
-import { isAbsolute as isAbsolute3, join as join5 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join5, resolve as resolve2 } from "node:path";
 
 // src/codex/app-server.ts
 import { spawn as spawn2 } from "node:child_process";
@@ -22360,15 +22361,15 @@ var CodexAppServerClient = class {
     const child = this.process;
     this.process = void 0;
     if (child === void 0 || child.exitCode !== null || child.killed) return;
-    await new Promise((resolve2) => {
+    await new Promise((resolve3) => {
       const timer = setTimeout(() => {
         child.kill("SIGKILL");
-        resolve2();
+        resolve3();
       }, 2e3);
       timer.unref?.();
       child.once("exit", () => {
         clearTimeout(timer);
-        resolve2();
+        resolve3();
       });
       child.kill("SIGTERM");
     });
@@ -22424,13 +22425,13 @@ var CodexAppServerClient = class {
   }
   request(method, params, timeoutMs) {
     const id2 = this.nextId++;
-    const result = new Promise((resolve2, reject) => {
+    const result = new Promise((resolve3, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id2);
         reject(new CodexAppServerError("CODEX_REQUEST_TIMEOUT", "Codex App Server request timed out."));
       }, timeoutMs);
       timer.unref?.();
-      this.pending.set(id2, { resolve: resolve2, reject, timer });
+      this.pending.set(id2, { resolve: resolve3, reject, timer });
     });
     try {
       this.write({ id: id2, method, params });
@@ -23499,11 +23500,23 @@ var CodexRemoteDomain = class {
       throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
     }
     const paths = await this.listCodexWorkspacePaths();
-    const canonical = paths.get(normalizeCodexPathForCompare(path));
-    if (canonical === void 0) {
+    const lexicalCandidate = resolve2(path);
+    let candidate;
+    try {
+      candidate = await realpath(path);
+      if (!(await stat4(candidate)).isDirectory()) throw new Error("not a directory");
+    } catch {
       throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
     }
-    return canonical;
+    for (const root of paths.values()) {
+      try {
+        if (!containsCodexPath(resolve2(root), lexicalCandidate)) continue;
+        const canonicalRoot = await realpath(root);
+        if (containsCodexPath(canonicalRoot, candidate)) return lexicalCandidate;
+      } catch {
+      }
+    }
+    throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
   }
   async listCodexWorkspacePaths() {
     const paths = /* @__PURE__ */ new Map();
@@ -23998,7 +24011,7 @@ function isPlainRecord(value) {
 }
 
 // src/cli.ts
-import { stat as stat4 } from "node:fs/promises";
+import { stat as stat5 } from "node:fs/promises";
 import { hostname as hostname3 } from "node:os";
 import { join as join6 } from "node:path";
 var QR_POLL_INTERVAL_MS = 2e3;
@@ -24163,7 +24176,7 @@ function resolveDependencies(input2) {
     stdout: input2.stdout ?? process.stdout,
     stderr: input2.stderr ?? process.stderr,
     now: input2.now ?? Date.now,
-    wait: input2.wait ?? ((milliseconds) => new Promise((resolve2) => setTimeout(resolve2, milliseconds))),
+    wait: input2.wait ?? ((milliseconds) => new Promise((resolve3) => setTimeout(resolve3, milliseconds))),
     renderQr: input2.renderQr ?? renderTerminalQr,
     createIdentityStore: input2.createIdentityStore ?? ((options) => new IdentityStore(options)),
     createHostApi: input2.createHostApi ?? ((serverUrl, store) => new HostServerApi(serverUrl, store))
@@ -24249,7 +24262,7 @@ function terminalLink(url, target) {
 }
 async function exists3(path) {
   try {
-    await stat4(path);
+    await stat5(path);
     return true;
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
@@ -24606,7 +24619,7 @@ function errorCode4(error) {
   return "CONNECTION_FAILED";
 }
 function wait(milliseconds) {
-  return new Promise((resolve2) => setTimeout(resolve2, milliseconds));
+  return new Promise((resolve3) => setTimeout(resolve3, milliseconds));
 }
 
 // src/remote-file-content-provider.ts

@@ -77,7 +77,8 @@ Session ID   = codex:<threadId>
 
 Workspace 优先来自 CodeX App Server 的 `project/list`。一个 CodeX project 对应一个虚拟 Workspace；
 该 project id 或 project root 能归属的 Thread 对应 Session。当 `project/list` 不可用或没有可用根目录时，
-Client 可按 `thread/list` 已返回的绝对 `cwd` 精确合成只读后备 Workspace；不得合并到推测的父目录，也
+Client 可按 `thread/list` 已返回的绝对 `cwd` 精确合成只读后备 Workspace；新 Thread 可使用这些
+authority 根内通过词法路径与 `realpath` 双重校验的真实子目录。不得合并到推测的父目录，也
 不得接受 Client 自报路径。映射只代表当前 CodeX catalog，不创建 DSH 本地记录。
 
 ## 官方 CodeX 契约
@@ -93,7 +94,8 @@ Host 只通过 stdio 启动 `codex app-server`。实现以当前官方 schema �
 `thread/delete`、`thread/shellCommand`、`thread/inject_items` 与远程 API Key 登录。
 
 `project/list` 是 CodeX Workspace 的首选来源。该接口不可用或没有可用根目录时，Host 可使用
-`thread/list` 已返回的绝对 `cwd` 作为精确 Workspace authority；其它带 `threadId` 的调用必须再次验证
+`thread/list` 已返回的绝对 `cwd` 作为精确 Workspace authority；新增 Thread 可使用 authority 根内经过
+词法路径与 `realpath` 双重校验的真实子目录；其它带 `threadId` 的调用必须再次验证
 该 Thread 属于当前 authority，不能只信任 Client 发来的 ID。
 
 ## DSH 原生数据面

@@ -186,7 +186,9 @@ title, preview, directory, and identifier locally.
 This is a presentation adapter, not an import. The virtual Workspace/Session records are never written
 to DSH SessionStore, workspace storage, or Harness logs. CodeX App Server remains the source of truth.
 `project/list` is preferred for visible Workspaces; when it is unavailable or has no usable roots, the
-exact absolute `cwd` values already exposed by `thread/list` become read-only fallback Workspaces. Create, rename, archive,
+exact absolute `cwd` values already exposed by `thread/list` become read-only fallback Workspaces. The directory picker
+may also start a Thread in a real descendant of those authority roots; lexical and `realpath` checks reject traversal and
+symlink escapes. Create, rename, archive,
 prompt, interrupt, and approval actions are routed back to its allowlisted methods. The Host carrier
 still uses the existing account membership, pinned Host identity, Noise channel, and adaptive transport.
 CodeX is enabled by default and can be disabled from the DeepSeek Remote settings card. Changes to
