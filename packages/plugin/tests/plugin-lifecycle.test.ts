@@ -79,7 +79,10 @@ describe('Cordis plugin lifecycle', () => {
 
     await vi.waitFor(() => {
       expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis test host' })
-      expect(ctx.dshRemote.diagnostics()).toMatchObject({ loaded: true })
+      expect(ctx.dshRemote.diagnostics()).toMatchObject({
+        loaded: true,
+        capabilities: expect.arrayContaining(['harness.api.v1', 'harness.api.transfer.v1']),
+      })
     })
     expect(identityReadyWhenControlRegistered).toBe(false)
 
@@ -114,6 +117,54 @@ describe('Cordis plugin lifecycle', () => {
 
     await fiber.dispose()
     expect(ctx.get('dshRemote')).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps the TUI command available when rc.2 has no Component admission', async () => {
+    const register = vi.fn((_definition: unknown) => vi.fn())
+    const registerCommand = vi.fn((_context: unknown, _definition: unknown) => {
+      throw Object.assign(new Error('the calling activation has no verified dsh-plugin.json Component identity'), {
+        code: 'COMPONENT_NOT_ADMITTED',
+      })
+    })
+    const ctx = new Context()
+    ctx.provide('commands', { register })
+    ctx.provide('tuiPluginHost', { registerCommand })
+    ctx.provide('tuiCommandTrees', { register: vi.fn(() => vi.fn()) })
+    ctx.provide('tuiScenes', { register: vi.fn(() => vi.fn()), open: vi.fn(() => true) })
+    ctx.provide('settings', settings({ enabled: false }))
+    ctx.provide('typertGateway', typertGateway())
+
+    const fiber = await ctx.plugin(remotePlugin, { enabled: false })
+
+    expect(fiber.state).toBe(2)
+    expect(registerCommand).toHaveBeenCalledOnce()
+    expect(register).toHaveBeenCalledOnce()
+    expect(register.mock.calls[0]?.[0]).toMatchObject({ name: 'remote' })
+
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('prefers mediated TUI command registration when Component admission is available', async () => {
+    const register = vi.fn((_definition: unknown) => vi.fn())
+    const registerCommand = vi.fn((_context: unknown, _definition: unknown) => vi.fn())
+    const ctx = new Context()
+    ctx.provide('commands', { register })
+    ctx.provide('tuiPluginHost', { registerCommand })
+    ctx.provide('tuiCommandTrees', { register: vi.fn(() => vi.fn()) })
+    ctx.provide('tuiScenes', { register: vi.fn(() => vi.fn()), open: vi.fn(() => true) })
+    ctx.provide('settings', settings({ enabled: false }))
+    ctx.provide('typertGateway', typertGateway())
+
+    const fiber = await ctx.plugin(remotePlugin, { enabled: false })
+
+    expect(fiber.state).toBe(2)
+    expect(registerCommand).toHaveBeenCalledOnce()
+    expect(registerCommand.mock.calls[0]?.[1]).toMatchObject({ name: 'remote' })
+    expect(register).not.toHaveBeenCalled()
+
+    await fiber.dispose()
     await ctx.fiber.dispose()
   })
 

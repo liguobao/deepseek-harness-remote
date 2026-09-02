@@ -16647,6 +16647,7 @@ function normalizeServerUrl(value) {
 var PLUGIN_VERSION = "0.4.3";
 
 // src/server-api.ts
+var TERMINAL_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u;
 var HostServerApi = class {
   constructor(serverUrl, store, fetchImplementation = fetch, role = "host") {
     this.store = store;
@@ -16716,10 +16717,11 @@ var HostServerApi = class {
       method: "POST",
       body: "{}"
     }), "QR login");
-    if (typeof value.qrId !== "string" || value.qrId.length < 20 || typeof value.scanUrl !== "string" || !value.scanUrl.startsWith(`${this.baseUrl}/`) || !Number.isSafeInteger(value.expiresIn) || provider === "github" && value.provider !== "github" || value.provider !== void 0 && value.provider !== provider) {
+    const scanUrl = normalizeOAuthScanUrl(value.scanUrl, this.baseUrl);
+    if (typeof value.qrId !== "string" || value.qrId.length < 20 || scanUrl === void 0 || !Number.isSafeInteger(value.expiresIn) || provider === "github" && value.provider !== "github" || value.provider !== void 0 && value.provider !== provider) {
       throw new ServerApiError("INVALID_MESSAGE", "The Server returned an invalid QR login session.", false);
     }
-    return { qrId: value.qrId, scanUrl: value.scanUrl, expiresIn: value.expiresIn };
+    return { qrId: value.qrId, scanUrl, expiresIn: value.expiresIn };
   }
   async pollOAuthQrLogin(identity, qrId, recoverIdentity) {
     this.bindIdentity(identity);
@@ -16934,6 +16936,15 @@ var HostServerApi = class {
     return this.identity;
   }
 };
+function normalizeOAuthScanUrl(value, baseUrl) {
+  if (typeof value !== "string" || TERMINAL_CONTROL_CHARACTERS.test(value)) return void 0;
+  try {
+    const normalized = new URL(value).href;
+    return normalized.startsWith(`${baseUrl}/`) ? normalized : void 0;
+  } catch {
+    return void 0;
+  }
+}
 var ClientServerApi = class extends HostServerApi {
   constructor(serverUrl, store, fetchImplementation = fetch) {
     super(serverUrl, store, fetchImplementation, "client");
@@ -23817,6 +23828,7 @@ var HostPluginRuntime = class {
       peerDeviceId: this.connections.peerDeviceId() === void 0 ? void 0 : shortId5(this.connections.peerDeviceId()),
       peerDeviceIds: this.connections.peerDeviceIds().map(shortId5),
       trustedPeers: this.identities.listTrustedPeers().length,
+      capabilities: this.hostCapabilities(),
       codex: this.codex.status()
     };
   }
@@ -24157,13 +24169,14 @@ function installTuiRemoteCommand(ctx, resolveTarget) {
   const tuiContext = ctx;
   const commands = tuiContext.get("commands", false);
   if (commands === void 0) return;
+  const pluginHost = tuiContext.get("tuiPluginHost", false);
   const trees = tuiContext.get("tuiCommandTrees", false);
   const scenes = tuiContext.get("tuiScenes", false);
   const login2 = new RemoteLoginController(resolveTarget);
   const LoginScene = createRemoteLoginScene(login2);
   const StatusScene = createRemoteStatusScene(resolveTarget);
   tuiContext.effect(() => {
-    const disposeCommand = commands.register({
+    const definition = {
       name: "remote",
       description: "Manage Remote Host login and connection status",
       input: { hint: "[status | login [github|zhihu] | logout]" },
@@ -24214,7 +24227,8 @@ function installTuiRemoteCommand(ctx, resolveTarget) {
         }
         return { kind: "error", text: remoteCommandUsage() };
       }
-    });
+    };
+    const disposeCommand = registerRemoteCommand(tuiContext, commands, pluginHost, definition);
     const disposeTree = registerOptional(tuiContext, "command completion", () => trees?.register({
       root: "remote",
       descriptions: {
@@ -24241,6 +24255,19 @@ function installTuiRemoteCommand(ctx, resolveTarget) {
       disposeStatusScene();
     };
   }, "ds-harness-remote: dsh-tui /remote command");
+}
+function registerRemoteCommand(ctx, commands, pluginHost, definition) {
+  if (pluginHost === void 0) return commands.register(definition);
+  try {
+    return pluginHost.registerCommand(ctx, definition);
+  } catch (error) {
+    if (!hasErrorCode2(error, "COMPONENT_NOT_ADMITTED")) throw error;
+    ctx.logger.debug("dsh-TUI Remote command is using the legacy command registry because Component admission is unavailable");
+    return commands.register(definition);
+  }
+}
+function hasErrorCode2(error, code) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 function registerOptional(ctx, feature, register) {
   try {
@@ -24288,6 +24315,7 @@ function remoteStatusLines(target) {
   const status2 = runtime.hostStatus();
   const diagnostics = runtime.diagnostics();
   const codex = runtime.codexStatus();
+  const capabilities = new Set(diagnostics.capabilities);
   const connection = status2.online ? "online" : status2.reconnecting ? "reconnecting" : status2.accountRequired ? "authorization required" : "offline";
   return [
     `Server: ${config.serverUrl ?? "not configured"}`,
@@ -24295,6 +24323,7 @@ function remoteStatusLines(target) {
     `Device: ${status2.deviceId ?? "not initialized"}`,
     `Authorization: ${status2.authorized ? status2.account === void 0 ? "logged in" : `logged in (${status2.account})` : "logged out"}`,
     `Server connection: ${connection}`,
+    `Harness Remote API: ${capabilities.has("harness.api.v1") ? "available (ApiProxy)" : capabilities.has("harness.remote.v1") ? "available (Typert Remote)" : "unavailable"}`,
     `Remote clients: ${diagnostics.activeConnections}`,
     `Codex Remote: ${codex.enabled ? codex.state : "disabled"}`,
     "",

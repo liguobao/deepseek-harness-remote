@@ -26,6 +26,7 @@
     "packages/plugin/bin/ds-harness-remote.js",
     "packages/plugin/public.d.ts",
     "packages/plugin/LICENSE",
+    "dsh-plugin.json",
     "cordis.patch.yml",
     "README.md",
     "package.json"

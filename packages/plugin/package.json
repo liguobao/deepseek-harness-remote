@@ -28,6 +28,7 @@
   "files": [
     "bin",
     "dist",
+    "dsh-plugin.json",
     "cordis.patch.yml",
     "public.d.ts",
     "README.md",

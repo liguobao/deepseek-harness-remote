@@ -47,6 +47,8 @@ export interface DeviceAuthorization {
 
 export type FetchImplementation = typeof fetch
 
+const TERMINAL_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u
+
 export interface ServerHostDevice {
   deviceId: string
   name: string
@@ -138,14 +140,15 @@ export class HostServerApi {
       method: 'POST',
       body: '{}',
     }), 'QR login')
+    const scanUrl = normalizeOAuthScanUrl(value.scanUrl, this.baseUrl)
     if (typeof value.qrId !== 'string' || value.qrId.length < 20
-      || typeof value.scanUrl !== 'string' || !value.scanUrl.startsWith(`${this.baseUrl}/`)
+      || scanUrl === undefined
       || !Number.isSafeInteger(value.expiresIn)
       || (provider === 'github' && value.provider !== 'github')
       || (value.provider !== undefined && value.provider !== provider)) {
       throw new ServerApiError('INVALID_MESSAGE', 'The Server returned an invalid QR login session.', false)
     }
-    return { qrId: value.qrId, scanUrl: value.scanUrl, expiresIn: value.expiresIn as number }
+    return { qrId: value.qrId, scanUrl, expiresIn: value.expiresIn as number }
   }
 
   async pollOAuthQrLogin(
@@ -392,6 +395,16 @@ export class HostServerApi {
   private requireIdentity(): HostIdentity {
     if (this.identity === undefined) throw new ServerApiError('IDENTITY_INVALID', 'The device identity is not loaded.', false)
     return this.identity
+  }
+}
+
+function normalizeOAuthScanUrl(value: unknown, baseUrl: string): string | undefined {
+  if (typeof value !== 'string' || TERMINAL_CONTROL_CHARACTERS.test(value)) return undefined
+  try {
+    const normalized = new URL(value).href
+    return normalized.startsWith(`${baseUrl}/`) ? normalized : undefined
+  } catch {
+    return undefined
   }
 }
 

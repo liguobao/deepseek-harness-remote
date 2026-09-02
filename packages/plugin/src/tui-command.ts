@@ -10,14 +10,20 @@ const REMOTE_STATUS_SCENE_ID = 'remote-status'
 
 type CommandResult = { kind: 'success'; text?: string } | { kind: 'error'; text: string }
 
+interface CommandDefinitionLike {
+  name: string
+  description: string
+  input?: { hint: string }
+  recordInput?: boolean
+  handler(invocation: { rawInput: string; signal: AbortSignal }): CommandResult | Promise<CommandResult>
+}
+
 interface CommandRuntimeLike {
-  register(definition: {
-    name: string
-    description: string
-    input?: { hint: string }
-    recordInput?: boolean
-    handler(invocation: { rawInput: string; signal: AbortSignal }): CommandResult | Promise<CommandResult>
-  }): () => void
+  register(definition: CommandDefinitionLike): () => void
+}
+
+interface TuiPluginHostLike {
+  registerCommand(pluginCtx: Context, definition: CommandDefinitionLike): () => void
 }
 
 interface CommandCompletionNodeLike {
@@ -93,6 +99,9 @@ export function installTuiRemoteCommand(
   // boundary. A Desktop entry has neither and stays completely inert here.
   const commands = tuiContext.get('commands', false) as CommandRuntimeLike | undefined
   if (commands === undefined) return
+  // Newer dsh-TUI versions attribute commands to their owning plugin through
+  // this optional service. Older versions only expose the direct registry.
+  const pluginHost = tuiContext.get('tuiPluginHost', false) as TuiPluginHostLike | undefined
   const trees = tuiContext.get('tuiCommandTrees', false) as CommandTreeRuntimeLike | undefined
   const scenes = tuiContext.get('tuiScenes', false) as SceneRuntimeLike | undefined
   const login = new RemoteLoginController(resolveTarget)
@@ -100,58 +109,59 @@ export function installTuiRemoteCommand(
   const StatusScene = createRemoteStatusScene(resolveTarget)
 
   tuiContext.effect(() => {
-    const disposeCommand = commands.register({
-        name: 'remote',
-        description: 'Manage Remote Host login and connection status',
-        input: { hint: '[status | login [github|zhihu] | logout]' },
-        recordInput: false,
-        handler: async ({ rawInput }) => {
-          const args = rawInput.trim().split(/\s+/u).filter(Boolean)
-          const command = args[0] ?? 'status'
-          if (command === 'status' && args.length <= 1) {
-            if (scenes?.open(REMOTE_STATUS_SCENE_ID) === true) return { kind: 'success' }
-            return { kind: 'success', text: formatRemoteStatusInline(resolveTarget()) }
+    const definition: CommandDefinitionLike = {
+      name: 'remote',
+      description: 'Manage Remote Host login and connection status',
+      input: { hint: '[status | login [github|zhihu] | logout]' },
+      recordInput: false,
+      handler: async ({ rawInput }) => {
+        const args = rawInput.trim().split(/\s+/u).filter(Boolean)
+        const command = args[0] ?? 'status'
+        if (command === 'status' && args.length <= 1) {
+          if (scenes?.open(REMOTE_STATUS_SCENE_ID) === true) return { kind: 'success' }
+          return { kind: 'success', text: formatRemoteStatusInline(resolveTarget()) }
+        }
+        if (command === 'login' && args.length <= 2) {
+          const provider = args[1] ?? 'zhihu'
+          if (provider !== 'github' && provider !== 'zhihu') {
+            return { kind: 'error', text: 'Usage: /remote login [github|zhihu]' }
           }
-          if (command === 'login' && args.length <= 2) {
-            const provider = args[1] ?? 'zhihu'
-            if (provider !== 'github' && provider !== 'zhihu') {
-              return { kind: 'error', text: 'Usage: /remote login [github|zhihu]' }
-            }
-            if (scenes === undefined) {
-              return {
-                kind: 'error',
-                text: `The Remote login screen is unavailable. Run "ds-harness-remote login ${provider}" outside dsh-TUI, then restart it.`,
-              }
-            }
-            login.start(provider)
-            if (!scenes.open(REMOTE_LOGIN_SCENE_ID)) {
-              login.cancel()
-              return { kind: 'error', text: 'The Remote login screen is unavailable.' }
-            }
-            return { kind: 'success' }
-          }
-          if (command === 'logout' && args.length === 1) {
-            const target = resolveTarget()
-            if (target === undefined) return remoteNotReady()
-            try {
-              await target.runtime.clearHostAuthorization()
-              return {
-                kind: 'success',
-                text: 'Remote Host logged out and its local device identity was rotated.',
-              }
-            } catch (error) {
-              return {
-                kind: 'error',
-                text: `Local Remote Host credentials were cleared, but Server revocation failed (${errorCode(error)}).`,
-              }
+          if (scenes === undefined) {
+            return {
+              kind: 'error',
+              text: `The Remote login screen is unavailable. Run "ds-harness-remote login ${provider}" outside dsh-TUI, then restart it.`,
             }
           }
-          if (command === 'config') {
-            return { kind: 'error', text: 'Host configuration is not supported yet.' }
+          login.start(provider)
+          if (!scenes.open(REMOTE_LOGIN_SCENE_ID)) {
+            login.cancel()
+            return { kind: 'error', text: 'The Remote login screen is unavailable.' }
           }
-          return { kind: 'error', text: remoteCommandUsage() }
-        },
-    })
+          return { kind: 'success' }
+        }
+        if (command === 'logout' && args.length === 1) {
+          const target = resolveTarget()
+          if (target === undefined) return remoteNotReady()
+          try {
+            await target.runtime.clearHostAuthorization()
+            return {
+              kind: 'success',
+              text: 'Remote Host logged out and its local device identity was rotated.',
+            }
+          } catch (error) {
+            return {
+              kind: 'error',
+              text: `Local Remote Host credentials were cleared, but Server revocation failed (${errorCode(error)}).`,
+            }
+          }
+        }
+        if (command === 'config') {
+          return { kind: 'error', text: 'Host configuration is not supported yet.' }
+        }
+        return { kind: 'error', text: remoteCommandUsage() }
+      },
+    }
+    const disposeCommand = registerRemoteCommand(tuiContext, commands, pluginHost, definition)
     const disposeTree = registerOptional(tuiContext, 'command completion', () => trees?.register({
         root: 'remote',
         descriptions: {
@@ -179,6 +189,31 @@ export function installTuiRemoteCommand(
       disposeStatusScene()
     }
   }, 'ds-harness-remote: dsh-tui /remote command')
+}
+
+function registerRemoteCommand(
+  ctx: Context,
+  commands: CommandRuntimeLike,
+  pluginHost: TuiPluginHostLike | undefined,
+  definition: CommandDefinitionLike,
+): () => void {
+  if (pluginHost === undefined) return commands.register(definition)
+  try {
+    return pluginHost.registerCommand(ctx, definition)
+  } catch (error) {
+    // dsh rc.2 with dsh-TUI 0.10.0-beta.4 mounts the mediated service but its
+    // Cordis bundle loader does not admit third-party activations yet. Keep the
+    // command usable on that exact compatibility seam; every other mediated
+    // registration failure remains fail-closed.
+    if (!hasErrorCode(error, 'COMPONENT_NOT_ADMITTED')) throw error
+    ctx.logger.debug('dsh-TUI Remote command is using the legacy command registry because Component admission is unavailable')
+    return commands.register(definition)
+  }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error
+    && (error as { code?: unknown }).code === code
 }
 
 function registerOptional(
@@ -231,6 +266,7 @@ function remoteStatusLines(target: TuiRemoteTarget | undefined): readonly string
   const status = runtime.hostStatus()
   const diagnostics = runtime.diagnostics()
   const codex = runtime.codexStatus()
+  const capabilities = new Set(diagnostics.capabilities)
   const connection = status.online
     ? 'online'
     : status.reconnecting
@@ -244,6 +280,11 @@ function remoteStatusLines(target: TuiRemoteTarget | undefined): readonly string
     `Device: ${status.deviceId ?? 'not initialized'}`,
     `Authorization: ${status.authorized ? status.account === undefined ? 'logged in' : `logged in (${status.account})` : 'logged out'}`,
     `Server connection: ${connection}`,
+    `Harness Remote API: ${capabilities.has('harness.api.v1')
+      ? 'available (ApiProxy)'
+      : capabilities.has('harness.remote.v1')
+        ? 'available (Typert Remote)'
+        : 'unavailable'}`,
     `Remote clients: ${diagnostics.activeConnections}`,
     `Codex Remote: ${codex.enabled ? codex.state : 'disabled'}`,
     '',

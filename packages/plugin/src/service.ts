@@ -294,6 +294,7 @@ export class HostPluginRuntime {
       peerDeviceId: this.connections.peerDeviceId() === undefined ? undefined : shortId(this.connections.peerDeviceId()!),
       peerDeviceIds: this.connections.peerDeviceIds().map(shortId),
       trustedPeers: this.identities.listTrustedPeers().length,
+      capabilities: this.hostCapabilities(),
       codex: this.codex.status(),
     }
   }

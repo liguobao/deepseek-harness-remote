@@ -7,9 +7,21 @@ import { runInNewContext } from 'node:vm'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const pluginManifest = JSON.parse(readFileSync(join(root, 'packages/plugin/package.json'), 'utf8'))
+const componentManifest = JSON.parse(readFileSync(join(root, 'dsh-plugin.json'), 'utf8'))
+const pluginComponentManifest = JSON.parse(readFileSync(join(root, 'packages/plugin/dsh-plugin.json'), 'utf8'))
 
 assert.equal(manifest.name, 'ds-harness-remote', 'root package must use the canonical DSH installation id')
 assert.equal(pluginManifest.name, manifest.name, 'root and npm plugin package ids must stay unified')
+assert.equal(componentManifest.name, manifest.name, 'root Component manifest must use the canonical plugin id')
+assert.equal(pluginComponentManifest.name, pluginManifest.name, 'npm Component manifest must use the canonical plugin id')
+assert.equal(componentManifest.version, manifest.version, 'root Component manifest version must match package.json')
+assert.equal(pluginComponentManifest.version, pluginManifest.version, 'npm Component manifest version must match package.json')
+assert.equal(componentManifest.facets?.host?.entry, 'index.js', 'root Component manifest must expose the GitHub Host entry')
+assert.equal(pluginComponentManifest.facets?.host?.entry, 'dist/index.js', 'npm Component manifest must expose the npm Host entry')
+assert.ok(
+  componentManifest.contributes?.commands?.some(command => command.id === 'ds-harness.remote'),
+  'root Component manifest must declare the /remote command',
+)
 assert.equal(manifest.description, 'DeepSeek 远程连接', 'root package must expose the Chinese plugin name')
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml', 'root package must declare a DSH bundle patch')
 assert.equal(manifest.dsh?.client?.platform, 'web', 'root package must declare its browser client face')
@@ -34,7 +46,9 @@ assert.equal(manifest.exports?.['./client'], './packages/plugin/dist/client.gith
 
 for (const file of [
   'index.js',
+  'dsh-plugin.json',
   'cordis.patch.yml',
+  'packages/plugin/dsh-plugin.json',
   'packages/plugin/dist/index.js',
   'packages/plugin/dist/client.github.js',
   'packages/plugin/public.d.ts',
