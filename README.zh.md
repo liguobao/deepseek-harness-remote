@@ -88,6 +88,9 @@ dsh plugin --profile dsh-tui add ds-harness-remote@0.4.3
 `/remote` Host 管理入口支持 `dsh-v0.1.1-rc.2` 与 `dsh-v0.1.2-alpha.1`–`alpha.2` 的 TUI
 profile；只有官方 Harness carrier 可用时，才会公布对应的 Remote Workspace 能力。
 
+完整兼容矩阵、rc.2 ApiProxy 挂载、状态字段和排障方式见
+[dsh-TUI Remote 使用指南](docs/dsh-tui.md)。
+
 如果需要在 dsh-TUI 启动前授权，可以选择把配套 CLI 安装到 `PATH`，登录后重启 dsh-TUI：
 
 ```sh
@@ -241,6 +244,7 @@ UI 或修改 Workspace 前被拒绝。
 ## 文档
 
 - [插件说明](packages/plugin/README.md)
+- [dsh-TUI Remote 使用指南](docs/dsh-tui.md)
 - [文档索引](docs/README.md)
 - [端到端加密](docs/end-to-end-encryption.md)
 - [网络与传输](docs/network.md)
@@ -249,6 +253,7 @@ UI 或修改 Workspace 前被拒绝。
 
 ## 友情链接
 
+- 友情链接：[dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)（已适配 Remote，参见 [dsh-TUI Remote 使用指南](docs/dsh-tui.md)）
 - 友情链接：[LINUX DO 社区](https://linux.do/)
 - 友情链接：[赛博刘看山](https://kanshan.r2049.cn/)
 

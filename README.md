@@ -91,6 +91,9 @@ subcommands and login providers. The `/remote` Host-management surface supports 
 `dsh-v0.1.1-rc.2` and `dsh-v0.1.2-alpha.1`–`alpha.2`; Remote workspace capabilities are advertised
 only when their official Harness carrier is available.
 
+See the [dsh-TUI Remote guide](docs/dsh-tui.md) for the compatibility matrix, rc.2 ApiProxy setup,
+status fields, and troubleshooting.
+
 For authorization before dsh-TUI starts, the package keeps the companion CLI as an optional
 fallback. Install it on `PATH`, authorize the Host, and then restart dsh-TUI:
 
@@ -265,6 +268,7 @@ connections are rejected before switching the native UI or mutating a Workspace.
 ## Documentation
 
 - [Plugin guide](packages/plugin/README.md)
+- [dsh-TUI Remote guide](docs/dsh-tui.md)
 - [Documentation index](docs/README.md)
 - [End-to-end encryption](docs/end-to-end-encryption.md)
 - [Network and transport](docs/network.md)
@@ -273,6 +277,7 @@ connections are rejected before switching the native UI or mutating a Workspace.
 
 ## Links
 
+- Friendly link: [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) — Remote integration is available; see the [dsh-TUI Remote guide](docs/dsh-tui.md).
 - Friendly link: [LINUX DO](https://linux.do/)
 - Friendly link: [Cyber Liu Kanshan](https://kanshan.r2049.cn/)
 
