@@ -1,75 +1,38 @@
 # 在 dsh-TUI 中使用 DSH Remote
 
-DSH Remote 已适配 [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)。安装到
-`dsh-tui` profile 后，可以直接在 TUI 内使用原生 `/remote` Slash Command 管理当前机器的
-Remote Host，无需 Desktop 浏览器的 `connection` 服务，也不需要单独的 `remote` 命令。
+DSH Remote 已适配 [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)。将插件安装到
+`dsh-tui` profile 后，可以直接在 TUI 中使用 `/remote`，为本机 Harness 开启远程访问权限。
 
-这里的“已适配”指 dsh-TUI 的插件挂载、命令注册、状态界面和二维码登录流程已接通。
-远程 Workspace 的实际数据面仍使用 DSH 官方 carrier；插件不会补写 Harness API，也不会实现
-另一套兼容层。
+## 支持版本
 
-## 兼容范围
+| DSH 版本 | 需要挂载的官方组件 |
+| --- | --- |
+| `dsh-v0.1.1-rc.2` | `@deepseek-ai/dsh-host-apiproxy` |
+| `dsh-v0.1.2-alpha.1`–`alpha.2` | `@deepseek-ai/dsh-api-gateway` 提供的 Typert Remote Gateway |
 
-| DSH 版本 | 官方 Remote carrier | 支持情况 |
-| --- | --- | --- |
-| `dsh-v0.1.1-rc.2` | `ApiProxy` | 支持；TUI profile 必须挂载官方 `@deepseek-ai/dsh-host-apiproxy` |
-| `dsh-v0.1.2-alpha.1`–`alpha.2` | Typert Remote Gateway | 支持；只有 Gateway 公布完整 Remote carrier 时才开放 Workspace 能力 |
+## 1. 安装插件
 
-dsh-TUI 会继续跟随 DSH 更新，因此不要把这张表理解为对未来 DSH 版本的自动兼容承诺。
-当前版本已经覆盖 TUI Host 激活和 `/remote` 管理流程；真实双机环境仍建议按本文最后的检查清单
-完成一次 Workspace、Session 和 Prompt 验证。
-
-## 安装
-
-先按照 [dsh-TUI 项目说明](https://github.com/ccch1mneyyy/dsh-TUI) 安装 dsh-TUI，并确认其使用的
-DSH 版本位于上面的兼容范围。然后把 Remote 插件安装到同一个 profile：
+先按照 [dsh-TUI 项目说明](https://github.com/ccch1mneyyy/dsh-TUI) 完成安装，再将 DSH Remote
+安装到同一个 profile：
 
 ```sh
 dsh plugin --profile dsh-tui add ds-harness-remote@0.4.3
 ```
 
-安装完成后启动或重启 dsh-TUI：
+## 2. 启动前挂载 Remote carrier
 
-```sh
-dsh-tui
-```
+启动 dsh-TUI 前，需要在 `dsh-tui` profile 中挂载与当前 DSH 版本对应的官方 Remote carrier。
+它负责让远程客户端访问 Workspace、Session 和 Prompt。
 
-`dsh-tui` 与 `dsh --profile dsh-tui` 使用同一个 profile。Remote Host 控制在这个纯终端入口中
-默认开启，Server 固定为 `https://dsh.r2049.cn`；当前不提供 Host 地址配置。
+- 使用 `dsh-v0.1.1-rc.2` 时，挂载官方 ApiProxy。
+- 使用 `dsh-v0.1.2-alpha.1`–`alpha.2` 时，挂载官方 Typert Remote Gateway。
 
-## 登录与 Host 管理
+如果没有挂载对应组件，扫码登录和状态查询仍然可用，但远程客户端无法进入 Workspace。
 
-在 dsh-TUI 输入 `/remote`，可以使用以下命令：
+### rc.2 配置示例
 
-```text
-/remote                    # 打开状态界面
-/remote status             # 打开状态界面
-/remote login              # 默认使用知乎二维码登录
-/remote login zhihu
-/remote login github
-/remote logout
-```
-
-子命令和登录平台均支持 Tab 补全。
-
-### 扫码登录
-
-1. 输入 `/remote login` 使用知乎，或输入 `/remote login github` 使用 GitHub。
-2. 使用对应 App 扫描终端中的二维码；也可以直接点击二维码下方的授权 URL。
-3. 在浏览器完成授权，等待 TUI 显示登录成功。
-4. 输入 `/remote status`，确认授权状态和 Server 连接状态正常。
-
-`/remote logout` 会撤销当前 Host 凭证并轮换本地设备身份。再次登录后，这台机器会作为新设备
-重新授权。
-
-## rc.2：补齐官方 ApiProxy
-
-部分 `dsh-v0.1.1-rc.2` 的纯 TUI profile 没有默认挂载 ApiProxy。这种情况下，`/remote` 登录和
-Host 在线状态仍可用，但 `/remote status` 会显示 Harness Remote API 不可用，远程客户端也不能
-进入 Workspace。
-
-先确保当前 profile 已安装 DSH 官方的 `@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.2`。如果 TUI
-profile 尚未挂载它，可以创建 `remote-rc2.patch.yml`：
+部分 rc.2 的纯 TUI profile 没有默认挂载 ApiProxy。确认 profile 已安装
+`@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.2` 后，新建 `remote-rc2.patch.yml`：
 
 ```yaml
 - insert:
@@ -83,59 +46,117 @@ profile 尚未挂载它，可以创建 `remote-rc2.patch.yml`：
   inject: [settings, typertGateway, apiProxy, commands, tuiCommandTrees, tuiScenes]
 ```
 
-再用该覆盖启动 TUI：
+启动时加载该配置：
 
 ```sh
 dsh --profile dsh-tui --patch ./remote-rc2.patch.yml
 ```
 
-这段配置只把 rc.2 官方 ApiProxy 和只读目录选择器挂进现有 profile；Remote 插件仍只负责加密
-传输与固定白名单桥接，不会替代 Harness 的业务 API。
+### alpha.1–alpha.2
 
-## 状态查询
+确认 `dsh-tui` profile 已挂载与当前 DSH 版本匹配的 `@deepseek-ai/dsh-api-gateway`，并提供
+`typertGateway` 服务。使用已经包含该 Gateway 的 profile 时，不需要额外的 rc.2 配置文件。
 
-`/remote` 与 `/remote status` 会显示当前 Host 的关键状态，包括：
+## 3. 启动 dsh-TUI
 
-- 固定 Server 地址和 Host 控制是否开启
-- 当前设备、账号授权和 Server 连接状态
-- Harness Remote API 是否可用，以及当前使用 ApiProxy 还是 Typert Remote
-- 已连接的 Remote Client 数量
-- 可选 Codex Remote 的状态
+如果官方 Remote carrier 已包含在 profile 中，正常启动即可：
 
-登录成功并不等于 Harness carrier 已就绪。用于远程操作 Workspace 时，授权、Server 连接和
-Harness Remote API 三项都应正常。
+```sh
+dsh-tui
+```
 
-## 从另一台设备连接
+如果 rc.2 使用了上面的 `remote-rc2.patch.yml`，请使用带 `--patch` 的启动命令。dsh-TUI
+运行期间，本机 Harness 会保持可远程访问。
 
-保持 dsh-TUI 运行，在另一台设备上使用同一账号登录 DSH Remote，然后选择这台 Host。客户端
-可以是安装了 Remote 插件的 DSH Desktop、Android Client 或配套 Remote Web。
+## 4. 扫码登录
 
-首次验证建议依次检查：
+启动后输入以下任一命令：
 
-1. Host 在设备列表中在线。
-2. 能列出并打开一个 Workspace。
-3. 能打开或创建 Session。
-4. 能发送一条 Prompt 并收到持续输出。
-5. 退出远程 Workspace 后，本地 TUI 会话仍正常。
+```text
+/remote login              # 默认使用知乎
+/remote login zhihu
+/remote login github
+```
+
+TUI 会显示二维码，并在二维码下方显示可点击的授权 URL：
+
+1. 使用知乎或 GitHub 完成扫码授权，也可以直接点击 URL 在浏览器中打开。
+2. 等待 TUI 显示登录成功。
+3. 按 `Esc` 或 `q` 返回会话界面。
+4. 输入 `/remote status` 确认连接状态。
+
+## 5. 查看状态
+
+`/remote` 和 `/remote status` 都会打开状态界面：
+
+```text
+/remote
+/remote status
+```
+
+准备就绪时，重点确认以下三项：
+
+- `Authorization` 显示已登录。
+- `Server connection` 显示 `online`。
+- `Harness Remote API` 显示 `available (ApiProxy)` 或 `available (Typert Remote)`。
+
+状态界面还会显示当前设备、已连接的 Remote Client 数量和 Codex Remote 状态。按 `Esc` 或 `q`
+即可返回。
+
+## 6. 从另一台设备连接
+
+保持 dsh-TUI 运行，然后在另一台设备上登录同一个 DSH Remote 账号：
+
+1. 在设备列表中选择这台运行 dsh-TUI 的电脑。
+2. 选择需要访问的 Workspace。
+3. 打开或创建 Session，即可继续发送 Prompt。
+
+可以使用安装了 DSH Remote 的 DSH Desktop、Android Client 或 Remote Web 连接。
+
+## 退出登录
+
+在 dsh-TUI 中运行：
+
+```text
+/remote logout
+```
+
+退出后，这台电脑将不再以当前设备身份提供远程访问。下次使用时需要重新扫码授权。
+
+## 可选：在启动前登录
+
+如果希望先在普通终端中完成登录，可以使用配套 CLI：
+
+```sh
+npm install -g ds-harness-remote@0.4.3
+ds-harness-remote login github
+ds-harness-remote status
+dsh-tui
+```
+
+CLI 同样支持 `login zhihu`、`status` 和 `logout`。登录或退出后需要重启 dsh-TUI。
 
 ## 常见问题
 
 ### `The Host does not provide a compatible Harness Remote API`
 
-Host 已登录并在线，但当前 profile 没有提供匹配的官方 carrier。rc.2 请检查 ApiProxy 是否按上节
-挂载；alpha.1/alpha.2 请检查 Typert Gateway 是否公布完整 Remote carrier。两端 Desktop 还必须
-使用同一 Harness transport 代际，rc.2 与 alpha 不能混连。
+当前 profile 没有挂载与 DSH 版本匹配的官方 Remote carrier：
 
-### 二维码无法扫描
+- rc.2 检查 ApiProxy 和 `apiProxy` 注入。
+- alpha.1–alpha.2 检查 Typert Remote Gateway 和 `typertGateway` 服务。
 
-优先点击二维码下方的授权 URL；如果授权场景已经退出，请重新运行 `/remote login`，或使用
-`/remote login github` 指定 GitHub。
+Host 与 Desktop Client 还需要使用同一代 Harness transport，rc.2 与 alpha 不能混用。
 
 ### 找不到 `/remote`
 
-确认插件安装在 `dsh-tui` profile，而不是只安装在 `web` profile，然后完整重启 dsh-TUI。
+确认 DSH Remote 安装在 `dsh-tui` profile，而不是只安装在 `web` profile，然后完整重启
+dsh-TUI。
 
-### 为什么没有 `/remote config`
+### 二维码显示不完整或无法扫描
 
-Host 控制默认开启，当前版本固定连接 `https://dsh.r2049.cn`，暂不开放 Host 配置，因此只提供
-`login`、`status` 和 `logout`。
+放大终端窗口后重新运行 `/remote login`。也可以直接点击二维码下方的授权 URL 完成登录。
+
+### 登录后设备仍不在线
+
+运行 `/remote status`，确认 `Authorization` 已登录且 `Server connection` 为 `online`。同时保持
+dsh-TUI 进程运行。
