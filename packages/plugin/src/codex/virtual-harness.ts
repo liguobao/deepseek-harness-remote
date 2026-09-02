@@ -25,6 +25,8 @@ const MAX_CODEX_PROMPT_PARTS = 16
 const MAX_CODEX_PROMPT_TEXT = 256 * 1024
 const MAX_CODEX_IMAGE_BASE64 = 288 * 1024 * 1024
 const CODEX_IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+const CODEX_IMAGE_ATTACHMENT_PREFIX = 'codex-image:'
+const DATA_IMAGE_URL = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/u
 
 type CodexPermissionPreset = 'workspace-write' | 'danger-full-access'
 
@@ -160,6 +162,12 @@ interface ToolEventView {
   view: JsonRecord
 }
 
+interface CodexImageAttachmentEntry {
+  sessionId: string
+  attachment: JsonRecord
+  data: string
+}
+
 interface ProjectedNativeEvent {
   type: string
   data: unknown
@@ -195,6 +203,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private readonly blankThreads = new Set<string>()
   private readonly selectedModels = new Map<string, CodexModelSelection>()
   private readonly selectedPermissions = new Map<string, CodexPermissionPreset>()
+  private readonly imageAttachments = new Map<string, CodexImageAttachmentEntry>()
   private modelDirectory?: CodexModelDirectory
   private modelDirectoryPromise?: Promise<CodexModelDirectory>
   private lastProjectionSeq = 0
@@ -301,7 +310,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         case 'session/cancel': return business(await this.cancel(requestArg(args), signal))
         case 'session/rename': return business(await this.renameSession(requestArg(args), signal))
         case 'session/updateQueue': return business(failure('queue-item-not-found', 'CodeX does not expose a DSH inbox queue.'))
-        case 'session/attachment': return business(failure('attachment-error', 'CodeX virtual Sessions do not expose DSH attachments.'))
+        case 'session/attachment': return business(await this.attachment(requestArg(args), signal))
         case 'session/modelCatalog': return business(success(modelCatalog(await this.models(signal))))
         case 'session/models': {
           const sessionId = requiredString(requestArg(args).sessionId, 'sessionId')
@@ -365,6 +374,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     this.blankThreads.clear()
     this.selectedModels.clear()
     this.selectedPermissions.clear()
+    this.imageAttachments.clear()
   }
 
   private async refreshCatalog(signal?: AbortSignal): Promise<CatalogState> {
@@ -832,6 +842,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       1,
       follow.requestId,
       this.modelSelection(follow.sessionId),
+      follow.sessionId,
     )) {
       if (event.type === 'tool/call' && follow.startedItems.has(itemId)) continue
       if (event.type === 'tool/result') this.pushToolResult(follow, itemId, event)
@@ -863,8 +874,9 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
               surfaceOp: { op: 'replace' as const, start: placement.replaceSeq, end: placement.replaceSeq },
               sourceEventSeqs: [placement.replaceSeq],
             }
-        : {}),
+          : {}),
     }
+    this.cacheImageBlocks(follow.sessionId, event.data)
     if (!follow.rcOnly) {
       const alphaEvent = typeof event.surfaceOp === 'object'
         ? { ...event, surfaceOp: 'replace' as const }
@@ -882,6 +894,16 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       ...(view === undefined ? {} : { view }),
     })
     return seq
+  }
+
+  private cacheImageBlocks(sessionId: string, value: unknown): void {
+    for (const block of collectImageBlocks(value)) {
+      const attachment = record(block.attachment)
+      const attachmentId = string(attachment.attachmentId)
+      const data = string(block.data)
+      if (attachmentId === undefined || data === undefined || !attachmentId.startsWith(CODEX_IMAGE_ATTACHMENT_PREFIX)) continue
+      this.imageAttachments.set(attachmentId, { sessionId, attachment, data })
+    }
   }
 
   private ensureStreamBlock(
@@ -963,6 +985,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       1,
       follow.requestId,
       this.modelSelection(follow.sessionId),
+      follow.sessionId,
     ).find(event => event.type === 'tool/call')
     if (call !== undefined && !follow.liveToolResultSeq.has(`${itemId}:call`)) {
       this.pushEvent(follow, call.type, call.data, call.view)
@@ -1165,6 +1188,31 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     return success({ accepted: true })
   }
 
+  private async attachment(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
+    const sessionId = requiredString(request.sessionId, 'sessionId')
+    const attachmentId = requiredString(request.attachmentId, 'attachmentId')
+    if (!attachmentId.startsWith(CODEX_IMAGE_ATTACHMENT_PREFIX)) {
+      return failure('attachment-error', 'The CodeX image is not available in this virtual Session.', { reason: 'not-referenced' })
+    }
+    nativeThreadId(sessionId)
+    const cached = this.imageAttachments.get(attachmentId)
+    if (cached?.sessionId === sessionId) return success({ attachment: cached.attachment, data: cached.data })
+
+    await this.hydrateImageAttachments(sessionId, signal)
+    const hydrated = this.imageAttachments.get(attachmentId)
+    return hydrated?.sessionId === sessionId
+      ? success({ attachment: hydrated.attachment, data: hydrated.data })
+      : failure('attachment-error', 'The CodeX image is not available in this virtual Session.', { reason: 'not-referenced' })
+  }
+
+  private async hydrateImageAttachments(sessionId: string, signal: AbortSignal): Promise<void> {
+    const threadId = nativeThreadId(sessionId)
+    const result = record(await this.client.request('thread/read', { threadId, includeTurns: true }, signal))
+    const thread = record(result.thread)
+    if (string(thread.id) !== threadId) throw new Error('CodeX returned an invalid Thread history.')
+    this.cacheHistoryImages(projectCodexNativeHistory(thread, sessionId))
+  }
+
   private async cancel(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
     const sessionId = requiredString(request.sessionId, 'sessionId')
     const threadId = nativeThreadId(sessionId)
@@ -1236,7 +1284,14 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     if (!isCodexNativeHistoryPage(value, `codex:${threadId}`)) {
       throw new Error('CodeX Remote returned an invalid paginated History.')
     }
+    this.cacheHistoryImages(value)
     return value
+  }
+
+  private cacheHistoryImages(history: CodexNativeHistoryPage | CodexNativeHistory): void {
+    const sessionId = history.header.id
+    const entries = 'entries' in history ? history.entries : history.records
+    for (const entry of entries) this.cacheImageBlocks(sessionId, entry.event.data)
   }
 
   private async sessionHistory(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
@@ -1627,7 +1682,7 @@ export function projectCodexNativeHistory(thread: JsonRecord, sessionId: string)
     for (const rawItem of array(turn.items)) {
       const item = record(rawItem)
       let toolCallSeq: number | undefined
-      for (const event of itemEvents(item, turnNumber, 1)) {
+      for (const event of itemEvents(item, turnNumber, 1, undefined, modelSelection(), sessionId)) {
         const eventSeq = append(
           event.type,
           event.data,
@@ -1694,6 +1749,7 @@ function itemEvents(
   step: number,
   requestId?: string,
   selection: CodexModelSelection = modelSelection(),
+  sessionId = CODEX_SESSION_PREFIX,
 ): ProjectedNativeEvent[] {
   const type = string(item.type)
   const id = string(item.id) ?? `${turn}:${step}:${hashString(JSON.stringify(item))}`
@@ -1703,7 +1759,7 @@ function itemEvents(
     data: {
       id,
       role: 'user',
-      content: [{ type: 'text', text: text ?? '' }],
+      content: messageContent(item, `${sessionId}:${id}`, 'text', text),
       source: requestId === undefined || requestId === '' ? { kind: 'user' } : { kind: 'user', rpcId: requestId },
     },
   }]
@@ -1715,7 +1771,7 @@ function itemEvents(
       message: {
         id,
         role: 'assistant',
-        content: [{ type: type === 'reasoning' ? 'reasoning' : 'text', text: text ?? '' }],
+        content: messageContent(item, `${sessionId}:${id}`, type === 'reasoning' ? 'reasoning' : 'text', text),
         source: { kind: 'model', provider: selection.provider, model: selection.model },
       },
     },
@@ -1746,6 +1802,253 @@ function itemEvents(
     },
   }]
   return []
+}
+
+function messageContent(
+  item: JsonRecord,
+  attachmentSeed: string,
+  fallbackType: 'text' | 'reasoning',
+  fallbackText?: string,
+): JsonRecord[] {
+  const source = item.content ?? item.input
+  const blocks = contentBlocks(source, attachmentSeed)
+  if (blocks.length > 0) return blocks
+  return [{ type: fallbackType, text: fallbackText ?? '' }]
+}
+
+function contentBlocks(value: unknown, attachmentSeed: string): JsonRecord[] {
+  if (typeof value === 'string') return [{ type: 'text', text: value }]
+  if (!Array.isArray(value)) return []
+  const blocks: JsonRecord[] = []
+  let imageIndex = 0
+  for (const raw of value) {
+    if (typeof raw === 'string') {
+      blocks.push({ type: 'text', text: raw })
+      continue
+    }
+    const block = record(raw)
+    const image = imageContentBlock(block, attachmentSeed, imageIndex)
+    if (image !== undefined) {
+      imageIndex += 1
+      blocks.push(image)
+      continue
+    }
+    const text = string(block.text) ?? string(block.content)
+    if (text !== undefined) blocks.push({ type: block.type === 'reasoning' ? 'reasoning' : 'text', text })
+  }
+  return blocks
+}
+
+function imageContentBlock(block: JsonRecord, attachmentSeed: string, index: number): JsonRecord | undefined {
+  if (!isImageContent(block)) return undefined
+  const image = parseImageBlock(block)
+  if (image === undefined) return undefined
+  const dimensions = imageDimensions(image.mediaType, image.data)
+  const name = string(block.name)
+  const attachment = {
+    attachmentId: `${CODEX_IMAGE_ATTACHMENT_PREFIX}${hashString(`${attachmentSeed}:${index}`)}:${index}`,
+    mediaType: image.mediaType,
+    bytes: base64ByteLength(image.data),
+    width: dimensions.width,
+    height: dimensions.height,
+    ...(name === undefined ? {} : { name }),
+  }
+  return {
+    type: 'image',
+    attachment,
+    mediaType: image.mediaType,
+    data: image.data,
+    url: image.url,
+    ...(name === undefined ? {} : { name }),
+  }
+}
+
+function isImageContent(block: JsonRecord): boolean {
+  return block.type === 'image' || block.type === 'input_image'
+}
+
+function parseImageBlock(block: JsonRecord): { mediaType: string; data: string; url: string } | undefined {
+  const url = string(block.url)
+    ?? string(block.image_url)
+    ?? string(record(block.image_url).url)
+  const parsed = url === undefined ? undefined : parseDataImageUrl(url)
+  if (parsed !== undefined) return parsed
+
+  const data = string(block.data)
+  if (data === undefined || !isCanonicalBase64(data)) return undefined
+  const mediaType = string(block.mediaType) ?? sniffImageMediaType(data)
+  return mediaType !== undefined && CODEX_IMAGE_MEDIA_TYPES.has(mediaType)
+    ? { mediaType, data, url: `data:${mediaType};base64,${data}` }
+    : undefined
+}
+
+function parseDataImageUrl(value: string): { mediaType: string; data: string; url: string } | undefined {
+  const match = DATA_IMAGE_URL.exec(value)
+  if (match === null) return undefined
+  const mediaType = match[1]!
+  const data = match[2]!
+  if (!CODEX_IMAGE_MEDIA_TYPES.has(mediaType) || !isCanonicalBase64(data)) return undefined
+  return { mediaType, data, url: `data:${mediaType};base64,${data}` }
+}
+
+function collectImageBlocks(value: unknown, output: JsonRecord[] = []): JsonRecord[] {
+  if (Array.isArray(value)) {
+    for (const item of value) collectImageBlocks(item, output)
+    return output
+  }
+  if (!isRecord(value)) return output
+  if (value.type === 'image') output.push(value)
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'attachment') continue
+    if (key === 'content' || key === 'message' || key === 'inserted' || key === 'chunk' || key === 'block') {
+      collectImageBlocks(child, output)
+    }
+  }
+  return output
+}
+
+function base64ByteLength(value: string): number {
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
+  return Math.max(1, Math.floor(value.length * 3 / 4) - padding)
+}
+
+function imageDimensions(mediaType: string, data: string): { width: number; height: number } {
+  const bytes = base64PrefixBytes(data, 256 * 1024)
+  const parsed = mediaType === 'image/png'
+    ? pngDimensions(bytes)
+    : mediaType === 'image/jpeg'
+      ? jpegDimensions(bytes)
+      : mediaType === 'image/gif'
+        ? gifDimensions(bytes)
+        : mediaType === 'image/webp'
+          ? webpDimensions(bytes)
+          : undefined
+  return parsed ?? { width: 1, height: 1 }
+}
+
+function pngDimensions(bytes: Uint8Array): { width: number; height: number } | undefined {
+  if (bytes.length < 24
+    || bytes[0] !== 0x89
+    || bytes[1] !== 0x50
+    || bytes[2] !== 0x4e
+    || bytes[3] !== 0x47
+    || bytes[4] !== 0x0d
+    || bytes[5] !== 0x0a
+    || bytes[6] !== 0x1a
+    || bytes[7] !== 0x0a) return undefined
+  return positiveDimensions(readUint32BE(bytes, 16), readUint32BE(bytes, 20))
+}
+
+function jpegDimensions(bytes: Uint8Array): { width: number; height: number } | undefined {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return undefined
+  let offset = 2
+  while (offset + 9 < bytes.length) {
+    if (bytes[offset] !== 0xff) {
+      offset += 1
+      continue
+    }
+    const marker = bytes[offset + 1]!
+    offset += 2
+    if (marker === 0xd8 || marker === 0xd9) continue
+    if (offset + 2 > bytes.length) return undefined
+    const length = readUint16BE(bytes, offset)
+    if (length < 2 || offset + length > bytes.length) return undefined
+    if (isJpegSof(marker) && length >= 7) {
+      return positiveDimensions(readUint16BE(bytes, offset + 5), readUint16BE(bytes, offset + 3))
+    }
+    offset += length
+  }
+  return undefined
+}
+
+function gifDimensions(bytes: Uint8Array): { width: number; height: number } | undefined {
+  if (bytes.length < 10
+    || bytes[0] !== 0x47
+    || bytes[1] !== 0x49
+    || bytes[2] !== 0x46
+    || bytes[3] !== 0x38
+    || (bytes[4] !== 0x37 && bytes[4] !== 0x39)
+    || bytes[5] !== 0x61) return undefined
+  return positiveDimensions(readUint16LE(bytes, 6), readUint16LE(bytes, 8))
+}
+
+function webpDimensions(bytes: Uint8Array): { width: number; height: number } | undefined {
+  if (bytes.length < 30
+    || stringFromBytes(bytes, 0, 4) !== 'RIFF'
+    || stringFromBytes(bytes, 8, 12) !== 'WEBP') return undefined
+  const chunk = stringFromBytes(bytes, 12, 16)
+  if (chunk === 'VP8X') {
+    return positiveDimensions(1 + readUint24LE(bytes, 24), 1 + readUint24LE(bytes, 27))
+  }
+  if (chunk === 'VP8L' && bytes[20] === 0x2f) {
+    const b0 = bytes[21]!
+    const b1 = bytes[22]!
+    const b2 = bytes[23]!
+    const b3 = bytes[24]!
+    const width = 1 + b0 + ((b1 & 0x3f) << 8)
+    const height = 1 + ((b1 & 0xc0) >> 6) + (b2 << 2) + ((b3 & 0x0f) << 10)
+    return positiveDimensions(width, height)
+  }
+  if (chunk === 'VP8 ' && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) {
+    return positiveDimensions(readUint16LE(bytes, 26) & 0x3fff, readUint16LE(bytes, 28) & 0x3fff)
+  }
+  return undefined
+}
+
+function sniffImageMediaType(data: string): string | undefined {
+  const bytes = base64PrefixBytes(data, 32)
+  if (pngDimensions(bytes) !== undefined) return 'image/png'
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (gifDimensions(bytes) !== undefined) return 'image/gif'
+  if (bytes.length >= 12 && stringFromBytes(bytes, 0, 4) === 'RIFF' && stringFromBytes(bytes, 8, 12) === 'WEBP') return 'image/webp'
+  return undefined
+}
+
+function base64PrefixBytes(value: string, maxBytes: number): Uint8Array {
+  const chars = value.slice(0, Math.ceil(maxBytes / 3) * 4)
+  let binary: string
+  try {
+    binary = atob(chars)
+  } catch {
+    return new Uint8Array()
+  }
+  const bytes = new Uint8Array(Math.min(binary.length, maxBytes))
+  for (let index = 0; index < bytes.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return bytes
+}
+
+function readUint16BE(bytes: Uint8Array, offset: number): number {
+  return (bytes[offset]! << 8) + bytes[offset + 1]!
+}
+
+function readUint16LE(bytes: Uint8Array, offset: number): number {
+  return bytes[offset]! + (bytes[offset + 1]! << 8)
+}
+
+function readUint24LE(bytes: Uint8Array, offset: number): number {
+  return bytes[offset]! + (bytes[offset + 1]! << 8) + (bytes[offset + 2]! << 16)
+}
+
+function readUint32BE(bytes: Uint8Array, offset: number): number {
+  return (bytes[offset]! * 0x1000000) + (bytes[offset + 1]! * 0x10000) + (bytes[offset + 2]! * 0x100) + bytes[offset + 3]!
+}
+
+function positiveDimensions(width: number, height: number): { width: number; height: number } | undefined {
+  return width > 0 && height > 0 ? { width, height } : undefined
+}
+
+function isJpegSof(marker: number): boolean {
+  return (marker >= 0xc0 && marker <= 0xc3)
+    || (marker >= 0xc5 && marker <= 0xc7)
+    || (marker >= 0xc9 && marker <= 0xcb)
+    || (marker >= 0xcd && marker <= 0xcf)
+}
+
+function stringFromBytes(bytes: Uint8Array, start: number, end: number): string {
+  if (bytes.length < end) return ''
+  let output = ''
+  for (let index = start; index < end; index += 1) output += String.fromCharCode(bytes[index]!)
+  return output
 }
 
 function toolResultEvent(
@@ -2127,8 +2430,11 @@ function displayTitle(session: DisplaySession): string | null {
 function itemText(value: JsonRecord): string | undefined {
   if (typeof value.text === 'string') return value.text
   if (typeof value.content === 'string') return value.content
-  if (Array.isArray(value.content)) {
-    const text = value.content.map(part => {
+  const content = Array.isArray(value.content)
+    ? value.content
+    : Array.isArray(value.input) ? value.input : undefined
+  if (content !== undefined) {
+    const text = content.map(part => {
       if (typeof part === 'string') return part
       const block = record(part)
       return string(block.text) ?? string(block.content) ?? ''

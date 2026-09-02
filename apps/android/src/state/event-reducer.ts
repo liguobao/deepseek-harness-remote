@@ -3,6 +3,8 @@ import type { HistoryEntry, ApprovalOutcome, ChatItem, ChatMessage, MuxStreamFra
 type UnknownRecord = Record<string, unknown>
 
 const MAX_TOOL_DETAIL_CHARS = 64_000
+const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+const DATA_IMAGE_URL = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/u
 
 /** Fold a native history event window into ordered chat items. */
 export function foldHistory(events: HistoryEntry[], sessionId: string): ChatItem[] {
@@ -471,8 +473,42 @@ function messageImages(data: UnknownRecord): NonNullable<ChatMessage['images']> 
   const content = Array.isArray(message.content) ? message.content : []
   return content.flatMap(block => {
     if (!isRecord(block) || block.type !== 'image') return []
-    return [{ ...(typeof block.name === 'string' ? { name: block.name } : {}) }]
+    const attachment = isRecord(block.attachment) ? block.attachment : {}
+    const attachmentId = stringValue(block.attachmentId) ?? stringValue(attachment.attachmentId)
+    const uri = imageDataUri(block)
+    if (uri === undefined && attachmentId === undefined) return []
+    const name = stringValue(block.name) ?? stringValue(attachment.name)
+    return [{
+      ...(uri === undefined ? {} : { uri }),
+      ...(name === undefined ? {} : { name }),
+    }]
   })
+}
+
+function imageDataUri(block: UnknownRecord): string | undefined {
+  const url = stringValue(block.url) ?? stringValue(block.uri)
+  const parsed = url === undefined ? undefined : parseDataImageUrl(url)
+  if (parsed !== undefined) return parsed
+  const data = stringValue(block.data)
+  const mediaType = stringValue(block.mediaType)
+  if (data === undefined || mediaType === undefined || !IMAGE_MEDIA_TYPES.has(mediaType) || !isCanonicalBase64(data)) {
+    return undefined
+  }
+  return `data:${mediaType};base64,${data}`
+}
+
+function parseDataImageUrl(value: string): string | undefined {
+  const match = DATA_IMAGE_URL.exec(value)
+  if (match === null) return undefined
+  const mediaType = match[1]!
+  const data = match[2]!
+  if (!IMAGE_MEDIA_TYPES.has(mediaType) || !isCanonicalBase64(data)) return undefined
+  return `data:${mediaType};base64,${data}`
+}
+
+function isCanonicalBase64(value: string): boolean {
+  return value.length >= 4 && value.length % 4 === 0
+    && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)
 }
 
 function messageRequestRpcId(data: UnknownRecord): string | undefined {

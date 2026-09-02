@@ -167,6 +167,32 @@ describe('remote mux frame reducer', () => {
     ])
   })
 
+  it('renders safe data image blocks from native history', () => {
+    const event = sessionEvent({
+      type: 'user/message',
+      data: {
+        message: {
+          id: 'u-data-image',
+          role: 'user',
+          content: [
+            { type: 'image', url: 'data:image/png;base64,aW1hZ2U=', name: 'screen.png' },
+            { type: 'image', url: 'https://example.test/not-allowed.png', name: 'external.png' },
+          ],
+          source: { kind: 'user' },
+        },
+      },
+    })
+
+    expect(foldHistory([{ event }], 's1')).toEqual([
+      expect.objectContaining({
+        kind: 'message',
+        id: 'u-data-image',
+        role: 'user',
+        images: [{ uri: 'data:image/png;base64,aW1hZ2U=', name: 'screen.png' }],
+      }),
+    ])
+  })
+
   it('hides plugin-injected system context from history and live conversation rows', () => {
     const injected = sessionEvent({
       type: 'user/message',

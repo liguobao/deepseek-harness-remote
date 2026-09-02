@@ -4454,6 +4454,8 @@ function createRemoteId() {
 
 // ../client-core/dist/codex-client.js
 var MAX_DISPLAY_ITEM_TEXT = 256 * 1024;
+var CODEX_IMAGE_MEDIA_TYPES = /* @__PURE__ */ new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+var DATA_IMAGE_URL = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/u;
 var CodexRemoteClient = class {
   core;
   constructor(core) {
@@ -4462,7 +4464,7 @@ var CodexRemoteClient = class {
   /** Low-level allowlisted request used by the Desktop Web loopback facade. */
   request(method, params, signal) {
     const largeHistory = method === "dsh/sessionHistory" || method === "thread/read" && isRecord(params) && params.includeTurns === true;
-    return this.call(method, params, largeHistory, signal);
+    return this.call(method, params, largeHistory || hasImageInput(params), signal);
   }
   async account(signal) {
     return this.call("account/read", { refreshToken: false }, false, signal);
@@ -4606,6 +4608,9 @@ var CodexRemoteClient = class {
     }
   }
 };
+function hasImageInput(params) {
+  return isRecord(params) && Array.isArray(params.input) && params.input.some((value) => isRecord(value) && value.type === "image");
+}
 function projectCodexThread(value) {
   if (!isRecord(value) || typeof value.id !== "string")
     return void 0;
@@ -4652,14 +4657,31 @@ function projectCodexItem(value, threadId, turnId, sessionId, index) {
     nativeRef: { threadId, turnId, ...typeof item.id === "string" ? { itemId: item.id } : {} },
     ...normalizeTimestamp(item.createdAt) > 0 ? { createdAt: normalizeTimestamp(item.createdAt) } : {}
   };
-  if (type === "userMessage")
-    return { ...base, kind: "message", role: "user", text: itemText(item) };
-  if (type === "agentMessage")
-    return { ...base, kind: "message", role: "assistant", text: itemText(item), status: projectItemStatus(item.status) };
+  if (type === "userMessage") {
+    const images = itemImages(item);
+    return {
+      ...base,
+      kind: "message",
+      role: "user",
+      text: itemText(item),
+      ...images.length === 0 ? {} : { images }
+    };
+  }
+  if (type === "agentMessage") {
+    const images = itemImages(item);
+    return {
+      ...base,
+      kind: "message",
+      role: "assistant",
+      text: itemText(item),
+      ...images.length === 0 ? {} : { images },
+      status: projectItemStatus(item.status)
+    };
+  }
   if (type === "commandExecution") {
     return { ...base, kind: "tool", text: commandExecutionText(item), status: projectItemStatus(item.status), details: { type } };
   }
-  if (type === "mcpToolCall" || type === "dynamicToolCall") {
+  if (isToolItemType(type)) {
     return { ...base, kind: "tool", text: toolCallText(item), status: projectItemStatus(item.status), details: { type } };
   }
   if (type === "fileChange") {
@@ -4701,10 +4723,89 @@ function projectItemStatus(value) {
 function itemText(item) {
   if (typeof item.text === "string")
     return boundedText(item.text);
-  if (!Array.isArray(item.content))
+  if (typeof item.content === "string")
+    return boundedText(item.content);
+  const content = Array.isArray(item.content) ? item.content : Array.isArray(item.input) ? item.input : void 0;
+  if (content === void 0)
     return void 0;
-  const parts = item.content.flatMap((value) => isRecord(value) && value.type === "text" && typeof value.text === "string" ? [value.text] : []);
+  const parts = content.flatMap((value) => {
+    if (typeof value === "string")
+      return [value];
+    if (!isRecord(value))
+      return [];
+    if (typeof value.text === "string")
+      return [value.text];
+    return typeof value.content === "string" ? [value.content] : [];
+  });
   return parts.length > 0 ? boundedText(parts.join("\n")) : void 0;
+}
+function itemImages(item) {
+  const content = Array.isArray(item.content) ? item.content : Array.isArray(item.input) ? item.input : [];
+  return content.flatMap((value) => {
+    if (!isRecord(value) || !isImageContent(value))
+      return [];
+    const uri = imageDataUri(value);
+    if (uri === void 0)
+      return [];
+    return [{
+      uri,
+      ...typeof value.name === "string" && value.name.length > 0 ? { name: value.name } : {}
+    }];
+  });
+}
+function isImageContent(value) {
+  return value.type === "image" || value.type === "input_image";
+}
+function imageDataUri(value) {
+  const url = typeof value.url === "string" ? value.url : typeof value.image_url === "string" ? value.image_url : isRecord(value.image_url) && typeof value.image_url.url === "string" ? value.image_url.url : void 0;
+  const parsed = url === void 0 ? void 0 : parseDataImageUrl(url);
+  if (parsed !== void 0)
+    return parsed.url;
+  if (typeof value.data !== "string" || !isCanonicalBase64(value.data))
+    return void 0;
+  const mediaType = typeof value.mediaType === "string" ? value.mediaType : sniffImageMediaType(value.data);
+  return mediaType !== void 0 && CODEX_IMAGE_MEDIA_TYPES.has(mediaType) ? `data:${mediaType};base64,${value.data}` : void 0;
+}
+function parseDataImageUrl(value) {
+  const match = DATA_IMAGE_URL.exec(value);
+  if (match === null)
+    return void 0;
+  const mediaType = match[1];
+  const data = match[2];
+  if (!CODEX_IMAGE_MEDIA_TYPES.has(mediaType) || !isCanonicalBase64(data))
+    return void 0;
+  return { url: `data:${mediaType};base64,${data}`, mediaType, data };
+}
+function isCanonicalBase64(value) {
+  return value.length >= 4 && value.length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value);
+}
+function sniffImageMediaType(data) {
+  const bytes = base64PrefixBytes(data, 32);
+  if (bytes.length >= 8 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71 && bytes[4] === 13 && bytes[5] === 10 && bytes[6] === 26 && bytes[7] === 10)
+    return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255)
+    return "image/jpeg";
+  if (bytes.length >= 6 && bytes[0] === 71 && bytes[1] === 73 && bytes[2] === 70 && bytes[3] === 56 && (bytes[4] === 55 || bytes[4] === 57) && bytes[5] === 97)
+    return "image/gif";
+  if (bytes.length >= 12 && bytes[0] === 82 && bytes[1] === 73 && bytes[2] === 70 && bytes[3] === 70 && bytes[8] === 87 && bytes[9] === 69 && bytes[10] === 66 && bytes[11] === 80)
+    return "image/webp";
+  return void 0;
+}
+function base64PrefixBytes(value, maxBytes) {
+  const chars = value.slice(0, Math.ceil(maxBytes / 3) * 4);
+  let binary;
+  try {
+    binary = atob(chars);
+  } catch {
+    return new Uint8Array();
+  }
+  const bytes = new Uint8Array(Math.min(binary.length, maxBytes));
+  for (let index = 0; index < bytes.length; index += 1)
+    bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+function isToolItemType(type) {
+  return type === "mcpToolCall" || type === "dynamicToolCall" || type === "functionCallOutput" || type === "hookPrompt" || type === "collabAgentToolCall" || type === "subAgentActivity" || type === "webSearch" || type === "imageView" || type === "imageGeneration" || type === "sleep" || type === "enteredReviewMode" || type === "exitedReviewMode" || type === "contextCompaction";
 }
 function toolLabel(item) {
   if (typeof item.tool === "string")
@@ -4727,6 +4828,28 @@ function commandExecutionText(item) {
 ${output}`);
 }
 function toolCallText(item) {
+  const type = typeof item.type === "string" ? item.type : void 0;
+  if (type === "webSearch") {
+    const count = Array.isArray(item.results) ? item.results.length : 0;
+    return count === 0 ? "Web search completed." : `Web search returned ${count} result${count === 1 ? "" : "s"}.`;
+  }
+  if (type === "imageView")
+    return `Viewed image: ${typeof item.path === "string" ? item.path : "image"}`;
+  if (type === "imageGeneration") {
+    return typeof item.savedPath === "string" ? `Generated image: ${item.savedPath}` : `Image generation ${typeof item.status === "string" ? item.status : "completed"}.`;
+  }
+  if (type === "contextCompaction")
+    return "CodeX compacted the conversation context.";
+  if (type === "enteredReviewMode" || type === "exitedReviewMode") {
+    const action = type === "enteredReviewMode" ? "Entered" : "Exited";
+    return `${action} review mode${typeof item.review === "string" ? `: ${item.review}` : "."}`;
+  }
+  if (type === "sleep")
+    return `Waited ${typeof item.durationMs === "number" && Number.isFinite(item.durationMs) ? item.durationMs : 0} ms.`;
+  if (type === "subAgentActivity") {
+    const kind = isRecord(item.kind) && typeof item.kind.type === "string" ? item.kind.type : typeof item.kind === "string" ? item.kind : "Subagent activity";
+    return [kind, typeof item.agentPath === "string" ? item.agentPath : void 0].filter((value) => value !== void 0).join(": ");
+  }
   const label = toolLabel(item);
   const error = compactUnknown(item.error);
   const result = compactUnknown(item.result ?? item.contentItems);
@@ -14204,7 +14327,9 @@ var CODEX_DEFAULT_PERMISSION = "workspace-write";
 var MAX_CODEX_PROMPT_PARTS = 16;
 var MAX_CODEX_PROMPT_TEXT = 256 * 1024;
 var MAX_CODEX_IMAGE_BASE64 = 288 * 1024 * 1024;
-var CODEX_IMAGE_MEDIA_TYPES = /* @__PURE__ */ new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+var CODEX_IMAGE_MEDIA_TYPES2 = /* @__PURE__ */ new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+var CODEX_IMAGE_ATTACHMENT_PREFIX = "codex-image:";
+var DATA_IMAGE_URL2 = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/u;
 async function discoverCodexVirtualWorkspaces(client, signal) {
   return (await loadCatalog(client, signal)).workspaces;
 }
@@ -14228,6 +14353,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   blankThreads = /* @__PURE__ */ new Set();
   selectedModels = /* @__PURE__ */ new Map();
   selectedPermissions = /* @__PURE__ */ new Map();
+  imageAttachments = /* @__PURE__ */ new Map();
   modelDirectory;
   modelDirectoryPromise;
   lastProjectionSeq = 0;
@@ -14328,7 +14454,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         case "session/updateQueue":
           return business(failure("queue-item-not-found", "CodeX does not expose a DSH inbox queue."));
         case "session/attachment":
-          return business(failure("attachment-error", "CodeX virtual Sessions do not expose DSH attachments."));
+          return business(await this.attachment(requestArg(args), signal));
         case "session/modelCatalog":
           return business(success(modelCatalog(await this.models(signal))));
         case "session/models": {
@@ -14398,6 +14524,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     this.blankThreads.clear();
     this.selectedModels.clear();
     this.selectedPermissions.clear();
+    this.imageAttachments.clear();
   }
   async refreshCatalog(signal) {
     const catalog = await loadCatalog(this.client, signal, this.pendingThreads);
@@ -14678,7 +14805,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       if (frame.method === "item/started" && itemId !== void 0) {
         follow.startedItems.add(itemId);
         follow.liveItems.set(itemId, item);
-        if (isToolItemType(string(item.type))) this.ensureToolStarted(follow, item);
+        if (isToolItemType2(string(item.type))) this.ensureToolStarted(follow, item);
       }
       if (frame.method === "item/completed") this.acceptCompletedItem(follow, item, true);
       return;
@@ -14818,7 +14945,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       follow.turn,
       1,
       follow.requestId,
-      this.modelSelection(follow.sessionId)
+      this.modelSelection(follow.sessionId),
+      follow.sessionId
     )) {
       if (event.type === "tool/call" && follow.startedItems.has(itemId)) continue;
       if (event.type === "tool/result") this.pushToolResult(follow, itemId, event);
@@ -14841,6 +14969,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         sourceEventSeqs: [placement.replaceSeq]
       } : {}
     };
+    this.cacheImageBlocks(follow.sessionId, event.data);
     if (!follow.rcOnly) {
       const alphaEvent = typeof event.surfaceOp === "object" ? { ...event, surfaceOp: "replace" } : event;
       follow.queue.push({
@@ -14856,6 +14985,15 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       ...view === void 0 ? {} : { view }
     });
     return seq;
+  }
+  cacheImageBlocks(sessionId, value) {
+    for (const block of collectImageBlocks(value)) {
+      const attachment = record(block.attachment);
+      const attachmentId = string(attachment.attachmentId);
+      const data = string(block.data);
+      if (attachmentId === void 0 || data === void 0 || !attachmentId.startsWith(CODEX_IMAGE_ATTACHMENT_PREFIX)) continue;
+      this.imageAttachments.set(attachmentId, { sessionId, attachment, data });
+    }
   }
   ensureStreamBlock(follow, key, itemId, kind) {
     const current = follow.streamedBlocks.get(key);
@@ -14919,7 +15057,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       follow.turn,
       1,
       follow.requestId,
-      this.modelSelection(follow.sessionId)
+      this.modelSelection(follow.sessionId),
+      follow.sessionId
     ).find((event) => event.type === "tool/call");
     if (call !== void 0 && !follow.liveToolResultSeq.has(`${itemId}:call`)) {
       this.pushEvent(follow, call.type, call.data, call.view);
@@ -15101,6 +15240,26 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     this.blankThreads.delete(threadId);
     return success({ accepted: true });
   }
+  async attachment(request, signal) {
+    const sessionId = requiredString(request.sessionId, "sessionId");
+    const attachmentId = requiredString(request.attachmentId, "attachmentId");
+    if (!attachmentId.startsWith(CODEX_IMAGE_ATTACHMENT_PREFIX)) {
+      return failure("attachment-error", "The CodeX image is not available in this virtual Session.", { reason: "not-referenced" });
+    }
+    nativeThreadId(sessionId);
+    const cached = this.imageAttachments.get(attachmentId);
+    if (cached?.sessionId === sessionId) return success({ attachment: cached.attachment, data: cached.data });
+    await this.hydrateImageAttachments(sessionId, signal);
+    const hydrated = this.imageAttachments.get(attachmentId);
+    return hydrated?.sessionId === sessionId ? success({ attachment: hydrated.attachment, data: hydrated.data }) : failure("attachment-error", "The CodeX image is not available in this virtual Session.", { reason: "not-referenced" });
+  }
+  async hydrateImageAttachments(sessionId, signal) {
+    const threadId = nativeThreadId(sessionId);
+    const result = record(await this.client.request("thread/read", { threadId, includeTurns: true }, signal));
+    const thread = record(result.thread);
+    if (string(thread.id) !== threadId) throw new Error("CodeX returned an invalid Thread history.");
+    this.cacheHistoryImages(projectCodexNativeHistory(thread, sessionId));
+  }
   async cancel(request, signal) {
     const sessionId = requiredString(request.sessionId, "sessionId");
     const threadId = nativeThreadId(sessionId);
@@ -15163,7 +15322,13 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     if (!isCodexNativeHistoryPage(value, `codex:${threadId}`)) {
       throw new Error("CodeX Remote returned an invalid paginated History.");
     }
+    this.cacheHistoryImages(value);
     return value;
+  }
+  cacheHistoryImages(history) {
+    const sessionId = history.header.id;
+    const entries = "entries" in history ? history.entries : history.records;
+    for (const entry of entries) this.cacheImageBlocks(sessionId, entry.event.data);
   }
   async sessionHistory(request, signal) {
     const sessionId = requiredString(request.sessionId, "sessionId");
@@ -15513,7 +15678,7 @@ function projectCodexNativeHistory(thread, sessionId) {
     for (const rawItem of array(turn.items)) {
       const item = record(rawItem);
       let toolCallSeq;
-      for (const event of itemEvents(item, turnNumber, 1)) {
+      for (const event of itemEvents(item, turnNumber, 1, void 0, modelSelection(), sessionId)) {
         const eventSeq = append(
           event.type,
           event.data,
@@ -15567,7 +15732,7 @@ function paginateCodexNativeHistory(history, request) {
     hasMore: window.some((entry) => entry.event.seq < cut)
   };
 }
-function itemEvents(item, turn, step, requestId, selection = modelSelection()) {
+function itemEvents(item, turn, step, requestId, selection = modelSelection(), sessionId = CODEX_SESSION_PREFIX) {
   const type = string(item.type);
   const id2 = string(item.id) ?? `${turn}:${step}:${hashString(JSON.stringify(item))}`;
   const text = itemText2(item);
@@ -15576,7 +15741,7 @@ function itemEvents(item, turn, step, requestId, selection = modelSelection()) {
     data: {
       id: id2,
       role: "user",
-      content: [{ type: "text", text: text ?? "" }],
+      content: messageContent(item, `${sessionId}:${id2}`, "text", text),
       source: requestId === void 0 || requestId === "" ? { kind: "user" } : { kind: "user", rpcId: requestId }
     }
   }];
@@ -15588,12 +15753,12 @@ function itemEvents(item, turn, step, requestId, selection = modelSelection()) {
       message: {
         id: id2,
         role: "assistant",
-        content: [{ type: type === "reasoning" ? "reasoning" : "text", text: text ?? "" }],
+        content: messageContent(item, `${sessionId}:${id2}`, type === "reasoning" ? "reasoning" : "text", text),
         source: { kind: "model", provider: selection.provider, model: selection.model }
       }
     }
   }];
-  if (type !== void 0 && isToolItemType(type)) {
+  if (type !== void 0 && isToolItemType2(type)) {
     const name2 = toolEventName(type);
     const args = toolArguments(item);
     return [
@@ -15619,6 +15784,194 @@ function itemEvents(item, turn, step, requestId, selection = modelSelection()) {
     }
   }];
   return [];
+}
+function messageContent(item, attachmentSeed, fallbackType, fallbackText) {
+  const source = item.content ?? item.input;
+  const blocks = contentBlocks(source, attachmentSeed);
+  if (blocks.length > 0) return blocks;
+  return [{ type: fallbackType, text: fallbackText ?? "" }];
+}
+function contentBlocks(value, attachmentSeed) {
+  if (typeof value === "string") return [{ type: "text", text: value }];
+  if (!Array.isArray(value)) return [];
+  const blocks = [];
+  let imageIndex = 0;
+  for (const raw of value) {
+    if (typeof raw === "string") {
+      blocks.push({ type: "text", text: raw });
+      continue;
+    }
+    const block = record(raw);
+    const image = imageContentBlock(block, attachmentSeed, imageIndex);
+    if (image !== void 0) {
+      imageIndex += 1;
+      blocks.push(image);
+      continue;
+    }
+    const text = string(block.text) ?? string(block.content);
+    if (text !== void 0) blocks.push({ type: block.type === "reasoning" ? "reasoning" : "text", text });
+  }
+  return blocks;
+}
+function imageContentBlock(block, attachmentSeed, index) {
+  if (!isImageContent2(block)) return void 0;
+  const image = parseImageBlock(block);
+  if (image === void 0) return void 0;
+  const dimensions = imageDimensions(image.mediaType, image.data);
+  const name2 = string(block.name);
+  const attachment = {
+    attachmentId: `${CODEX_IMAGE_ATTACHMENT_PREFIX}${hashString(`${attachmentSeed}:${index}`)}:${index}`,
+    mediaType: image.mediaType,
+    bytes: base64ByteLength(image.data),
+    width: dimensions.width,
+    height: dimensions.height,
+    ...name2 === void 0 ? {} : { name: name2 }
+  };
+  return {
+    type: "image",
+    attachment,
+    mediaType: image.mediaType,
+    data: image.data,
+    url: image.url,
+    ...name2 === void 0 ? {} : { name: name2 }
+  };
+}
+function isImageContent2(block) {
+  return block.type === "image" || block.type === "input_image";
+}
+function parseImageBlock(block) {
+  const url = string(block.url) ?? string(block.image_url) ?? string(record(block.image_url).url);
+  const parsed = url === void 0 ? void 0 : parseDataImageUrl2(url);
+  if (parsed !== void 0) return parsed;
+  const data = string(block.data);
+  if (data === void 0 || !isCanonicalBase642(data)) return void 0;
+  const mediaType = string(block.mediaType) ?? sniffImageMediaType2(data);
+  return mediaType !== void 0 && CODEX_IMAGE_MEDIA_TYPES2.has(mediaType) ? { mediaType, data, url: `data:${mediaType};base64,${data}` } : void 0;
+}
+function parseDataImageUrl2(value) {
+  const match = DATA_IMAGE_URL2.exec(value);
+  if (match === null) return void 0;
+  const mediaType = match[1];
+  const data = match[2];
+  if (!CODEX_IMAGE_MEDIA_TYPES2.has(mediaType) || !isCanonicalBase642(data)) return void 0;
+  return { mediaType, data, url: `data:${mediaType};base64,${data}` };
+}
+function collectImageBlocks(value, output = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectImageBlocks(item, output);
+    return output;
+  }
+  if (!isRecord3(value)) return output;
+  if (value.type === "image") output.push(value);
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "attachment") continue;
+    if (key === "content" || key === "message" || key === "inserted" || key === "chunk" || key === "block") {
+      collectImageBlocks(child, output);
+    }
+  }
+  return output;
+}
+function base64ByteLength(value) {
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return Math.max(1, Math.floor(value.length * 3 / 4) - padding);
+}
+function imageDimensions(mediaType, data) {
+  const bytes = base64PrefixBytes2(data, 256 * 1024);
+  const parsed = mediaType === "image/png" ? pngDimensions(bytes) : mediaType === "image/jpeg" ? jpegDimensions(bytes) : mediaType === "image/gif" ? gifDimensions(bytes) : mediaType === "image/webp" ? webpDimensions(bytes) : void 0;
+  return parsed ?? { width: 1, height: 1 };
+}
+function pngDimensions(bytes) {
+  if (bytes.length < 24 || bytes[0] !== 137 || bytes[1] !== 80 || bytes[2] !== 78 || bytes[3] !== 71 || bytes[4] !== 13 || bytes[5] !== 10 || bytes[6] !== 26 || bytes[7] !== 10) return void 0;
+  return positiveDimensions(readUint32BE(bytes, 16), readUint32BE(bytes, 20));
+}
+function jpegDimensions(bytes) {
+  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216) return void 0;
+  let offset = 2;
+  while (offset + 9 < bytes.length) {
+    if (bytes[offset] !== 255) {
+      offset += 1;
+      continue;
+    }
+    const marker = bytes[offset + 1];
+    offset += 2;
+    if (marker === 216 || marker === 217) continue;
+    if (offset + 2 > bytes.length) return void 0;
+    const length = readUint16BE(bytes, offset);
+    if (length < 2 || offset + length > bytes.length) return void 0;
+    if (isJpegSof(marker) && length >= 7) {
+      return positiveDimensions(readUint16BE(bytes, offset + 5), readUint16BE(bytes, offset + 3));
+    }
+    offset += length;
+  }
+  return void 0;
+}
+function gifDimensions(bytes) {
+  if (bytes.length < 10 || bytes[0] !== 71 || bytes[1] !== 73 || bytes[2] !== 70 || bytes[3] !== 56 || bytes[4] !== 55 && bytes[4] !== 57 || bytes[5] !== 97) return void 0;
+  return positiveDimensions(readUint16LE(bytes, 6), readUint16LE(bytes, 8));
+}
+function webpDimensions(bytes) {
+  if (bytes.length < 30 || stringFromBytes(bytes, 0, 4) !== "RIFF" || stringFromBytes(bytes, 8, 12) !== "WEBP") return void 0;
+  const chunk = stringFromBytes(bytes, 12, 16);
+  if (chunk === "VP8X") {
+    return positiveDimensions(1 + readUint24LE(bytes, 24), 1 + readUint24LE(bytes, 27));
+  }
+  if (chunk === "VP8L" && bytes[20] === 47) {
+    const b0 = bytes[21];
+    const b1 = bytes[22];
+    const b2 = bytes[23];
+    const b3 = bytes[24];
+    const width = 1 + b0 + ((b1 & 63) << 8);
+    const height = 1 + ((b1 & 192) >> 6) + (b2 << 2) + ((b3 & 15) << 10);
+    return positiveDimensions(width, height);
+  }
+  if (chunk === "VP8 " && bytes[23] === 157 && bytes[24] === 1 && bytes[25] === 42) {
+    return positiveDimensions(readUint16LE(bytes, 26) & 16383, readUint16LE(bytes, 28) & 16383);
+  }
+  return void 0;
+}
+function sniffImageMediaType2(data) {
+  const bytes = base64PrefixBytes2(data, 32);
+  if (pngDimensions(bytes) !== void 0) return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return "image/jpeg";
+  if (gifDimensions(bytes) !== void 0) return "image/gif";
+  if (bytes.length >= 12 && stringFromBytes(bytes, 0, 4) === "RIFF" && stringFromBytes(bytes, 8, 12) === "WEBP") return "image/webp";
+  return void 0;
+}
+function base64PrefixBytes2(value, maxBytes) {
+  const chars = value.slice(0, Math.ceil(maxBytes / 3) * 4);
+  let binary;
+  try {
+    binary = atob(chars);
+  } catch {
+    return new Uint8Array();
+  }
+  const bytes = new Uint8Array(Math.min(binary.length, maxBytes));
+  for (let index = 0; index < bytes.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+function readUint16BE(bytes, offset) {
+  return (bytes[offset] << 8) + bytes[offset + 1];
+}
+function readUint16LE(bytes, offset) {
+  return bytes[offset] + (bytes[offset + 1] << 8);
+}
+function readUint24LE(bytes, offset) {
+  return bytes[offset] + (bytes[offset + 1] << 8) + (bytes[offset + 2] << 16);
+}
+function readUint32BE(bytes, offset) {
+  return bytes[offset] * 16777216 + bytes[offset + 1] * 65536 + bytes[offset + 2] * 256 + bytes[offset + 3];
+}
+function positiveDimensions(width, height) {
+  return width > 0 && height > 0 ? { width, height } : void 0;
+}
+function isJpegSof(marker) {
+  return marker >= 192 && marker <= 195 || marker >= 197 && marker <= 199 || marker >= 201 && marker <= 203 || marker >= 205 && marker <= 207;
+}
+function stringFromBytes(bytes, start, end) {
+  if (bytes.length < end) return "";
+  let output = "";
+  for (let index = start; index < end; index += 1) output += String.fromCharCode(bytes[index]);
+  return output;
 }
 function toolResultEvent(item, turn, step, id2, resultText) {
   const type = string(item.type) ?? "unknown";
@@ -15657,7 +16010,7 @@ function toolResultContentReplacement(event) {
     }
   };
 }
-function isToolItemType(type) {
+function isToolItemType2(type) {
   return type === "commandExecution" || type === "mcpToolCall" || type === "dynamicToolCall" || type === "fileChange" || type === "functionCallOutput" || type === "hookPrompt" || type === "collabAgentToolCall" || type === "subAgentActivity" || type === "webSearch" || type === "imageView" || type === "imageGeneration" || type === "sleep" || type === "enteredReviewMode" || type === "exitedReviewMode" || type === "contextCompaction";
 }
 function toolEventName(type) {
@@ -15845,7 +16198,7 @@ function codexPromptInput(content) {
       continue;
     }
     if (value.type === "image") {
-      if (typeof value.mediaType !== "string" || !CODEX_IMAGE_MEDIA_TYPES.has(value.mediaType) || typeof value.data !== "string" || value.data.length > MAX_CODEX_IMAGE_BASE64 || !isCanonicalBase64(value.data)) return void 0;
+      if (typeof value.mediaType !== "string" || !CODEX_IMAGE_MEDIA_TYPES2.has(value.mediaType) || typeof value.data !== "string" || value.data.length > MAX_CODEX_IMAGE_BASE64 || !isCanonicalBase642(value.data)) return void 0;
       input2.push({ type: "image", mediaType: value.mediaType, data: value.data });
       continue;
     }
@@ -15853,7 +16206,7 @@ function codexPromptInput(content) {
   }
   return input2;
 }
-function isCanonicalBase64(value) {
+function isCanonicalBase642(value) {
   return value.length >= 4 && value.length % 4 === 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value);
 }
 function modelSelectionProjection(selection) {
@@ -15883,7 +16236,7 @@ function codexImageLimitsProjection() {
     maxMessageImageBytes: 100 * 1024 * 1024,
     maxImagePixels: 4e7,
     maxImageDimension: 8192,
-    mediaTypes: [...CODEX_IMAGE_MEDIA_TYPES]
+    mediaTypes: [...CODEX_IMAGE_MEDIA_TYPES2]
   };
 }
 function isCodexPermissionPreset(value) {
@@ -15923,8 +16276,9 @@ function displayTitle(session) {
 function itemText2(value) {
   if (typeof value.text === "string") return value.text;
   if (typeof value.content === "string") return value.content;
-  if (Array.isArray(value.content)) {
-    const text = value.content.map((part) => {
+  const content = Array.isArray(value.content) ? value.content : Array.isArray(value.input) ? value.input : void 0;
+  if (content !== void 0) {
+    const text = content.map((part) => {
       if (typeof part === "string") return part;
       const block = record(part);
       return string(block.text) ?? string(block.content) ?? "";

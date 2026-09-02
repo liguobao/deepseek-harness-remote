@@ -250,6 +250,7 @@ export function codexItemsToChat(items: DisplayHistoryItem[]): ChatItem[] {
         sessionId: item.sessionId,
         role: item.role,
         text: item.text ?? '',
+        ...(item.images === undefined || item.images.length === 0 ? {} : { images: item.images }),
         ...(item.role === 'assistant' && item.status === 'running' ? { streaming: true as const } : {}),
         createdAt,
       })

@@ -78,6 +78,49 @@ describe('Codex display projection', () => {
     expect(JSON.stringify(items)).not.toContain('@@')
   })
 
+  it('keeps safe Codex message images in the display projection', () => {
+    const items = projectCodexHistory({
+      id: 'thr_123',
+      turns: [{
+        id: 'turn_1',
+        items: [
+          {
+            id: 'u-image',
+            type: 'userMessage',
+            content: [
+              { type: 'text', text: 'Look at this' },
+              { type: 'image', url: 'data:image/png;base64,aW1hZ2U=', name: 'screen.png' },
+              { type: 'image', url: 'https://example.test/not-allowed.png', name: 'external.png' },
+            ],
+          },
+          {
+            id: 'a-image',
+            type: 'agentMessage',
+            content: [{ type: 'input_image', image_url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' }],
+            status: 'completed',
+          },
+        ],
+      }],
+    })
+
+    expect(items).toMatchObject([
+      {
+        id: 'codex:thr_123:turn_1:u-image',
+        kind: 'message',
+        role: 'user',
+        text: 'Look at this',
+        images: [{ uri: 'data:image/png;base64,aW1hZ2U=', name: 'screen.png' }],
+      },
+      {
+        id: 'codex:thr_123:turn_1:a-image',
+        kind: 'message',
+        role: 'assistant',
+        images: [{ uri: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' }],
+      },
+    ])
+    expect(JSON.stringify(items)).not.toContain('example.test')
+  })
+
   it('reduces live item deltas, completion, status, and one-time approvals over a baseline', () => {
     let state = createCodexTimelineState({
       id: 'thr_123',

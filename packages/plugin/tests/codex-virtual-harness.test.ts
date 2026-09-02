@@ -298,6 +298,69 @@ describe('CodexVirtualHarness', () => {
     await target.close()
   })
 
+  it('projects CodeX message image data URLs into native image blocks and virtual attachments', async () => {
+    const imageData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lJihxwAAAABJRU5ErkJggg=='
+    const client = fakeCodex([{
+      id: 'thr_image',
+      name: 'Image prompt',
+      cwd: '/workspace/repo',
+      createdAt: 1_700_000_000,
+      updatedAt: 1_700_000_100,
+      status: { type: 'idle' },
+      turns: [{
+        id: 'turn_image',
+        status: 'completed',
+        items: [{
+          id: 'user_image',
+          type: 'userMessage',
+          content: [
+            { type: 'text', text: 'Describe this image' },
+            { type: 'image', url: `data:image/png;base64,${imageData}`, name: 'screen.png' },
+            { type: 'image', url: 'https://example.test/not-allowed.png', name: 'external.png' },
+          ],
+        }],
+      }],
+    }])
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+
+    const history = await target.api.sessions.history({
+      rpcId: 'history-image' as never,
+      payload: { sessionId: 'codex:thr_image' as never },
+    })
+
+    expect(history.result.ok).toBe(true)
+    if (!history.result.ok) throw new Error('history failed')
+    const message = history.result.value.events.find(entry => entry.event.type === 'user/message')!.event.data as {
+      content: Array<{ type: string; attachment?: { attachmentId?: string }; data?: string; url?: string; name?: string }>
+    }
+    expect(message.content).toMatchObject([
+      { type: 'text', text: 'Describe this image' },
+      {
+        type: 'image',
+        mediaType: 'image/png',
+        data: imageData,
+        url: `data:image/png;base64,${imageData}`,
+        name: 'screen.png',
+        attachment: { mediaType: 'image/png', width: 1, height: 1, name: 'screen.png' },
+      },
+    ])
+    expect(JSON.stringify(message)).not.toContain('example.test')
+
+    const attachmentId = message.content[1]!.attachment!.attachmentId!
+    const attachment = await target.api.sessions.attachment({
+      rpcId: 'attachment-image' as never,
+      payload: { sessionId: 'codex:thr_image' as never, attachmentId: attachmentId as never },
+    })
+    expect(attachment.result).toMatchObject({
+      ok: true,
+      value: {
+        attachment: { attachmentId, mediaType: 'image/png', name: 'screen.png' },
+        data: imageData,
+      },
+    })
+    await target.close()
+  })
+
   it('maps CodeX reasoning, plans, tool progress, status, reroutes, and extended items live', async () => {
     const client = fakeCodex()
     const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { CodexRemoteClient } from '@dsh-remote/client-core'
-import { loadCodexCatalog, readCodexHistoryPage } from '../src/services/codex'
+import { codexItemsToChat, loadCodexCatalog, readCodexHistoryPage } from '../src/services/codex'
 
 describe('Android CodeX Remote projection', () => {
   it('uses project/list as the only workspace source and keeps unprojected Threads hidden', async () => {
@@ -49,5 +49,23 @@ describe('Android CodeX Remote projection', () => {
     expect(client.request).toHaveBeenCalledWith('dsh/sessionHistory', {
       threadId: 'thread-1', beforeSeq: 5, maxMessages: 20,
     })
+  })
+
+  it('renders image-bearing Codex display messages as chat images', () => {
+    expect(codexItemsToChat([{
+      id: 'codex:thread-1:turn-1:user-1',
+      sessionId: 'codex:thread-1',
+      backend: 'codex',
+      kind: 'message',
+      role: 'user',
+      text: 'Describe this',
+      images: [{ uri: 'data:image/png;base64,aW1hZ2U=', name: 'screen.png' }],
+      nativeRef: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'user-1' },
+    }])).toEqual([expect.objectContaining({
+      kind: 'message',
+      role: 'user',
+      text: 'Describe this',
+      images: [{ uri: 'data:image/png;base64,aW1hZ2U=', name: 'screen.png' }],
+    })])
   })
 })

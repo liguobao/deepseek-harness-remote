@@ -28,6 +28,11 @@ export interface DisplaySession {
   pinned?: boolean
 }
 
+export interface DisplayImage {
+  uri: string
+  name?: string
+}
+
 export interface DisplayHistoryItem {
   id: string
   sessionId: string
@@ -35,6 +40,7 @@ export interface DisplayHistoryItem {
   kind: 'message' | 'tool' | 'file-change' | 'approval' | 'status' | 'error' | 'unknown'
   role?: 'user' | 'assistant'
   text?: string
+  images?: DisplayImage[]
   status?: 'running' | 'completed' | 'failed' | 'declined'
   createdAt?: number
   nativeRef: {
@@ -76,6 +82,8 @@ export interface CodexStream {
 }
 
 const MAX_DISPLAY_ITEM_TEXT = 256 * 1024
+const CODEX_IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+const DATA_IMAGE_URL = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/u
 
 /** Shared Web/Android client for the independent Codex domain in Remote. */
 export class CodexRemoteClient {
@@ -489,8 +497,27 @@ export function projectCodexItem(
     nativeRef: { threadId, turnId, ...(typeof item.id === 'string' ? { itemId: item.id } : {}) },
     ...(normalizeTimestamp(item.createdAt) > 0 ? { createdAt: normalizeTimestamp(item.createdAt) } : {}),
   }
-  if (type === 'userMessage') return { ...base, kind: 'message', role: 'user', text: itemText(item) }
-  if (type === 'agentMessage') return { ...base, kind: 'message', role: 'assistant', text: itemText(item), status: projectItemStatus(item.status) }
+  if (type === 'userMessage') {
+    const images = itemImages(item)
+    return {
+      ...base,
+      kind: 'message',
+      role: 'user',
+      text: itemText(item),
+      ...(images.length === 0 ? {} : { images }),
+    }
+  }
+  if (type === 'agentMessage') {
+    const images = itemImages(item)
+    return {
+      ...base,
+      kind: 'message',
+      role: 'assistant',
+      text: itemText(item),
+      ...(images.length === 0 ? {} : { images }),
+      status: projectItemStatus(item.status),
+    }
+  }
   if (type === 'commandExecution') {
     return { ...base, kind: 'tool', text: commandExecutionText(item), status: projectItemStatus(item.status), details: { type } }
   }
@@ -626,14 +653,114 @@ function projectItemStatus(value: unknown): DisplayHistoryItem['status'] {
 function itemText(item: Record<string, unknown>): string | undefined {
   if (typeof item.text === 'string') return boundedText(item.text)
   if (typeof item.content === 'string') return boundedText(item.content)
-  if (!Array.isArray(item.content)) return undefined
-  const parts = item.content.flatMap(value => {
+  const content = Array.isArray(item.content)
+    ? item.content
+    : Array.isArray(item.input) ? item.input : undefined
+  if (content === undefined) return undefined
+  const parts = content.flatMap(value => {
     if (typeof value === 'string') return [value]
     if (!isRecord(value)) return []
     if (typeof value.text === 'string') return [value.text]
     return typeof value.content === 'string' ? [value.content] : []
   })
   return parts.length > 0 ? boundedText(parts.join('\n')) : undefined
+}
+
+function itemImages(item: Record<string, unknown>): DisplayImage[] {
+  const content = Array.isArray(item.content)
+    ? item.content
+    : Array.isArray(item.input) ? item.input : []
+  return content.flatMap(value => {
+    if (!isRecord(value) || !isImageContent(value)) return []
+    const uri = imageDataUri(value)
+    if (uri === undefined) return []
+    return [{
+      uri,
+      ...(typeof value.name === 'string' && value.name.length > 0 ? { name: value.name } : {}),
+    }]
+  })
+}
+
+function isImageContent(value: Record<string, unknown>): boolean {
+  return value.type === 'image' || value.type === 'input_image'
+}
+
+function imageDataUri(value: Record<string, unknown>): string | undefined {
+  const url = typeof value.url === 'string'
+    ? value.url
+    : typeof value.image_url === 'string'
+      ? value.image_url
+      : isRecord(value.image_url) && typeof value.image_url.url === 'string'
+        ? value.image_url.url
+        : undefined
+  const parsed = url === undefined ? undefined : parseDataImageUrl(url)
+  if (parsed !== undefined) return parsed.url
+
+  if (typeof value.data !== 'string' || !isCanonicalBase64(value.data)) return undefined
+  const mediaType = typeof value.mediaType === 'string'
+    ? value.mediaType
+    : sniffImageMediaType(value.data)
+  return mediaType !== undefined && CODEX_IMAGE_MEDIA_TYPES.has(mediaType)
+    ? `data:${mediaType};base64,${value.data}`
+    : undefined
+}
+
+function parseDataImageUrl(value: string): { url: string; mediaType: string; data: string } | undefined {
+  const match = DATA_IMAGE_URL.exec(value)
+  if (match === null) return undefined
+  const mediaType = match[1]!
+  const data = match[2]!
+  if (!CODEX_IMAGE_MEDIA_TYPES.has(mediaType) || !isCanonicalBase64(data)) return undefined
+  return { url: `data:${mediaType};base64,${data}`, mediaType, data }
+}
+
+function isCanonicalBase64(value: string): boolean {
+  return value.length >= 4 && value.length % 4 === 0
+    && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)
+}
+
+function sniffImageMediaType(data: string): string | undefined {
+  const bytes = base64PrefixBytes(data, 32)
+  if (bytes.length >= 8
+    && bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4e
+    && bytes[3] === 0x47
+    && bytes[4] === 0x0d
+    && bytes[5] === 0x0a
+    && bytes[6] === 0x1a
+    && bytes[7] === 0x0a) return 'image/png'
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes.length >= 6
+    && bytes[0] === 0x47
+    && bytes[1] === 0x49
+    && bytes[2] === 0x46
+    && bytes[3] === 0x38
+    && (bytes[4] === 0x37 || bytes[4] === 0x39)
+    && bytes[5] === 0x61) return 'image/gif'
+  if (bytes.length >= 12
+    && bytes[0] === 0x52
+    && bytes[1] === 0x49
+    && bytes[2] === 0x46
+    && bytes[3] === 0x46
+    && bytes[8] === 0x57
+    && bytes[9] === 0x45
+    && bytes[10] === 0x42
+    && bytes[11] === 0x50) return 'image/webp'
+  return undefined
+}
+
+function base64PrefixBytes(value: string, maxBytes: number): Uint8Array {
+  const chars = value.slice(0, Math.ceil(maxBytes / 3) * 4)
+  let binary: string
+  try {
+    binary = atob(chars)
+  } catch {
+    return new Uint8Array()
+  }
+  const bytes = new Uint8Array(Math.min(binary.length, maxBytes))
+  for (let index = 0; index < bytes.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return bytes
 }
 
 function isToolItemType(type: string): boolean {
