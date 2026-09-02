@@ -55,13 +55,15 @@ DSH Desktop 已默认集成并启用 Remote，无需另行安装插件。
 
 ### 方式 B：已有 DSH 环境
 
-为 `web` profile 安装确切的 npm 版本：
+通过 DSH 插件管理命令，将确切版本加入 `web` profile：
 
 ```sh
 dsh plugin --profile web add ds-harness-remote@0.4.3
 ```
 
 安装后请重启 Harness。
+
+不要直接用 npm 安装这个包。只有 `dsh plugin` 会更新指定 profile，并加入插件的 bundle 配置层。
 
 ### 方式 C：dsh-TUI Host
 
@@ -90,14 +92,6 @@ profile；只有官方 Harness carrier 可用时，才会公布对应的 Remote 
 
 完整兼容矩阵、rc.2 ApiProxy 挂载、状态字段和排障方式见
 [dsh-TUI Remote 使用指南](docs/dsh-tui.md)。
-
-如果需要在 dsh-TUI 启动前授权，可以选择把配套 CLI 安装到 `PATH`，登录后重启 dsh-TUI：
-
-```sh
-npm install -g ds-harness-remote@0.4.3
-ds-harness-remote login github
-ds-harness-remote status
-```
 
 ## 快速开始
 

@@ -8,6 +8,12 @@ DeepSeek Remote plugin for DSH Host + Remote workspaces. One install provides en
 
 DeepSeek Remote 是 DSH Host + Remote 工作区插件。一次安装可提供本地设备到远端的加密远程访问能力，以及在现有 Harness UI 内切换远端工作区。
 
+> Install this DSH bundle with `dsh plugin`, not with npm directly. The DSH command updates the
+> selected profile and adds the bundle configuration layer.
+>
+> 这是 DSH bundle，请通过 `dsh plugin` 安装，不要直接使用 npm。DSH 命令会更新指定 profile，
+> 并加入 bundle 配置层。
+
 No Client mode switch is required. Choosing a remote workspace keeps the local UI unchanged, routes rc.2 through `RemoteHarnessApiProxy` or the alpha generation through the Typert Remote Gateway carrier, and falls back to the matching local transport on disconnect or exit.
 
 无需启动或切换 Client 模式。选择远端工作区后，本地 UI 不变：rc.2 请求通过 `RemoteHarnessApiProxy` 路由，alpha 代际请求通过 Typert Remote Gateway carrier 路由；断线或退出时恢复对应的本地 transport。
@@ -148,14 +154,14 @@ the Server is `https://dsh.r2049.cn`.
 同时支持 GitHub。dsh-TUI 默认开启 Host 控制；`/remote logout` 会撤销 Host 并轮换本地身份。
 目前不提供 Host 配置，Server 固定为 `https://dsh.r2049.cn`。
 
-The optional `ds-harness-remote` companion CLI keeps the same login/status/logout operations for
-authorization before dsh-TUI starts. It can be installed globally with
-`npm install -g ds-harness-remote@0.4.3`; it does not install a standalone `remote` executable.
-Server presence remains visible to authorized Remote clients while dsh-TUI is running.
+Install the package through `dsh plugin`; installing it directly with npm does not update a DSH
+profile or add the bundle configuration layer. Use `/remote` for dsh-TUI Host authorization and
+status management. Server presence remains visible to authorized Remote clients while dsh-TUI is
+running.
 
-可选的 `ds-harness-remote` 配套 CLI 继续提供 login/status/logout，供 dsh-TUI 启动前授权；可以用
-`npm install -g ds-harness-remote@0.4.3` 安装。npm 包不再安装独立的 `remote` 可执行命令。
-dsh-TUI 运行时，Server presence 仍由已授权的 Remote Client 查询。
+请通过 `dsh plugin` 安装。直接使用 npm 安装不会更新 DSH profile，也不会加入 bundle 配置层。
+dsh-TUI Host 的授权与状态管理统一使用 `/remote`；dsh-TUI 运行时，Server presence 仍由已授权的
+Remote Client 查询。
 
 Codex Session/History is an experimental optional domain inside this same plugin. It is enabled by
 default and can be disabled from the DeepSeek Remote settings card. Virtual Workspaces prefer CodeX
@@ -187,26 +193,28 @@ ds-harness-remote:
 export DSH_REMOTE_SERVER=https://dsh.r2049.cn
 ```
 
-Install the npm package for the `web` profile:
+Add the package to the `web` profile through DSH's plugin manager:
 
-通过 npm 包安装到 `web` profile：
+通过 DSH 插件管理命令将包加入 `web` profile：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.2
+dsh plugin --profile web add ds-harness-remote@0.4.3
 ```
 
-npm / npm 包地址：<https://www.npmjs.com/package/ds-harness-remote>
+Do not run npm directly; it does not configure the DSH profile.
+
+不要直接运行 npm；它不会配置 DSH profile。
 
 Alternatively, install the pinned GitHub release in DSH Desktop or with the CLI:
 
 也可以在 DSH Desktop 中安装固定版本的 GitHub Release，或使用命令行安装：
 
 ```text
-github:liguobao/ds-harness-remote#v0.4.2
+github:liguobao/ds-harness-remote#v0.4.3
 ```
 
 ```sh
-dsh plugin --profile web add "github:liguobao/ds-harness-remote#v0.4.2"
+dsh plugin --profile web add "github:liguobao/ds-harness-remote#v0.4.3"
 ```
 
 GitHub / 项目地址：<https://github.com/liguobao/ds-harness-remote>

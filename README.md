@@ -55,13 +55,16 @@ Linux. Remote is included and enabled by default, so no separate plugin installa
 
 ### Path B: Existing DSH installation
 
-Install the exact npm version for the `web` profile:
+Add the exact package version through DSH's plugin manager for the `web` profile:
 
 ```sh
 dsh plugin --profile web add ds-harness-remote@0.4.3
 ```
 
 Restart Harness after installation.
+
+Do not install this package directly with npm. Only `dsh plugin` updates the selected profile and
+adds the bundle's configuration layer.
 
 ### Path C: dsh-TUI Host
 
@@ -93,15 +96,6 @@ only when their official Harness carrier is available.
 
 See the [dsh-TUI Remote guide](docs/dsh-tui.md) for the compatibility matrix, rc.2 ApiProxy setup,
 status fields, and troubleshooting.
-
-For authorization before dsh-TUI starts, the package keeps the companion CLI as an optional
-fallback. Install it on `PATH`, authorize the Host, and then restart dsh-TUI:
-
-```sh
-npm install -g ds-harness-remote@0.4.3
-ds-harness-remote login github
-ds-harness-remote status
-```
 
 ## Quick start
 

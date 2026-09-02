@@ -62,20 +62,6 @@ dsh-tui
 `/remote logout` 会撤销当前 Host 凭证并轮换本地设备身份。再次登录后，这台机器会作为新设备
 重新授权。
 
-### 启动前登录
-
-如果需要在 dsh-TUI 启动前完成授权，可以安装配套 CLI：
-
-```sh
-npm install -g ds-harness-remote@0.4.3
-ds-harness-remote login github
-ds-harness-remote status
-dsh-tui
-```
-
-CLI 提供 `login`、`status` 和 `logout`。npm 包不会安装一个单独的 `remote` 可执行文件；
-dsh-TUI 内的入口始终是 `/remote`。
-
 ## rc.2：补齐官方 ApiProxy
 
 部分 `dsh-v0.1.1-rc.2` 的纯 TUI profile 没有默认挂载 ApiProxy。这种情况下，`/remote` 登录和
@@ -142,8 +128,8 @@ Host 已登录并在线，但当前 profile 没有提供匹配的官方 carrier�
 
 ### 二维码无法扫描
 
-优先点击二维码下方的授权 URL；也可以退出登录场景，在终端外运行
-`ds-harness-remote login github` 或 `ds-harness-remote login zhihu`，完成后重启 dsh-TUI。
+优先点击二维码下方的授权 URL；如果授权场景已经退出，请重新运行 `/remote login`，或使用
+`/remote login github` 指定 GitHub。
 
 ### 找不到 `/remote`
 
@@ -153,4 +139,3 @@ Host 已登录并在线，但当前 profile 没有提供匹配的官方 carrier�
 
 Host 控制默认开启，当前版本固定连接 `https://dsh.r2049.cn`，暂不开放 Host 配置，因此只提供
 `login`、`status` 和 `logout`。
-
