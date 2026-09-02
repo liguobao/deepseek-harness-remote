@@ -57,7 +57,7 @@ DSH Desktop 已默认集成并启用 Remote，无需另行安装插件。
 为 `web` profile 安装确切的 npm 版本：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.2
+dsh plugin --profile web add ds-harness-remote@0.4.3
 ```
 
 安装后请重启 Harness。
@@ -141,8 +141,8 @@ Server 列表可见前由 Plugin 临时保留。History 由 Host 按 DSH 消息�
 Harness 日志；CodeX App Server 始终是唯一数据源，其中 `project/list` 是可见 CodeX Workspace 的
 唯一来源。新建、改名、归档、Prompt、停止和审批操作都路由回其白名单方法。Host carrier 继续复用
 账号 membership、Host identity 固定、Noise 安全通道和自适应传输。Codex 默认开启，可在
-DeepSeek Remote 设置卡片中关闭，修改后重启 DSH 生效。Desktop 与 Android 的加密跨机
-turn/approval 联调仍待完成。
+DeepSeek Remote 设置卡片中关闭，修改后重启 DSH 生效。本实验版本已完成 Desktop 加密跨机
+turn/approval 整机验证；Android 真机 CodeX E2E 仍待完成。
 
 ```yaml
 ds-harness-remote:
@@ -194,9 +194,9 @@ WebSocket Relay。所有路径都承载同一份 Noise 密文，并保持相同�
 会话流量现在只通过官方 rc.2 `ApiProxy` 或 alpha Typert Remote Gateway 承载；
 本插件不提供旧 RPC 的适配层或 wire format 翻译。
 
-Plugin `0.4.2` 同时兼容 DeepSeek Harness `dsh-v0.1.1-rc.2` 与
+Plugin `0.4.3` 同时兼容 DeepSeek Harness `dsh-v0.1.1-rc.2` 与
 `dsh-v0.1.2-alpha.1`–`alpha.2`：rc.2 继续使用官方 legacy `ApiProxy`，alpha 使用官方
-Typert Remote Gateway。运行 rc.2 的 `0.4.2` Client 仍可通过 legacy capability 降级连接旧 rc.2 Host。
+Typert Remote Gateway。运行 rc.2 的 `0.4.3` Client 仍可通过 legacy capability 降级连接旧 rc.2 Host。
 
 两端 Desktop 必须处于同一 Harness transport 代际。`0.4.x` 不翻译 rc.2 与 alpha 的业务模型：
 alpha Client 不能打开 rc.2 Host，rc.2 Client 也不能打开 alpha Host；混连会在切换原生

@@ -57,7 +57,7 @@ Linux. Remote is included and enabled by default, so no separate plugin installa
 Install the exact npm version for the `web` profile:
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.2
+dsh plugin --profile web add ds-harness-remote@0.4.3
 ```
 
 Restart Harness after installation.
@@ -151,8 +151,8 @@ and `project/list` is the only source of truth for visible CodeX Workspaces. Cre
 prompt, interrupt, and approval actions are routed back to its allowlisted methods. The Host carrier
 still uses the existing account membership, pinned Host identity, Noise channel, and adaptive transport.
 CodeX is enabled by default and can be disabled from the DeepSeek Remote settings card. Changes to
-this setting take effect after restarting DSH. Real encrypted cross-machine turn/approval testing on
-Desktop and Android is still pending.
+this setting take effect after restarting DSH. Desktop encrypted cross-machine turn and approval
+validation has passed for this experimental release; Android real-device CodeX E2E remains pending.
 
 ```yaml
 ds-harness-remote:
@@ -211,9 +211,9 @@ Remote business RPC surface (`sessions.*`, `session.*`, `permissions.respond`,
 `ApiProxy` or the alpha Typert Remote Gateway, and this plugin does not provide
 an adapter or wire-format translation for the old RPC surface.
 
-Plugin `0.4.2` supports DeepSeek Harness `dsh-v0.1.1-rc.2` through the legacy
+Plugin `0.4.3` supports DeepSeek Harness `dsh-v0.1.1-rc.2` through the legacy
 official `ApiProxy`, and `dsh-v0.1.2-alpha.1`–`alpha.2` through the
-official Typert Remote Gateway. A `0.4.2` Client running rc.2 remains compatible
+official Typert Remote Gateway. A `0.4.3` Client running rc.2 remains compatible
 with older rc.2 Hosts through the legacy capability fallback.
 
 Both Desktop endpoints must use the same Harness transport generation. Plugin

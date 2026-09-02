@@ -11,6 +11,9 @@
 - Extends Android with the same `codex.app.*` capability, including project and
   Thread navigation, paged history, model/reasoning controls, image prompts,
   interrupt, and one-time approvals.
+- Preserves CodeX message images through the Desktop virtual Session projection
+  and Android chat/history projection so safe PNG, JPEG, WebP, and GIF data
+  images render in Remote.
 - Adds Protocol v1 conformance fixtures and enforces bounded Control, Relay,
   WebRTC, and encrypted transport frames before payload decoding.
 - Advances the Plugin and Android app to `0.4.3` (`versionCode 23`).

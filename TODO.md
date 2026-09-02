@@ -5,8 +5,8 @@ alpha.1/alpha.2 使用官方 Typert Remote Gateway。Android 与 VS Code Client 
 Server 仓库实现。
 
 Desktop 已使用独立 Remote 工作区入口：本地选择账号下的 Host 与远端 Workspace，或通过
-只读目录浏览添加 Workspace，随后复用原生 Harness UI。当前实现需要真实 Desktop E2E 验证
-后才能作为稳定能力发布。
+只读目录浏览添加 Workspace，随后复用原生 Harness UI。当前实现已具备开发预览发布条件；
+稳定能力仍需要持续补齐真实设备、重连、并发和跨平台验证。
 
 测试预算只用于协议、安全、账号授权、认证连接、ApiProxy/Typert Remote allowlist/stream 生命周期和核心
 transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
@@ -64,7 +64,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 - [x] 使用当前 v2 schema 与真实 Codex App Server 完成 stdio initialize/account/project/list/read 冒烟
 - [x] 使用真实 Codex App Server 完成本机 thread/start、幂等 resume、streamed turn/completed、History 回读与归档清理冒烟
 - [x] 迁移旧 `dsh-remote` 用户设置，并在 macOS 默认配置下自动发现 ChatGPT App 内置 Codex
-- [ ] 用两台真实 DSH Desktop 跑通加密跨机 resume/turn/event/approval/interrupt 与大 History 传输
+- [x] 用两台真实 DSH Desktop 跑通加密跨机 resume/turn/event/approval/interrupt 与大 History 传输
 - [ ] 验证 App Server crash、Host transport 重连和多 Desktop Web Client 同时观察同一 Thread
 - [ ] 用 Android 真机跑通 CodeX Workspace→Thread→Prompt/steer/approval/interrupt、大 History、图片分块与断线重连
 
