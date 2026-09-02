@@ -2,7 +2,7 @@ import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { renderTerminalQr, runCli } from '../src/cli.js'
+import { renderCompactTerminalQr, renderTerminalQr, runCli } from '../src/cli.js'
 import { IdentityStore, serverStorageDirectory } from '../src/identity-store.js'
 import { HostServerApi } from '../src/server-api.js'
 import { ServerCredentialStore } from '../src/server-credentials.js'
@@ -24,6 +24,12 @@ describe('Remote CLI', () => {
     expect(lines.slice(-4).every(row => whiteLine.test(row))).toBe(true)
     expect(lines[4]).toMatch(/^\u001B\[47m {8}\u001B\[(?:40|47)m/)
     expect(lines[4]).toMatch(/\u001B\[47m {8}\u001B\[0m$/)
+
+    const compact = await renderCompactTerminalQr('https://dsh.r2049.cn/api/v1/auth/q/terminal-qr-test-session')
+    const compactLines = compact.split('\n')
+    expect(compactLines.length).toBe(Math.ceil(lines.length / 2))
+    expect(compactLines[0]).toMatch(/^\u001B\[30;47m +\u001B\[0m$/)
+    expect(compactLines[1]).toMatch(/^\u001B\[30;47m +\u001B\[0m$/)
   })
 
   it('authorizes the TUI Host through the selected OAuth QR provider', async () => {

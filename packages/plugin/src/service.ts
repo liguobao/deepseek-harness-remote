@@ -12,7 +12,14 @@ import {
 import type { SafeLogger } from './logging.js'
 import { RpcRouter } from './rpc-router.js'
 import { RemoteFileViewerBridge, type FileViewerHostServiceLike } from './file-viewer-bridge.js'
-import { HostServerApi, ServerApiError, type DeviceAuthorization } from './server-api.js'
+import {
+  HostServerApi,
+  ServerApiError,
+  type DeviceAuthorization,
+  type OAuthProvider,
+  type OAuthQrPollResult,
+  type OAuthQrSession,
+} from './server-api.js'
 import { HostServerConnection } from './server-connection.js'
 import { ServerCredentialStore } from './server-credentials.js'
 import { HarnessApiBridge, type TypertGatewayLike } from './harness-api-bridge.js'
@@ -151,13 +158,44 @@ export class HostPluginRuntime {
     this.serverConnection.reconnect()
   }
 
+  async startHostOAuthQrLogin(provider: OAuthProvider): Promise<OAuthQrSession> {
+    if (this.serverApi === undefined) {
+      throw new ServerApiError('SERVER_NOT_CONFIGURED', 'Remote Host Server is unavailable.', false)
+    }
+    return this.serverApi.startOAuthQrLogin(provider)
+  }
+
+  async pollHostOAuthQrLogin(qrId: string): Promise<OAuthQrPollResult> {
+    if (this.serverApi === undefined) {
+      throw new ServerApiError('SERVER_NOT_CONFIGURED', 'Remote Host Server is unavailable.', false)
+    }
+    const result = await this.serverApi.pollOAuthQrLogin(this.currentIdentity(), qrId, async () => {
+      await this.serverConnection?.stop()
+      this.identity = await this.identities.reset(this.config.deviceName)
+      this.serverApi!.bindIdentity(this.identity)
+      this.serverConnection = this.createServerConnection(this.identity)
+      return this.identity
+    })
+    if (result.status === 'complete') {
+      this.serverConnection?.reconnect()
+      this.logger.info('Host account authorized through OAuth QR login')
+    }
+    return result
+  }
+
   async clearHostAuthorization(): Promise<void> {
     await this.serverConnection?.stop()
-    await this.serverApi?.revokeCurrentDevice()
+    let revokeFailure: unknown
+    try {
+      await this.serverApi?.revokeCurrentDevice()
+    } catch (error) {
+      revokeFailure = error
+    }
     this.identity = await this.identities.reset(this.config.deviceName)
     this.serverApi?.bindIdentity(this.identity)
     if (this.serverApi !== undefined) this.serverConnection = this.createServerConnection(this.identity)
     this.logger.info('Host authorization cleared')
+    if (revokeFailure !== undefined) throw revokeFailure
   }
 
   async authorizeHostAsOwned(accessToken: string, account?: string): Promise<DeviceAuthorization> {

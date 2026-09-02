@@ -137,7 +137,7 @@ async function status(args: readonly string[], runtime: CliRuntime): Promise<num
 
   if (!await exists(join(directory, 'device.json'))) {
     lines.push('Device: not initialized', 'Authorization: logged out', 'Credential: unavailable')
-    write(runtime.stdout, `${lines.join('\n')}\n\nRun "remote login" to authorize this Host.\n`)
+    write(runtime.stdout, `${lines.join('\n')}\n\nRun "ds-harness-remote login" or use "/remote login" in dsh-TUI.\n`)
     return 0
   }
 
@@ -148,7 +148,7 @@ async function status(args: readonly string[], runtime: CliRuntime): Promise<num
   lines.push(`Device: ${identity.name} (${identity.deviceId})`)
   if (stored === undefined) {
     lines.push('Authorization: logged out', 'Credential: unavailable')
-    write(runtime.stdout, `${lines.join('\n')}\n\nRun "remote login" to authorize this Host.\n`)
+    write(runtime.stdout, `${lines.join('\n')}\n\nRun "ds-harness-remote login" or use "/remote login" in dsh-TUI.\n`)
     return 0
   }
 
@@ -256,6 +256,32 @@ export async function renderTerminalQr(url: string): Promise<string> {
   return lines.join('\n')
 }
 
+/** Square terminal modules at half the row count for fullscreen TUI scenes. */
+export async function renderCompactTerminalQr(url: string): Promise<string> {
+  const { default: QRCode } = await import('qrcode')
+  const modules = QRCode.create(url, { errorCorrectionLevel: 'M' }).modules
+  const size = modules.size + TERMINAL_QR_MARGIN * 2
+  const lines: string[] = []
+  const isBlack = (row: number, column: number): boolean => {
+    const qrRow = row - TERMINAL_QR_MARGIN
+    const qrColumn = column - TERMINAL_QR_MARGIN
+    return qrRow >= 0 && qrRow < modules.size
+      && qrColumn >= 0 && qrColumn < modules.size
+      && modules.get(qrRow, qrColumn) === 1
+  }
+
+  for (let row = 0; row < size; row += 2) {
+    let line = '\u001B[30;47m'
+    for (let column = 0; column < size; column += 1) {
+      const top = isBlack(row, column)
+      const bottom = isBlack(row + 1, column)
+      line += top ? bottom ? '█' : '▀' : bottom ? '▄' : ' '
+    }
+    lines.push(`${line}\u001B[0m`)
+  }
+  return lines.join('\n')
+}
+
 function authorizedMessage(authorization: DeviceAuthorization): string {
   return authorization.account === undefined
     ? 'Remote Host login complete.'
@@ -293,7 +319,7 @@ function helpText(): string {
     '  ds-harness-remote status',
     '  ds-harness-remote logout',
     '',
-    'The shorter "remote" command supports the same subcommands.',
+    'Inside dsh-TUI, use /remote login, /remote status, or /remote logout.',
     'login defaults to Zhihu and authorizes this computer as a Remote Host with a terminal QR code.',
     `The Server is ${DEFAULT_REMOTE_SERVER_URL}.`,
     'Host configuration is not exposed by this CLI yet. Restart dsh-tui after login or logout.',

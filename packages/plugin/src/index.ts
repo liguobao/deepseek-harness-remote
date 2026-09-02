@@ -18,6 +18,11 @@ import { ServerCredentialStore } from './server-credentials.js'
 import type { TypertGatewayLike } from './typert-gateway-contract.js'
 import { TypertGatewaySwitch } from './typert-gateway-switch.js'
 import type { FileViewerHostServiceLike } from './file-viewer-bridge.js'
+import {
+  installTuiRemoteCommand,
+  type TuiRemoteBinding,
+  type TuiRemoteTarget,
+} from './tui-command.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -51,20 +56,35 @@ interface LoaderLike {
 }
 
 export function apply(ctx: Context, input: ConfigInput = {}): void {
+  const tuiCommandsAvailable = ctx.get('commands', false) !== undefined
+    && ctx.get('tuiScenes', false) !== undefined
+  const tuiBinding: TuiRemoteBinding | undefined = tuiCommandsAvailable ? {} : undefined
+  // Entry-level TUI injects make this synchronous with the Loader activation,
+  // which is required by dsh-TUI's authenticated scene/completion registries.
+  if (tuiBinding !== undefined) installTuiRemoteCommand(ctx, () => tuiBinding.target)
+
   // A terminal-only dsh-TUI profile has no browser `connection` service.
-  // Host startup only needs settings plus one official Harness carrier;
-  // Desktop control/client features continue to soft-probe `connection` in
-  // activate() below.
+  // Its rc.2 Gateway also has no stream carrier or ApiProxy, but the Host
+  // control plane and `/remote` account commands remain useful. Desktop
+  // profiles still wait for one complete official Harness carrier.
   ctx.inject(['settings', 'typertGateway'], runtimeContext => {
     const gateway = runtimeContext.get('typertGateway') as TypertGatewayLike
-    if (runtimeContext.get('apiProxy') !== undefined || new TypertGatewaySwitch(gateway).supportsCarrier()) {
-      return activate(runtimeContext, input)
+    if (
+      tuiCommandsAvailable
+      || runtimeContext.get('apiProxy') !== undefined
+      || new TypertGatewaySwitch(gateway).supportsCarrier()
+    ) {
+      return activate(runtimeContext, input, tuiBinding)
     }
     runtimeContext.inject(['apiProxy'], legacyContext => activate(legacyContext, input))
   })
 }
 
-async function activate(ctx: Context, input: ConfigInput): Promise<void> {
+async function activate(
+  ctx: Context,
+  input: ConfigInput,
+  tuiBinding?: TuiRemoteBinding,
+): Promise<void> {
   const settings = ctx.get('settings')
   const settingsScope: SettingsScope<ConfigInput> | undefined = settings?.register(pluginSettingsNamespace, Config, {
     base: input,
@@ -72,9 +92,8 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
     validate: value => { resolveConfig(value) },
   })
   if (settings !== undefined && settingsScope !== undefined) {
-    const migration = await migrateLegacySettings(settings, settingsScope)
-    if (migration === 'migrated') ctx.logger.info('migrated legacy Remote settings namespace')
-    if (migration === 'failed') ctx.logger.warn('failed to migrate legacy Remote settings namespace')
+    const migration = migrateLegacySettings(settings, settingsScope)
+    reportSettingsMigration(ctx, await migration)
   }
   const connection = ctx.get('connection') as HostConnectionHandle | undefined
   const resolvedConfig = resolveConfig(settingsScope?.get() ?? input)
@@ -93,7 +112,6 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
     warn: message => { ctx.logger.warn(message); console.warn(message) },
     error: message => { ctx.logger.error(message); console.error(message) },
   }, config.logLevel)
-  await disableLegacyLoaderEntries(ctx, logger)
   const defaultIdentityDirectory = new IdentityStore().directory
   const hostIdentities = new IdentityStore({
     directory: config.serverUrl === undefined
@@ -138,6 +156,9 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
 
   ctx.provide('dshRemote', runtime)
   if (clientRuntime !== undefined) ctx.provide('dshRemoteClient', clientRuntime)
+  const tuiTarget: TuiRemoteTarget = { runtime, config }
+  if (tuiBinding !== undefined) tuiBinding.target = tuiTarget
+  await disableLegacyLoaderEntries(ctx, logger)
   await ctx.effect(async () => {
     const disposeControl = controlRuntime?.register(connection!)
     try {
@@ -153,17 +174,27 @@ async function activate(ctx: Context, input: ConfigInput): Promise<void> {
         })
       }
     } catch (error) {
+      if (tuiBinding?.target === tuiTarget) tuiBinding.target = undefined
       await disposeControl?.()
       await clientRuntime?.close()
       await runtime.close()
       throw error
     }
     return async () => {
+      if (tuiBinding?.target === tuiTarget) tuiBinding.target = undefined
       await disposeControl?.()
       await clientRuntime?.close()
       await runtime.close()
     }
   }, 'dsh-remote lifecycle')
+}
+
+function reportSettingsMigration(
+  ctx: Context,
+  migration: 'migrated' | 'skipped' | 'failed',
+): void {
+  if (migration === 'migrated') ctx.logger.info('migrated legacy Remote settings namespace')
+  if (migration === 'failed') ctx.logger.warn('failed to migrate legacy Remote settings namespace')
 }
 
 /**

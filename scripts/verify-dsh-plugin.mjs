@@ -23,21 +23,13 @@ assert.equal(
   './packages/plugin/bin/ds-harness-remote.js',
   'root package must expose the TUI-compatible Remote CLI',
 )
-assert.equal(
-  manifest.bin?.remote,
-  './packages/plugin/bin/ds-harness-remote.js',
-  'root package must expose the short remote command',
-)
+assert.equal(manifest.bin?.remote, undefined, 'root package must not install a standalone remote executable')
 assert.equal(
   pluginManifest.bin?.['ds-harness-remote'],
   './bin/ds-harness-remote.js',
   'npm plugin package must expose the Remote CLI',
 )
-assert.equal(
-  pluginManifest.bin?.remote,
-  './bin/ds-harness-remote.js',
-  'npm plugin package must expose the short remote command',
-)
+assert.equal(pluginManifest.bin?.remote, undefined, 'npm package must not install a standalone remote executable')
 assert.equal(manifest.exports?.['./client'], './packages/plugin/dist/client.github.js', 'root package must export the GitHub-root browser client entry')
 
 for (const file of [
@@ -58,6 +50,11 @@ assert.match(
   new RegExp(`name:\\s*['"]?${manifest.name.replaceAll('-', '\\-')}['"]?`),
   'root patch must load the installed GitHub root package',
 )
+assert.match(
+  patch,
+  /inject:\s*\[settings, typertGateway, commands, tuiCommandTrees, tuiScenes\]/,
+  'root patch must expose dsh-TUI command and scene services to the Host plugin',
+)
 
 const rootHostEntry = readFileSync(join(root, 'index.js'), 'utf8')
 assert.match(rootHostEntry, /packages\/plugin\/dist\/index\.js/, 'root Host entry must forward to the committed bundle')
@@ -67,6 +64,7 @@ assert.match(publicTypes, /name:\s*'ds-harness-remote'/, 'public types must expo
 
 const hostBundle = readFileSync(join(root, 'packages/plugin/dist/index.js'), 'utf8')
 assert.doesNotMatch(hostBundle, /(?:from\s+|require\()['\"]@dsh-remote\//, 'Host bundle must not import unpublished workspace packages')
+assert.match(hostBundle, /name:\s*["']remote["']/, 'Host bundle must register the dsh-TUI /remote command')
 assert.doesNotMatch(
   hostBundle,
   /\bsettingsNamespace\b/,

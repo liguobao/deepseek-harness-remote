@@ -23694,13 +23694,42 @@ var HostPluginRuntime = class {
     }
     this.serverConnection.reconnect();
   }
+  async startHostOAuthQrLogin(provider) {
+    if (this.serverApi === void 0) {
+      throw new ServerApiError("SERVER_NOT_CONFIGURED", "Remote Host Server is unavailable.", false);
+    }
+    return this.serverApi.startOAuthQrLogin(provider);
+  }
+  async pollHostOAuthQrLogin(qrId) {
+    if (this.serverApi === void 0) {
+      throw new ServerApiError("SERVER_NOT_CONFIGURED", "Remote Host Server is unavailable.", false);
+    }
+    const result = await this.serverApi.pollOAuthQrLogin(this.currentIdentity(), qrId, async () => {
+      await this.serverConnection?.stop();
+      this.identity = await this.identities.reset(this.config.deviceName);
+      this.serverApi.bindIdentity(this.identity);
+      this.serverConnection = this.createServerConnection(this.identity);
+      return this.identity;
+    });
+    if (result.status === "complete") {
+      this.serverConnection?.reconnect();
+      this.logger.info("Host account authorized through OAuth QR login");
+    }
+    return result;
+  }
   async clearHostAuthorization() {
     await this.serverConnection?.stop();
-    await this.serverApi?.revokeCurrentDevice();
+    let revokeFailure;
+    try {
+      await this.serverApi?.revokeCurrentDevice();
+    } catch (error) {
+      revokeFailure = error;
+    }
     this.identity = await this.identities.reset(this.config.deviceName);
     this.serverApi?.bindIdentity(this.identity);
     if (this.serverApi !== void 0) this.serverConnection = this.createServerConnection(this.identity);
     this.logger.info("Host authorization cleared");
+    if (revokeFailure !== void 0) throw revokeFailure;
   }
   async authorizeHostAsOwned(accessToken, account) {
     if (this.serverApi === void 0) {
@@ -23807,12 +23836,12 @@ var HostPluginRuntime = class {
   }
   async readHarnessVersion() {
     let reportedVersion;
-    let errorCode4;
+    let errorCode5;
     try {
       const response = await this.apiProxy?.host.describe({ rpcId: randomUUID2(), payload: {} });
       if (response === void 0) throw new Error("ApiProxy is unavailable");
       if (!response.result.ok) {
-        errorCode4 = response.result.error.code;
+        errorCode5 = response.result.error.code;
       } else {
         reportedVersion = normalizeHarnessVersion(response.result.value.version);
       }
@@ -23821,7 +23850,7 @@ var HostPluginRuntime = class {
     const distributionVersion = reportedVersion === void 0 || reportedVersion === "0.0.1" ? await readHarnessDistributionVersion() : void 0;
     const version = selectHarnessVersion(reportedVersion, distributionVersion);
     if (version !== void 0) return version;
-    this.logger.warn("Harness version is unavailable", errorCode4 === void 0 ? void 0 : { code: errorCode4 });
+    this.logger.warn("Harness version is unavailable", errorCode5 === void 0 ? void 0 : { code: errorCode5 });
     return void 0;
   }
   hostCapabilities() {
@@ -23856,79 +23885,6 @@ function shortId5(value) {
 }
 function isPlainRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// src/remote-file-content-provider.ts
-var REMOTE_FILE_SAVE_AS_MAX_BYTES = 100 * 1024 * 1024;
-var REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES = 1024 * 1024 * 1024;
-function createRemoteFileContentProvider(call, options = {}) {
-  return {
-    id: "dsh-remote-files",
-    priority: 1e4,
-    supports: () => true,
-    saveAsAllowed: () => ({
-      allowed: currentSaveAsAllowed(options.saveAsAllowed),
-      maxBytes: currentSaveAsMaxBytes(options.saveAsMaxBytes)
-    }),
-    async stat(locator, signal) {
-      const value = await call("fileviewer.stat", { path: locator }, signal);
-      if (!value.exists) return void 0;
-      return {
-        name: value.name,
-        size: value.isDirectory ? 0 : value.size,
-        mime: value.mime,
-        mtimeMs: value.mtimeMs,
-        isDirectory: value.isDirectory
-      };
-    },
-    async read(locator, request) {
-      if (!Number.isInteger(request.offset) || request.offset < 0) throw new Error("A non-negative integer offset is required.");
-      if (!Number.isInteger(request.length) || request.length <= 0) throw new Error("A positive integer length is required.");
-      const chunks = [];
-      let received = 0;
-      while (received < request.length) {
-        request.signal.throwIfAborted();
-        const length = Math.min(REMOTE_FILE_CHUNK_BYTES, request.length - received);
-        const offset = request.offset + received;
-        const range = await call("fileviewer.readRange", { path: locator, offset, length }, request.signal);
-        if (range.offset !== offset) throw new Error("The Remote Host returned a mismatched file range.");
-        const bytes = decodeBase64(range.data);
-        if (bytes.byteLength > length) throw new Error("The Remote Host returned more file bytes than requested.");
-        chunks.push(bytes);
-        received += bytes.byteLength;
-        if (range.eof || bytes.byteLength === 0) break;
-      }
-      const merged = new Uint8Array(received);
-      let cursor2 = 0;
-      for (const chunk of chunks) {
-        merged.set(chunk, cursor2);
-        cursor2 += chunk.byteLength;
-      }
-      return merged;
-    },
-    async list(locator, signal) {
-      const value = await call("fileviewer.list", { path: locator }, signal);
-      return value.entries.map((entry) => ({
-        locator: entry.path,
-        name: entry.name,
-        size: entry.isDirectory ? 0 : entry.size ?? 0,
-        mtimeMs: entry.mtimeMs,
-        isDirectory: entry.isDirectory
-      }));
-    }
-  };
-}
-function currentSaveAsAllowed(value) {
-  return typeof value === "function" ? value() : value === true;
-}
-function currentSaveAsMaxBytes(value) {
-  return typeof value === "function" ? value() : value ?? REMOTE_FILE_SAVE_AS_MAX_BYTES;
-}
-function decodeBase64(value) {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
 }
 
 // src/cli.ts
@@ -24015,7 +23971,7 @@ async function status(args, runtime) {
     lines.push("Device: not initialized", "Authorization: logged out", "Credential: unavailable");
     write(runtime.stdout, `${lines.join("\n")}
 
-Run "remote login" to authorize this Host.
+Run "ds-harness-remote login" or use "/remote login" in dsh-TUI.
 `);
     return 0;
   }
@@ -24028,7 +23984,7 @@ Run "remote login" to authorize this Host.
     lines.push("Authorization: logged out", "Credential: unavailable");
     write(runtime.stdout, `${lines.join("\n")}
 
-Run "remote login" to authorize this Host.
+Run "ds-harness-remote login" or use "/remote login" in dsh-TUI.
 `);
     return 0;
   }
@@ -24120,6 +24076,27 @@ async function renderTerminalQr(url) {
   lines.push(...Array.from({ length: TERMINAL_QR_MARGIN }, () => quietLine));
   return lines.join("\n");
 }
+async function renderCompactTerminalQr(url) {
+  const { default: QRCode } = await import("qrcode");
+  const modules = QRCode.create(url, { errorCorrectionLevel: "M" }).modules;
+  const size = modules.size + TERMINAL_QR_MARGIN * 2;
+  const lines = [];
+  const isBlack = (row, column) => {
+    const qrRow = row - TERMINAL_QR_MARGIN;
+    const qrColumn = column - TERMINAL_QR_MARGIN;
+    return qrRow >= 0 && qrRow < modules.size && qrColumn >= 0 && qrColumn < modules.size && modules.get(qrRow, qrColumn) === 1;
+  };
+  for (let row = 0; row < size; row += 2) {
+    let line = "\x1B[30;47m";
+    for (let column = 0; column < size; column += 1) {
+      const top = isBlack(row, column);
+      const bottom = isBlack(row + 1, column);
+      line += top ? bottom ? "\u2588" : "\u2580" : bottom ? "\u2584" : " ";
+    }
+    lines.push(`${line}\x1B[0m`);
+  }
+  return lines.join("\n");
+}
 function authorizedMessage(authorization) {
   return authorization.account === void 0 ? "Remote Host login complete." : `Remote Host login complete for ${authorization.account}.`;
 }
@@ -24146,7 +24123,7 @@ function helpText() {
     "  ds-harness-remote status",
     "  ds-harness-remote logout",
     "",
-    'The shorter "remote" command supports the same subcommands.',
+    "Inside dsh-TUI, use /remote login, /remote status, or /remote logout.",
     "login defaults to Zhihu and authorizes this computer as a Remote Host with a terminal QR code.",
     `The Server is ${DEFAULT_REMOTE_SERVER_URL}.`,
     "Host configuration is not exposed by this CLI yet. Restart dsh-tui after login or logout.",
@@ -24172,21 +24149,430 @@ async function exists3(path) {
 var CliUsageError = class extends Error {
 };
 
+// src/tui-command.ts
+var QR_POLL_INTERVAL_MS2 = 2e3;
+var REMOTE_LOGIN_SCENE_ID = "remote-login";
+var REMOTE_STATUS_SCENE_ID = "remote-status";
+function installTuiRemoteCommand(ctx, resolveTarget) {
+  const tuiContext = ctx;
+  const commands = tuiContext.get("commands", false);
+  if (commands === void 0) return;
+  const trees = tuiContext.get("tuiCommandTrees", false);
+  const scenes = tuiContext.get("tuiScenes", false);
+  const login2 = new RemoteLoginController(resolveTarget);
+  const LoginScene = createRemoteLoginScene(login2);
+  const StatusScene = createRemoteStatusScene(resolveTarget);
+  tuiContext.effect(() => {
+    const disposeCommand = commands.register({
+      name: "remote",
+      description: "Manage Remote Host login and connection status",
+      input: { hint: "[status | login [github|zhihu] | logout]" },
+      recordInput: false,
+      handler: async ({ rawInput }) => {
+        const args = rawInput.trim().split(/\s+/u).filter(Boolean);
+        const command = args[0] ?? "status";
+        if (command === "status" && args.length <= 1) {
+          if (scenes?.open(REMOTE_STATUS_SCENE_ID) === true) return { kind: "success" };
+          return { kind: "success", text: formatRemoteStatusInline(resolveTarget()) };
+        }
+        if (command === "login" && args.length <= 2) {
+          const provider = args[1] ?? "zhihu";
+          if (provider !== "github" && provider !== "zhihu") {
+            return { kind: "error", text: "Usage: /remote login [github|zhihu]" };
+          }
+          if (scenes === void 0) {
+            return {
+              kind: "error",
+              text: `The Remote login screen is unavailable. Run "ds-harness-remote login ${provider}" outside dsh-TUI, then restart it.`
+            };
+          }
+          login2.start(provider);
+          if (!scenes.open(REMOTE_LOGIN_SCENE_ID)) {
+            login2.cancel();
+            return { kind: "error", text: "The Remote login screen is unavailable." };
+          }
+          return { kind: "success" };
+        }
+        if (command === "logout" && args.length === 1) {
+          const target = resolveTarget();
+          if (target === void 0) return remoteNotReady();
+          try {
+            await target.runtime.clearHostAuthorization();
+            return {
+              kind: "success",
+              text: "Remote Host logged out and its local device identity was rotated."
+            };
+          } catch (error) {
+            return {
+              kind: "error",
+              text: `Local Remote Host credentials were cleared, but Server revocation failed (${errorCode4(error)}).`
+            };
+          }
+        }
+        if (command === "config") {
+          return { kind: "error", text: "Host configuration is not supported yet." };
+        }
+        return { kind: "error", text: remoteCommandUsage() };
+      }
+    });
+    const disposeTree = registerOptional(tuiContext, "command completion", () => trees?.register({
+      root: "remote",
+      descriptions: {
+        en: "Manage Remote Host login and connection status",
+        zh: "\u7BA1\u7406 Remote Host \u767B\u5F55\u548C\u8FDE\u63A5\u72B6\u6001"
+      },
+      children: remoteCommandChildren
+    }));
+    const disposeScene = registerOptional(tuiContext, "login scene", () => scenes?.register({
+      id: REMOTE_LOGIN_SCENE_ID,
+      title: "Remote Host login",
+      component: LoginScene
+    }, tuiContext));
+    const disposeStatusScene = registerOptional(tuiContext, "status scene", () => scenes?.register({
+      id: REMOTE_STATUS_SCENE_ID,
+      title: "Remote Host status",
+      component: StatusScene
+    }, tuiContext));
+    return () => {
+      login2.cancel();
+      disposeCommand();
+      disposeTree();
+      disposeScene();
+      disposeStatusScene();
+    };
+  }, "ds-harness-remote: dsh-tui /remote command");
+}
+function registerOptional(ctx, feature, register) {
+  try {
+    return register() ?? (() => {
+    });
+  } catch (error) {
+    ctx.logger.warn(`dsh-TUI Remote ${feature} is unavailable`, { code: errorCode4(error) });
+    return () => {
+    };
+  }
+}
+function remoteCommandChildren(canonicalPath) {
+  if (canonicalPath.length === 1 && canonicalPath[0] === "remote") {
+    return [
+      {
+        name: "status",
+        description: "Show Remote Host authorization and connection status",
+        descriptions: { zh: "\u67E5\u770B Remote Host \u6388\u6743\u548C\u8FDE\u63A5\u72B6\u6001" }
+      },
+      {
+        name: "login",
+        description: "Authorize this Host with a GitHub or Zhihu QR code",
+        descriptions: { zh: "\u4F7F\u7528 GitHub \u6216\u77E5\u4E4E\u4E8C\u7EF4\u7801\u6388\u6743\u5F53\u524D Host" }
+      },
+      {
+        name: "logout",
+        description: "Revoke this Host and rotate its local identity",
+        descriptions: { zh: "\u64A4\u9500\u5F53\u524D Host \u5E76\u8F6E\u6362\u672C\u5730\u8EAB\u4EFD" }
+      }
+    ];
+  }
+  if (canonicalPath.length === 2 && canonicalPath[0] === "remote" && canonicalPath[1] === "login") {
+    return [
+      { name: "zhihu", description: "Sign in with Zhihu (default)", descriptions: { zh: "\u4F7F\u7528\u77E5\u4E4E\u767B\u5F55\uFF08\u9ED8\u8BA4\uFF09" } },
+      { name: "github", description: "Sign in with GitHub", descriptions: { zh: "\u4F7F\u7528 GitHub \u767B\u5F55" } }
+    ];
+  }
+  return [];
+}
+function remoteStatusLines(target) {
+  if (target === void 0) {
+    return ["Remote Host is disabled or still starting. Check the ds-harness-remote settings and retry."];
+  }
+  const { runtime, config } = target;
+  const status2 = runtime.hostStatus();
+  const diagnostics = runtime.diagnostics();
+  const codex = runtime.codexStatus();
+  const connection = status2.online ? "online" : status2.reconnecting ? "reconnecting" : status2.accountRequired ? "authorization required" : "offline";
+  return [
+    `Server: ${config.serverUrl ?? "not configured"}`,
+    "Host control: enabled",
+    `Device: ${status2.deviceId ?? "not initialized"}`,
+    `Authorization: ${status2.authorized ? status2.account === void 0 ? "logged in" : `logged in (${status2.account})` : "logged out"}`,
+    `Server connection: ${connection}`,
+    `Remote clients: ${diagnostics.activeConnections}`,
+    `Codex Remote: ${codex.enabled ? codex.state : "disabled"}`,
+    "",
+    "Commands: /remote login [github|zhihu] \xB7 /remote status \xB7 /remote logout"
+  ];
+}
+function formatRemoteStatusInline(target) {
+  return remoteStatusLines(target).filter(Boolean).join(" \xB7 ");
+}
+function remoteCommandUsage() {
+  return [
+    "Usage:",
+    "  /remote",
+    "  /remote status",
+    "  /remote login [github|zhihu]",
+    "  /remote logout"
+  ].join("\n");
+}
+function remoteNotReady() {
+  return {
+    kind: "error",
+    text: "Remote Host is disabled or still starting. Check the ds-harness-remote settings and retry."
+  };
+}
+var RemoteLoginController = class {
+  constructor(resolveTarget) {
+    this.resolveTarget = resolveTarget;
+  }
+  current = { phase: "idle", provider: "zhihu" };
+  listeners = /* @__PURE__ */ new Set();
+  attempt = 0;
+  snapshot = () => this.current;
+  subscribe = (listener) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+  start(provider) {
+    const attempt = ++this.attempt;
+    this.update({ phase: "loading", provider });
+    void this.run(attempt, provider);
+  }
+  cancel() {
+    this.attempt += 1;
+  }
+  async run(attempt, provider) {
+    try {
+      const target = this.resolveTarget();
+      if (target === void 0) throw new Error("REMOTE_NOT_READY");
+      const session = await target.runtime.startHostOAuthQrLogin(provider);
+      const [qr, compactQr] = await Promise.all([
+        renderTerminalQr(session.scanUrl),
+        renderCompactTerminalQr(session.scanUrl)
+      ]);
+      if (attempt !== this.attempt) return;
+      this.update({ phase: "waiting", provider, qr, compactQr, scanUrl: session.scanUrl });
+      await this.poll(attempt, provider, session, target.runtime);
+    } catch (error) {
+      if (attempt !== this.attempt) return;
+      this.update({ phase: "error", provider, error: errorCode4(error) });
+    }
+  }
+  async poll(attempt, provider, session, runtime) {
+    const deadline = Date.now() + session.expiresIn * 1e3;
+    while (attempt === this.attempt && Date.now() < deadline) {
+      try {
+        const result = await runtime.pollHostOAuthQrLogin(session.qrId);
+        if (attempt !== this.attempt) return;
+        if (result.status === "complete") {
+          this.update({ phase: "complete", provider, account: result.authorization.account });
+          return;
+        }
+        if (result.status === "expired") break;
+      } catch (error) {
+        if (!(error instanceof ServerApiError) || !error.retryable) throw error;
+      }
+      await wait(Math.min(QR_POLL_INTERVAL_MS2, Math.max(1, deadline - Date.now())));
+    }
+    if (attempt === this.attempt) this.update({ phase: "expired", provider });
+  }
+  update(snapshot) {
+    this.current = snapshot;
+    for (const listener of this.listeners) listener(snapshot);
+  }
+};
+function createRemoteLoginScene(controller) {
+  return function RemoteLoginScene({ React, ui, close }) {
+    const [snapshot, setSnapshot] = React.useState(controller.snapshot());
+    const terminal = ui.useTerminalSize();
+    React.useEffect(() => {
+      const unsubscribe = controller.subscribe(setSnapshot);
+      return () => {
+        unsubscribe();
+        controller.cancel();
+      };
+    }, []);
+    ui.useInput((input2, key) => {
+      if (key.escape === true || input2.toLowerCase() === "q") {
+        controller.cancel();
+        close();
+      }
+    });
+    const provider = snapshot.provider === "github" ? "GitHub" : "Zhihu";
+    const other = snapshot.provider === "github" ? "/remote login zhihu" : "/remote login github";
+    const children = [
+      React.createElement(ui.Text, { key: "title", bold: true, color: "accent" }, "Remote Host login"),
+      React.createElement(ui.Text, { key: "provider" }, `Provider: ${provider} \xB7 You can also use ${other}`)
+    ];
+    if (snapshot.phase === "loading") {
+      children.push(React.createElement(ui.Text, { key: "loading", color: "subtle" }, "Creating authorization QR code\u2026"));
+    } else if (snapshot.phase === "waiting" && snapshot.qr !== void 0 && snapshot.scanUrl !== void 0) {
+      const fullRows = snapshot.qr.split("\n").length;
+      const fullColumns = printableWidth(snapshot.qr.split("\n")[0] ?? "");
+      const useFullQr = terminal.rows >= fullRows + 7 && terminal.columns >= fullColumns + 4;
+      const qr = useFullQr || snapshot.compactQr === void 0 ? snapshot.qr : snapshot.compactQr;
+      const qrRows = qr.split("\n").length;
+      const qrColumns = printableWidth(qr.split("\n")[0] ?? "");
+      if (terminal.rows < qrRows + 7 || terminal.columns < qrColumns + 4) {
+        children.push(React.createElement(
+          ui.Text,
+          { key: "size-warning", color: "warning" },
+          `Resize the terminal to at least ${qrColumns + 4} \xD7 ${qrRows + 7} if the QR code is clipped.`
+        ));
+      }
+      children.push(
+        React.createElement(ui.Text, { key: "scan" }, "Scan this QR code to authorize this Host:"),
+        React.createElement(ui.Text, { key: "qr", wrap: "truncate" }, qr),
+        React.createElement(ui.Text, { key: "url", color: "link", underline: true }, terminalLink2(snapshot.scanUrl)),
+        React.createElement(ui.Text, { key: "waiting", color: "subtle" }, "Waiting for authorization\u2026")
+      );
+    } else if (snapshot.phase === "complete") {
+      children.push(React.createElement(
+        ui.Text,
+        { key: "complete", color: "success" },
+        snapshot.account === void 0 ? "Remote Host login complete. The Host is reconnecting now." : `Remote Host login complete for ${snapshot.account}. The Host is reconnecting now.`
+      ));
+    } else if (snapshot.phase === "expired") {
+      children.push(React.createElement(ui.Text, { key: "expired", color: "warning" }, "The QR code expired. Close this screen and run /remote login again."));
+    } else if (snapshot.phase === "error") {
+      children.push(React.createElement(ui.Text, { key: "error", color: "error" }, `Remote Host login failed (${snapshot.error ?? "UNKNOWN"}).`));
+    }
+    children.push(React.createElement(ui.Text, { key: "close", color: "subtle" }, "Press Esc or q to return."));
+    return React.createElement(ui.Box, {
+      flexDirection: "column",
+      gap: 1,
+      paddingX: Math.max(0, Math.min(2, Math.floor((terminal.columns - 1) / 2)))
+    }, ...children);
+  };
+}
+function createRemoteStatusScene(resolveTarget) {
+  return function RemoteStatusScene({ React, ui, close }) {
+    const terminal = ui.useTerminalSize();
+    ui.useInput((input2, key) => {
+      if (key.escape === true || input2.toLowerCase() === "q") close();
+    });
+    const children = [
+      React.createElement(ui.Text, { key: "title", bold: true, color: "accent" }, "Remote Host status"),
+      ...remoteStatusLines(resolveTarget()).map((line, index) => React.createElement(
+        ui.Text,
+        { key: `status-${index}`, color: line === "" ? "subtle" : void 0 },
+        line === "" ? " " : line
+      )),
+      React.createElement(ui.Text, { key: "close", color: "subtle" }, "Press Esc or q to return.")
+    ];
+    return React.createElement(ui.Box, {
+      flexDirection: "column",
+      gap: 1,
+      paddingX: Math.max(0, Math.min(2, Math.floor((terminal.columns - 1) / 2)))
+    }, ...children);
+  };
+}
+function terminalLink2(url) {
+  return `\x1B]8;;${url}\x07${url}\x1B]8;;\x07`;
+}
+function printableWidth(value) {
+  return value.replace(/\u001B\[[0-9;]*m/gu, "").length;
+}
+function errorCode4(error) {
+  if (error instanceof ServerApiError) return error.code;
+  if (error instanceof Error && "code" in error && typeof error.code === "string") return error.code;
+  return "CONNECTION_FAILED";
+}
+function wait(milliseconds) {
+  return new Promise((resolve2) => setTimeout(resolve2, milliseconds));
+}
+
+// src/remote-file-content-provider.ts
+var REMOTE_FILE_SAVE_AS_MAX_BYTES = 100 * 1024 * 1024;
+var REMOTE_FILE_FAST_SAVE_AS_MAX_BYTES = 1024 * 1024 * 1024;
+function createRemoteFileContentProvider(call, options = {}) {
+  return {
+    id: "dsh-remote-files",
+    priority: 1e4,
+    supports: () => true,
+    saveAsAllowed: () => ({
+      allowed: currentSaveAsAllowed(options.saveAsAllowed),
+      maxBytes: currentSaveAsMaxBytes(options.saveAsMaxBytes)
+    }),
+    async stat(locator, signal) {
+      const value = await call("fileviewer.stat", { path: locator }, signal);
+      if (!value.exists) return void 0;
+      return {
+        name: value.name,
+        size: value.isDirectory ? 0 : value.size,
+        mime: value.mime,
+        mtimeMs: value.mtimeMs,
+        isDirectory: value.isDirectory
+      };
+    },
+    async read(locator, request) {
+      if (!Number.isInteger(request.offset) || request.offset < 0) throw new Error("A non-negative integer offset is required.");
+      if (!Number.isInteger(request.length) || request.length <= 0) throw new Error("A positive integer length is required.");
+      const chunks = [];
+      let received = 0;
+      while (received < request.length) {
+        request.signal.throwIfAborted();
+        const length = Math.min(REMOTE_FILE_CHUNK_BYTES, request.length - received);
+        const offset = request.offset + received;
+        const range = await call("fileviewer.readRange", { path: locator, offset, length }, request.signal);
+        if (range.offset !== offset) throw new Error("The Remote Host returned a mismatched file range.");
+        const bytes = decodeBase64(range.data);
+        if (bytes.byteLength > length) throw new Error("The Remote Host returned more file bytes than requested.");
+        chunks.push(bytes);
+        received += bytes.byteLength;
+        if (range.eof || bytes.byteLength === 0) break;
+      }
+      const merged = new Uint8Array(received);
+      let cursor2 = 0;
+      for (const chunk of chunks) {
+        merged.set(chunk, cursor2);
+        cursor2 += chunk.byteLength;
+      }
+      return merged;
+    },
+    async list(locator, signal) {
+      const value = await call("fileviewer.list", { path: locator }, signal);
+      return value.entries.map((entry) => ({
+        locator: entry.path,
+        name: entry.name,
+        size: entry.isDirectory ? 0 : entry.size ?? 0,
+        mtimeMs: entry.mtimeMs,
+        isDirectory: entry.isDirectory
+      }));
+    }
+  };
+}
+function currentSaveAsAllowed(value) {
+  return typeof value === "function" ? value() : value === true;
+}
+function currentSaveAsMaxBytes(value) {
+  return typeof value === "function" ? value() : value ?? REMOTE_FILE_SAVE_AS_MAX_BYTES;
+}
+function decodeBase64(value) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
 // src/index.ts
 var name = "ds-harness-remote";
 var legacyLoaderModuleNames = /* @__PURE__ */ new Set(["dsh-remote", "@dsh-remote/plugin"]);
 var pluginSettingsNamespace = "ds-harness-remote";
 var legacySettingsNamespace = "dsh-remote";
 function apply(ctx, input2 = {}) {
+  const tuiCommandsAvailable = ctx.get("commands", false) !== void 0 && ctx.get("tuiScenes", false) !== void 0;
+  const tuiBinding = tuiCommandsAvailable ? {} : void 0;
+  if (tuiBinding !== void 0) installTuiRemoteCommand(ctx, () => tuiBinding.target);
   ctx.inject(["settings", "typertGateway"], (runtimeContext) => {
     const gateway = runtimeContext.get("typertGateway");
-    if (runtimeContext.get("apiProxy") !== void 0 || new TypertGatewaySwitch(gateway).supportsCarrier()) {
-      return activate(runtimeContext, input2);
+    if (tuiCommandsAvailable || runtimeContext.get("apiProxy") !== void 0 || new TypertGatewaySwitch(gateway).supportsCarrier()) {
+      return activate(runtimeContext, input2, tuiBinding);
     }
     runtimeContext.inject(["apiProxy"], (legacyContext) => activate(legacyContext, input2));
   });
 }
-async function activate(ctx, input2) {
+async function activate(ctx, input2, tuiBinding) {
   const settings = ctx.get("settings");
   const settingsScope = settings?.register(pluginSettingsNamespace, Config, {
     base: input2,
@@ -24196,9 +24582,8 @@ async function activate(ctx, input2) {
     }
   });
   if (settings !== void 0 && settingsScope !== void 0) {
-    const migration = await migrateLegacySettings(settings, settingsScope);
-    if (migration === "migrated") ctx.logger.info("migrated legacy Remote settings namespace");
-    if (migration === "failed") ctx.logger.warn("failed to migrate legacy Remote settings namespace");
+    const migration = migrateLegacySettings(settings, settingsScope);
+    reportSettingsMigration(ctx, await migration);
   }
   const connection = ctx.get("connection");
   const resolvedConfig = resolveConfig(settingsScope?.get() ?? input2);
@@ -24222,7 +24607,6 @@ async function activate(ctx, input2) {
       console.error(message);
     }
   }, config.logLevel);
-  await disableLegacyLoaderEntries(ctx, logger);
   const defaultIdentityDirectory = new IdentityStore().directory;
   const hostIdentities = new IdentityStore({
     directory: config.serverUrl === void 0 ? defaultIdentityDirectory : serverStorageDirectory(defaultIdentityDirectory, config.serverUrl, "host")
@@ -24257,6 +24641,9 @@ async function activate(ctx, input2) {
   const controlRuntime = connection === void 0 ? void 0 : new PluginControlRuntime(config, defaultIdentityDirectory, settingsScope, clientRuntime, hostControl);
   ctx.provide("dshRemote", runtime);
   if (clientRuntime !== void 0) ctx.provide("dshRemoteClient", clientRuntime);
+  const tuiTarget = { runtime, config };
+  if (tuiBinding !== void 0) tuiBinding.target = tuiTarget;
+  await disableLegacyLoaderEntries(ctx, logger);
   await ctx.effect(async () => {
     const disposeControl = controlRuntime?.register(connection);
     try {
@@ -24272,17 +24659,23 @@ async function activate(ctx, input2) {
         });
       }
     } catch (error) {
+      if (tuiBinding?.target === tuiTarget) tuiBinding.target = void 0;
       await disposeControl?.();
       await clientRuntime?.close();
       await runtime.close();
       throw error;
     }
     return async () => {
+      if (tuiBinding?.target === tuiTarget) tuiBinding.target = void 0;
       await disposeControl?.();
       await clientRuntime?.close();
       await runtime.close();
     };
   }, "dsh-remote lifecycle");
+}
+function reportSettingsMigration(ctx, migration) {
+  if (migration === "migrated") ctx.logger.info("migrated legacy Remote settings namespace");
+  if (migration === "failed") ctx.logger.warn("failed to migrate legacy Remote settings namespace");
 }
 async function migrateLegacySettings(settings, currentScope) {
   if (typeof settings.describe !== "function") return "skipped";

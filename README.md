@@ -67,36 +67,37 @@ Restart Harness after installation.
 
 Remote can run as a Host in a terminal-only [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)
 profile; it does not require the Desktop browser `connection` service. Install the plugin in the
-TUI profile and expose its companion command on `PATH`:
+TUI profile:
 
 ```sh
 dsh plugin --profile dsh-tui add ds-harness-remote@0.4.3
+```
+
+Start dsh-TUI and use its native slash command:
+
+```text
+/remote                    # live Host status
+/remote login              # Zhihu QR login by default
+/remote login github
+/remote status
+/remote logout
+```
+
+`/remote login` opens a TUI-native QR scene and prints a clickable authorization URL below the QR
+code. Login defaults to Zhihu; GitHub is also supported. Host control is enabled by default, and
+`/remote logout` revokes the Host and rotates its local device identity. Host configuration is not
+exposed yet; the integration uses `https://dsh.r2049.cn`. Tab completion is available for the
+subcommands and login providers. The `/remote` Host-management surface supports TUI profiles on
+`dsh-v0.1.1-rc.2` and `dsh-v0.1.2-alpha.1`–`alpha.2`; Remote workspace capabilities are advertised
+only when their official Harness carrier is available.
+
+For authorization before dsh-TUI starts, the package keeps the companion CLI as an optional
+fallback. Install it on `PATH`, authorize the Host, and then restart dsh-TUI:
+
+```sh
 npm install -g ds-harness-remote@0.4.3
-```
-
-Authorize the Host by scanning a terminal QR code, then start or restart dsh-TUI:
-
-```sh
-ds-harness-remote login zhihu
-# or
 ds-harness-remote login github
-dsh-tui
-```
-
-`login` defaults to Zhihu when the provider is omitted and prints a clickable authorization URL
-below the QR code. After login, dsh-TUI enables Host control by default. Use
-`ds-harness-remote logout` to revoke the Host and rotate its local device identity. The CLI
-intentionally does not expose Host configuration yet and uses `https://dsh.r2049.cn`. Remote
-currently supports the TUI when its Harness transport is `dsh-v0.1.1-rc.2` or
-`dsh-v0.1.2-alpha.1`–`alpha.2`.
-
-The package also installs `remote` as a shorter command name. Both names support the same commands:
-
-```sh
-remote login              # Zhihu by default; the output also shows the GitHub command
-remote login github
-remote status             # authorization, account, device, and credential readiness
-remote logout
+ds-harness-remote status
 ```
 
 ## Quick start

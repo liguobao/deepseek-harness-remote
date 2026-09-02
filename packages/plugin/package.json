@@ -13,8 +13,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "ds-harness-remote": "./bin/ds-harness-remote.js",
-    "remote": "./bin/ds-harness-remote.js"
+    "ds-harness-remote": "./bin/ds-harness-remote.js"
   },
   "types": "./public.d.ts",
   "exports": {

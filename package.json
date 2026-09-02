@@ -7,8 +7,7 @@
   "type": "module",
   "main": "./index.js",
   "bin": {
-    "ds-harness-remote": "./packages/plugin/bin/ds-harness-remote.js",
-    "remote": "./packages/plugin/bin/ds-harness-remote.js"
+    "ds-harness-remote": "./packages/plugin/bin/ds-harness-remote.js"
   },
   "types": "./packages/plugin/public.d.ts",
   "exports": {
