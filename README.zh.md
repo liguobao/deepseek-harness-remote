@@ -58,7 +58,7 @@ DSH Desktop 已默认集成并启用 Remote，无需另行安装插件。
 通过 DSH 插件管理命令，将确切版本加入 `web` profile：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.5
+dsh plugin --profile web add ds-harness-remote@0.4.6
 ```
 
 安装后请重启 Harness。
@@ -71,7 +71,7 @@ Remote 可以在纯终端 [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) prof
 运行，不再依赖 Desktop 浏览器的 `connection` 服务。先把插件安装进 TUI profile：
 
 ```sh
-dsh plugin --profile dsh-tui add ds-harness-remote@0.4.5
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.6
 ```
 
 启动 dsh-TUI 后，使用原生 Slash Command：
@@ -227,9 +227,9 @@ WebSocket Relay。所有路径都承载同一份 Noise 密文，并保持相同�
 会话流量现在只通过官方 rc.2 `ApiProxy` 或 alpha Typert Remote Gateway 承载；
 本插件不提供旧 RPC 的适配层或 wire format 翻译。
 
-Plugin `0.4.5` 同时兼容 DeepSeek Harness `dsh-v0.1.1-rc.2` 与
+Plugin `0.4.6` 同时兼容 DeepSeek Harness `dsh-v0.1.1-rc.2` 与
 `dsh-v0.1.2-alpha.1`–`alpha.2`：rc.2 继续使用官方 legacy `ApiProxy`，alpha 使用官方
-Typert Remote Gateway。运行 rc.2 的 `0.4.5` Client 仍可通过 legacy capability 降级连接旧 rc.2 Host。
+Typert Remote Gateway。运行 rc.2 的 `0.4.6` Client 仍可通过 legacy capability 降级连接旧 rc.2 Host。
 
 两端 Desktop 必须处于同一 Harness transport 代际。`0.4.x` 不翻译 rc.2 与 alpha 的业务模型：
 alpha Client 不能打开 rc.2 Host，rc.2 Client 也不能打开 alpha Host；混连会在切换原生

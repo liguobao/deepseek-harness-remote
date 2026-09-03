@@ -1,6 +1,6 @@
 {
   "name": "ds-harness-remote",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "DeepSeek 远程连接",
   "repository": {
     "type": "git",
