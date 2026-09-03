@@ -18534,6 +18534,8 @@ var ClientModeRuntime = class {
   proxySwitch;
   gatewaySwitch;
   codexStreams = /* @__PURE__ */ new Map();
+  connectionProgress;
+  connectionProgressRun = 0;
   closed = false;
   async start() {
     if (this.closed) throw new Error("client remote-mode runtime is closed");
@@ -18562,7 +18564,15 @@ var ClientModeRuntime = class {
       ...targetStatus,
       connected: this.connected !== void 0,
       transport: this.connected?.client.getStats().mode ?? "Disconnected",
+      connectedTargetDeviceId: this.connected?.target.deviceId,
       preferredTransports: this.config.forceRelay ? ["relay"] : ["lan", "p2p", "turn", "relay"],
+      ...this.connectionProgress === void 0 ? {} : {
+        connectionProgress: {
+          targetDeviceId: this.connectionProgress.targetDeviceId,
+          phase: this.connectionProgress.phase,
+          ...this.connectionProgress.activeTransports === void 0 ? {} : { activeTransports: [...this.connectionProgress.activeTransports] }
+        }
+      },
       remoteFeatures: this.connected?.features ?? remoteHostFeatures(),
       ...this.pendingWorkspaceSelection === void 0 ? {} : { workspaceSelection: { ...this.pendingWorkspaceSelection } },
       backend: this.codexVirtual === void 0 ? "harness" : "codex",
@@ -18631,6 +18641,7 @@ var ClientModeRuntime = class {
   async clearClientAuthorization() {
     const previous = this.connected;
     this.connected = void 0;
+    this.connectionProgress = void 0;
     this.pendingWorkspaceSelection = void 0;
     await this.closeCodexVirtual();
     this.proxySwitch?.selectLocal();
@@ -18658,6 +18669,7 @@ var ClientModeRuntime = class {
       this.gatewaySwitch.selectLocal();
       const previous2 = this.connected;
       this.connected = void 0;
+      this.connectionProgress = void 0;
       this.pendingWorkspaceSelection = void 0;
       await this.closeCodexStreams(previous2?.client);
       await previous2?.client.close().catch(() => void 0);
@@ -18671,11 +18683,13 @@ var ClientModeRuntime = class {
     try {
       this.assertRemoteCompatible(next);
     } catch (error) {
+      this.clearConnectionProgress(next.progressRunId);
       await next.client.close().catch(() => void 0);
       throw error;
     }
     const previous = this.connected;
     this.connected = next;
+    this.clearConnectionProgress(next.progressRunId);
     this.pendingWorkspaceSelection = void 0;
     await this.closeCodexVirtual();
     this.selectRemoteTarget(next);
@@ -18818,6 +18832,7 @@ var ClientModeRuntime = class {
     await this.closeCodexStreams(this.connected?.client);
     await this.connected?.client.close().catch(() => void 0);
     this.connected = void 0;
+    this.connectionProgress = void 0;
     this.proxySwitch?.restore();
     this.gatewaySwitch.restore();
   }
@@ -18999,57 +19014,62 @@ var ClientModeRuntime = class {
   }
   async connect(targetDeviceId, signal) {
     signal?.throwIfAborted();
+    const progressRunId = this.connectionProgressRun + 1;
+    this.connectionProgressRun = progressRunId;
+    this.connectionProgress = { runId: progressRunId, targetDeviceId, phase: "checking-host" };
     const identity = this.requireIdentity();
-    const serverDevice = (await this.server.listDevices()).find((device) => device.deviceId === targetDeviceId);
-    if (serverDevice === void 0) {
-      throw new ClientModeError("MEMBERSHIP_REQUIRED", "The selected Host is not authorized for this account.");
-    }
-    const target = await this.authorizeHostPeer(serverDevice);
-    const presence = await this.server.presenceFor(targetDeviceId);
-    if (!presence.online) throw new ClientModeError("HOST_OFFLINE", "The selected Host is offline.", true);
-    const credentials = await this.server.authenticate(identity);
-    const rtcFactory = this.config.forceRelay ? void 0 : await this.rtcFactoryProvider({ routeTargets: [this.server.baseUrl] }).catch(() => void 0);
-    if (!this.config.forceRelay && rtcFactory === void 0) {
-      this.logger.warn("remote Harness WebRTC backend unavailable; using relay", {
-        targetDeviceId: shortId(target.deviceId)
-      });
-    }
-    let webRtcFallback = false;
-    const createTransport = (attempt) => new AdaptiveTransport(
-      websocketUrl(this.server.baseUrl),
-      {
-        role: "client",
-        deviceId: identity.deviceId,
-        accessToken: credentials.accessToken,
-        targetDeviceId,
-        forceRelay: this.config.forceRelay || attempt === "relay",
-        preferredTransports: preferredTransportsForAttempt(attempt),
-        negotiateTimeoutMs: attempt === "direct" ? DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS : void 0,
-        ...rtcFactory === void 0 || attempt === "relay" ? {} : { rtcFactory },
-        fetchIceServers: async (connectionId) => iceServersForAttempt(attempt, await this.server.turnCredentials(connectionId)),
-        onWebRtcFallback: (error, diagnostics) => {
-          webRtcFallback = true;
-          this.logger.warn(attempt === "direct" ? "remote Harness direct WebRTC failed; trying TURN" : "remote Harness TURN WebRTC failed; using relay", {
-            targetDeviceId: shortId(target.deviceId),
-            attempt,
-            reason: diagnosticReason(error)
-          });
-          if (diagnostics !== void 0) {
-            this.logger.debug("remote Harness WebRTC fallback diagnostics", {
-              targetDeviceId: shortId(target.deviceId),
-              attempt,
-              ...webrtcDiagnosticsLogFields(diagnostics)
-            });
-          }
-        }
-      }
-    );
-    const attempts = this.config.forceRelay || rtcFactory === void 0 ? ["relay"] : ["direct", "turn", "relay"];
-    let transport;
     let client;
     try {
+      const serverDevice = (await this.server.listDevices()).find((device) => device.deviceId === targetDeviceId);
+      if (serverDevice === void 0) {
+        throw new ClientModeError("MEMBERSHIP_REQUIRED", "The selected Host is not authorized for this account.");
+      }
+      this.updateConnectionProgress(progressRunId, "authorizing-peer");
+      const target = await this.authorizeHostPeer(serverDevice);
+      const presence = await this.server.presenceFor(targetDeviceId);
+      if (!presence.online) throw new ClientModeError("HOST_OFFLINE", "The selected Host is offline.", true);
+      const credentials = await this.server.authenticate(identity);
+      const rtcFactory = this.config.forceRelay ? void 0 : await this.rtcFactoryProvider({ routeTargets: [this.server.baseUrl] }).catch(() => void 0);
+      if (!this.config.forceRelay && rtcFactory === void 0) {
+        this.logger.warn("remote Harness WebRTC backend unavailable; using relay", {
+          targetDeviceId: shortId(target.deviceId)
+        });
+      }
+      let webRtcFallback = false;
+      const createTransport = (attempt) => new AdaptiveTransport(
+        websocketUrl(this.server.baseUrl),
+        {
+          role: "client",
+          deviceId: identity.deviceId,
+          accessToken: credentials.accessToken,
+          targetDeviceId,
+          forceRelay: this.config.forceRelay || attempt === "relay",
+          preferredTransports: preferredTransportsForAttempt(attempt),
+          negotiateTimeoutMs: attempt === "direct" ? DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS : void 0,
+          ...rtcFactory === void 0 || attempt === "relay" ? {} : { rtcFactory },
+          fetchIceServers: async (connectionId) => iceServersForAttempt(attempt, await this.server.turnCredentials(connectionId)),
+          onWebRtcFallback: (error, diagnostics) => {
+            webRtcFallback = true;
+            this.logger.warn(attempt === "direct" ? "remote Harness direct WebRTC failed; trying TURN" : "remote Harness TURN WebRTC failed; using relay", {
+              targetDeviceId: shortId(target.deviceId),
+              attempt,
+              reason: diagnosticReason(error)
+            });
+            if (diagnostics !== void 0) {
+              this.logger.debug("remote Harness WebRTC fallback diagnostics", {
+                targetDeviceId: shortId(target.deviceId),
+                attempt,
+                ...webrtcDiagnosticsLogFields(diagnostics)
+              });
+            }
+          }
+        }
+      );
+      const attempts = this.config.forceRelay || rtcFactory === void 0 ? ["relay"] : ["direct", "turn", "relay"];
+      let transport;
       for (const attempt of attempts) {
         webRtcFallback = false;
+        this.updateConnectionProgress(progressRunId, "probing", activeTransportsForAttempt(attempt));
         transport = createTransport(attempt);
         client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 6e4);
         await client.connect();
@@ -19069,9 +19089,16 @@ var ClientModeRuntime = class {
       }
       const connectedClient = client;
       const connectedTransport = transport;
+      const connectedPreference = transportPreferenceForMode(connectedClient.getStats().mode);
+      this.updateConnectionProgress(
+        progressRunId,
+        "connected",
+        connectedPreference === void 0 ? void 0 : [connectedPreference]
+      );
       connectedClient.onClose(() => {
         if (this.connected?.client !== connectedClient) return;
         this.connected = void 0;
+        this.connectionProgress = void 0;
         this.pendingWorkspaceSelection = void 0;
         void this.closeCodexVirtual();
         this.proxySwitch?.selectLocal();
@@ -19103,9 +19130,11 @@ var ClientModeRuntime = class {
         target,
         transport: connectedTransport,
         features,
+        progressRunId,
         ...serverDevice.clientVersion === void 0 ? {} : { clientVersion: serverDevice.clientVersion }
       };
     } catch (error) {
+      this.clearConnectionProgress(progressRunId);
       await client?.close().catch(() => void 0);
       throw error;
     }
@@ -19115,8 +19144,21 @@ var ClientModeRuntime = class {
     const next = await this.connect(targetDeviceId, signal);
     const previous = this.connected;
     this.connected = next;
+    this.clearConnectionProgress(next.progressRunId);
     await previous?.client.close().catch(() => void 0);
     return next;
+  }
+  updateConnectionProgress(runId, phase, activeTransports) {
+    if (this.connectionProgress?.runId !== runId) return;
+    this.connectionProgress = {
+      runId,
+      targetDeviceId: this.connectionProgress.targetDeviceId,
+      phase,
+      ...activeTransports === void 0 ? {} : { activeTransports }
+    };
+  }
+  clearConnectionProgress(runId) {
+    if (this.connectionProgress?.runId === runId) this.connectionProgress = void 0;
   }
   async handleControl(endpoint, payload, signal) {
     try {
@@ -19485,6 +19527,17 @@ function preferredTransportsForAttempt(attempt) {
   if (attempt === "direct") return ["lan", "p2p", "relay"];
   if (attempt === "turn") return ["turn", "relay"];
   return ["relay"];
+}
+function activeTransportsForAttempt(attempt) {
+  if (attempt === "direct") return ["lan", "p2p"];
+  return [attempt];
+}
+function transportPreferenceForMode(mode) {
+  if (mode === "LAN") return "lan";
+  if (mode === "P2P") return "p2p";
+  if (mode === "TURN") return "turn";
+  if (mode === "Relay") return "relay";
+  return void 0;
 }
 function iceServersForAttempt(attempt, iceServers) {
   return attempt === "direct" ? stunOnlyIceServers(iceServers) : iceServers;

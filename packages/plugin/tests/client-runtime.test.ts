@@ -112,6 +112,21 @@ describe('ClientModeRuntime Host account control', () => {
     )
     await runtime.start()
     const deviceId = runtime.status().deviceId as string
+    ;(runtime as unknown as { connectionProgress: unknown }).connectionProgress = {
+      runId: 1,
+      targetDeviceId: 'host-device-1',
+      phase: 'probing',
+      activeTransports: ['turn'],
+    }
+    expect(runtime.status()).toMatchObject({
+      connected: false,
+      connectionProgress: {
+        targetDeviceId: 'host-device-1',
+        phase: 'probing',
+        activeTransports: ['turn'],
+      },
+    })
+    ;(runtime as unknown as { connectionProgress: unknown }).connectionProgress = undefined
     const connectionDetails = vi.fn(async () => ({
       connectionId: 'connection-1',
       connectedAt: 1_786_000_000_000,
@@ -149,6 +164,7 @@ describe('ClientModeRuntime Host account control', () => {
       ok: true,
       value: {
         connected: true,
+        connectedTargetDeviceId: 'host-device-1',
         transport: 'LAN',
         remoteFeatures: { commandList: false, fileViewer: false, apiProxy: true, remoteGateway: false, codex: false },
         network: {
