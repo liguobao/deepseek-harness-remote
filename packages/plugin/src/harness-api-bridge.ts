@@ -97,6 +97,10 @@ const commandListSchema = z.object({
   agentId: z.string().min(1).max(128),
 }).strict()
 
+const directoryListSchema = z.object({
+  path: z.string().min(1).max(4096).optional(),
+}).strict()
+
 /** POSIX-portable environment-variable name, mirroring the seam's credentialRef guard. */
 const credentialRefSchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'Invalid credential reference name').max(128)
 
@@ -302,10 +306,18 @@ export class HarnessApiBridge {
 
   async call(input: unknown): Promise<RpcResponse<unknown>> {
     const params = callSchema.parse(input) as HarnessApiCallParams
-    const method = this.methods.get(params.method)
-    if (method === undefined) throw deniedMethod(params.method)
-    const startedAt = performance.now()
     const signal = AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS)
+    const method = this.methods.get(params.method)
+    if (method === undefined) {
+      if (params.method === 'host.listDirectory') {
+        return this.callDirectoryFallback(params, signal)
+      }
+      if (params.method === 'host.describe') {
+        return this.describeFallback(params.rpcId as never)
+      }
+      throw deniedMethod(params.method)
+    }
+    const startedAt = performance.now()
     const request = { rpcId: params.rpcId as never, payload: params.payload }
     try {
       // Race the native call against the timeout: some native ApiProxy
@@ -324,12 +336,10 @@ export class HarnessApiBridge {
         response = await callWithTimeout(request.payload)
       }
       if (params.method === 'host.listDirectory' && needsRemoteDirectoryFallback(response)) {
-        const payload = typeof params.payload === 'object' && params.payload !== null ? params.payload as { path?: unknown } : {}
-        const value = await listRemoteDirectory(typeof payload.path === 'string' ? payload.path : undefined, signal)
-        response = { rpcId: params.rpcId as never, result: { ok: true, value } }
+        response = await this.callDirectoryFallback(params, signal)
       }
       if (params.method === 'host.describe') {
-        response = normalizeHostDescribe(response, this.harnessVersion, this.methods.has('host.listDirectory'))
+        response = normalizeHostDescribe(response, this.harnessVersion, true)
       }
       this.logger?.debug('harness api call ok', {
         method: params.method,
@@ -345,6 +355,31 @@ export class HarnessApiBridge {
         code: safeErrorCode(error),
       })
       throw error
+    }
+  }
+
+  private async callDirectoryFallback(
+    params: HarnessApiCallParams,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<unknown>> {
+    const payload = directoryListSchema.parse(params.payload)
+    const value = await listRemoteDirectory(payload.path, signal)
+    return { rpcId: params.rpcId as never, result: { ok: true, value } }
+  }
+
+  private describeFallback(rpcId: string): RpcResponse<unknown> {
+    return {
+      rpcId: rpcId as never,
+      result: {
+        ok: true,
+        value: {
+          version: this.harnessVersion ?? '0.0.1',
+          cwd: '',
+          home: '',
+          attachedSessions: 0,
+          canOpenPath: true,
+        },
+      },
     }
   }
 

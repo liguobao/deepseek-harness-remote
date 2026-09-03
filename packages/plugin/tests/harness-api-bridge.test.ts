@@ -28,6 +28,26 @@ describe('HarnessApiBridge', () => {
     }
   })
 
+  it('serves read-only Host directory browsing when Harness has no native browser picker method', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-remote-directory-missing-'))
+    await mkdir(join(root, 'project'))
+    const bridge = new HarnessApiBridge(api({}), vi.fn(async () => undefined), 8, undefined, undefined, '0.1.1-rc.2')
+    try {
+      await expect(bridge.call({ method: 'host.listDirectory', rpcId: 'native-fallback-missing', payload: { path: root } }))
+        .resolves.toMatchObject({
+          rpcId: 'native-fallback-missing',
+          result: { ok: true, value: { path: root, entries: [{ name: 'project', path: join(root, 'project') }] } },
+        })
+      await expect(bridge.call({ method: 'host.describe', rpcId: 'native-describe-missing', payload: {} }))
+        .resolves.toMatchObject({
+          rpcId: 'native-describe-missing',
+          result: { ok: true, value: { version: '0.1.1-rc.2', canOpenPath: true } },
+        })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('forwards allowlisted native methods and read-only directory browsing while denying privileged methods', async () => {
     const list = vi.fn(async (request: { rpcId: string }) => ({ rpcId: request.rpcId, result: { ok: true, value: [] } }))
     const attachment = vi.fn(async (request: { rpcId: string }) => ({

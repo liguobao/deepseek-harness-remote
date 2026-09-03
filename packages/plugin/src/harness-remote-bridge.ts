@@ -15,6 +15,7 @@ import {
 } from '@dsh-remote/protocol'
 import { z } from 'zod'
 import type { SafeLogger } from './logging.js'
+import { listRemoteDirectory } from './remote-directory-browser.js'
 import { RpcError } from './rpc-router.js'
 import type { LocalTypertGateway, TypertRpcResult } from './typert-gateway-contract.js'
 
@@ -64,6 +65,9 @@ const transferIdSchema = z.object({ transferId: z.string().uuid() }).strict()
 const transferReadSchema = z.object({
   transferId: z.string().uuid(),
   index: z.number().int().nonnegative(),
+}).strict()
+const directoryListSchema = z.object({
+  path: z.string().min(1).max(4096).optional(),
 }).strict()
 
 const MAX_ACTIVE_STREAMS = 16
@@ -148,15 +152,31 @@ export class HarnessRemoteBridge {
   async call(input: unknown): Promise<TypertRpcResult> {
     const params = callSchema.parse(input) as HarnessRemoteCallParams
     this.assertAllowed(params.endpoint)
+    if (params.endpoint === 'session/canOpenWorkspacePath') {
+      return { ok: true, value: true }
+    }
     const startedAt = performance.now()
+    const signal = AbortSignal.timeout(60_000)
     try {
-      const result = await this.gateway.dispatch(params.endpoint, params.payload, AbortSignal.timeout(60_000))
+      const nativeResult = await this.gateway.dispatch(params.endpoint, params.payload, signal)
+      const result = params.endpoint === 'directoryPicker/list' && needsDirectoryFallback(nativeResult)
+        ? await this.directoryList(params.payload, signal)
+        : nativeResult
       this.logger?.debug('harness remote call ok', {
         endpoint: params.endpoint,
         durationMs: Math.round(performance.now() - startedAt),
       })
       return result
     } catch (error) {
+      if (params.endpoint === 'directoryPicker/list') {
+        const result = await this.directoryList(params.payload, signal)
+        this.logger?.debug('harness remote call ok', {
+          endpoint: params.endpoint,
+          durationMs: Math.round(performance.now() - startedAt),
+          fallback: 'directory-browser',
+        })
+        return result
+      }
       this.logger?.warn('harness remote call failed', {
         endpoint: params.endpoint,
         durationMs: Math.round(performance.now() - startedAt),
@@ -164,6 +184,12 @@ export class HarnessRemoteBridge {
       })
       throw error
     }
+  }
+
+  private async directoryList(payload: unknown, signal: AbortSignal): Promise<TypertRpcResult> {
+    const args = requestArgs(payload)
+    const params = directoryListSchema.parse(args)
+    return { ok: true, value: await listRemoteDirectory(params.path, signal) }
   }
 
   openTransfer(input: unknown): { opened: true; transferId: string } {
@@ -360,4 +386,29 @@ function concatChunks(chunks: readonly Uint8Array[], totalBytes: number): Uint8A
     offset += chunk.byteLength
   }
   return result
+}
+
+function needsDirectoryFallback(result: TypertRpcResult): boolean {
+  if (result.ok) return false
+  const code = result.error.code.toLocaleLowerCase()
+  const message = result.error.message.toLocaleLowerCase()
+  return code.includes('capability')
+    || code === 'directory-picker-unavailable'
+    || message.includes('browser capability')
+    || message.includes('brower capability')
+    || message.includes('directory-picker-unavailable')
+}
+
+function requestArgs(payload: unknown): Record<string, unknown> {
+  const root = record(payload)
+  const args = isRecord(root.args) ? root.args : root
+  return record(args.request ?? args._request ?? args)
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

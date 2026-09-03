@@ -19431,24 +19431,24 @@ var IdentityStore = class {
     }
     if (!hasDevice) {
       const keys = generateKeyPair();
-      const record4 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
-      await atomicJsonWrite(devicePath, record4, 384);
+      const record5 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
+      await atomicJsonWrite(devicePath, record5, 384);
       await atomicTextWrite(keyPath, `${keys.privateKey}
 `, 384);
     }
     await assertPrivateMode(keyPath);
     try {
-      let record4 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
+      let record5 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
       const privateKey = (await readFile(keyPath, "utf8")).trim();
       const regenerated = generateKeyPair(fromBase64Url2(privateKey));
-      if (regenerated.publicKey !== record4.publicKey) {
+      if (regenerated.publicKey !== record5.publicKey) {
         throw new IdentityInvalidError("device public and private keys do not match");
       }
-      if (record4.name !== deviceName) {
-        record4 = { ...record4, name: deviceName };
-        await atomicJsonWrite(devicePath, record4, 384);
+      if (record5.name !== deviceName) {
+        record5 = { ...record5, name: deviceName };
+        await atomicJsonWrite(devicePath, record5, 384);
       }
-      this.identity = { ...record4, privateKey, fingerprint: fingerprint(record4.publicKey) };
+      this.identity = { ...record5, privateKey, fingerprint: fingerprint(record5.publicKey) };
       await this.loadPeers();
       return this.identity;
     } catch (error) {
@@ -19590,10 +19590,10 @@ var ServerCredentialStore = class {
     return parsed.serverUrl === serverUrl && parsed.deviceId === deviceId ? parsed : void 0;
   }
   async save(credentials) {
-    const record4 = credentialSchema.parse({ schemaVersion: 1, ...credentials });
-    await atomicWrite(this.path, `${JSON.stringify(record4, null, 2)}
+    const record5 = credentialSchema.parse({ schemaVersion: 1, ...credentials });
+    await atomicWrite(this.path, `${JSON.stringify(record5, null, 2)}
 `);
-    return record4;
+    return record5;
   }
   async clear() {
     await rm2(this.path, { force: true });
@@ -21395,6 +21395,9 @@ var commandExecuteSchema = external_exports.object({
 var commandListSchema = external_exports.object({
   agentId: external_exports.string().min(1).max(128)
 }).strict();
+var directoryListSchema = external_exports.object({
+  path: external_exports.string().min(1).max(4096).optional()
+}).strict();
 var credentialRefSchema = external_exports.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "Invalid credential reference name").max(128);
 var CONFIG_PLANE_SETTINGS_BYTES = 64 * 1024;
 var CONFIG_PLANE_MAX_OPS = 64;
@@ -21524,10 +21527,18 @@ var HarnessApiBridge = class {
   answer;
   async call(input2) {
     const params = callSchema2.parse(input2);
-    const method = this.methods.get(params.method);
-    if (method === void 0) throw deniedMethod(params.method);
-    const startedAt = performance.now();
     const signal = AbortSignal.timeout(NATIVE_CALL_TIMEOUT_MS);
+    const method = this.methods.get(params.method);
+    if (method === void 0) {
+      if (params.method === "host.listDirectory") {
+        return this.callDirectoryFallback(params, signal);
+      }
+      if (params.method === "host.describe") {
+        return this.describeFallback(params.rpcId);
+      }
+      throw deniedMethod(params.method);
+    }
+    const startedAt = performance.now();
     const request = { rpcId: params.rpcId, payload: params.payload };
     try {
       const callWithTimeout = (overridePayload) => withTimeout(
@@ -21542,12 +21553,10 @@ var HarnessApiBridge = class {
         response = await callWithTimeout(request.payload);
       }
       if (params.method === "host.listDirectory" && needsRemoteDirectoryFallback(response)) {
-        const payload = typeof params.payload === "object" && params.payload !== null ? params.payload : {};
-        const value = await listRemoteDirectory(typeof payload.path === "string" ? payload.path : void 0, signal);
-        response = { rpcId: params.rpcId, result: { ok: true, value } };
+        response = await this.callDirectoryFallback(params, signal);
       }
       if (params.method === "host.describe") {
-        response = normalizeHostDescribe(response, this.harnessVersion, this.methods.has("host.listDirectory"));
+        response = normalizeHostDescribe(response, this.harnessVersion, true);
       }
       this.logger?.debug("harness api call ok", {
         method: params.method,
@@ -21564,6 +21573,26 @@ var HarnessApiBridge = class {
       });
       throw error;
     }
+  }
+  async callDirectoryFallback(params, signal) {
+    const payload = directoryListSchema.parse(params.payload);
+    const value = await listRemoteDirectory(payload.path, signal);
+    return { rpcId: params.rpcId, result: { ok: true, value } };
+  }
+  describeFallback(rpcId) {
+    return {
+      rpcId,
+      result: {
+        ok: true,
+        value: {
+          version: this.harnessVersion ?? "0.0.1",
+          cwd: "",
+          home: "",
+          attachedSessions: 0,
+          canOpenPath: true
+        }
+      }
+    };
   }
   openTransfer(input2) {
     this.pruneTransfers();
@@ -22131,6 +22160,9 @@ var transferReadSchema2 = external_exports.object({
   transferId: external_exports.string().uuid(),
   index: external_exports.number().int().nonnegative()
 }).strict();
+var directoryListSchema2 = external_exports.object({
+  path: external_exports.string().min(1).max(4096).optional()
+}).strict();
 var MAX_ACTIVE_STREAMS = 16;
 var MAX_ACTIVE_TRANSFERS = 2;
 var TRANSFER_IDLE_MS = 2 * 6e4;
@@ -22206,15 +22238,29 @@ var HarnessRemoteBridge = class {
   async call(input2) {
     const params = callSchema3.parse(input2);
     this.assertAllowed(params.endpoint);
+    if (params.endpoint === "session/canOpenWorkspacePath") {
+      return { ok: true, value: true };
+    }
     const startedAt = performance.now();
+    const signal = AbortSignal.timeout(6e4);
     try {
-      const result = await this.gateway.dispatch(params.endpoint, params.payload, AbortSignal.timeout(6e4));
+      const nativeResult = await this.gateway.dispatch(params.endpoint, params.payload, signal);
+      const result = params.endpoint === "directoryPicker/list" && needsDirectoryFallback(nativeResult) ? await this.directoryList(params.payload, signal) : nativeResult;
       this.logger?.debug("harness remote call ok", {
         endpoint: params.endpoint,
         durationMs: Math.round(performance.now() - startedAt)
       });
       return result;
     } catch (error) {
+      if (params.endpoint === "directoryPicker/list") {
+        const result = await this.directoryList(params.payload, signal);
+        this.logger?.debug("harness remote call ok", {
+          endpoint: params.endpoint,
+          durationMs: Math.round(performance.now() - startedAt),
+          fallback: "directory-browser"
+        });
+        return result;
+      }
       this.logger?.warn("harness remote call failed", {
         endpoint: params.endpoint,
         durationMs: Math.round(performance.now() - startedAt),
@@ -22222,6 +22268,11 @@ var HarnessRemoteBridge = class {
       });
       throw error;
     }
+  }
+  async directoryList(payload, signal) {
+    const args = requestArgs(payload);
+    const params = directoryListSchema2.parse(args);
+    return { ok: true, value: await listRemoteDirectory(params.path, signal) };
   }
   openTransfer(input2) {
     this.pruneTransfers();
@@ -22405,6 +22456,23 @@ function concatChunks2(chunks, totalBytes) {
     offset += chunk.byteLength;
   }
   return result;
+}
+function needsDirectoryFallback(result) {
+  if (result.ok) return false;
+  const code = result.error.code.toLocaleLowerCase();
+  const message = result.error.message.toLocaleLowerCase();
+  return code.includes("capability") || code === "directory-picker-unavailable" || message.includes("browser capability") || message.includes("brower capability") || message.includes("directory-picker-unavailable");
+}
+function requestArgs(payload) {
+  const root = record4(payload);
+  const args = isRecord7(root.args) ? root.args : root;
+  return record4(args.request ?? args._request ?? args);
+}
+function record4(value) {
+  return isRecord7(value) ? value : {};
+}
+function isRecord7(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // src/codex/domain.ts
@@ -22597,7 +22665,7 @@ var CodexAppServerClient = class {
       this.handleProcessFailure("CODEX_INVALID_RESPONSE", new Error("Codex App Server emitted invalid JSON."));
       return;
     }
-    if (!isRecord7(value)) {
+    if (!isRecord8(value)) {
       this.handleProcessFailure("CODEX_INVALID_RESPONSE", new Error("Codex App Server emitted an invalid message."));
       return;
     }
@@ -22642,12 +22710,12 @@ var CodexAppServerClient = class {
   }
 };
 function safeUpstreamError(value) {
-  if (!isRecord7(value) || typeof value.message !== "string") return "Codex App Server rejected the request.";
+  if (!isRecord8(value) || typeof value.message !== "string") return "Codex App Server rejected the request.";
   const message = value.message.toLowerCase();
   if (message.includes("active writer")) return "Codex thread already has an active writer.";
   return message.includes("not initialized") ? "Codex App Server is not initialized." : "Codex App Server rejected the request.";
 }
-function isRecord7(value) {
+function isRecord8(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -23009,15 +23077,15 @@ function decodeCanonicalBase643(value) {
   }
   return decoded;
 }
-function isRecord8(value) {
+function isRecord9(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function safeErrorCode2(error) {
-  if (isRecord8(error) && typeof error.code === "string") return error.code;
+  if (isRecord9(error) && typeof error.code === "string") return error.code;
   return "UNKNOWN";
 }
 function safeMethod(input2) {
-  return isRecord8(input2) && typeof input2.method === "string" ? input2.method : "invalid";
+  return isRecord9(input2) && typeof input2.method === "string" ? input2.method : "invalid";
 }
 function concatChunks3(chunks, totalBytes) {
   const output = new Uint8Array(totalBytes);
@@ -23463,9 +23531,9 @@ var CodexRemoteDomain = class {
         itemsView,
         ...cursor2 === void 0 ? {} : { cursor: cursor2 }
       });
-      const pageResult = isRecord9(result) ? result : {};
+      const pageResult = isRecord10(result) ? result : {};
       for (const rawTurn of array2(pageResult.data)) {
-        if (!isRecord9(rawTurn)) continue;
+        if (!isRecord10(rawTurn)) continue;
         const turnId = typeof rawTurn.id === "string" ? rawTurn.id : void 0;
         const items = rawTurn.itemsView === "full" || turnId === void 0 ? array2(rawTurn.items) : await this.readThreadItems(connectionId, threadId, turnId, array2(rawTurn.items));
         turns.push({ ...rawTurn, items });
@@ -23487,9 +23555,9 @@ var CodexRemoteDomain = class {
           sortDirection: "asc",
           ...cursor2 === void 0 ? {} : { cursor: cursor2 }
         });
-        const pageResult = isRecord9(result) ? result : {};
+        const pageResult = isRecord10(result) ? result : {};
         for (const entry of array2(pageResult.data)) {
-          if (isRecord9(entry) && entry.item !== void 0) items.push(entry.item);
+          if (isRecord10(entry) && entry.item !== void 0) items.push(entry.item);
         }
         cursor2 = typeof pageResult.nextCursor === "string" && pageResult.nextCursor.length > 0 ? pageResult.nextCursor : void 0;
         if (cursor2 === void 0) break;
@@ -23553,7 +23621,7 @@ var CodexRemoteDomain = class {
     return [...this.peers.values()].some((peer) => peer.hasThreadSubscription(threadId));
   }
   resolveUpstreamApproval(params) {
-    if (!isRecord9(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return;
+    if (!isRecord10(params) || typeof params.requestId !== "string" && typeof params.requestId !== "number") return;
     for (const [handle, approval] of this.approvals) {
       if (approval.upstreamId === params.requestId) this.approvals.delete(handle);
     }
@@ -23758,24 +23826,24 @@ function codexBinaryCandidates(configured, hostPlatform = process.platform, user
   ])];
 }
 function parseCallEnvelope(input2) {
-  if (!isRecord9(input2) || typeof input2.method !== "string" || !("params" in input2) || Object.keys(input2).some((key) => key !== "method" && key !== "params")) {
+  if (!isRecord10(input2) || typeof input2.method !== "string" || !("params" in input2) || Object.keys(input2).some((key) => key !== "method" && key !== "params")) {
     throw new RpcError("INVALID_MESSAGE", "The Codex call envelope is invalid.");
   }
   return { method: input2.method, params: input2.params };
 }
 function parseRespond(input2) {
-  if (!isRecord9(input2) || typeof input2.requestHandle !== "string" || !["accept", "decline", "cancel"].includes(String(input2.decision)) || Object.keys(input2).some((key) => key !== "requestHandle" && key !== "decision")) {
+  if (!isRecord10(input2) || typeof input2.requestHandle !== "string" || !["accept", "decline", "cancel"].includes(String(input2.decision)) || Object.keys(input2).some((key) => key !== "requestHandle" && key !== "decision")) {
     throw new RpcError("INVALID_MESSAGE", "The Codex approval response is invalid.");
   }
   return input2;
 }
 function accountCanRun(result) {
-  if (!isRecord9(result) || typeof result.requiresOpenaiAuth !== "boolean") return false;
-  return result.requiresOpenaiAuth === false || isRecord9(result.account);
+  if (!isRecord10(result) || typeof result.requiresOpenaiAuth !== "boolean") return false;
+  return result.requiresOpenaiAuth === false || isRecord10(result.account);
 }
 function sanitizeAccount(result) {
-  if (!isRecord9(result)) throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid account state.");
-  const account = isRecord9(result.account) ? result.account : void 0;
+  if (!isRecord10(result)) throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned invalid account state.");
+  const account = isRecord10(result.account) ? result.account : void 0;
   return {
     authenticated: account !== void 0 || result.requiresOpenaiAuth === false,
     requiresOpenaiAuth: result.requiresOpenaiAuth === true,
@@ -23788,11 +23856,11 @@ function sanitizeAccount(result) {
   };
 }
 function sanitizeThreadList(result) {
-  if (!isRecord9(result) || !Array.isArray(result.data)) {
+  if (!isRecord10(result) || !Array.isArray(result.data)) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread list.");
   }
   const data = result.data.flatMap((value) => {
-    if (!isRecord9(value) || typeof value.id !== "string") return [];
+    if (!isRecord10(value) || typeof value.id !== "string") return [];
     return [{
       id: value.id,
       ...typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {},
@@ -23804,7 +23872,7 @@ function sanitizeThreadList(result) {
       ...typeof value.updatedAt === "number" && Number.isFinite(value.updatedAt) ? { updatedAt: value.updatedAt } : {},
       ...typeof value.archived === "boolean" ? { archived: value.archived } : {},
       ...typeof value.isPinned === "boolean" ? { isPinned: value.isPinned } : {},
-      ...isRecord9(value.status) ? { status: value.status } : {}
+      ...isRecord10(value.status) ? { status: value.status } : {}
     }];
   });
   return {
@@ -23814,22 +23882,22 @@ function sanitizeThreadList(result) {
   };
 }
 function filterThreadListByWorkspaceAuthority(result, authority) {
-  if (!isRecord9(result) || !Array.isArray(result.data)) {
+  if (!isRecord10(result) || !Array.isArray(result.data)) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread list.");
   }
   return {
     ...result,
-    data: result.data.map((record4) => isRecord9(record4) ? record4 : void 0).filter((thread) => thread !== void 0 && isThreadAllowedByWorkspaceAuthority(thread, authority))
+    data: result.data.map((record5) => isRecord10(record5) ? record5 : void 0).filter((thread) => thread !== void 0 && isThreadAllowedByWorkspaceAuthority(thread, authority))
   };
 }
 function sanitizeProjectList(result) {
-  if (!isRecord9(result) || !Array.isArray(result.data)) {
+  if (!isRecord10(result) || !Array.isArray(result.data)) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid project list.");
   }
   const data = result.data.flatMap((value) => {
-    if (!isRecord9(value) || typeof value.id !== "string" || typeof value.name !== "string") return [];
+    if (!isRecord10(value) || typeof value.id !== "string" || typeof value.name !== "string") return [];
     const roots = Array.isArray(value.roots) ? value.roots.flatMap((root) => {
-      const path = isRecord9(root) && typeof root.path === "string" && root.path.length > 0 ? root.path : void 0;
+      const path = isRecord10(root) && typeof root.path === "string" && root.path.length > 0 ? root.path : void 0;
       return path === void 0 || !isAbsolute3(path) ? [] : [{ path }];
     }) : [];
     if (roots.length === 0) return [];
@@ -23873,19 +23941,19 @@ function codexDirectoryCrumbs(root, path) {
   return crumbs2;
 }
 function extractThread(result) {
-  return isRecord9(result) && isRecord9(result.thread) ? result.thread : void 0;
+  return isRecord10(result) && isRecord10(result.thread) ? result.thread : void 0;
 }
 function extractTurnId(result) {
-  if (!isRecord9(result)) return void 0;
+  if (!isRecord10(result)) return void 0;
   if (typeof result.turnId === "string" && result.turnId.length > 0) return result.turnId;
-  if (isRecord9(result.turn) && typeof result.turn.id === "string" && result.turn.id.length > 0) return result.turn.id;
+  if (isRecord10(result.turn) && typeof result.turn.id === "string" && result.turn.id.length > 0) return result.turn.id;
   return void 0;
 }
 function extractThreadId(params) {
-  if (!isRecord9(params)) return void 0;
+  if (!isRecord10(params)) return void 0;
   if (typeof params.threadId === "string") return params.threadId;
-  if (isRecord9(params.thread) && typeof params.thread.id === "string") return params.thread.id;
-  if (isRecord9(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
+  if (isRecord10(params.thread) && typeof params.thread.id === "string") return params.thread.id;
+  if (isRecord10(params.turn) && typeof params.turn.threadId === "string") return params.turn.threadId;
   return void 0;
 }
 function optionalInteger2(value) {
@@ -23927,13 +23995,13 @@ function mapCodexImageInputs(params) {
   return {
     ...params,
     input: params.input.map((value) => {
-      if (!isRecord9(value) || value.type !== "image" || typeof value.mediaType !== "string" || typeof value.data !== "string") return value;
+      if (!isRecord10(value) || value.type !== "image" || typeof value.mediaType !== "string" || typeof value.data !== "string") return value;
       return { type: "image", url: `data:${value.mediaType};base64,${value.data}` };
     })
   };
 }
 function sanitizeApprovalParams(params, requestHandle) {
-  if (!isRecord9(params)) return { requestHandle };
+  if (!isRecord10(params)) return { requestHandle };
   const safe = { ...params };
   delete safe.proposedExecpolicyAmendment;
   delete safe.additionalPermissions;
@@ -23964,7 +24032,7 @@ function isProjectListFallbackError(error) {
 function canTryNextBinary(error) {
   return !(error instanceof RpcError) || !["CODEX_AUTH_REQUIRED", "CODEX_CLOSED"].includes(error.code);
 }
-function isRecord9(value) {
+function isRecord10(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function array2(value) {

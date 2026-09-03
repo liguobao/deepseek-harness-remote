@@ -1085,7 +1085,9 @@ endpoints，以及 Gateway 内部的 `$events` 和
 `$events/result`。明确禁止 `directoryPicker/pick`、`directoryPicker/createDirectory`、
 `session/openWorkspacePath`、Settings/native open、动态 Cordis package/source/runtime 操作、
 Agent Preset copy/delete 和任何未列出的 endpoint。endpoint 必须命中代码内固定集合，不能
-根据 Typert registry 动态扩张。Client 的 Gateway target switch 必须让
+根据 Typert registry 动态扩张。`directoryPicker/list` 遇到只支持 Browser capability 的 Host
+picker 时，可以退回 Plugin Host 本地只读目录枚举；`session/canOpenWorkspacePath` 可基于该
+受限枚举返回 `true`，且仍只允许单层目录元数据。Client 的 Gateway target switch 必须让
 `dynamicCordisRunner/*` 固定调用本地 Gateway，不得因选中远端 Host 而把本机 UI/runtime
 装载请求转发到 Host。
 

@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { HarnessRemoteBridge } from '../src/harness-remote-bridge.js'
 import { RpcError } from '../src/rpc-router.js'
 import type { LocalTypertGateway } from '../src/typert-gateway-contract.js'
@@ -14,10 +17,9 @@ describe('HarnessRemoteBridge', () => {
     })
     await expect(bridge.call({ endpoint: 'session/canOpenWorkspacePath', payload: { args: {} } })).resolves.toEqual({
       ok: true,
-      value: [{ id: 'session-1' }],
+      value: true,
     })
     expect(dispatch).toHaveBeenCalledWith('session/list', { args: {} }, expect.any(AbortSignal))
-    expect(dispatch).toHaveBeenCalledWith('session/canOpenWorkspacePath', { args: {} }, expect.any(AbortSignal))
 
     await expect(bridge.call({ endpoint: 'directoryPicker/pick', payload: { args: {} } }))
       .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
@@ -25,7 +27,41 @@ describe('HarnessRemoteBridge', () => {
       .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
     await expect(bridge.call({ endpoint: 'settings/openConfigFile', payload: { args: {} } }))
       .rejects.toBeInstanceOf(RpcError)
-    expect(dispatch).toHaveBeenCalledTimes(2)
+    expect(dispatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to Host directory metadata when alpha picker needs the Browser capability', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-remote-alpha-directory-'))
+    await mkdir(join(root, 'project'))
+    const dispatch = vi.fn(async (endpoint: string) => {
+      if (endpoint === 'directoryPicker/list') {
+        return {
+          ok: false as const,
+          error: {
+            code: 'missing-capability',
+            message: 'directoryPicker.list needs the Brower capability',
+            details: {},
+          },
+        }
+      }
+      return { ok: true as const }
+    })
+    const bridge = new HarnessRemoteBridge(gateway({ dispatch }), vi.fn(async () => undefined))
+
+    try {
+      await expect(bridge.call({
+        endpoint: 'directoryPicker/list',
+        payload: { args: { path: root } },
+      })).resolves.toMatchObject({
+        ok: true,
+        value: {
+          path: root,
+          entries: [{ name: 'project', path: join(root, 'project') }],
+        },
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('publishes alpha stream frames and an explicit terminal event', async () => {
