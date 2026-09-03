@@ -1,61 +1,55 @@
 ## English
 
-This release includes changes since `v0.4.2` ([full comparison](https://github.com/liguobao/ds-harness-remote/compare/v0.4.2...v0.4.3)).
+This release includes changes since `v0.4.3` ([full comparison](https://github.com/liguobao/ds-harness-remote/compare/v0.4.3...v0.4.6)). It supersedes the revoked `v0.4.5` release.
 
 ### Highlights
 
-- Ships Plugin `0.4.3` and Android `0.4.3` (`versionCode 23`).
-- Adds the default-on experimental CodeX Remote domain inside the existing encrypted Plugin channel.
-- Shows CodeX projects as virtual Workspaces and CodeX Threads as virtual Sessions, using the native DSH workspace list, conversation renderer, composer, tool cards, permission selector, and approval UI without writing CodeX data into DSH stores or logs.
-- Routes CodeX traffic through a fixed `codex.app.*` allowlist backed by `project/list` authority checks, per-connection streams, bounded transfers, active-turn ownership, and one-time approval handles.
-- Extends Android with direct `codex.app.*` support for CodeX project and Thread navigation, paged history, live reasoning/tool frames, model and reasoning controls, fixed permission presets, image prompts, interrupt, and approvals.
-- Fixes CodeX message images in Remote history and chat by preserving safe PNG, JPEG, WebP, and GIF data-image blocks through the Desktop virtual Session projection and Android display projection.
-- Keeps Protocol v1 frame limits and conformance fixtures in the release gate.
+- Ships Plugin `0.4.6` with the Remote directory picker fallback fix.
+- Fixes Web/DSH path selection when the native alpha `directoryPicker.list` path requires the Browser capability and returns errors such as ``directoryPicker.list needs the Brower capability``.
+- Provides read-only Host directory metadata fallback for Remote workspace browsing, including CodeX new-session folder selection and normal DSH workspace path selection.
+- Keeps the fallback inside the existing encrypted Remote channel and preserves the repository safety boundary: directory metadata only, no file content reads, writes, uploads, shell, PTY, or remote desktop behavior.
+- Keeps rc.2 ApiProxy and alpha.1/alpha.2 Typert Remote compatibility while normalizing Host capability checks so supported clients can enable path selection.
 
-### Compatibility and notes
+### Validation
 
-- Android `0.4.3` requires Android 12 or newer (`minSdk 31`), targets API 36, and ships ARM APK slices for `arm64-v8a` and `armeabi-v7a`.
-- Existing Android `0.4.2` installs can upgrade in place to `0.4.3` (`versionCode 23`) with the same APK signing certificate.
-- Android keeps the existing rc.2 ApiProxy and alpha.1/alpha.2 Typert Remote compatibility. CodeX is enabled only when the Host advertises both `codex.appserver.v1` and `codex.appserver.transfer.v1`.
-- Desktop CodeX Remote cross-machine validation has passed for this release. App Server crash/reconnect recovery and Android real-device CodeX E2E remain tracked in `TODO.md`.
+- Release workflow passed package build, tests, npm publish, GitHub Packages publish, GitHub Release packaging, and Android APK attachment.
+- Local pre-release checks passed: plugin check, focused picker tests, full plugin tests, build, DSH bundle verification, and `git diff --check`.
 
 ### Install and downloads
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.3
+dsh plugin --profile web add ds-harness-remote@0.4.6
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.6
 ```
 
-- [npm package](https://www.npmjs.com/package/ds-harness-remote/v/0.4.3)
-- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.3/dsh-remote-android-v0.4.3.apk)
+- [npm package](https://www.npmjs.com/package/ds-harness-remote/v/0.4.6)
+- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.6/dsh-remote-android-v0.4.6.apk)
 - Release assets also include the npm tarball and `SHA256SUMS.txt`.
 
 ## 中文
 
-本版本包含自 `v0.4.2` 以来的改动（[完整对比](https://github.com/liguobao/ds-harness-remote/compare/v0.4.2...v0.4.3)）。
+本版本包含自 `v0.4.3` 以来的改动（[完整对比](https://github.com/liguobao/ds-harness-remote/compare/v0.4.3...v0.4.6)）。它替代已撤销的 `v0.4.5`。
 
 ### 主要变更
 
-- 发布 Plugin `0.4.3` 和 Android `0.4.3`（`versionCode 23`）。
-- 在现有加密 Plugin 通道内新增默认开启的实验性 CodeX Remote 领域。
-- 将 CodeX 项目展示为虚拟 Workspace，将 CodeX Thread 展示为虚拟 Session，并复用 DSH 原生工作区列表、会话渲染器、Composer、工具卡片、权限选择和审批 UI；CodeX 数据不会写入 DSH 存储或日志。
-- CodeX 流量只经过固定 `codex.app.*` 白名单，并受 `project/list` 权威来源校验、按连接隔离的 stream、有界分块传输、active turn owner 和一次性审批 handle 保护。
-- Android 直接接入同一套 `codex.app.*`：支持 CodeX 项目与 Thread 导航、分页 History、实时 reasoning/tool frame、模型与 reasoning 控制、固定权限预设、图片 Prompt、停止和审批。
-- 修复 CodeX 消息图片在 Remote history/chat 中不可见的问题，安全的 PNG、JPEG、WebP、GIF data-image 块现在会经过 Desktop 虚拟 Session 投影和 Android 展示投影保留下来。
-- 继续把 Protocol v1 frame limit 与 conformance fixture 纳入发布校验。
+- 发布 Plugin `0.4.6`，包含 Remote 目录选择 fallback 修复。
+- 修复 Web/DSH 路径选择在原生 alpha `directoryPicker.list` 要求 Browser capability 时失败的问题，包括 ``directoryPicker.list needs the Brower capability`` 这类错误。
+- 为 Remote workspace 浏览提供只读 Host 目录元数据 fallback，覆盖 CodeX 新会话文件夹选择和普通 DSH workspace 路径选择。
+- fallback 仍限制在现有加密 Remote 通道内，并保持仓库安全边界：只返回目录元数据，不读取文件内容，不写入、不上传、不提供 shell、PTY 或远程桌面能力。
+- 继续兼容 rc.2 ApiProxy 与 alpha.1/alpha.2 Typert Remote，并规范 Host capability 判断，让支持的客户端可以启用路径选择。
 
-### 兼容性与说明
+### 验证
 
-- Android `0.4.3` 需要 Android 12 或更新系统（`minSdk 31`），target API 36，并提供 `arm64-v8a` 与 `armeabi-v7a` ARM APK。
-- 已安装 Android `0.4.2` 的用户可以用同一 APK 签名证书原地升级到 `0.4.3`（`versionCode 23`）。
-- Android 继续兼容现有 rc.2 ApiProxy 与 alpha.1/alpha.2 Typert Remote。只有 Host 同时宣告 `codex.appserver.v1` 和 `codex.appserver.transfer.v1` 时，CodeX 才会启用。
-- 本版本已完成 Desktop CodeX Remote 跨机整机验证。App Server crash/reconnect 恢复与 Android 真机 CodeX E2E 仍在 `TODO.md` 中跟踪。
+- 发布 workflow 已通过 package build、测试、npm 发布、GitHub Packages 发布、GitHub Release 打包和 Android APK 附件上传。
+- 本地发布前已通过 plugin check、目录选择相关测试、完整 plugin 测试、build、DSH bundle 校验和 `git diff --check`。
 
 ### 安装与下载
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.3
+dsh plugin --profile web add ds-harness-remote@0.4.6
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.6
 ```
 
-- [npm 包](https://www.npmjs.com/package/ds-harness-remote/v/0.4.3)
-- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.3/dsh-remote-android-v0.4.3.apk)
+- [npm 包](https://www.npmjs.com/package/ds-harness-remote/v/0.4.6)
+- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.6/dsh-remote-android-v0.4.6.apk)
 - Release 附件同时包含 npm tarball 和 `SHA256SUMS.txt`。
