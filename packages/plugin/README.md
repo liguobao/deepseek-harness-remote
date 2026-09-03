@@ -163,31 +163,16 @@ running.
 dsh-TUI Host 的授权与状态管理统一使用 `/remote`；dsh-TUI 运行时，Server presence 仍由已授权的
 Remote Client 查询。
 
-Codex Session/History is an experimental optional domain inside this same plugin. It is enabled by
-default and can be disabled from the DeepSeek Remote settings card. Virtual Workspaces prefer CodeX
-App Server `project/list` and fall back to exact absolute `thread/list.cwd` entries when that catalog
-is unavailable or empty. The current release includes the Host carrier,
-shared Client Core, Desktop Plugin Web history/live UI with
-create/rename/archive/restore, dynamic capability re-probing, and bounded App Server restart. Opening
-history is read-only and resume is deferred until the user continues work. Current
-stdio/project/list/read compatibility is smoke-tested; encrypted cross-machine turn/approval testing
-remains pending. Android is outside the current Plugin-only scope.
+Codex Remote is an experimental optional domain inside this same plugin. It is enabled by default,
+can be disabled from the DeepSeek Remote settings card, and lets authorized clients open Host Codex
+projects in the existing Remote workspace and session UI. See
+[Codex Remote technical notes](../../docs/codex-remote.md) for workspace authority, data boundaries,
+configuration, and validation status.
 
-Codex Session/History 是当前插件内部的实验性可选领域，默认开启，可在 DeepSeek Remote 设置卡片
-中关闭。虚拟 Workspace 优先使用 CodeX App Server 的 `project/list`，该目录为空或不可用时回退到
-`thread/list` 已返回的绝对 `cwd`。当前已完成 Host carrier、共享 Client Core、
-Desktop Plugin Web History/live UI（包括新建、改名、归档/恢复）、动态 capability 重探测与 App
-Server 有界重启。打开 History 仅执行只读，继续操作时才 resume。当前 stdio/project/list/read 已完成
-真实冒烟验证；加密跨机 turn/approval 联调仍待完成。Android 不属于当前仅 Plugin 的交付范围。
-
-```yaml
-ds-harness-remote:
-  codex:
-    enabled: false
-    binary: codex
-```
-
-`binary` 必须指向支持 `codex app-server` 的当前 Codex CLI；必要时请配置绝对路径。
+Codex Remote 是当前插件内部的实验性可选领域，默认开启，可在 DeepSeek Remote 设置卡片中关闭。它让
+已授权客户端可以在现有 Remote Workspace 和 Session UI 中打开 Host 上的 Codex 项目。Workspace
+来源、数据边界、配置方式和验证状态见
+[Codex Remote 技术说明](../../docs/codex-remote.md)。
 
 ```sh
 export DSH_REMOTE_SERVER=https://dsh.r2049.cn

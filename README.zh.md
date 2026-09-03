@@ -140,59 +140,25 @@ Workspace 会在 Harness 原生界面中打开，顶部显示当前 Host 和加�
 DSH Desktop / Remote Web / Android
   ↔ 已认证的端到端加密通道
 Host 上的 Remote 插件
-  ↔ 白名单限制的 Harness 原生 API 或可选 CodeX App Server 领域
-Harness 会话/Workspace 或 CodeX Thread/项目
+  ↔ 支持的 Harness 能力或可选 Codex 工作区支持
+Harness 会话/Workspace 或 Codex 项目
 ```
-
-## 实验性 Codex 虚拟工作区
-
-Codex 是同一个 Remote Plugin 内的可选独立领域。连接 Host 后，原有 Remote 工作区选择器可以同时
-展示 CodeX 工作目录。选中后，Plugin 会把现有 DSH Workspace/Session 数据面切换到内存虚拟载体：
-CodeX Thread 以 Session 形式出现，History 与实时 frame 被投影成 DSH 原生 Session 事件。界面仍由
-DSH 原生工作区列表、Conversation Renderer、Composer、工具卡片和审批组件负责，不再提供独立
-CodeX 页面。原生 Session 权限控件可在 `Workspace write` 与显式确认风险后的 `Full access` 间切换。
-CodeX 支持文本，以及桌面端剪贴板粘贴或 Android 系统图片选择器提供的 PNG、JPEG、WebP、GIF
-图片 Prompt，图片通过有界的加密分块通道传输；通用文件附件仍不开放。
-
-Android 会在 capability 探测后直接消费同一条已认证的 `codex.app.*` carrier，把 CodeX 工作区目录合并到
-现有工作区页面，并保持工作区行只读；会话页继续复用 Android 已有的模型、权限、图片、工具、停止和
-审批控件。Android 状态同样只是内存展示投影，不会创建第二套 CodeX 数据存储。
-
-实时投影覆盖 assistant/reasoning/plan 增量、命令与文件输出、文件变更摘要、MCP progress、Thread
-运行状态和 model reroute；Web Search、Subagent、Image、Compaction 与 Review Mode 等 Item 复用
-原生工具卡片展示。大段实时工具输出只保留有界的内存窗口，文件 patch 只传递路径和变更类型，
-不会把原始 diff 写入或透传为 Workspace 文件内容。
-
-原生 Workspace 的“新建会话”会在选中的 CodeX 工作区根目录执行 `thread/start`，空 Thread 在 App
-Server 列表可见前由 Plugin 临时保留。History 由 Host 按 DSH 消息边界处理 `beforeSeq` /
-`maxMessages` 分页后再传输，Session 搜索则在 Client 端针对当前可见的 Thread 标题、预览、目录和
-标识执行。
-
-这只是展示适配，不是导入。虚拟 Workspace/Session 不会写入 DSH SessionStore、工作区存储或
-Harness 日志；CodeX App Server 始终是唯一数据源。可见 Workspace 优先来自 `project/list`；当该接口
-不可用或没有可用根目录时，使用 `thread/list` 已返回的绝对 `cwd` 精确生成只读后备 Workspace。目录
-选择器还可以在这些 authority 根目录的真实子目录中创建 Thread；Host 会拒绝 `..` 和符号链接越界。新建、
-改名、归档、Prompt、停止和审批操作都路由回其白名单方法。Host carrier 继续复用
-账号 membership、Host identity 固定、Noise 安全通道和自适应传输。Codex 默认开启，可在
-DeepSeek Remote 设置卡片中关闭，修改后重启 DSH 生效。本实验版本已完成 Desktop 加密跨机
-turn/approval 整机验证；Android 真机 CodeX E2E 仍待完成。
-
-```yaml
-ds-harness-remote:
-  codex:
-    enabled: false
-    binary: codex
-```
-
-`binary` 必须指向支持 `codex app-server` 的 Codex CLI。在 macOS 保持默认 `codex` 时，Plugin
-会先尝试当前 ChatGPT App 内置的 Codex，再回退到 `PATH`；显式配置的 binary 始终原样使用。
-已有安装若仍使用旧的 `dsh-remote` 设置命名空间，Plugin 会一次性复制到
-`ds-harness-remote`，同时保留旧配置作为回退。
 
 Harness 主机无需开放公网监听端口。只要能够访问互联网，就可以从任意地方连接，
 Remote 通过双向端到端加密链路通信。它将客户端切换到所选 Host 的 Harness 原生 API，
 因此原有 Workspace、工具和权限流程都保留在该电脑上。Host 当前注册的全部设置分区也可以
 通过 Harness 官方设置 API 在远端配置。凭据值仍然只写，Host 本地的文档打开操作不会暴露到远端。
+
+## 实验性 Codex 工作区
+
+Remote 也可以显示已授权 Host 上的 Codex 项目。你从原来的 Workspace 选择器进入，继续在现有
+Harness 或 Android 界面里使用 Codex，不需要学习另一个 Codex 页面。
+
+Codex Remote 是面向自有设备的便捷入口。它支持文本 Prompt、可用客户端上的图片 Prompt、模型与
+权限控制、停止和审批。它仍以实验功能发布；长期运行恢复和兼容性工作会继续按 TODO 跟进。
+
+Codex 默认开启，也可以在 DeepSeek Remote 设置卡片关闭。高级配置和实现细节见
+[Codex Remote 技术说明](docs/codex-remote.md)。
 
 ## 端到端加密
 
@@ -217,7 +183,7 @@ WebSocket Relay。所有路径都承载同一份 Noise 密文，并保持相同�
 - Workspace 选择器只列出文件夹，并且只返回受限的只读目录元数据。
 - 可选 File Viewer 只通过已认证、已加密的分块读取访问文件，并继续执行 provider 根目录与 locator 授权。
 - 远端文件预览不能写入、删除、上传、执行文件，也不能调用远端系统的“外部打开”。
-- Codex Remote 默认开启并可在设置中关闭，只暴露 CodeX `project/list` Workspace 或精确的 `thread/list.cwd` 后备 Workspace，并拒绝 App Server 的原始 Shell、process 和 config 方法。
+- Codex Remote 是可选功能，可以关闭，并遵循与 Remote 其他能力相同的加密 Host 权限边界。
 - 移除设备后，其凭证、membership 和已建立的 Remote 连接均会失效。
 
 ## 版本兼容
@@ -239,6 +205,7 @@ UI 或修改 Workspace 前被拒绝。
 
 - [插件说明](packages/plugin/README.md)
 - [dsh-TUI Remote 使用指南](docs/dsh-tui.md)
+- [Codex Remote 技术说明](docs/codex-remote.md)
 - [文档索引](docs/README.md)
 - [端到端加密](docs/end-to-end-encryption.md)
 - [网络与传输](docs/network.md)
