@@ -156,6 +156,45 @@ describe('CodexRemoteDomain', () => {
     await domain.close()
   })
 
+  it('lists only directories inside the CodeX workspace authority', async () => {
+    const { base, root, outside } = await directories()
+    const child = join(root, 'child')
+    const hidden = join(root, '.hidden')
+    const outsideLink = join(root, 'outside-link')
+    await mkdir(child)
+    await mkdir(hidden)
+    await symlink(outside, outsideLink, 'dir')
+    const app = new FakeAppServer(root, outside)
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
+    await domain.start()
+
+    const result = await domain.call('connection-1', {
+      method: 'dsh/directoryList',
+      params: { path: root },
+    })
+
+    expect(result).toMatchObject({
+      path: root,
+      home: root,
+      crumbs: [{ name: 'allowed', path: root, hidden: false }],
+      entries: expect.arrayContaining([
+        { name: 'child', path: child, hidden: false },
+        { name: '.hidden', path: hidden, hidden: true },
+      ]),
+      truncated: false,
+    })
+    expect(JSON.stringify(result)).not.toContain('outside-link')
+    await expect(domain.call('connection-1', {
+      method: 'dsh/directoryList',
+      params: { path: outsideLink },
+    })).rejects.toMatchObject({ code: 'CODEX_PATH_NOT_ALLOWED' })
+    await expect(domain.call('connection-1', {
+      method: 'dsh/directoryList',
+      params: { path: join(base, 'never-advertised') },
+    })).rejects.toMatchObject({ code: 'CODEX_PATH_NOT_ALLOWED' })
+    await domain.close()
+  })
+
   it('maps the explicit Full access preset to fixed App Server policies', async () => {
     const { root } = await directories()
     const app = new FakeAppServer(root)

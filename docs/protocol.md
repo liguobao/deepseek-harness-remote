@@ -1009,7 +1009,7 @@ Result 是 Harness `ApiProxy` 的原生 `RpcResponse`，必须回显内层 `rpcI
 - LLM provider/model list
 - Host 设置与模型发现平面：`settings.describe/update/replace/mutate`、`credentials.describe/set/unset`、`llm.discoverModels`
 
-`session.attachment` 只转发 Harness 原生的只读查询；Host ApiProxy 必须验证 attachment 已被指定 session 的持久化日志引用后才返回内容。它不能创建、上传、修改或枚举附件。明确禁止 native path open/picker、`settings.openDocument`、目录创建、绕过 File Viewer provider 的文件读取、attachment upload、download 以及任何未列出方法。`host.listDirectory` 只返回单层目录元数据。Host 应优先调用官方 ApiProxy browse capability；当桌面 Harness 只组合 `native` picker 时，Plugin 可在已认证的 Host bridge 内提供等价的只读元数据实现。该兜底必须限制结果数量，只返回目录名、绝对路径、面包屑、Home 路径和 hidden 标志，不得读取文件内容、写入文件系统或扩展为通用文件系统 RPC。`commands.list` 与 `commands.execute` 不是通用方法调用入口：Bridge 必须要求 payload 仅含 `agentId`（`execute` 另含长度受限的 `line` 和空 `images: []`；旧 Client 省略 `images` 时 Host bridge 注入空数组），并经官方 Typert gateway 使用 Host 对当前 Agent 解析出的有效命令目录和 handler。命令语法、名称解析、Agent scoped shadowing、参数校验和执行语义均由 Host 命令注册表负责，与本地 Harness UI 一致；未注册命令不会进入 handler。额外字段、非空 `images`、缺失必需参数和超长输入在 Bridge 边界 fail closed。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
+`session.attachment` 只转发 Harness 原生的只读查询；Host ApiProxy 必须验证 attachment 已被指定 session 的持久化日志引用后才返回内容。它不能创建、上传、修改或枚举附件。明确禁止 native path open/picker、`settings.openDocument`、目录创建、绕过 File Viewer provider 的文件读取、attachment upload、download 以及任何未列出方法。`host.listDirectory` 只返回单层目录元数据。Host 应优先调用官方 ApiProxy browse capability；当桌面 Harness 只组合 `native` picker 时，Plugin 可在已认证的 Host bridge 内提供等价的只读元数据实现。该兜底必须限制结果数量，只返回目录名、绝对路径、面包屑、Home 路径和 hidden 标志，不得读取文件内容、写入文件系统或扩展为通用文件系统 RPC。若该只读列表能力可用，Bridge 可在 `host.describe` 响应中补充 `canOpenPath: true`，仅用于让 Remote Web 显示目录浏览入口，不代表允许 native picker 或打开路径。`commands.list` 与 `commands.execute` 不是通用方法调用入口：Bridge 必须要求 payload 仅含 `agentId`（`execute` 另含长度受限的 `line` 和空 `images: []`；旧 Client 省略 `images` 时 Host bridge 注入空数组），并经官方 Typert gateway 使用 Host 对当前 Agent 解析出的有效命令目录和 handler。命令语法、名称解析、Agent scoped shadowing、参数校验和执行语义均由 Host 命令注册表负责，与本地 Harness UI 一致；未注册命令不会进入 handler。额外字段、非空 `images`、缺失必需参数和超长输入在 Bridge 边界 fail closed。外层 Remote request id 负责安全通道去重，内层 `rpcId` 保持 Harness UI 的原生关联语义。
 
 Host 设置平面允许已认证且通过本地 identity 固定的 Remote peer 配置 Host 当前注册的设置分区，必须满足以下作用域约束，否则在 Bridge 边界 fail closed：
 
@@ -1080,7 +1080,8 @@ Gateway dispatcher 调用，禁止回到已切换的 Client facade 形成递归�
 
 固定 allowlist 包括原生 UI 所需的 Session、Workspace、Commands、Goals、Settings、
 Credentials、LLM、Skills、Subagents、Message Feedback、Plugin Inventory、File References、
-Session Reference 与只读 `directoryPicker/list` endpoints，以及 Gateway 内部的 `$events` 和
+Session Reference、只读 `directoryPicker/list` 与布尔能力探测 `session/canOpenWorkspacePath`
+endpoints，以及 Gateway 内部的 `$events` 和
 `$events/result`。明确禁止 `directoryPicker/pick`、`directoryPicker/createDirectory`、
 `session/openWorkspacePath`、Settings/native open、动态 Cordis package/source/runtime 操作、
 Agent Preset copy/delete 和任何未列出的 endpoint。endpoint 必须命中代码内固定集合，不能
@@ -1176,7 +1177,7 @@ Android Client 可在相同 capability 探测后直接消费该 `codex.app.*` ca
 
 `codex.app.call` envelope 为 `{ "method": string, "params": unknown }`，但它不是通用 JSON-RPC
 代理。Host 编译期 allowlist 仅包含 `account/read`、`model/list`、`project/list`、`thread/list`、
-`thread/read`、`dsh/sessionHistory`、`thread/start`、`thread/resume`、`thread/fork`、
+`thread/read`、`dsh/sessionHistory`、`dsh/directoryList`、`thread/start`、`thread/resume`、`thread/fork`、
 `thread/name/set`、`thread/archive`、`thread/unarchive`、`thread/unsubscribe`、`turn/start`、
 `turn/steer` 与 `turn/interrupt`，且每个 params 都必须通过严格 schema。`thread/delete`、
 `thread/shellCommand`、`thread/inject_items`、`thread/rollback`、background terminal、
@@ -1194,7 +1195,9 @@ Workspace authority；如果该只读验证因 App Server 当前状态临时失�
 下的 `thread/list` 结果兜底。Remote 创建 Thread 时 Host 只能接受 `project/list` 暴露的项目根目录、
 后备模式中 `thread/list` 已返回的绝对 `cwd`，或这些 authority 根目录经过词法路径与 `realpath` 双重
 校验后仍位于根内的真实子目录。不得接受越过 authority 根的 Client 自报路径、`..` 跳转或符号链接
-逃逸。虚拟 Session 的原生权限控件
+逃逸。`dsh/directoryList` 只供 CodeX 虚拟 Workspace 的原生新建会话流程浏览目录，Host 只能对上述
+authority 根内的真实目录返回单层只读子目录元数据、面包屑和截断标记，不得返回文件内容、执行打开、
+创建目录或把符号链接越界目标暴露为可选目录。虚拟 Session 的原生权限控件
 只暴露 `workspace-write` 与 `danger-full-access` 两个固定 preset；Client 传 preset 名，Host 映射为
 App Server 的审批与 sandbox 字段，不接受任意 sandbox、writable roots 或额外授权。默认
 `workspace-write` 映射为 `approvalPolicy: "on-request"`、`sandbox: "workspace-write"` 和

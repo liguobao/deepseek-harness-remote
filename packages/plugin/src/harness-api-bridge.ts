@@ -328,7 +328,9 @@ export class HarnessApiBridge {
         const value = await listRemoteDirectory(typeof payload.path === 'string' ? payload.path : undefined, signal)
         response = { rpcId: params.rpcId as never, result: { ok: true, value } }
       }
-      if (params.method === 'host.describe') response = normalizeHostDescribeVersion(response, this.harnessVersion)
+      if (params.method === 'host.describe') {
+        response = normalizeHostDescribe(response, this.harnessVersion, this.methods.has('host.listDirectory'))
+      }
       this.logger?.debug('harness api call ok', {
         method: params.method,
         durationMs: Math.round(performance.now() - startedAt),
@@ -598,8 +600,12 @@ function needsRemoteDirectoryFallback(response: RpcResponse<unknown>): boolean {
     && 'code' in result.error && result.error.code === 'directory-picker-unavailable'
 }
 
-function normalizeHostDescribeVersion(response: RpcResponse<unknown>, harnessVersion: string | undefined): RpcResponse<unknown> {
-  if (!response.result.ok || harnessVersion === undefined) return response
+function normalizeHostDescribe(
+  response: RpcResponse<unknown>,
+  harnessVersion: string | undefined,
+  canListDirectory: boolean,
+): RpcResponse<unknown> {
+  if (!response.result.ok) return response
   const value = response.result.value
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return response
   const description = value as Record<string, unknown>
@@ -607,12 +613,19 @@ function normalizeHostDescribeVersion(response: RpcResponse<unknown>, harnessVer
     normalizeHarnessVersion(description.version),
     harnessVersion,
   )
-  if (selectedVersion === undefined || description.version === selectedVersion) return response
+  const versionChanged = selectedVersion !== undefined && description.version !== selectedVersion
+  const canOpenPathChanged = canListDirectory && description.canOpenPath !== true
+  if (!versionChanged && !canOpenPathChanged) return response
+  const normalized = {
+    ...description,
+    ...(versionChanged ? { version: selectedVersion } : {}),
+    ...(canOpenPathChanged ? { canOpenPath: true } : {}),
+  }
   return {
     ...response,
     result: {
       ...response.result,
-      value: { ...description, version: selectedVersion },
+      value: normalized,
     },
   }
 }

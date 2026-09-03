@@ -148,6 +148,60 @@ describe('CodexVirtualHarness', () => {
     await emptyTarget.close()
   })
 
+  it('exposes selected CodeX workspace directory browsing to the native UI', async () => {
+    const client = fakeCodex()
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const workspace = (await target.workspaces())[0]!
+    await target.selectWorkspace(workspace.workspaceId)
+    const signal = new AbortController().signal
+
+    await expect(target.dispatch('session/canOpenWorkspacePath', { args: {} }, signal))
+      .resolves.toEqual({ ok: true, value: true })
+    await expect(target.api.host.describe({ rpcId: 'host-1' as never, payload: {} }))
+      .resolves.toMatchObject({
+        result: {
+          ok: true,
+          value: {
+            cwd: '/workspace/repo',
+            home: '/workspace/repo',
+            canOpenPath: true,
+          },
+        },
+      })
+
+    await expect(target.dispatch('directoryPicker/list', { args: {} }, signal))
+      .resolves.toMatchObject({
+        ok: true,
+        value: {
+          path: '/workspace/repo',
+          home: '/workspace/repo',
+          entries: [{ name: 'src', path: '/workspace/repo/src', hidden: false }],
+        },
+      })
+    await expect(target.api.host.listDirectory({
+      rpcId: 'dir-1' as never,
+      payload: { path: '/workspace/repo/src' },
+    }, signal)).resolves.toMatchObject({
+      result: {
+        ok: true,
+        value: { path: '/workspace/repo/src' },
+      },
+    })
+    await expect(target.dispatch('directoryPicker/list', {
+      args: { path: '/workspace/other' },
+    }, signal)).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'workspace-not-found' },
+    })
+    expect(client.request).toHaveBeenCalledWith('dsh/directoryList', {
+      path: '/workspace/repo',
+    }, expect.any(AbortSignal))
+    expect(client.request).toHaveBeenCalledWith('dsh/directoryList', {
+      path: '/workspace/repo/src',
+    }, expect.any(AbortSignal))
+    await target.close()
+  })
+
   it('derives exact cwd workspaces when CodeX project/list is unavailable', async () => {
     const client = fakeCodex([
       codexThread('thr_2', '/workspace/other', 'Other workspace'),
@@ -1160,6 +1214,23 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = [], options: F
           maxMessages: typeof params?.maxMessages === 'number' ? params.maxMessages : undefined,
         },
       )
+    }
+    if (method === 'dsh/directoryList') {
+      const path = String(params?.path ?? '/workspace/repo')
+      return {
+        path,
+        home: '/workspace/repo',
+        crumbs: path === '/workspace/repo'
+          ? [{ name: 'repo', path: '/workspace/repo', hidden: false }]
+          : [
+              { name: 'repo', path: '/workspace/repo', hidden: false },
+              { name: 'src', path: '/workspace/repo/src', hidden: false },
+            ],
+        entries: path === '/workspace/repo'
+          ? [{ name: 'src', path: '/workspace/repo/src', hidden: false }]
+          : [],
+        truncated: false,
+      }
     }
     if (method === 'thread/start') {
       const created = codexThread(`new_${nextThread++}`, String(params?.cwd), '')

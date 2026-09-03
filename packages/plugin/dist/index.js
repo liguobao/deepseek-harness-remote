@@ -4,7 +4,7 @@ var __export = (target, all) => {
     __defProp(target, name2, { get: all[name2], enumerable: true });
 };
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
 var external_exports = {};
 __export(external_exports, {
   BRAND: () => BRAND,
@@ -116,7 +116,7 @@ __export(external_exports, {
   void: () => voidType
 });
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
   util2.assertEqual = (_) => {
@@ -250,7 +250,7 @@ var getParsedType = (data) => {
   }
 };
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/ZodError.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/ZodError.js
 var ZodIssueCode = util.arrayToEnum([
   "invalid_type",
   "invalid_literal",
@@ -368,7 +368,7 @@ ZodError.create = (issues) => {
   return error;
 };
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/locales/en.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/locales/en.js
 var errorMap = (issue, _ctx) => {
   let message;
   switch (issue.code) {
@@ -471,7 +471,7 @@ var errorMap = (issue, _ctx) => {
 };
 var en_default = errorMap;
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/errors.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/errors.js
 var overrideErrorMap = en_default;
 function setErrorMap(map) {
   overrideErrorMap = map;
@@ -480,7 +480,7 @@ function getErrorMap() {
   return overrideErrorMap;
 }
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
   const { data, path, errorMaps, issueData } = params;
   const fullPath = [...path, ...issueData.path || []];
@@ -590,14 +590,14 @@ var isDirty = (x) => x.status === "dirty";
 var isValid = (x) => x.status === "valid";
 var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
   errorUtil2.errToObj = (message) => typeof message === "string" ? { message } : message || {};
   errorUtil2.toString = (message) => typeof message === "string" ? message : message?.message;
 })(errorUtil || (errorUtil = {}));
 
-// ../../node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
   constructor(parent, value, path, key) {
     this._cachedPath = [];
@@ -4045,7 +4045,7 @@ var coerce = {
 };
 var NEVER = INVALID;
 
-// ../protocol/dist/index.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/protocol/dist/index.js
 var PROTOCOL_VERSION = 1;
 var MAX_CONTROL_FRAME_BYTES = 64 * 1024;
 var MAX_RELAY_FRAME_BYTES = 1024 * 1024;
@@ -4433,7 +4433,7 @@ function cryptoRandomId() {
   return `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
-// ../client-core/dist/remote-gateway.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/client-core/dist/remote-gateway.js
 var DIRECT_REMOTE_CALL_BYTES = 2 * 1024 * 1024;
 var RemoteGatewayError = class extends Error {
   code;
@@ -4452,7 +4452,7 @@ function createRemoteId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// ../client-core/dist/codex-client.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/client-core/dist/codex-client.js
 var MAX_DISPLAY_ITEM_TEXT = 256 * 1024;
 var CODEX_IMAGE_MEDIA_TYPES = /* @__PURE__ */ new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 var DATA_IMAGE_URL = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/u;
@@ -4992,7 +4992,7 @@ function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-// ../client-core/dist/index.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/client-core/dist/index.js
 var RemoteClientError = class extends Error {
   code;
   constructor(code, message, options) {
@@ -5151,7 +5151,7 @@ function transportSendError(error) {
   return error instanceof Error ? error : new Error("remote transport send failed", { cause: error });
 }
 
-// ../webrtc/dist/transport.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/webrtc/dist/transport.js
 var BaseTransport = class {
   handlers = /* @__PURE__ */ new Set();
   closeHandlers = /* @__PURE__ */ new Set();
@@ -5173,7 +5173,7 @@ var BaseTransport = class {
   }
 };
 
-// ../webrtc/dist/util.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/webrtc/dist/util.js
 function toBase64Url(bytes) {
   const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
   const base64 = typeof btoa === "function" ? btoa(binary) : Buffer.from(bytes).toString("base64");
@@ -5187,7 +5187,7 @@ function fromBase64Url(value) {
   return new Uint8Array(Buffer.from(padded, "base64"));
 }
 
-// ../webrtc/dist/rtc-adapter.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/webrtc/dist/rtc-adapter.js
 var RTC_DATA_CHANNEL_LABEL = "dsh";
 var RTC_DATA_CHANNEL_OPTIONS = { ordered: true };
 function browserRtcFactory() {
@@ -5417,7 +5417,7 @@ function adaptDataChannel(raw) {
   };
 }
 
-// ../webrtc/dist/rtc-chunking.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/webrtc/dist/rtc-chunking.js
 var RTC_CHUNK_MAGIC = new Uint8Array([82, 84, 67, 72]);
 var RTC_CHUNK_HEADER_BYTES = 12;
 var RTC_CHUNK_PAYLOAD_BYTES = 8 * 1024;
@@ -5526,7 +5526,7 @@ function isChunk(frame) {
   return true;
 }
 
-// ../webrtc/dist/rtc-data-channel.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/webrtc/dist/rtc-data-channel.js
 var DEFAULT_NEGOTIATE_TIMEOUT_MS = 8e3;
 var SELECTED_PATH_RETRY_COUNT = 5;
 var SELECTED_PATH_RETRY_DELAY_MS = 50;
@@ -6219,7 +6219,7 @@ function sleep(ms) {
   return new Promise((resolve3) => setTimeout(resolve3, ms));
 }
 
-// ../webrtc/dist/adaptive-transport.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/webrtc/dist/adaptive-transport.js
 var DEFAULT_CAPABILITIES = ["transport.lan", "transport.p2p", "transport.turn", "transport.relay", "harness.api.v1"];
 var DEFAULT_PREFERRED_TRANSPORTS = ["lan", "p2p", "turn", "relay"];
 var AdaptiveTransport = class extends BaseTransport {
@@ -6736,11 +6736,11 @@ var ApiProxySwitch = class {
   }
 };
 
-// ../../node_modules/.pnpm/@noble+ciphers@1.3.0/node_modules/@noble/ciphers/esm/cryptoNode.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+ciphers@1.3.0/node_modules/@noble/ciphers/esm/cryptoNode.js
 import * as nc from "node:crypto";
 var crypto = nc && typeof nc === "object" && "webcrypto" in nc ? nc.webcrypto : nc && typeof nc === "object" && "randomBytes" in nc ? nc : void 0;
 
-// ../../node_modules/.pnpm/@noble+ciphers@1.3.0/node_modules/@noble/ciphers/esm/webcrypto.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+ciphers@1.3.0/node_modules/@noble/ciphers/esm/webcrypto.js
 function randomBytes(bytesLength = 32) {
   if (crypto && typeof crypto.getRandomValues === "function") {
     return crypto.getRandomValues(new Uint8Array(bytesLength));
@@ -6751,11 +6751,11 @@ function randomBytes(bytesLength = 32) {
   throw new Error("crypto.getRandomValues must be defined");
 }
 
-// ../../node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/cryptoNode.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/cryptoNode.js
 import * as nc2 from "node:crypto";
 var crypto2 = nc2 && typeof nc2 === "object" && "webcrypto" in nc2 ? nc2.webcrypto : nc2 && typeof nc2 === "object" && "randomBytes" in nc2 ? nc2 : void 0;
 
-// ../../node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/utils.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/utils.js
 function isBytes(a) {
   return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array";
 }
@@ -6882,7 +6882,7 @@ function randomBytes2(bytesLength = 32) {
   throw new Error("crypto.getRandomValues must be defined");
 }
 
-// ../../node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/_md.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/_md.js
 function setBigUint64(view, byteOffset, value, isLE3) {
   if (typeof view.setBigUint64 === "function")
     return view.setBigUint64(byteOffset, value, isLE3);
@@ -7004,7 +7004,7 @@ var SHA512_IV = /* @__PURE__ */ Uint32Array.from([
   327033209
 ]);
 
-// ../../node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/_u64.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/_u64.js
 var U32_MASK64 = /* @__PURE__ */ BigInt(2 ** 32 - 1);
 var _32n = /* @__PURE__ */ BigInt(32);
 function fromBig(n, le = false) {
@@ -7039,7 +7039,7 @@ var add4H = (low, Ah, Bh, Ch, Dh) => Ah + Bh + Ch + Dh + (low / 2 ** 32 | 0) | 0
 var add5L = (Al, Bl, Cl, Dl, El) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0) + (El >>> 0);
 var add5H = (low, Ah, Bh, Ch, Dh, Eh) => Ah + Bh + Ch + Dh + Eh + (low / 2 ** 32 | 0) | 0;
 
-// ../../node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/sha2.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@1.8.0/node_modules/@noble/hashes/esm/sha2.js
 var K512 = /* @__PURE__ */ (() => split([
   "0x428a2f98d728ae22",
   "0x7137449123ef65cd",
@@ -7239,7 +7239,7 @@ var SHA512 = class extends HashMD {
 };
 var sha512 = /* @__PURE__ */ createHasher(() => new SHA512());
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/utils.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/utils.js
 var _0n = /* @__PURE__ */ BigInt(0);
 var _1n = /* @__PURE__ */ BigInt(1);
 function _abool2(value, title = "") {
@@ -7352,7 +7352,7 @@ function memoized(fn) {
   };
 }
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/modular.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/modular.js
 var _0n2 = BigInt(0);
 var _1n2 = BigInt(1);
 var _2n = /* @__PURE__ */ BigInt(2);
@@ -7678,7 +7678,7 @@ function Field(ORDER, bitLenOrOpts, isLE3 = false, opts = {}) {
   return Object.freeze(f);
 }
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/curve.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/curve.js
 var _0n3 = BigInt(0);
 var _1n3 = BigInt(1);
 function negateCt(condition, item) {
@@ -7941,7 +7941,7 @@ function _createCurveFields(type, CURVE, curveOpts = {}, FpFnLE) {
   return { CURVE, Fp: Fp2, Fn: Fn2 };
 }
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/edwards.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/edwards.js
 var _0n4 = BigInt(0);
 var _1n4 = BigInt(1);
 var _2n2 = BigInt(2);
@@ -8492,7 +8492,7 @@ function twistedEdwards(c) {
   return _eddsa_new_output_to_legacy(c, EDDSA);
 }
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/montgomery.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/abstract/montgomery.js
 var _0n5 = BigInt(0);
 var _1n5 = BigInt(1);
 var _2n3 = BigInt(2);
@@ -8612,7 +8612,7 @@ function montgomery(curveDef) {
   };
 }
 
-// ../../node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/ed25519.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@1.9.7/node_modules/@noble/curves/esm/ed25519.js
 var _0n6 = /* @__PURE__ */ BigInt(0);
 var _1n6 = BigInt(1);
 var _2n4 = BigInt(2);
@@ -8847,7 +8847,7 @@ _RistrettoPoint.ZERO = /* @__PURE__ */ (() => new _RistrettoPoint(ed25519.Point.
 _RistrettoPoint.Fp = /* @__PURE__ */ (() => Fp)();
 _RistrettoPoint.Fn = /* @__PURE__ */ (() => Fn)();
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/constants.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/constants.js
 var MAX_KEY_LEN = 32;
 var MAX_TAG_LEN = 16;
 var MAX_MESSAGE_LEN = 65535;
@@ -8857,7 +8857,7 @@ var MAX_TOKENS_PER_HS_MESSAGE = 8;
 var MAX_HS_MESSAGES_PER_ROLE = 8;
 var HYBRID_DUAL_LAYER = new TextEncoder().encode("clatter.hybrid_dual_layer.outer");
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/errors.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/errors.js
 var CipherError = class extends Error {
   code;
   constructor(code, message) {
@@ -8893,7 +8893,7 @@ var TransportError = class extends Error {
   }
 };
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/handshakePattern.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/handshakePattern.js
 function checkMsgLens(initiator, responder) {
   for (const g of initiator) {
     if (g.length > MAX_TOKENS_PER_HS_MESSAGE) {
@@ -9062,7 +9062,7 @@ var HandshakePattern = class _HandshakePattern {
   }
 };
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/cipherState.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/cipherState.js
 var U64_MAX = 0xfffffffffffffffn;
 var CipherState = class {
   C;
@@ -9134,7 +9134,7 @@ var CipherStates = class {
   }
 };
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/symmetricState.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/symmetricState.js
 function deriveCipherKey(temp, C) {
   return temp.slice(0, C.keyLen);
 }
@@ -9221,7 +9221,7 @@ function concat(a, b) {
   return o;
 }
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/transportState.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/transportState.js
 function mapCipher(e) {
   if (e instanceof TransportError)
     return e;
@@ -9383,7 +9383,7 @@ var TransportState = class {
   }
 };
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_u64.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_u64.js
 var U32_MASK642 = /* @__PURE__ */ (() => BigInt(2 ** 32 - 1))();
 var _32n2 = /* @__PURE__ */ BigInt(32);
 function fromBig2(n, le = false) {
@@ -9428,7 +9428,7 @@ var add4H2 = (low, Ah, Bh, Ch, Dh) => Ah + Bh + Ch + Dh + (low / 2 ** 32 | 0) | 
 var add5L2 = (Al, Bl, Cl, Dl, El) => (Al >>> 0) + (Bl >>> 0) + (Cl >>> 0) + (Dl >>> 0) + (El >>> 0);
 var add5H2 = (low, Ah, Bh, Ch, Dh, Eh) => Ah + Bh + Ch + Dh + Eh + (low / 2 ** 32 | 0) | 0;
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/utils.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/utils.js
 function isBytes2(a) {
   return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array" && "BYTES_PER_ELEMENT" in a && a.BYTES_PER_ELEMENT === 1;
 }
@@ -9603,7 +9603,7 @@ var oidNist = (suffix) => ({
   oid: Uint8Array.from([6, 9, 96, 134, 72, 1, 101, 3, 4, 2, suffix])
 });
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_md.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_md.js
 function Chi2(a, b, c) {
   return a & b ^ ~a & c;
 }
@@ -9734,7 +9734,7 @@ var SHA512_IV2 = /* @__PURE__ */ Uint32Array.from([
   327033209
 ]);
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/sha2.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/sha2.js
 var SHA256_K = /* @__PURE__ */ Uint32Array.from([
   1116352408,
   1899447441,
@@ -10131,7 +10131,7 @@ var sha5122 = /* @__PURE__ */ createHasher2(
   /* @__PURE__ */ oidNist(3)
 );
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/utils.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/utils.js
 function aarray(item, title, inner = () => {
 }) {
   if (!Array.isArray(item))
@@ -10250,7 +10250,7 @@ function validateObject2(object, fields = {}, optFields = {}, title = "object") 
   iter(optFields, true);
 }
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/modular.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/modular.js
 var _0n8 = /* @__PURE__ */ BigInt(0);
 var _1n8 = /* @__PURE__ */ BigInt(1);
 var _2n5 = /* @__PURE__ */ BigInt(2);
@@ -10679,7 +10679,7 @@ function Field2(ORDER, opts = {}) {
   return new _Field(ORDER, opts);
 }
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/curve.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/curve.js
 var _0n9 = /* @__PURE__ */ BigInt(0);
 var _1n9 = /* @__PURE__ */ BigInt(1);
 var _4n3 = /* @__PURE__ */ BigInt(4);
@@ -11066,7 +11066,7 @@ function createKeygen(randomSecretKey, getPublicKey) {
   };
 }
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/edwards.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/edwards.js
 var _0n10 = /* @__PURE__ */ BigInt(0);
 var _1n10 = /* @__PURE__ */ BigInt(1);
 var _2n6 = /* @__PURE__ */ BigInt(2);
@@ -11360,7 +11360,7 @@ function edwards2(params, extraOpts = {}) {
   return Point;
 }
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/montgomery.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/abstract/montgomery.js
 var _0n11 = /* @__PURE__ */ BigInt(0);
 var _1n11 = /* @__PURE__ */ BigInt(1);
 var _2n7 = /* @__PURE__ */ BigInt(2);
@@ -11507,7 +11507,7 @@ function montgomery2(curveDef) {
   });
 }
 
-// ../../node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/ed25519.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+curves@2.3.0/node_modules/@noble/curves/ed25519.js
 var _0n12 = /* @__PURE__ */ BigInt(0);
 var _1n12 = /* @__PURE__ */ BigInt(1);
 var _2n8 = /* @__PURE__ */ BigInt(2);
@@ -11593,7 +11593,7 @@ var x255192 = /* @__PURE__ */ (() => {
   });
 })();
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/dhX25519.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/dhX25519.js
 var PK = 32;
 var X25519_NAME = "25519";
 function x25519Keygen(rng) {
@@ -11607,12 +11607,12 @@ function dhPubKeyLen() {
   return PK;
 }
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/protocolNames.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/protocolNames.js
 function nqProtocolName(patternName, cipher, hash) {
   return `Noise_${patternName}_${X25519_NAME}_${cipher.name}_${hash.name}`;
 }
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/nqHandshake.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/nqHandshake.js
 var PK2 = () => dhPubKeyLen();
 var NqHandshake = class {
   pattern;
@@ -11985,7 +11985,7 @@ function raiseInv() {
   throw new HandshakeError("InvalidState");
 }
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_blake.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/_blake.js
 var BSIGMA = /* @__PURE__ */ Uint8Array.from([
   0,
   1,
@@ -12260,7 +12260,7 @@ function G2s(a, b, c, d, x) {
   return { a, b, c, d };
 }
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/blake2.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/blake2.js
 var B2B_IV = /* @__PURE__ */ Uint32Array.from([
   4089235720,
   1779033703,
@@ -12693,7 +12693,7 @@ var _BLAKE2s = class extends _BLAKE2 {
 };
 var blake2s = /* @__PURE__ */ createHasher2((opts) => new _BLAKE2s(opts));
 
-// ../../node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/hmac.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+hashes@2.3.0/node_modules/@noble/hashes/hmac.js
 var _HMAC = class {
   oHash;
   iHash;
@@ -12770,7 +12770,7 @@ var hmac = /* @__PURE__ */ (() => {
   return hmac_;
 })();
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/crypto/hash.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/crypto/hash.js
 function makeHash(name2, hash, hashLen, blockLen) {
   const doHash = (data) => hash.create().update(data).digest();
   const hmac1 = (key, data) => hmac(hash, key, data);
@@ -12805,7 +12805,7 @@ var sha512H = makeHash("SHA512", sha5122, 64, 128);
 var blake2bH = makeHash("BLAKE2b", blake2b, 64, 128);
 var blake2sH = makeHash("BLAKE2s", blake2s, 32, 64);
 
-// ../../node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/utils.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/utils.js
 function isBytes4(a) {
   return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array" && "BYTES_PER_ELEMENT" in a && a.BYTES_PER_ELEMENT === 1;
 }
@@ -12972,7 +12972,7 @@ function copyBytes4(bytes) {
   return Uint8Array.from(abytes4(bytes));
 }
 
-// ../../node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/_arx.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/_arx.js
 var encodeStr = (str) => Uint8Array.from(str.split(""), (c) => c.charCodeAt(0));
 var sigma16_32 = /* @__PURE__ */ (() => swap32IfBE2(u322(encodeStr("expand 16-byte k"))))();
 var sigma32_32 = /* @__PURE__ */ (() => swap32IfBE2(u322(encodeStr("expand 32-byte k"))))();
@@ -13099,7 +13099,7 @@ function createCipher(core, opts) {
   };
 }
 
-// ../../node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/_poly1305.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/_poly1305.js
 function u8to16(a, i) {
   return a[i++] & 255 | (a[i++] & 255) << 8;
 }
@@ -13350,7 +13350,7 @@ var Poly1305 = class {
 };
 var poly1305 = /* @__PURE__ */ wrapMacConstructor(32, (key) => new Poly1305(key));
 
-// ../../node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/chacha.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@noble+ciphers@2.3.0/node_modules/@noble/ciphers/chacha.js
 function chachaCore(s2, k, n, out, cnt, rounds = 20) {
   let y00 = s2[0], y01 = s2[1], y02 = s2[2], y03 = s2[3], y04 = k[0], y05 = k[1], y06 = k[2], y07 = k[3], y08 = k[4], y09 = k[5], y10 = k[6], y11 = k[7], y12 = cnt, y13 = n[0], y14 = n[1], y15 = n[2];
   let x00 = y00, x01 = y01, x02 = y02, x03 = y03, x04 = y04, x05 = y05, x06 = y06, x07 = y07, x08 = y08, x09 = y09, x10 = y10, x11 = y11, x12 = y12, x13 = y13, x14 = y14, x15 = y15;
@@ -13500,7 +13500,7 @@ var chacha20poly1305 = /* @__PURE__ */ wrapCipher(
   /* @__PURE__ */ _poly1305_aead(chacha20)
 );
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/crypto/cipher.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/crypto/cipher.js
 var U64_MAX2 = 0xfffffffffffffffn;
 function chachaNonce(n) {
   const b = new Uint8Array(12);
@@ -13562,7 +13562,7 @@ var chachaPoly = /* @__PURE__ */ (() => {
   };
 })();
 
-// ../../node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/noiseNq.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/node_modules/.pnpm/@lukeburns+clatterjs@1.0.0/node_modules/@lukeburns/clatterjs/dist/noiseNq.js
 function noiseIk() {
   return new HandshakePattern("IK", [], [
     1
@@ -13583,7 +13583,7 @@ function noiseIk() {
   ]]);
 }
 
-// ../crypto/dist/noise.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/crypto/dist/noise.js
 var NOISE_IK_PROTOCOL = "Noise_IK_25519_ChaChaPoly_SHA256";
 var NoiseIkSession = class {
   handshake;
@@ -13715,7 +13715,7 @@ function constantTimeEqual(left, right) {
   return different === 0;
 }
 
-// ../crypto/dist/index.js
+// ../../../../../Users/liguobao/workspace/github.com/deepseek-harness-remote/packages/crypto/dist/index.js
 function generateKeyPair(privateKeyBytes) {
   const privateKey = privateKeyBytes ?? x25519.utils.randomPrivateKey();
   if (privateKey.byteLength !== 32)
@@ -14529,9 +14529,15 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         case "session/selectModel":
           return business(await this.selectModel(requestArg(args), signal));
         case "session/canOpenWorkspacePath":
-          return business(false);
+          return business(this.selectedWorkspaceId !== void 0);
         case "session/openWorkspacePath":
           return business(failure("bad-request", "Opening Host paths is unavailable in CodeX mode."));
+        case "host/describe":
+          return business(success(await this.describeHost(signal)));
+        case "host/listDirectory":
+          return business(await this.listDirectory(requestArg(args), signal));
+        case "directoryPicker/list":
+          return business(await this.listDirectory(requestArg(args), signal));
         case "skills/list":
           return business(success({ items: [] }));
         case "commands/list":
@@ -15223,6 +15229,46 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     const workspace = catalog.workspaces.find((item) => sessionId !== void 0 && item.sessionIds.includes(sessionId));
     return workspace === void 0 ? failure("workspace-not-found", "The CodeX virtual Workspace was not found.") : success({ workspace: nativeWorkspace(workspace) });
   }
+  selectedWorkspace(catalog) {
+    return this.selectedWorkspaceId === void 0 ? void 0 : catalog.workspaces.find((item) => item.workspaceId === this.selectedWorkspaceId);
+  }
+  async describeHost(signal) {
+    const catalog = await this.currentCatalog(signal);
+    const workspace = this.selectedWorkspace(catalog);
+    const models = await this.models(signal).catch(() => void 0);
+    return {
+      version: "CodeX Remote",
+      cwd: workspace?.path ?? "",
+      home: workspace?.path ?? "",
+      provider: "CodeX",
+      ...models === void 0 ? {} : { model: models.default.model },
+      attachedSessions: catalog.sessions.length,
+      canOpenPath: workspace !== void 0
+    };
+  }
+  async listDirectory(request, signal) {
+    const catalog = await this.currentCatalog(signal);
+    const workspace = this.selectedWorkspace(catalog);
+    if (workspace === void 0) return failure("workspace-not-found", "The CodeX virtual Workspace was not found.");
+    const path = string(request.path) ?? workspace.path;
+    if (!containsPath(workspace.path, path)) {
+      return failure("workspace-not-found", "The selected directory is outside the current CodeX virtual Workspace.");
+    }
+    const listing = record(await this.client.request("dsh/directoryList", { path }, signal));
+    if (!isCodexDirectoryListing(listing)) {
+      return failure("internal", "CodeX Remote returned an invalid directory listing.");
+    }
+    const listedPaths = [
+      listing.path,
+      listing.home,
+      ...listing.crumbs.map((item) => item.path),
+      ...listing.entries.map((item) => item.path)
+    ];
+    if (listedPaths.some((path2) => !containsPath(workspace.path, path2))) {
+      return failure("internal", "CodeX Remote returned a directory outside the current Workspace.");
+    }
+    return success(listing);
+  }
   async archiveSession(request, signal) {
     const sessionId = requiredString(request.sessionId, "sessionId");
     await this.client.request("thread/archive", { threadId: nativeThreadId(sessionId) }, signal);
@@ -15233,8 +15279,12 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   async createSession(request, signal) {
     const catalog = await this.currentCatalog(signal);
     const workspaceId = string(request.workspaceId) ?? this.selectedWorkspaceId;
-    const cwd = string(request.cwd) ?? (workspaceId === void 0 ? void 0 : catalog.workspaces.find((item) => item.workspaceId === workspaceId)?.path);
+    const workspace = workspaceId === void 0 ? void 0 : catalog.workspaces.find((item) => item.workspaceId === workspaceId);
+    const cwd = string(request.cwd) ?? workspace?.path;
     if (cwd === void 0) return failure("workspace-not-found", "The CodeX virtual Workspace was not found.");
+    if (workspace !== void 0 && !containsPath(workspace.path, cwd)) {
+      return failure("workspace-not-found", "The selected directory is outside the current CodeX virtual Workspace.");
+    }
     const directory = await this.models(signal);
     const selection = directory.default;
     const requestedPreset = CODEX_DEFAULT_PERMISSION;
@@ -15540,7 +15590,10 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         archiveSession: call("workspace.archiveSession")
       },
       subagents: {},
-      host: {},
+      host: {
+        describe: call("host.describe"),
+        listDirectory: call("host.listDirectory")
+      },
       skills: { list: call("skills.list") },
       agentPresets: {},
       goals: {},
@@ -16529,6 +16582,14 @@ function business(value) {
     return fail(string(error.code) ?? "internal", string(error.message) ?? "CodeX virtual Harness rejected the request.", record(error.details));
   }
   return ok(value);
+}
+function isCodexDirectoryListing(value) {
+  const listing = record(value);
+  return typeof listing.path === "string" && typeof listing.home === "string" && Array.isArray(listing.crumbs) && listing.crumbs.every(isCodexDirectoryEntry) && Array.isArray(listing.entries) && listing.entries.every(isCodexDirectoryEntry) && typeof listing.truncated === "boolean";
+}
+function isCodexDirectoryEntry(value) {
+  const entry = record(value);
+  return typeof entry.name === "string" && typeof entry.path === "string" && typeof entry.hidden === "boolean";
 }
 function fail(code, message, details = {}) {
   return { ok: false, error: { code, message, details } };
@@ -21485,7 +21546,9 @@ var HarnessApiBridge = class {
         const value = await listRemoteDirectory(typeof payload.path === "string" ? payload.path : void 0, signal);
         response = { rpcId: params.rpcId, result: { ok: true, value } };
       }
-      if (params.method === "host.describe") response = normalizeHostDescribeVersion(response, this.harnessVersion);
+      if (params.method === "host.describe") {
+        response = normalizeHostDescribe(response, this.harnessVersion, this.methods.has("host.listDirectory"));
+      }
       this.logger?.debug("harness api call ok", {
         method: params.method,
         durationMs: Math.round(performance.now() - startedAt)
@@ -21716,8 +21779,8 @@ function needsRemoteDirectoryFallback(response) {
   const result = response.result;
   return typeof result === "object" && result !== null && "ok" in result && result.ok === false && "error" in result && typeof result.error === "object" && result.error !== null && "code" in result.error && result.error.code === "directory-picker-unavailable";
 }
-function normalizeHostDescribeVersion(response, harnessVersion) {
-  if (!response.result.ok || harnessVersion === void 0) return response;
+function normalizeHostDescribe(response, harnessVersion, canListDirectory) {
+  if (!response.result.ok) return response;
   const value = response.result.value;
   if (typeof value !== "object" || value === null || Array.isArray(value)) return response;
   const description = value;
@@ -21725,12 +21788,19 @@ function normalizeHostDescribeVersion(response, harnessVersion) {
     normalizeHarnessVersion(description.version),
     harnessVersion
   );
-  if (selectedVersion === void 0 || description.version === selectedVersion) return response;
+  const versionChanged = selectedVersion !== void 0 && description.version !== selectedVersion;
+  const canOpenPathChanged = canListDirectory && description.canOpenPath !== true;
+  if (!versionChanged && !canOpenPathChanged) return response;
+  const normalized = {
+    ...description,
+    ...versionChanged ? { version: selectedVersion } : {},
+    ...canOpenPathChanged ? { canOpenPath: true } : {}
+  };
   return {
     ...response,
     result: {
       ...response.result,
-      value: { ...description, version: selectedVersion }
+      value: normalized
     }
   };
 }
@@ -22093,6 +22163,7 @@ var HARNESS_REMOTE_ALLOWLIST = [
   "pluginInventory/list",
   "session/attachment",
   "session/cancel",
+  "session/canOpenWorkspacePath",
   "session/control",
   "session/create",
   "session/follow",
@@ -22338,9 +22409,9 @@ function concatChunks2(chunks, totalBytes) {
 
 // src/codex/domain.ts
 import { randomUUID } from "node:crypto";
-import { realpath, stat as stat4 } from "node:fs/promises";
+import { readdir as readdir2, realpath, stat as stat4 } from "node:fs/promises";
 import { homedir as homedir3 } from "node:os";
-import { isAbsolute as isAbsolute3, join as join5, resolve as resolve2 } from "node:path";
+import { basename as basename3, isAbsolute as isAbsolute3, join as join5, relative, resolve as resolve2 } from "node:path";
 
 // src/codex/app-server.ts
 import { spawn as spawn2 } from "node:child_process";
@@ -22628,6 +22699,9 @@ var schemas = {
     beforeSeq: external_exports.number().int().nonnegative().optional(),
     throughSeq: external_exports.number().int().min(-1).optional(),
     maxMessages: external_exports.number().int().min(1).max(200).optional()
+  }).strict(),
+  "dsh/directoryList": external_exports.object({
+    path: external_exports.string().min(1).max(4096)
   }).strict(),
   "thread/start": external_exports.object({
     cwd: external_exports.string().min(1).max(4096),
@@ -22962,6 +23036,7 @@ var CODEX_PAGE_LIMIT2 = 100;
 var MAX_CODEX_PAGES2 = 32;
 var CODEX_HISTORY_PAGE_LIMIT = 25;
 var MAX_CODEX_HISTORY_PAGES = 64;
+var CODEX_DIRECTORY_ENTRY_LIMIT = 500;
 var CodexRemoteDomain = class {
   constructor(config, logger, createAppServer = (binary, targetLogger) => new CodexAppServerClient(binary, targetLogger), restartDelaysMs = DEFAULT_RESTART_DELAYS_MS) {
     this.config = config;
@@ -23060,6 +23135,9 @@ var CodexRemoteDomain = class {
       );
       const activeTurnId2 = typeof page.activeTurnId === "string" ? page.activeTurnId : this.turnOwners.get(threadId)?.turnId;
       return activeTurnId2 === void 0 ? page : { ...page, activeTurnId: activeTurnId2 };
+    }
+    if (call.method === "dsh/directoryList") {
+      return this.listCodexDirectory(call.params.path);
     }
     const allowedThread = threadId === void 0 ? void 0 : await this.readKnownThread(threadId);
     if (call.method === "thread/read") {
@@ -23602,6 +23680,68 @@ var CodexRemoteDomain = class {
     }
     throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
   }
+  async listCodexDirectory(path) {
+    const target = await this.resolveCodexDirectory(path);
+    const rows = await readdir2(target.path, { withFileTypes: true }).catch(() => void 0);
+    if (rows === void 0) {
+      throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
+    }
+    const entries = [];
+    for (const row of rows) {
+      const child = resolve2(target.path, row.name);
+      let directory = row.isDirectory();
+      if (!directory && row.isSymbolicLink()) {
+        directory = await stat4(child).then((value) => value.isDirectory()).catch(() => false);
+      }
+      if (!directory) continue;
+      try {
+        const canonicalChild = await realpath(child);
+        if (!(await stat4(canonicalChild)).isDirectory()) continue;
+        if (!containsCodexPath(target.canonicalRoot, canonicalChild)) continue;
+      } catch {
+        continue;
+      }
+      entries.push({
+        name: row.name,
+        path: child,
+        hidden: process.platform !== "win32" && row.name.startsWith(".")
+      });
+    }
+    entries.sort((left, right) => left.name.localeCompare(right.name, void 0, { sensitivity: "base" }));
+    return {
+      path: target.path,
+      home: target.root,
+      crumbs: codexDirectoryCrumbs(target.root, target.path),
+      entries: entries.slice(0, CODEX_DIRECTORY_ENTRY_LIMIT),
+      truncated: entries.length > CODEX_DIRECTORY_ENTRY_LIMIT
+    };
+  }
+  async resolveCodexDirectory(path) {
+    if (!isAbsolute3(path)) {
+      throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
+    }
+    const authority = await this.readWorkspaceAuthority();
+    const lexicalCandidate = resolve2(path);
+    let canonicalCandidate;
+    try {
+      canonicalCandidate = await realpath(path);
+      if (!(await stat4(canonicalCandidate)).isDirectory()) throw new Error("not a directory");
+    } catch {
+      throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
+    }
+    for (const root of authority.roots) {
+      try {
+        const lexicalRoot = resolve2(root);
+        if (!containsCodexPath(lexicalRoot, lexicalCandidate)) continue;
+        const canonicalRoot = await realpath(root);
+        if (containsCodexPath(canonicalRoot, canonicalCandidate)) {
+          return { path: lexicalCandidate, root: lexicalRoot, canonicalRoot };
+        }
+      } catch {
+      }
+    }
+    throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
+  }
   async listCodexWorkspacePaths() {
     const paths = /* @__PURE__ */ new Map();
     const authority = await this.readWorkspaceAuthority();
@@ -23720,6 +23860,17 @@ function containsCodexPath(root, candidate) {
 }
 function normalizeCodexPathForCompare(path) {
   return path.replace(/[\\/]+$/u, "") || path;
+}
+function codexDirectoryCrumbs(root, path) {
+  const crumbs2 = [{ name: basename3(root) || root, path: root, hidden: false }];
+  const remainder = relative(root, path);
+  if (remainder === "") return crumbs2;
+  let current = root;
+  for (const segment of remainder.split(/[\\/]+/u).filter(Boolean)) {
+    current = resolve2(current, segment);
+    crumbs2.push({ name: segment, path: current, hidden: false });
+  }
+  return crumbs2;
 }
 function extractThread(result) {
   return isRecord9(result) && isRecord9(result.thread) ? result.thread : void 0;

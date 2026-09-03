@@ -12,13 +12,20 @@ describe('HarnessRemoteBridge', () => {
       ok: true,
       value: [{ id: 'session-1' }],
     })
+    await expect(bridge.call({ endpoint: 'session/canOpenWorkspacePath', payload: { args: {} } })).resolves.toEqual({
+      ok: true,
+      value: [{ id: 'session-1' }],
+    })
     expect(dispatch).toHaveBeenCalledWith('session/list', { args: {} }, expect.any(AbortSignal))
+    expect(dispatch).toHaveBeenCalledWith('session/canOpenWorkspacePath', { args: {} }, expect.any(AbortSignal))
 
     await expect(bridge.call({ endpoint: 'directoryPicker/pick', payload: { args: {} } }))
       .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
+    await expect(bridge.call({ endpoint: 'session/openWorkspacePath', payload: { args: {} } }))
+      .rejects.toMatchObject({ code: 'METHOD_NOT_ALLOWED' })
     await expect(bridge.call({ endpoint: 'settings/openConfigFile', payload: { args: {} } }))
       .rejects.toBeInstanceOf(RpcError)
-    expect(dispatch).toHaveBeenCalledOnce()
+    expect(dispatch).toHaveBeenCalledTimes(2)
   })
 
   it('publishes alpha stream frames and an explicit terminal event', async () => {

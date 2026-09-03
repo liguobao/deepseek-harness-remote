@@ -53,6 +53,9 @@ const schemas = {
     throughSeq: z.number().int().min(-1).optional(),
     maxMessages: z.number().int().min(1).max(200).optional(),
   }).strict(),
+  'dsh/directoryList': z.object({
+    path: z.string().min(1).max(4096),
+  }).strict(),
   'thread/start': z.object({
     cwd: z.string().min(1).max(4096),
     model: z.string().min(1).max(128).optional(),

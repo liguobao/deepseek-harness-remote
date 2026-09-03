@@ -56,6 +56,20 @@ interface CodexProject {
   updatedAt: number
 }
 
+interface CodexDirectoryEntry {
+  name: string
+  path: string
+  hidden: boolean
+}
+
+interface CodexDirectoryListing {
+  path: string
+  home: string
+  crumbs: CodexDirectoryEntry[]
+  entries: CodexDirectoryEntry[]
+  truncated: boolean
+}
+
 interface CodexClientLike {
   request(method: string, params: unknown, signal?: AbortSignal): Promise<unknown>
   subscribe(
@@ -327,8 +341,11 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
           }))
         }
         case 'session/selectModel': return business(await this.selectModel(requestArg(args), signal))
-        case 'session/canOpenWorkspacePath': return business(false)
+        case 'session/canOpenWorkspacePath': return business(this.selectedWorkspaceId !== undefined)
         case 'session/openWorkspacePath': return business(failure('bad-request', 'Opening Host paths is unavailable in CodeX mode.'))
+        case 'host/describe': return business(success(await this.describeHost(signal)))
+        case 'host/listDirectory': return business(await this.listDirectory(requestArg(args), signal))
+        case 'directoryPicker/list': return business(await this.listDirectory(requestArg(args), signal))
         case 'skills/list': return business(success({ items: [] }))
         case 'commands/list': return ok(this.commandList(args))
         case 'commands/execute': return ok(await this.executeCommand(args, signal))
@@ -1112,6 +1129,51 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       : success({ workspace: nativeWorkspace(workspace) })
   }
 
+  private selectedWorkspace(catalog: CatalogState): CodexVirtualWorkspaceView | undefined {
+    return this.selectedWorkspaceId === undefined
+      ? undefined
+      : catalog.workspaces.find(item => item.workspaceId === this.selectedWorkspaceId)
+  }
+
+  private async describeHost(signal: AbortSignal): Promise<unknown> {
+    const catalog = await this.currentCatalog(signal)
+    const workspace = this.selectedWorkspace(catalog)
+    const models = await this.models(signal).catch(() => undefined)
+    return {
+      version: 'CodeX Remote',
+      cwd: workspace?.path ?? '',
+      home: workspace?.path ?? '',
+      provider: 'CodeX',
+      ...(models === undefined ? {} : { model: models.default.model }),
+      attachedSessions: catalog.sessions.length,
+      canOpenPath: workspace !== undefined,
+    }
+  }
+
+  private async listDirectory(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
+    const catalog = await this.currentCatalog(signal)
+    const workspace = this.selectedWorkspace(catalog)
+    if (workspace === undefined) return failure('workspace-not-found', 'The CodeX virtual Workspace was not found.')
+    const path = string(request.path) ?? workspace.path
+    if (!containsPath(workspace.path, path)) {
+      return failure('workspace-not-found', 'The selected directory is outside the current CodeX virtual Workspace.')
+    }
+    const listing = record(await this.client.request('dsh/directoryList', { path }, signal))
+    if (!isCodexDirectoryListing(listing)) {
+      return failure('internal', 'CodeX Remote returned an invalid directory listing.')
+    }
+    const listedPaths = [
+      listing.path,
+      listing.home,
+      ...listing.crumbs.map(item => item.path),
+      ...listing.entries.map(item => item.path),
+    ]
+    if (listedPaths.some(path => !containsPath(workspace.path, path))) {
+      return failure('internal', 'CodeX Remote returned a directory outside the current Workspace.')
+    }
+    return success(listing)
+  }
+
   private async archiveSession(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
     const sessionId = requiredString(request.sessionId, 'sessionId')
     await this.client.request('thread/archive', { threadId: nativeThreadId(sessionId) }, signal)
@@ -1123,9 +1185,13 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
   private async createSession(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
     const catalog = await this.currentCatalog(signal)
     const workspaceId = string(request.workspaceId) ?? this.selectedWorkspaceId
+    const workspace = workspaceId === undefined ? undefined : catalog.workspaces.find(item => item.workspaceId === workspaceId)
     const cwd = string(request.cwd)
-      ?? (workspaceId === undefined ? undefined : catalog.workspaces.find(item => item.workspaceId === workspaceId)?.path)
+      ?? workspace?.path
     if (cwd === undefined) return failure('workspace-not-found', 'The CodeX virtual Workspace was not found.')
+    if (workspace !== undefined && !containsPath(workspace.path, cwd)) {
+      return failure('workspace-not-found', 'The selected directory is outside the current CodeX virtual Workspace.')
+    }
     const directory = await this.models(signal)
     const selection = directory.default
     const requestedPreset = CODEX_DEFAULT_PERMISSION
@@ -1466,7 +1532,10 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         archiveSession: call('workspace.archiveSession') as never,
       },
       subagents: {} as ApiProxy['subagents'],
-      host: {} as ApiProxy['host'],
+      host: {
+        describe: call('host.describe') as never,
+        listDirectory: call('host.listDirectory') as never,
+      } as unknown as ApiProxy['host'],
       skills: { list: call('skills.list') as never },
       agentPresets: {} as ApiProxy['agentPresets'],
       goals: {} as ApiProxy['goals'],
@@ -2652,6 +2721,24 @@ function business(value: unknown): TypertRpcResult {
     return fail(string(error.code) ?? 'internal', string(error.message) ?? 'CodeX virtual Harness rejected the request.', record(error.details))
   }
   return ok(value)
+}
+
+function isCodexDirectoryListing(value: unknown): value is CodexDirectoryListing {
+  const listing = record(value)
+  return typeof listing.path === 'string'
+    && typeof listing.home === 'string'
+    && Array.isArray(listing.crumbs)
+    && listing.crumbs.every(isCodexDirectoryEntry)
+    && Array.isArray(listing.entries)
+    && listing.entries.every(isCodexDirectoryEntry)
+    && typeof listing.truncated === 'boolean'
+}
+
+function isCodexDirectoryEntry(value: unknown): value is CodexDirectoryEntry {
+  const entry = record(value)
+  return typeof entry.name === 'string'
+    && typeof entry.path === 'string'
+    && typeof entry.hidden === 'boolean'
 }
 
 function fail(code: string, message: string, details: JsonRecord = {}): TypertRpcResult {

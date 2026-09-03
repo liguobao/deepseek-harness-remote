@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { realpath, stat } from 'node:fs/promises'
+import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { deriveCodexCwdWorkspaces } from '@dsh-remote/client-core'
 import type { CodexAppFrameData, CodexAppStreamClosedData } from '@dsh-remote/protocol'
 import type { ResolvedCodexConfig } from '../config.js'
@@ -29,6 +29,7 @@ const CODEX_PAGE_LIMIT = 100
 const MAX_CODEX_PAGES = 32
 const CODEX_HISTORY_PAGE_LIMIT = 25
 const MAX_CODEX_HISTORY_PAGES = 64
+const CODEX_DIRECTORY_ENTRY_LIMIT = 500
 
 interface PendingApproval {
   upstreamId: string | number
@@ -47,6 +48,20 @@ interface ActiveTurnOwner {
 interface CodexWorkspaceAuthority {
   projectIds: Set<string>
   roots: string[]
+}
+
+interface CodexDirectoryEntry {
+  name: string
+  path: string
+  hidden: boolean
+}
+
+interface CodexDirectoryListing {
+  path: string
+  home: string
+  crumbs: CodexDirectoryEntry[]
+  entries: CodexDirectoryEntry[]
+  truncated: boolean
 }
 
 type AppServerFactory = (binary: string, logger: SafeLogger) => CodexAppServerLike
@@ -171,6 +186,9 @@ export class CodexRemoteDomain {
         ? page.activeTurnId
         : this.turnOwners.get(threadId!)?.turnId
       return activeTurnId === undefined ? page : { ...page, activeTurnId }
+    }
+    if (call.method === 'dsh/directoryList') {
+      return this.listCodexDirectory(call.params.path as string)
     }
 
     const allowedThread = threadId === undefined ? undefined : await this.readKnownThread(threadId)
@@ -791,6 +809,71 @@ export class CodexRemoteDomain {
     throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
   }
 
+  private async listCodexDirectory(path: string): Promise<CodexDirectoryListing> {
+    const target = await this.resolveCodexDirectory(path)
+    const rows = await readdir(target.path, { withFileTypes: true }).catch(() => undefined)
+    if (rows === undefined) {
+      throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
+    }
+    const entries: CodexDirectoryEntry[] = []
+    for (const row of rows) {
+      const child = resolve(target.path, row.name)
+      let directory = row.isDirectory()
+      if (!directory && row.isSymbolicLink()) {
+        directory = await stat(child).then(value => value.isDirectory()).catch(() => false)
+      }
+      if (!directory) continue
+      try {
+        const canonicalChild = await realpath(child)
+        if (!(await stat(canonicalChild)).isDirectory()) continue
+        if (!containsCodexPath(target.canonicalRoot, canonicalChild)) continue
+      } catch {
+        continue
+      }
+      entries.push({
+        name: row.name,
+        path: child,
+        hidden: process.platform !== 'win32' && row.name.startsWith('.'),
+      })
+    }
+    entries.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
+    return {
+      path: target.path,
+      home: target.root,
+      crumbs: codexDirectoryCrumbs(target.root, target.path),
+      entries: entries.slice(0, CODEX_DIRECTORY_ENTRY_LIMIT),
+      truncated: entries.length > CODEX_DIRECTORY_ENTRY_LIMIT,
+    }
+  }
+
+  private async resolveCodexDirectory(path: string): Promise<{ path: string; root: string; canonicalRoot: string }> {
+    if (!isAbsolute(path)) {
+      throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
+    }
+    const authority = await this.readWorkspaceAuthority()
+    const lexicalCandidate = resolve(path)
+    let canonicalCandidate: string
+    try {
+      canonicalCandidate = await realpath(path)
+      if (!(await stat(canonicalCandidate)).isDirectory()) throw new Error('not a directory')
+    } catch {
+      throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
+    }
+    for (const root of authority.roots) {
+      try {
+        const lexicalRoot = resolve(root)
+        if (!containsCodexPath(lexicalRoot, lexicalCandidate)) continue
+        const canonicalRoot = await realpath(root)
+        if (containsCodexPath(canonicalRoot, canonicalCandidate)) {
+          return { path: lexicalCandidate, root: lexicalRoot, canonicalRoot }
+        }
+      } catch {
+        // A stale project or Thread cwd is not authority for directory browsing.
+      }
+    }
+    throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
+  }
+
   private async listCodexWorkspacePaths(): Promise<Map<string, string>> {
     const paths = new Map<string, string>()
     const authority = await this.readWorkspaceAuthority()
@@ -945,6 +1028,18 @@ function containsCodexPath(root: string, candidate: string): boolean {
 
 function normalizeCodexPathForCompare(path: string): string {
   return path.replace(/[\\/]+$/u, '') || path
+}
+
+function codexDirectoryCrumbs(root: string, path: string): CodexDirectoryEntry[] {
+  const crumbs: CodexDirectoryEntry[] = [{ name: basename(root) || root, path: root, hidden: false }]
+  const remainder = relative(root, path)
+  if (remainder === '') return crumbs
+  let current = root
+  for (const segment of remainder.split(/[\\/]+/u).filter(Boolean)) {
+    current = resolve(current, segment)
+    crumbs.push({ name: segment, path: current, hidden: false })
+  }
+  return crumbs
 }
 
 function extractThread(result: unknown): Record<string, unknown> | undefined {

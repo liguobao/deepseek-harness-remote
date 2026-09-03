@@ -80,8 +80,12 @@ describe('HarnessApiBridge', () => {
         },
       },
     }))
+    const listDirectory = vi.fn(async (request: { rpcId: string }) => ({
+      rpcId: request.rpcId,
+      result: { ok: true, value: { path: '/home/user', home: '/home/user', crumbs: [], entries: [], truncated: false } },
+    }))
     const bridge = new HarnessApiBridge(
-      api({ host: { describe } }),
+      api({ host: { describe, listDirectory } }),
       vi.fn(async () => undefined),
       8,
       undefined,
@@ -92,7 +96,7 @@ describe('HarnessApiBridge', () => {
     await expect(bridge.call({ method: 'host.describe', rpcId: 'native-describe', payload: {} }))
       .resolves.toMatchObject({
         rpcId: 'native-describe',
-        result: { ok: true, value: { version: '0.1.1-rc.2', cwd: '/home/user' } },
+        result: { ok: true, value: { version: '0.1.1-rc.2', cwd: '/home/user', canOpenPath: true } },
       })
   })
 
