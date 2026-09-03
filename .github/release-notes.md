@@ -1,14 +1,15 @@
 ## English
 
-`v0.4.8` refines workspace creation and reply feedback in the Android client. It contains the changes since `v0.4.7` ([full comparison](https://github.com/liguobao/ds-harness-remote/compare/v0.4.7...v0.4.8)).
+`v0.4.9` improves remote workspace discovery and connection feedback across Desktop and Android. It contains the changes since `v0.4.8` ([full comparison](https://github.com/liguobao/ds-harness-remote/compare/v0.4.8...v0.4.9)).
 
 ### What changed
 
-- Replaces the separate DSH and Codex creation actions with one **New workspace** flow. When Codex is available on the selected Host, the creation sheet lets you choose DSH or Codex as the workspace type before selecting a directory.
-- Shows a generating indicator while Android is waiting for the first visible reply item, so an accepted prompt no longer leaves the conversation looking idle.
-- Adds clearer activity feedback for streamed replies: active reasoning and running tools now use progress indicators, and the streaming cursor is animated.
+- Refines the Desktop Remote workspace chooser: the header shows the selected Host, platform, Harness version, and Plugin version, with a direct action to choose another Host.
+- Shows three DSH and three CodeX workspaces by default, provides centered expand actions without nested scrollbars, uses DeepSeek and GPT workspace icons, and supports opening a workspace by double-clicking its row.
+- Drives Desktop connection feedback from the Host runtime's real transport phases and selected route, and removes the extra simulated progress step when opening a workspace.
+- Adds separate DSH and CodeX workspace tabs plus name/path search on Android, and opens the first conversation immediately after a workspace is created.
 - Keeps the underlying Remote protocol, Host transport, and security boundaries unchanged.
-- Synchronizes the Plugin and Android app at version `0.4.8` with Android `versionCode 25`.
+- Synchronizes the Plugin and Android app at version `0.4.9` with Android `versionCode 26`.
 
 ### Validation
 
@@ -19,25 +20,26 @@ The release pipeline runs workspace type checks and tests, verifies the committe
 Install through DSH's plugin manager rather than adding the npm package directly:
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.8
-dsh plugin --profile dsh-tui add ds-harness-remote@0.4.8
+dsh plugin --profile web add ds-harness-remote@0.4.9
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.9
 ```
 
-- [npm package](https://www.npmjs.com/package/ds-harness-remote/v/0.4.8)
-- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.8/dsh-remote-android-v0.4.8.apk)
+- [npm package](https://www.npmjs.com/package/ds-harness-remote/v/0.4.9)
+- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.9/dsh-remote-android-v0.4.9.apk)
 - Release assets also include the npm tarball and `SHA256SUMS.txt`.
 
 ## 中文
 
-`v0.4.8` 主要优化 Android Client 的工作区创建流程与回复状态反馈。本版本包含自 `v0.4.7` 以来的改动（[完整对比](https://github.com/liguobao/ds-harness-remote/compare/v0.4.7...v0.4.8)）。
+`v0.4.9` 改进 Desktop 与 Android 的远程工作区发现和连接反馈。本版本包含自 `v0.4.8` 以来的改动（[完整对比](https://github.com/liguobao/ds-harness-remote/compare/v0.4.8...v0.4.9)）。
 
 ### 主要变更
 
-- 将原先分开的 DSH 与 Codex 创建入口合并为一个**新建工作区**流程。当所选 Host 支持 Codex 时，用户可以先在创建面板中选择 DSH 或 Codex 工作区类型，再选择目录。
-- Android 等待首个可见回复内容时会显示“正在生成”状态，Prompt 已被接受后，会话界面不再看起来没有响应。
-- 增强流式回复的活动反馈：正在进行的推理和工具执行会显示进度指示器，流式输出光标也增加了动画。
+- 优化 Desktop Remote 工作区选择器：顶部显示所选 Host、平台、Harness 版本和 Plugin 版本，并可直接选择其他 Host。
+- DSH 与 CodeX 工作区默认各显示三项，通过整行居中的展开入口加载更多，不再使用嵌套滚动条；工作区行使用 DeepSeek 与 GPT 图标，并支持双击直接打开。
+- Desktop 连接进度改为跟随 Host runtime 的真实 transport 阶段与最终路径，打开工作区时不再额外显示模拟进度步骤。
+- Android 新增 DSH 与 CodeX 工作区分页、名称/路径搜索，并在创建工作区后直接打开首个会话。
 - Remote 协议、Host transport 与安全边界均未改变。
-- Plugin 与 Android App 版本统一更新为 `0.4.8`，Android `versionCode` 更新为 `25`。
+- Plugin 与 Android App 版本统一更新为 `0.4.9`，Android `versionCode` 更新为 `26`。
 
 ### 验证
 
@@ -48,10 +50,10 @@ Release pipeline 会执行 workspace 类型检查与测试、校验已提交的 
 请通过 DSH Plugin 管理器安装，不要直接将 npm 包加入项目：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.8
-dsh plugin --profile dsh-tui add ds-harness-remote@0.4.8
+dsh plugin --profile web add ds-harness-remote@0.4.9
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.9
 ```
 
-- [npm 包](https://www.npmjs.com/package/ds-harness-remote/v/0.4.8)
-- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.8/dsh-remote-android-v0.4.8.apk)
+- [npm 包](https://www.npmjs.com/package/ds-harness-remote/v/0.4.9)
+- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.9/dsh-remote-android-v0.4.9.apk)
 - Release 附件还包括 npm tarball 与 `SHA256SUMS.txt`。

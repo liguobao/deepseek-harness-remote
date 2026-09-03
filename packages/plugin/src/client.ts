@@ -24,6 +24,8 @@ const clientModuleId = typeof DSH_REMOTE_CLIENT_MODULE_ID === 'string'
   ? DSH_REMOTE_CLIENT_MODULE_ID
   : 'ds-harness-remote'
 const pendingWorkspaceSelectionKey = 'dsh-remote:pending-workspace-selection'
+const deepSeekWorkspaceIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAACVBMVEUAAADy8vXx8fUsA3vyAAAAAXRSTlMAQObYZgAAAOxJREFUWMPtlsEOwyAMQxP+/6OnTZMGxHGcot3wDYgfhkJbs6urprzveGtu9d1NgEdto8w93GuA7zPS2RFg7ynsCOAokbtAmLr2YaeKgJ6fxpT8jCAC0qSqPyNoO5DXdvyouj4ClFAdYaDxK09uiBDCIYBf6CxLesnR0uF2pG+JmhCqrUb0AOvjjoQaYDTCEAAgMg5grhAeAQIB+/M15IcKlnUIp4CkTCd0AKb4zVsRSJVGYEVzT0agK107IMGMEurvromEpaX4wzk/IKw378kq4LafED6Oowxfk7AP2q8W16EdM3p29Eyvrv6vF0WIBfBziKyCAAAAAElFTkSuQmCC'
+const gptWorkspaceIcon = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAAclBMVEX////v7+++wMf////s7O3k5OTExcrX2Ny6vMTv8PPW19yXmqRqboJmaHd3eoaqrLPs7fGMjpfb3eKlpq1eYXOxs7pWWWd+gY5HSVdRVGVub3k+QU74+Pg4OkcvMT1ISlUoKjUiIy4fICueoKkaGyUSFB21Bp+qAAAAAXRSTlMAQObYZgAABChJREFUWMPtl916qjoQhlsdEwIECEgMYCBxx/u/xT1DrFUL1LO1DtY8LSLJvPnmB4gfH//sr7TPDfvdebf/xXZbkE/4zZ0MVhGHd9zJDsv+7F3//Z69tT5wljAu3tXw+TIlzXKJlhflYmJ+5uF5WpWhb54X+C/zZCmT2wJA4dJZwus0UYjIGqWyMhVbEp4yKNRRqlv0opW5PJLJ4rFJXvP4JKDRMqturBZjkMVJFYjR6iHQDQDI4+k2k51wZbWrqwp4mR/1CVYATyko9TFGxBUqL5IvMbXSWt0T8bkGgFLqgqZBI/Uxbx5UAxLaNcCNLBpttM7wbCc1pmJOpWAsDtey68UaQMyrFgb9uxLPjqg3+nGluyKN0XUdWw0BJ0NvTFFqgzpr9J+Dh4w0Ga1qkqBNswagxdRgFPAbgHRQG5jumGWyMxrTIaRRa4AzFs0YrNMXgI4MJWnsKYFhGNMnIh/mBOPsV8CZBFjN9w8ArowxnZzDr5IcvxTaKpxJCVsoI3SWysz1UM4AqQdzlCgho1IKrK+x1mKFzisANtgEU8E7GwHDgOqxe4w9tnM166wbaA2xBMBLrTWcAGYGdCiYVUJUrMCF+7l6gklrW1RwPi8ByjuActANqhKzVWoYrFGcCFzbDgNaBrTWpncFQMcI2DfWoAiDqRCiHcYM/ZdCEKkZqfR8spj4F0CiJjv2gHL6URNoCQDaYacL6O1oFDO2eQDUFP7AKdCRdC4CRDZaNifbjA41l/uYb/SZMAFNTBGzY7sG4J2jTsJgToOzIzXF3HZqBpSOAGduXbkGEKV1OqVGqRJpRxtvwbSw5IqAiUJItwBCOT9R32FCGo3nCkAN3t0UTBRC6zDONcBeOee9pr4T+ASbnDOdc5OmtREwEEB5w8Wqgt4bOV5c7Lt9iiK8zdP/IsBbutUGX4gNwEVCqd3FUt/xYnRWt7BvPBYQjwjAGXa3ASguHVAZ/WXKlA3eZDX1wRegFsr7E2wAlB9xFbx/7MV70kFT8aqNgLL3F8nFBmA3hrn/IJHjKJOK2oj1WI4Z4FzwN/81AOhgYD6v2xbIvaZIurLC9AfvB1WLTYAoXejF1xeBL5cpBIyEbmxkZymIXwDQh1BAfOrhI1lfwtgz8tozF5T4ttf3+32AyxC6klwAgw/YVTHpoK82xYt3wLP/Bw4AAI4D7/01TLKXBj9NEz2wEuGiKpoy68S/FwCLMQAZ3gXhihaCa25vQo6RyToOz9PE6wYjJgGi1YnqZX8qMIK+TDlnargGzSv4NvFjlwXf/nfLLMrAB4O/Xl3BH0d+RIASFgDA8IYMIXgr2+cBsbDdPSwAAHjSZFmb3txETCKIxc0uWwI8rxsLJcTiVndNwyMgKljbbNN2/zcEAja2+4RgIDYN2Bu/WtAOaEodnu2dnzz/7I/Y/w/LaEcX/MdfAAAAAElFTkSuQmCC'
 
 interface ControlResult<T = unknown> {
   ok: boolean
@@ -346,8 +348,6 @@ const en = {
   remoteProgressUsingPrefix: 'Using ',
   remoteProgressLoadingWorkspaces: 'Loading workspaces',
   remoteProgressLoadingWorkspacesDetail: 'Reading the remote Harness workspace list through the tunnel.',
-  remoteProgressOpeningWorkspace: 'Opening workspace',
-  remoteProgressOpeningWorkspaceDetail: 'Asking the Host to prepare the selected working directory.',
   remoteProgressSwitchingWorkspace: 'Switching interface',
   remoteProgressSwitchingWorkspaceDetail: 'Handing the remote workspace to the local Harness UI.',
   remoteProgressReady: 'Ready',
@@ -557,8 +557,6 @@ const zh: Record<keyof typeof en, string> = {
   remoteProgressUsingPrefix: '已连接 ',
   remoteProgressLoadingWorkspaces: '正在加载工作区',
   remoteProgressLoadingWorkspacesDetail: '通过隧道读取远端 Harness 工作区列表。',
-  remoteProgressOpeningWorkspace: '正在打开工作区',
-  remoteProgressOpeningWorkspaceDetail: '正在请求 Host 准备所选工作目录。',
   remoteProgressSwitchingWorkspace: '正在切换界面',
   remoteProgressSwitchingWorkspaceDetail: '正在把远端工作区交给本地 Harness UI。',
   remoteProgressReady: '已就绪',
@@ -666,10 +664,6 @@ interface RemoteConnectionProgress {
   transports?: RemoteTransportPreference[]
   activeTransports?: RemoteTransportPreference[]
   routeVerb?: 'trying' | 'using'
-}
-
-interface RemoteConnectionProgressStep extends RemoteConnectionProgress {
-  delayMs?: number
 }
 
 const defaultPreferredTransports: readonly RemoteTransportPreference[] = ['lan', 'p2p', 'turn', 'relay']
@@ -915,33 +909,6 @@ window.__ModuleLoader__.load({
       }, React.createElement('span', { style: { transform: `scaleX(${percent / 100})` } })))
     }
 
-    async function runRemoteProgress<T>(
-      steps: RemoteConnectionProgressStep[],
-      setProgress: (value: RemoteConnectionProgress | undefined) => void,
-      progressRun: { current: number },
-      action: () => Promise<T>,
-      readyProgress?: (result: T) => RemoteConnectionProgress | undefined,
-    ): Promise<T> {
-      const runId = progressRun.current + 1
-      progressRun.current = runId
-      const apply = (next: RemoteConnectionProgress): void => {
-        if (progressRun.current === runId) setProgress(next)
-      }
-      const [first, ...rest] = steps
-      if (first !== undefined) apply(first)
-      const timers = rest.map(step => window.setTimeout(() => apply(step), step.delayMs ?? 0))
-      try {
-        const result = await action()
-        timers.forEach(timer => window.clearTimeout(timer))
-        apply(readyProgress?.(result) ?? { label: 'remoteProgressReady', detail: 'remoteProgressReadyDetail', percent: 100 })
-        await new Promise(resolve => window.setTimeout(resolve, 520))
-        return result
-      } finally {
-        timers.forEach(timer => window.clearTimeout(timer))
-        if (progressRun.current === runId) setProgress(undefined)
-      }
-    }
-
     async function runConnectHostProgress<T>(
       preferredTransports: readonly RemoteTransportPreference[] | undefined,
       targetDeviceId: string,
@@ -995,11 +962,6 @@ window.__ModuleLoader__.load({
         if (progressRun.current === runId) setProgress(undefined)
       }
     }
-
-    const openWorkspaceProgressSteps: RemoteConnectionProgressStep[] = [
-      { label: 'remoteProgressOpeningWorkspace', detail: 'remoteProgressOpeningWorkspaceDetail', percent: 30 },
-      { label: 'remoteProgressSwitchingWorkspace', detail: 'remoteProgressSwitchingWorkspaceDetail', percent: 74, delayMs: 520 },
-    ]
 
     function RemotePluginOptions(props: {
       control: <T>(endpoint: string, payload?: unknown) => Promise<T>
@@ -1695,26 +1657,20 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError(undefined)
         try {
-          const nextStatus = await runRemoteProgress(
-            openWorkspaceProgressSteps,
-            setProgress,
-            progressRun,
-            () => targetBackend === 'codex'
-              ? createWorkspace
-                ? props.control<RemoteStatus>('codex.workspace.create', {
-                  targetDeviceId: selectedHost.deviceId,
-                  path: targetPath,
-                })
-                : props.control<RemoteStatus>('codex.workspace.open', {
-                  targetDeviceId: selectedHost.deviceId,
-                  workspaceId: targetCodexWorkspaceId,
-                })
-              : props.control<RemoteStatus>('workspace.open', {
+          const nextStatus = await (targetBackend === 'codex'
+            ? createWorkspace
+              ? props.control<RemoteStatus>('codex.workspace.create', {
                 targetDeviceId: selectedHost.deviceId,
                 path: targetPath,
-              }),
-            connectedProgress,
-          )
+              })
+              : props.control<RemoteStatus>('codex.workspace.open', {
+                targetDeviceId: selectedHost.deviceId,
+                workspaceId: targetCodexWorkspaceId,
+              })
+            : props.control<RemoteStatus>('workspace.open', {
+              targetDeviceId: selectedHost.deviceId,
+              path: targetPath,
+            }))
           setStatus(nextStatus)
           if (nextStatus.workspaceSelection !== undefined) {
             window.sessionStorage.setItem(pendingWorkspaceSelectionKey, JSON.stringify(nextStatus.workspaceSelection))
@@ -1940,7 +1896,7 @@ window.__ModuleLoader__.load({
                               'aria-pressed': workspaceBackend === 'harness' && path === workspace.path,
                               onClick: () => { setWorkspaceBackend('harness'); setCodexWorkspaceId(undefined); setPath(workspace.path) },
                               onDoubleClick: () => void openWorkspace({ backend: 'harness', path: workspace.path }),
-                            }, React.createElement('span', { 'aria-hidden': true }, '▱'),
+                            }, React.createElement('img', { className: 'dshRemoteWorkspaceIcon', src: deepSeekWorkspaceIcon, alt: '', 'aria-hidden': true }),
                             React.createElement('span', null, workspace.title), React.createElement('small', null, workspace.path))),
                             workspaces.length <= 3 || showAllWorkspaces ? null : React.createElement('button', {
                               type: 'button',
@@ -1949,7 +1905,7 @@ window.__ModuleLoader__.load({
                               'aria-controls': workspaceListId,
                               'aria-label': t('showAllWorkspaces'),
                               onClick: () => setShowAllWorkspaces(true),
-                            }, '…'))),
+                            }, React.createElement('span', { 'aria-hidden': true }, '…')))),
                         !codexAvailable && codexWorkspaces.length === 0 ? null : React.createElement('section', { className: 'dshRemoteCodexWorkspaceGroup' },
                           React.createElement('div', {
                             id: codexWorkspaceHeadingId,
@@ -1988,7 +1944,7 @@ window.__ModuleLoader__.load({
                               path: workspace.path,
                               workspaceId: workspace.workspaceId,
                             }),
-                          }, React.createElement('span', { className: 'dshRemoteCodexMark', 'aria-hidden': true }, 'C'),
+                          }, React.createElement('img', { className: 'dshRemoteWorkspaceIcon isGpt', src: gptWorkspaceIcon, alt: '', 'aria-hidden': true }),
                           React.createElement('span', null, workspace.title),
                           React.createElement('small', null, `${workspace.path} · ${workspace.sessionCount}`)))),
                           codexWorkspaces.length <= 3 || showAllCodexWorkspaces ? null : React.createElement('button', {
@@ -1998,7 +1954,7 @@ window.__ModuleLoader__.load({
                             'aria-controls': codexWorkspaceListId,
                             'aria-label': t('showAllCodexWorkspaces'),
                             onClick: () => setShowAllCodexWorkspaces(true),
-                          }, '…'))),
+                          }, React.createElement('span', { 'aria-hidden': true }, '…')))),
                     React.createElement('footer', { className: 'dshRemoteOpenBar' },
                       React.createElement('div', null, React.createElement('span', null, t('currentDirectory')), React.createElement('strong', null, path || '—')),
                       React.createElement('button', {
@@ -2446,8 +2402,8 @@ window.__ModuleLoader__.load({
         '.dshRemoteProgress{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}.dshRemoteProgressHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}.dshRemoteProgressHeader strong{font-size:13px;font-weight:600}.dshRemoteProgressHeader span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteProgressBar{height:6px;overflow:hidden;border-radius:999px;background:var(--dsw-alias-bg-layer-3)}.dshRemoteProgressBar>span{display:block;width:100%;height:100%;border-radius:inherit;background:var(--dsw-alias-brand-primary);transform-origin:left center;transition:transform .22s ease-out}[dir="rtl"] .dshRemoteProgressBar>span{transform-origin:right center}.dshRemoteProgress p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}.dshRemoteProgressRoute{font-weight:500}.dshRemoteProgressRoute .isActive{color:var(--dsw-alias-state-success-primary);font-weight:700}.dshRemoteProgressRouteArrow{color:var(--dsw-alias-label-tertiary)}@media(prefers-reduced-motion:reduce){.dshRemoteProgressBar>span{transition:none}}',
         '.dshRemoteBrowser{display:flex;flex-direction:column}.dshRemoteCrumbs{display:flex;align-items:center;gap:4px;overflow:auto;padding:2px 0 10px}.dshRemoteCrumbs>button{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 7px;border-radius:6px;cursor:pointer}.dshRemoteCrumbs>button:not(:last-child)::after{content:" /";color:var(--dsw-alias-label-tertiary)}.dshRemoteCrumbs>button:disabled{color:var(--dsw-alias-label-primary);font-weight:600}',
         '.dshRemoteWorkspaceLists{overflow:visible}',
-        '.dshRemoteDirectoryList{min-height:72px;display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteDirectoryList>button{min-height:52px;display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:10px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:8px 4px;cursor:pointer}.dshRemoteDirectoryList>button:hover,.dshRemoteDirectoryList>button.isSelected{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteDirectoryList>button.isSelected{color:var(--dsw-alias-label-primary)}.dshRemoteDirectoryList>button>span:first-child{grid-row:1/3}.dshRemoteDirectoryList>button>span:not(:first-child),.dshRemoteDirectoryList>button>small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshRemoteDirectoryList>button>small{grid-column:2;color:var(--dsw-alias-label-secondary)}.dshRemoteDirectoryList>p,.dshRemoteHint{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}',
-        '.dshRemoteAddWorkspace{box-sizing:border-box;width:40px;height:40px;display:inline-grid;place-items:center;flex:0 0 auto;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);padding:0;cursor:pointer}.dshRemoteAddWorkspace:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteAddWorkspace:disabled{opacity:.5;cursor:default}.dshRemoteAddWorkspaceIcon{width:20px;height:20px}.dshRemoteCodexWorkspaceGroup{margin-top:16px}.dshRemoteWorkspaceSourceHeading{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 4px 7px}.dshRemoteWorkspaceSourceText{min-width:0;display:flex;flex-direction:column;gap:2px}.dshRemoteWorkspaceSourceText>strong{font-size:13px}.dshRemoteWorkspaceSourceText>small{color:var(--dsw-alias-label-secondary);font-size:11px}.dshRemoteCodexWorkspaceList{min-height:0}.dshRemoteDirectoryList>.dshRemoteWorkspaceMore{width:100%;min-height:48px;display:grid;place-items:center;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);padding:8px 4px;text-align:center;font-size:12px;cursor:pointer}.dshRemoteWorkspaceMore:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteWorkspaceMore:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}.dshRemoteWorkspaceMore:disabled{opacity:.5;cursor:default}.dshRemoteCodexMark{box-sizing:border-box;width:22px;height:22px;display:grid;place-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;color:var(--dsw-alias-label-primary);font-size:11px;font-weight:650}',
+        '.dshRemoteDirectoryList{min-height:72px;display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteDirectoryList>button{min-height:52px;display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:10px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:8px 4px;cursor:pointer}.dshRemoteDirectoryList>button:hover,.dshRemoteDirectoryList>button.isSelected{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteDirectoryList>button.isSelected{color:var(--dsw-alias-label-primary)}.dshRemoteDirectoryList>button>span:first-child,.dshRemoteDirectoryList>button>.dshRemoteWorkspaceIcon{grid-row:1/3}.dshRemoteWorkspaceIcon{box-sizing:border-box;width:22px;height:22px;align-self:center;object-fit:contain}.dshRemoteWorkspaceIcon.isGpt{border-radius:6px}.dshRemoteDirectoryList>button>span:not(:first-child),.dshRemoteDirectoryList>button>small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshRemoteDirectoryList>button>small{grid-column:2;color:var(--dsw-alias-label-secondary)}.dshRemoteDirectoryList>p,.dshRemoteHint{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}',
+        '.dshRemoteAddWorkspace{box-sizing:border-box;width:40px;height:40px;display:inline-grid;place-items:center;flex:0 0 auto;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);padding:0;cursor:pointer}.dshRemoteAddWorkspace:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteAddWorkspace:disabled{opacity:.5;cursor:default}.dshRemoteAddWorkspaceIcon{width:20px;height:20px}.dshRemoteCodexWorkspaceGroup{margin-top:16px}.dshRemoteWorkspaceSourceHeading{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 4px 7px}.dshRemoteWorkspaceSourceText{min-width:0;display:flex;flex-direction:column;gap:2px}.dshRemoteWorkspaceSourceText>strong{font-size:13px}.dshRemoteWorkspaceSourceText>small{color:var(--dsw-alias-label-secondary);font-size:11px}.dshRemoteCodexWorkspaceList{min-height:0}.dshRemoteDirectoryList>.dshRemoteWorkspaceMore,.dshRemoteCodexWorkspaceGroup>.dshRemoteWorkspaceMore{box-sizing:border-box;width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);padding:8px 4px;text-align:center;font-size:16px;cursor:pointer}.dshRemoteWorkspaceMore>span{display:block;line-height:1;transform:translateY(-2px)}.dshRemoteWorkspaceMore:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:transparent}.dshRemoteWorkspaceMore:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}.dshRemoteWorkspaceMore:disabled{opacity:.5;cursor:default}',
         '.dshRemoteFolderBrowser{margin-top:14px}.dshRemoteFolderBrowser>p,.dshRemoteFolderList>p{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemoteFolderList{max-height:260px;overflow:auto;border-block:1px solid var(--dsw-alias-border-l2)}.dshRemoteFolderList>button{width:100%;min-height:42px;display:flex;align-items:center;gap:9px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:7px 6px;text-align:left;cursor:pointer}.dshRemoteFolderList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteFolderBrowser>small{display:block;margin-top:8px;color:var(--dsw-alias-state-warn-label)}',
         '.dshRemotePathField{display:flex;flex-direction:column;gap:6px;margin-top:20px}.dshRemotePathField>span{font-size:13px;font-weight:600}.dshRemotePathField>input{min-height:40px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:0 12px;font:inherit}.dshRemotePathField>small{color:var(--dsw-alias-label-secondary)}',
         '.dshRemoteOpenBar{position:sticky;bottom:-96px;display:flex;align-items:center;justify-content:space-between;gap:20px;margin-top:20px;padding:14px 0;background:var(--dsw-alias-bg-layer-1);border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteOpenBar>div{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteOpenBar span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteOpenBar strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.dshRemoteOpenBar>button,.dshRemoteEnable>button{min-height:40px;flex:0 0 auto;border:0;border-radius:8px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);padding:8px 16px;cursor:pointer}.dshRemoteOpenBar>button:disabled,.dshRemoteEnable>button:disabled{opacity:.5;cursor:default}',

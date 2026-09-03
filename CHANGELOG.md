@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.9
+
+- Refines the Desktop Remote workspace chooser with selected Host and version
+  details in the header, direct Host switching, compact three-item DSH and
+  CodeX lists, centered expand actions, backend-specific icons, and
+  double-click opening without nested list scrollbars.
+- Drives Desktop connection feedback from the Host runtime's real transport
+  phases and selected route, and removes the extra simulated workspace-opening
+  progress stage before handing control to the native Harness UI.
+- Adds DSH and CodeX workspace tabs plus name/path search on Android, and opens
+  the first conversation immediately after creating a workspace.
+- Advances the Plugin and Android app to `0.4.9` (`versionCode 26`).
+
 ## 0.4.8
 
 - Reworks Android workspace creation into one `New workspace` flow. When Codex
