@@ -58,7 +58,7 @@ Linux. Remote is included and enabled by default, so no separate plugin installa
 Add the exact package version through DSH's plugin manager for the `web` profile:
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.6
+dsh plugin --profile web add ds-harness-remote@0.4.7
 ```
 
 Restart Harness after installation.
@@ -73,7 +73,7 @@ profile; it does not require the Desktop browser `connection` service. Install t
 TUI profile:
 
 ```sh
-dsh plugin --profile dsh-tui add ds-harness-remote@0.4.6
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.7
 ```
 
 Start dsh-TUI and use its native slash command:
@@ -209,9 +209,9 @@ Remote business RPC surface (`sessions.*`, `session.*`, `permissions.respond`,
 `ApiProxy` or the v0.1.2 Typert Remote Gateway, and this plugin does not provide
 an adapter or wire-format translation for the old RPC surface.
 
-Plugin `0.4.6` supports DeepSeek Harness `dsh-v0.1.1-rc.2` through the legacy
+Plugin `0.4.7` supports DeepSeek Harness `dsh-v0.1.1-rc.2` through the legacy
 official `ApiProxy`, and `dsh-v0.1.2-alpha.1`–`rc.1` through the
-official Typert Remote Gateway. A `0.4.6` Client running rc.2 remains compatible
+official Typert Remote Gateway. A `0.4.7` Client running rc.2 remains compatible
 with older rc.2 Hosts through the legacy capability fallback.
 
 Both Desktop endpoints must use the same Harness transport generation. Plugin
