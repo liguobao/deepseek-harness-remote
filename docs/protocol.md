@@ -12,7 +12,7 @@
 当前仓库负责：
 
 - `packages/protocol` 的类型、schema、编解码和版本校验
-- Plugin 的 rc.2 ApiProxy tunnel、alpha.1/alpha.2 Typert Remote tunnel、加密、重连和 capability 行为
+- Plugin 的 rc.2 ApiProxy tunnel、v0.1.2 alpha.1–rc.1 Typert Remote tunnel、加密、重连和 capability 行为
 - Mock Host/Client 与协议 conformance fixtures
 
 当前仓库不负责实现 Server REST API、WebSocket Hub、数据库、Admin 或部署。本文出现的 Server endpoint 和行为用于约束独立 Server 项目，不表示应在当前仓库创建 Server 代码。
@@ -32,7 +32,7 @@ DSH Remote Protocol 定义 Host Plugin、DSH Remote Server 和 Remote Client 之
 - WebRTC signaling 与 Relay routing
 - Host/Client 端到端安全通道
 - rc.2 ApiProxy tunnel 的 unary、respond 与 mux/host streaming
-- alpha.1/alpha.2 Typert Remote 的 unary、stream 与 `$events` 双向事件 carrier
+- v0.1.2 alpha.1–rc.1 Typert Remote 的 unary、stream 与 `$events` 双向事件 carrier
 - reconnect 与原生 stream 重建
 - capability 与版本协商
 - 错误码、限制和安全不变量
@@ -71,7 +71,7 @@ Remote Protocol
 
 Harness Business Tunnel
   rc.2 ApiProxy call / respond / mux / host
-  alpha Typert Remote call / stream / events
+  v0.1.2 Typert Remote call / stream / events
 ```
 
 业务层禁止直接调用 WebSocket、RTCPeerConnection 或 Server REST；必须通过 `RemoteTransport` 与 client/plugin core。
@@ -744,7 +744,7 @@ carrier 代际不一致时，Desktop Client 必须在选择目标、创建 Works
 | `0.3.15–0.3.23` / rc.2 | `harness.api.v1`（旧 Host 由版本降级识别） | 支持 | `0.3.17+` 且 provider 存在时支持 | 不支持 |
 | `0.3.24–0.3.36` / rc.2 | `harness.api.v1` | 支持 | provider 存在时支持 | `harness.api.transfer.v1` |
 | `0.4.x` / rc.2 | capability 探测返回 `harness.api.v1` | 支持 | provider 存在时支持 | `harness.api.transfer.v1` |
-| `0.4.x` / alpha.1–alpha.2 | capability 探测返回 `harness.remote.v1` | 支持 | provider 存在时支持 | `harness.remote.transfer.v1` |
+| `0.4.x` / v0.1.2 alpha.1–rc.1 | capability 探测返回 `harness.remote.v1` | 支持 | provider 存在时支持 | `harness.remote.transfer.v1` |
 
 未知版本按 `0.3.15` 之前的能力处理。未来 Server 暴露 Host capability 后，应优先使用
 capability，`clientVersion` 仅保留为旧 Server 的兼容路径。
@@ -1057,9 +1057,9 @@ Open Params：
 
 `stream` 仅允许 `mux | host`，每条 peer connection 最多同时打开三个原生流：常驻的 host/mux 各一条，加一条 mux 切换缓冲。mux 流的 `payload` 可携带可选 `sessionId`（focus）：提供后 Host 只转发该 session 的 mux 帧（`session/event`、approval、question 等），其余 session 的流量不进入 tunnel；省略时转发全部。Remote Web 每次只关注一个 session，用 focus 避免把其他活跃 session 的大事件流（可能达数 MB）推过 WebRTC/relay 数据面。切换 session 时 Client 先打开新 mux，成功后立即关闭旧 mux；新流失败时保留旧流。Close Params：`{ "streamId": "client-stream-id" }`。`streamId` namespace、三条流上限和生命周期都属于发起它的 `connectionId`；不同 Client 可使用相同 `streamId`，不得互相关闭或接收对方的 tunnel event。连接替换、撤销或断开时 Host 只取消该 connection 的全部流。
 
-### Harness alpha.1/alpha.2 Typert Remote bridge
+### Harness v0.1.2 alpha.1–rc.1 Typert Remote bridge
 
-`harness.remote.v1` 只承载 `dsh-v0.1.2-alpha.1`–`alpha.2` 官方 `TypertGateway` 已编码的 carrier
+`harness.remote.v1` 只承载 `dsh-v0.1.2-alpha.1`–`rc.1` 官方 `TypertGateway` 已编码的 carrier
 envelope。Plugin 不解析或重建 Session、Workspace、Approval、Question 等业务模型，也不
 注册第二套 Remote namespace。
 
@@ -1163,7 +1163,7 @@ Codex 是现有 Remote Plugin 内部的可选独立业务领域，不是第二�
 `PATH`；用户显式配置的 binary 不得被替换或补充候选项。
 
 Client Plugin 可在用户从 Remote 工作区选择器进入 CodeX 模式后，将已认证的 `codex.app.*`
-carrier 包装成临时 rc.2 `ApiProxy` 或 alpha Typert target。该 target 只在内存中把 CodeX 工作目录、
+carrier 包装成临时 rc.2 `ApiProxy` 或 v0.1.2 Typert target。该 target 只在内存中把 CodeX 工作目录、
 Thread、History/live frame 映射为 DSH 原生 Workspace/Session/Event，使原生 Conversation Renderer
 和 Composer 可以消费；它不是新的线协议，也不得把虚拟记录写入 DSH SessionStore、Workspace
 数据库或 Harness 日志。退出 CodeX 模式或连接关闭时必须销毁 target 和全部 stream。

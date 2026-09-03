@@ -16,7 +16,7 @@ CodeX App Server domain advertised by the Host.
   identity key, and pin it locally; a changed key fails closed and is never silently replaced.
 - Establish a Noise IK channel over an adaptive transport (WebRTC P2P/TURN with Relay fallback) and
   reject tampered, replayed, or wrong-identity frames.
-- Drive the Host through the rc.2 ApiProxy bridge or the alpha Typert Remote Gateway after
+- Drive the Host through the rc.2 ApiProxy bridge or the v0.1.2 Typert Remote Gateway after
   encrypted capability probing:
   browse sessions (including archived ones), create sessions, stream live mux frames, send
   text/image prompts, cancel generation, page older history, switch the active model and its
@@ -56,7 +56,7 @@ pnpm --filter @dsh-remote/android android
 
 The Android `start`, `android`, `ios`, and `build` commands rebuild the shared protocol, crypto,
 WebRTC, and client-core packages first, then verify that the compiled client contains the
-rc.2 ApiProxy, alpha Typert Remote, and CodeX Remote capability paths. This prevents Metro or Gradle from
+rc.2 ApiProxy, v0.1.2 Typert Remote, and CodeX Remote capability paths. This prevents Metro or Gradle from
 silently packaging stale workspace `dist` files.
 
 Android Emulator reaches a server on the development machine at `http://10.0.2.2:8080`. Cleartext

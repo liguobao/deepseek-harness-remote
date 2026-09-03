@@ -70,7 +70,7 @@ describe('RemoteTypertGateway', () => {
     expect(rpc).toHaveBeenCalledWith('harness.remote.stream.close', { streamId })
   })
 
-  it('marks Host stream failures for alpha.2 cross-bundle RemoteError detection', async () => {
+  it('marks Host stream failures for v0.1.2-alpha.2+ cross-bundle RemoteError detection', async () => {
     let eventHandler: ((event: EventPayload) => void) | undefined
     let streamId: string | undefined
     const client = {

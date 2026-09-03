@@ -198,7 +198,7 @@ describe('RemoteClientCore', () => {
 })
 
 describe('Remote Host feature probing', () => {
-  it('recognizes alpha Remote Gateway capabilities', async () => {
+  it('recognizes v0.1.2 Typert Remote Gateway capabilities', async () => {
     const transport = new LoopbackTransport()
     const client = new RemoteClientCore(transport)
     await client.connect()

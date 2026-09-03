@@ -1,7 +1,7 @@
 # TODO
 
-本清单按 2026-08-31 的兼容方向维护：Harness rc.2 使用官方 ApiProxy，
-alpha.1/alpha.2 使用官方 Typert Remote Gateway。Android 与 VS Code Client 通过 capability 探测兼容两种 Host carrier；Server、Remote Web 和 Admin 只在独立
+本清单按 2026-09-03 的兼容方向维护：Harness v0.1.1 rc.2 使用官方 ApiProxy，
+v0.1.2 alpha.1–rc.1 使用官方 Typert Remote Gateway。Android 与 VS Code Client 通过 capability 探测兼容两种 Host carrier；Server、Remote Web 和 Admin 只在独立
 Server 仓库实现。
 
 Desktop 已使用独立 Remote 工作区入口：本地选择账号下的 Host 与远端 Workspace，或通过
@@ -20,8 +20,8 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [x] Desktop Plugin Host runtime、Settings 配置和 GitHub/npm Bundle 入口
 - [x] dsh-TUI profile 在无 Desktop `connection` 服务时默认启动 Host，并通过原生 `/remote` 的 `login [github|zhihu]`、`status`、`logout` 完成终端授权和状态管理；`ds-harness-remote` 保留为启动前 CLI
 - [x] Host ApiProxy allowlist bridge、mux/host stream 与后台 Local/Remote ApiProxy switch
-- [x] Harness alpha.1/alpha.2 Typert Remote unary/stream/event carrier、固定 endpoint allowlist、加密 capability 探测与 rc.2 激活兼容
-- [x] Android 与 VS Code Client 按 Host capability 在 rc.2 ApiProxy 和 alpha Typert Remote 之间选择数据面
+- [x] Harness v0.1.2 alpha.1–rc.1 Typert Remote unary/stream/event carrier、固定 endpoint allowlist、加密 capability 探测与 legacy ApiProxy 激活兼容
+- [x] Android 与 VS Code Client 按 Host capability 在 rc.2 ApiProxy 和 v0.1.2 Typert Remote 之间选择数据面
 - [x] Remote 模态框、主机自过滤、OS/Harness/Plugin 版本展示、远端 Workspace 与目录选择
 - [x] Remote Header、LAN/P2P/TURN/Relay 链路、端到端加密状态与退出入口
 - [x] 配合 dsh-file-viewer 的远端只读文件 stat/list/分块预览桥与 Client provider
@@ -36,6 +36,7 @@ transport 状态机；普通 UI、文案和辅助脚本不单独补测试。
 - [x] 在真实 dsh-desktop 中验证 GitHub 安装、重启、Host/Client 配置和 Bundle 入口
 - [x] 在真实 dsh-TUI alpha.2 profile 中验证 `/remote` 补全、GitHub/知乎扫码、上线与跨机 Session/Prompt/approval
 - [x] 分别用 `dsh-v0.1.1-rc.2`、`dsh-v0.1.2-alpha.1` 与 `dsh-v0.1.2-alpha.2` 跑通双机 Workspace/Session/Prompt/approval E2E，并验证混合代际在 mutation 前拒绝
+- [ ] 用 `dsh-v0.1.2-rc.1` 补跑 Desktop/dsh-TUI 跨机 Workspace/Session/Prompt/approval E2E 与长期稳定性回归
 - [x] 用两台真实 Harness + 外部 Server 跑通同账号授权、选择 Remote、创建/继续会话
 - [x] 验证原生 mux/host stream、approval/question respond 与断线关闭行为
 - [x] 用手机 Web 与电脑 Web 同时连接一个真实 Host，验证并发操作、同设备重连和流隔离
@@ -59,7 +60,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 - [x] Android 按动态 capability 直接接入 `codex.app.*`，将 `project/list`/Thread/分页 History/live frame 合并到现有 Workspace/Session/Chat
 - [x] Android 接入 CodeX 模型与 reasoning、固定权限预设、系统图片选择器 Prompt、interrupt 和单次命令/文件审批
 - [x] 在 Remote 工作区选择器中增加 CodeX 虚拟工作区入口，不增加本地入口或独立页面
-- [x] 增加 rc.2 ApiProxy / alpha Typert 内存虚拟载体，将 CodeX History/live 映射为原生 Session 事件
+- [x] 增加 rc.2 ApiProxy / v0.1.2 Typert 内存虚拟载体，将 CodeX History/live 映射为原生 Session 事件
 - [x] 将 reasoning/plan delta、command/file/MCP progress、Thread status、model reroute 与 Web Search/Subagent/Image/Compaction/Review Mode Item 投影到原生 chunk、状态、projection 和工具卡片
 - [x] 将新建空 Thread 稳定挂载到当前 CodeX Workspace，并增加 Host 端消息边界 History 分页与 Client 端 Session 元数据搜索
 - [x] 复用 DSH 原生 Workspace/Session 列表、Conversation Renderer、Composer、工具与审批 UI
@@ -109,7 +110,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 ## VS Code Client
 
 `apps/vscode` 已实现 Extension 基础入口、SecretStorage 连接身份/凭证、账号密码与扫码登录、同账号
-Host 列表与 identity fingerprint 固定、Adaptive transport + Noise、rc.2 ApiProxy / alpha Typert Remote
+Host 列表与 identity fingerprint 固定、Adaptive transport + Noise、rc.2 ApiProxy / v0.1.2 Typert Remote
 capability 探测，以及 Host → Workspace → Session 层级导航、Prompt、permission command、approval 响应和编辑区会话面板。该能力仍是开发者预览，剩余工作：
 
 - [ ] 在真实 VS Code Extension Host、外部 Server 与跨机 Harness Host 上完成 E2E
@@ -129,7 +130,7 @@ capability 探测，以及 Host → Workspace → Session 层级导航、Prompt�
 
 ## Android Client（主链路已完成）
 
-`apps/android` 已迁移到当前 rc.2 ApiProxy / alpha Typert Remote 双数据面，并接入可选 CodeX Remote：账号登录注册、成员设备列表与 identity key
+`apps/android` 已迁移到当前 rc.2 ApiProxy / v0.1.2 Typert Remote 双数据面，并接入可选 CodeX Remote：账号登录注册、成员设备列表与 identity key
 固定、Adaptive transport + Noise secure channel、`harness.api.*` 或 `harness.remote.*`
 tunnel 与 mux/Gateway frame 聊天。功能已对标 Web 端 Remote 控制台：新建/继续/归档会话、历史分页、
 模型目录与切换、相册图片 Prompt（Host limits 预检 + transfer 分块）、Workspace 管理（创建+只读目录浏览/重命名/删除/排序）、连接详情面板与

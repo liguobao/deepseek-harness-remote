@@ -166,7 +166,7 @@ describe('RemoteConnection close state', () => {
     })
   })
 
-  it('uses the alpha Typert Remote command payload when changing approval mode', async () => {
+  it('uses the v0.1.2 Typert Remote command payload when changing approval mode', async () => {
     testState.capabilities = ['harness.remote.v1', 'harness.remote.transfer.v1']
     const connection = new RemoteConnection()
     await connection.connect('https://server.example.com', identity, host, 'access-token', true)

@@ -49,7 +49,7 @@ CodeX 必须继续位于同一个 Remote Plugin 中，并作为 `packages/plugin
 ```text
 DSH 原生 Workspace / Session / Conversation / Composer
                          |
-                         | rc.2 ApiProxy 或 alpha Typert target
+                         | rc.2 ApiProxy 或 v0.1.2 Typert target
                          v
              CodeX Virtual Harness（仅内存）
                          |
@@ -103,7 +103,7 @@ Host 只通过 stdio 启动 `codex app-server`。实现以当前官方 schema �
 DSH 0.1.x 存在两个兼容面，Plugin 必须复用现有 switch：
 
 1. rc.2：向 `ApiProxySwitch` 提供虚拟 `ApiProxy`；
-2. alpha.1/alpha.2：向 `TypertGatewaySwitch` 提供虚拟 carrier target。
+2. v0.1.2 alpha.1–rc.1：向 `TypertGatewaySwitch` 提供虚拟 carrier target。
 
 禁止修改 DSH 主仓库注册 Session Provider，也不要新增另一套线协议。虚拟 target 只实现原生 UI
 实际需要的白名单 endpoint；未知 endpoint 必须返回稳定的 `method-not-found`，不允许回落到 Host
@@ -185,7 +185,7 @@ packages/plugin/src/client.ts                 # 仅 Remote 工作区选择入口
 
 核心测试至少覆盖 Workspace 分组与稳定 ID、History 事件顺序与 seq、live delta/completion、Composer
 到 `thread/resume + turn/start/steer`、interrupt/rename/fork/archive/approval、未知 endpoint fail closed、
-close/abort/断线，以及 rc.2/alpha 原生 schema 兼容。
+close/abort/断线，以及 ApiProxy/Typert 原生 schema 兼容。
 
 完成前运行：
 

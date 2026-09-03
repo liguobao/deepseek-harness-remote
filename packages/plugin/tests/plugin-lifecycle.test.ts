@@ -117,7 +117,7 @@ describe('Cordis plugin lifecycle', () => {
     await ctx.fiber.dispose()
   })
 
-  it('loads a TUI Host against the alpha Remote Gateway without a Desktop connection service', async () => {
+  it('loads a TUI Host against the v0.1.2 Typert Remote Gateway without a Desktop connection service', async () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-remote-alpha-cordis-'))
     directories.push(dshHome)
     vi.stubEnv('DSH_HOME', dshHome)

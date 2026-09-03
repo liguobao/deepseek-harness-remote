@@ -6,7 +6,7 @@
 ## 1. 产品定位
 
 Remote Plugin 同时承担 Host 和 Desktop Client 两个角色。Host 把官方 Harness
-rc.2 `ApiProxy` 或 alpha.1/alpha.2 Typert Remote Gateway 的安全子集接入端到端加密通道；Remote
+rc.2 `ApiProxy` 或 v0.1.2 alpha.1–rc.1 Typert Remote Gateway 的安全子集接入端到端加密通道；Remote
 runtime 让官方 Harness UI 使用同账号 Host 上的工作区。产品不呈现 Client 模式开关。
 
 Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新实现 Harness 会话协议。
@@ -26,9 +26,9 @@ Plugin 是受控数据网关，不是独立 Agent、远程 Shell，也不重新�
 - 按 Server origin 与 Host/Client 角色隔离身份和 credential。
 - 同账号 membership、双端 pinned peer 与设备撤销。
 - Host 主动建立 WSS，Relay 上运行 Noise IK。
-- rc.2 ApiProxy 与 alpha Typert Remote endpoint 固定 allowlist、unary、stream 和 approval/question response。
+- rc.2 ApiProxy 与 v0.1.2 Typert Remote endpoint 固定 allowlist、unary、stream 和 approval/question response。
 - 后台 Local/Remote ApiProxy 或 Gateway switch 和断线回落，不暴露模式开关。
-- 加密 capability 探测、legacy Host 降级与 rc.2/alpha 混连 fail-closed。
+- 加密 capability 探测、legacy Host 降级与 ApiProxy/Typert 混连 fail-closed。
 - Settings 插件卡片、Remote 模态框、远程状态 Header 和脱敏诊断。
 - 主机列表过滤本机，并显示 OS、Harness 版本、Plugin 版本与在线状态。
 - 已有 Workspace 选择与只读远端目录浏览。

@@ -372,7 +372,7 @@ Client 发起 `connect.request` 且 Host 在线时，Host WebSocket 收到：
 
 `clientIdentityKey` 是本次端到端安全握手的远端静态公钥。插件必须把它绑定到该 `connectionId`，握手期间或连接建立后都不得被替换。Client 同样通过 `GET /api/v1/devices/{hostDeviceId}` 获取并固定 Host 的 `identityKey`。Server 只路由密文，不能替代端到端密钥校验。
 
-Host 必须按 `connectionId` 同时维护来自不同 `clientDeviceId` 的安全通道和对应 Harness bridge（rc.2 ApiProxy 或 alpha Typert Remote）；
+Host 必须按 `connectionId` 同时维护来自不同 `clientDeviceId` 的安全通道和对应 Harness bridge（rc.2 ApiProxy 或 v0.1.2 Typert Remote）；
 手机 Web 与电脑 Web 等不同设备可以同时在线。每个连接独立计算 pending RPC 和 stream 上限，
 其 stream frame 只返回原连接。同一 `clientDeviceId` 重连时只替换该设备的旧连接，不影响其他
 Client。

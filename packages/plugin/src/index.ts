@@ -36,8 +36,8 @@ export const name = 'ds-harness-remote'
 export { Config }
 
 const legacyLoaderModuleNames = new Set(['dsh-remote', '@dsh-remote/plugin'])
-// rc.2 requires the branded SettingsNamespace type, while alpha.2 accepts and
-// validates the literal directly after removing the settingsNamespace helper.
+// rc.2 requires the branded SettingsNamespace type, while v0.1.2-alpha.2+
+// accepts and validates the literal directly after removing the helper.
 const pluginSettingsNamespace = 'ds-harness-remote' as SettingsNamespace
 const legacySettingsNamespace = 'dsh-remote' as SettingsNamespace
 

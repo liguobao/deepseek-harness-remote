@@ -38,7 +38,7 @@ Return to the same Harness session from whichever device is with you. Harness ke
 ## Features
 
 - Continue active sessions and review their latest progress from another device
-- Send new instructions, change direction, and use image prompts with Harness `dsh-v0.1.1-rc.2` or `dsh-v0.1.2-alpha.1`–`alpha.2`
+- Send new instructions, change direction, and use image prompts with Harness `dsh-v0.1.1-rc.2` or `dsh-v0.1.2-alpha.1`–`rc.1`
 - Answer questions and permission requests from clients with live conversation controls
 - Open workspaces from another authorized computer on the same account
 - Reuse the native Harness interface instead of maintaining a separate desktop conversation UI
@@ -91,7 +91,7 @@ code. Login defaults to Zhihu; GitHub is also supported. Host control is enabled
 `/remote logout` revokes the Host and rotates its local device identity. Host configuration is not
 exposed yet; the integration uses `https://dsh.r2049.cn`. Tab completion is available for the
 subcommands and login providers. The `/remote` Host-management surface supports TUI profiles on
-`dsh-v0.1.1-rc.2` and `dsh-v0.1.2-alpha.1`–`alpha.2`; Remote workspace capabilities are advertised
+`dsh-v0.1.1-rc.2` and `dsh-v0.1.2-alpha.1`–`rc.1`; Remote workspace capabilities are advertised
 only when their official Harness carrier is available.
 
 See the [dsh-TUI Remote guide](docs/dsh-tui.md) for the compatibility matrix, rc.2 ApiProxy setup,
@@ -206,17 +206,17 @@ validation status.
 **Breaking change notice:** Plugin `0.4.1` removes the earlier experimental
 Remote business RPC surface (`sessions.*`, `session.*`, `permissions.respond`,
 `sync.from`). Harness session traffic now only uses the official rc.2
-`ApiProxy` or the alpha Typert Remote Gateway, and this plugin does not provide
+`ApiProxy` or the v0.1.2 Typert Remote Gateway, and this plugin does not provide
 an adapter or wire-format translation for the old RPC surface.
 
 Plugin `0.4.6` supports DeepSeek Harness `dsh-v0.1.1-rc.2` through the legacy
-official `ApiProxy`, and `dsh-v0.1.2-alpha.1`–`alpha.2` through the
+official `ApiProxy`, and `dsh-v0.1.2-alpha.1`–`rc.1` through the
 official Typert Remote Gateway. A `0.4.6` Client running rc.2 remains compatible
 with older rc.2 Hosts through the legacy capability fallback.
 
 Both Desktop endpoints must use the same Harness transport generation. Plugin
-`0.4.x` does not translate rc.2 and alpha business models: an alpha Client
-cannot open an rc.2 Host, and an rc.2 Client cannot open an alpha Host. Mixed
+`0.4.x` does not translate legacy ApiProxy and v0.1.2 Typert business models: a
+Typert Client cannot open an ApiProxy Host, and an ApiProxy Client cannot open a Typert Host. Mixed
 connections are rejected before switching the native UI or mutating a Workspace.
 
 ## Documentation

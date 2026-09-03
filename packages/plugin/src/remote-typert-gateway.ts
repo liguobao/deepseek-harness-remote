@@ -234,9 +234,9 @@ function parseRpcResult(value: unknown): TypertRpcResult {
 }
 
 function remoteFailure(failure: { code: string; message: string; details: Record<string, unknown> }): Error {
-  // alpha.2 identifies RemoteError values structurally across bundles and
+  // v0.1.2-alpha.2+ identifies RemoteError values structurally across bundles and
   // realms. Keep this carrier dependency-free so the same build still runs on
-  // older Harness releases, while preserving alpha.2 stream failures at the local mux.
+  // older Harness releases, while preserving current stream failures at the local mux.
   return Object.assign(new Error(failure.message), {
     isDSHRemoteError: true as const,
     code: failure.code,

@@ -75,7 +75,7 @@ const MAX_ACTIVE_TRANSFERS = 2
 const TRANSFER_IDLE_MS = 2 * 60_000
 const INLINE_TRANSFER_RESPONSE_BYTES = 2 * 1024 * 1024
 
-/** Fixed alpha Remote subset exposed to authenticated peers. */
+/** Fixed v0.1.2 Typert Remote subset exposed to authenticated peers. */
 export const HARNESS_REMOTE_ALLOWLIST = [
   '$events',
   '$events/result',

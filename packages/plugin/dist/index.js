@@ -18896,7 +18896,7 @@ var ClientModeRuntime = class {
     if (localRemoteGateway && remote.features.remoteGateway || !localRemoteGateway && this.proxySwitch !== void 0 && remote.features.apiProxy) return;
     throw new ClientModeError(
       "HARNESS_VERSION_INCOMPATIBLE",
-      localRemoteGateway ? "The selected Host does not provide the Harness alpha Remote Gateway transport." : "The selected Host does not provide the legacy Harness ApiProxy transport."
+      localRemoteGateway ? "The selected Host does not provide the Harness v0.1.2 Typert Remote Gateway transport." : "The selected Host does not provide the legacy Harness ApiProxy transport."
     );
   }
   async connect(targetDeviceId, signal) {

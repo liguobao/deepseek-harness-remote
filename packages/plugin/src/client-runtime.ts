@@ -666,7 +666,7 @@ export class ClientModeRuntime {
     throw new ClientModeError(
       'HARNESS_VERSION_INCOMPATIBLE',
       localRemoteGateway
-        ? 'The selected Host does not provide the Harness alpha Remote Gateway transport.'
+        ? 'The selected Host does not provide the Harness v0.1.2 Typert Remote Gateway transport.'
         : 'The selected Host does not provide the legacy Harness ApiProxy transport.',
     )
   }

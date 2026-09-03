@@ -5,7 +5,7 @@
 
 ## 1. 受控业务接入面
 
-Harness rc.2 会话业务只使用官方 `@deepseek-ai/dsh-host-apiproxy/api`；alpha.1/alpha.2 会话业务只
+Harness rc.2 会话业务只使用官方 `@deepseek-ai/dsh-host-apiproxy/api`；v0.1.2 alpha.1–rc.1 会话业务只
 使用官方 `TypertGateway` Remote carrier；可选文件预览只使用
 `dsh-file-viewer` 暴露的 `fileViewerHost` 只读服务。Plugin 不读取或解释
 `SessionStore`、`AgentRegistry`、Workspace 或 Approval 内部对象，也不把 Harness
@@ -39,7 +39,7 @@ packages/plugin/src/
   connection-controller.ts    单一认证 peer 与业务通道
   rpc-router.ts               仅接受 capability 对应的 Harness tunnel RPC
   harness-api-bridge.ts       Host ApiProxy allowlist 与原生流
-  harness-remote-bridge.ts    Host alpha Typert Remote allowlist 与 stream
+  harness-remote-bridge.ts    Host v0.1.2 Typert Remote allowlist 与 stream
   file-viewer-bridge.ts       File Viewer 只读方法白名单与传输限制
   remote-file-content-provider.ts Client 侧远端内容 provider
   remote-directory-browser.ts native picker 场景的只读目录元数据兜底
@@ -206,4 +206,4 @@ alpha 的 eventId/clientId 关联由官方 Gateway 验证。状态按 `connectio
 - File Viewer 只允许 stat/list/受限 range read，超限和未安装依赖 fail closed。
 - Host/Client account token 与 device token 隔离，主机匹配码单次消费，refresh single-flight。
 
-Android 和 VS Code Client 使用相同 rc.2 ApiProxy / alpha Typert Remote capability 探测；其 UI 和生命周期独立，不构成 Desktop Plugin 的组件兼容要求。
+Android 和 VS Code Client 使用相同 rc.2 ApiProxy / v0.1.2 Typert Remote capability 探测；其 UI 和生命周期独立，不构成 Desktop Plugin 的组件兼容要求。

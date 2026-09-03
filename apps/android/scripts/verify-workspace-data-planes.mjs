@@ -37,7 +37,7 @@ for (const marker of ['CodexRemoteClient', 'codex.app.call', 'codex.app.stream.o
   }
 }
 
-console.log(`Android workspace data planes verified: rc.2 ApiProxy + alpha Typert Remote + CodeX Remote (${appVersion})`)
+console.log(`Android workspace data planes verified: rc.2 ApiProxy + v0.1.2 Typert Remote + CodeX Remote (${appVersion})`)
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, 'utf8'))

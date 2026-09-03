@@ -3,11 +3,11 @@
 DeepSeek Remote client for VS Code. It connects to a DeepSeek Harness Host through
 the DS Harness Remote Server, using same-account device membership, a pinned Host
 identity key, Noise IK encryption, and the Host's allowlisted native `ApiProxy` bridge.
-For Harness `dsh-v0.1.2-alpha.1`–`alpha.2`, it uses the allowlisted Typert Remote Gateway carrier instead.
+For Harness `dsh-v0.1.2-alpha.1`–`rc.1`, it uses the allowlisted Typert Remote Gateway carrier instead.
 
 VS Code 版 DeepSeek 远程连接客户端。通过 DS Harness Remote Server 安全连接远端
 DeepSeek Harness Host，并使用同账号设备授权、Host 身份固定、Noise IK 加密和原生
-`ApiProxy` 白名单桥接。连接 Harness `dsh-v0.1.2-alpha.1`–`alpha.2` Host 时会改用 Typert Remote
+`ApiProxy` 白名单桥接。连接 Harness `dsh-v0.1.2-alpha.1`–`rc.1` Host 时会改用 Typert Remote
 Gateway carrier。
 
 ## Features
