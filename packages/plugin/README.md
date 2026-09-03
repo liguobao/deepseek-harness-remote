@@ -135,7 +135,7 @@ use the native `/remote` slash command:
 `connection` 服务。安装插件并启动 `dsh-tui` 后，使用原生 `/remote` Slash Command：
 
 ```sh
-dsh plugin --profile dsh-tui add ds-harness-remote@0.4.3
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.4
 ```
 
 ```text
@@ -198,7 +198,7 @@ Add the package to the `web` profile through DSH's plugin manager:
 通过 DSH 插件管理命令将包加入 `web` profile：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.3
+dsh plugin --profile web add ds-harness-remote@0.4.4
 ```
 
 Do not run npm directly; it does not configure the DSH profile.
@@ -210,11 +210,11 @@ Alternatively, install the pinned GitHub release in DSH Desktop or with the CLI:
 也可以在 DSH Desktop 中安装固定版本的 GitHub Release，或使用命令行安装：
 
 ```text
-github:liguobao/ds-harness-remote#v0.4.3
+github:liguobao/ds-harness-remote#v0.4.4
 ```
 
 ```sh
-dsh plugin --profile web add "github:liguobao/ds-harness-remote#v0.4.3"
+dsh plugin --profile web add "github:liguobao/ds-harness-remote#v0.4.4"
 ```
 
 GitHub / 项目地址：<https://github.com/liguobao/ds-harness-remote>

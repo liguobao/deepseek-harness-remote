@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.4
+
+- Fixes Codex permission inheritance so existing Threads can keep the App Server's
+  persisted approval and sandbox settings, while explicit Android or Desktop
+  permission changes still update the remote Thread before the next turn.
+- Restores Android reopen and reconnect handling for active Codex turns by
+  preserving `activeTurnId` in paged history and allowing the same trusted phone
+  to interrupt a recovered in-flight turn after the connection is replaced.
+- Hardens Codex Workspace authority by preferring `project/list`, falling back to
+  exact `thread/list.cwd` roots only when needed, and validating descendant
+  Workspaces with lexical and `realpath` containment.
+- Adds the native dsh-TUI `/remote` flow, including default Host startup when no
+  browser connection exists, CLI entrypoints, Tab completion, and refreshed user
+  docs for GitHub installation.
+- Advances the Plugin and Android app to `0.4.4` (`versionCode 24`).
+
 ## 0.4.3
 
 - Adds the default-on Codex Remote domain with a settings toggle to the existing encrypted Plugin channel,
