@@ -8,6 +8,7 @@ import {
 import { strings } from '../locales/i18n'
 import type {
   ChatItem,
+  CodexPermissionPreset,
   HistoryEntry,
   ModelCatalogModel,
   ModelReasoningEffort,
@@ -21,7 +22,7 @@ import type {
 const PAGE_LIMIT = 100
 const MAX_PAGES = 32
 const CODEX_PROVIDER = 'codex'
-const CODEX_PERMISSION_DEFAULT = 'workspace-write'
+const CODEX_PERMISSION_DEFAULT: CodexPermissionPreset = 'workspace-write'
 const CODEX_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
 
 interface CodexProject {
@@ -118,7 +119,12 @@ export async function readCodexHistoryPage(
       ...(isRecord(entry.view) ? { view: entry.view as HistoryEntry['view'] } : {}),
     } satisfies HistoryEntry]
   })
-  return { events, hasMore: page.hasMore }
+  const activeTurnId = string(page.activeTurnId)
+  return {
+    events,
+    hasMore: page.hasMore,
+    ...(activeTurnId === undefined ? {} : { activeTurnId }),
+  }
 }
 
 export async function loadCodexModels(client: CodexRemoteClient): Promise<SessionModels> {
@@ -238,9 +244,22 @@ export function withCodexPermission(session: RemoteSession, preset: string): Rem
   }
 }
 
-export function codexPermissionPreset(session: RemoteSession): 'workspace-write' | 'danger-full-access' {
+export function codexPermissionPreset(session: RemoteSession): CodexPermissionPreset {
   const permissions = record(session.projections?.values?.permissions)
   return permissions.currentValue === 'danger-full-access' ? 'danger-full-access' : 'workspace-write'
+}
+
+export function codexPermissionPresetFromResponse(value: unknown): CodexPermissionPreset | undefined {
+  const root = record(value)
+  return codexPermissionPresetFromPolicyRecord(root)
+    ?? codexPermissionPresetFromPolicyRecord(record(root.threadSettings))
+}
+
+function codexPermissionPresetFromPolicyRecord(value: Record<string, unknown>): CodexPermissionPreset | undefined {
+  const sandbox = value.sandbox ?? value.sandboxPolicy
+  if (value.approvalPolicy === 'never' && isDangerFullAccessSandbox(sandbox)) return 'danger-full-access'
+  if (value.approvalPolicy === 'on-request' && isWorkspaceWriteSandbox(sandbox)) return 'workspace-write'
+  return undefined
 }
 
 export function codexThreadId(session: RemoteSession): string {
@@ -476,8 +495,16 @@ function reasoningEffortName(effort: string): string {
   return names[effort] ?? effort
 }
 
-function isCodexPermissionPreset(value: string): value is 'workspace-write' | 'danger-full-access' {
+export function isCodexPermissionPreset(value: string): value is CodexPermissionPreset {
   return value === 'workspace-write' || value === 'danger-full-access'
+}
+
+function isDangerFullAccessSandbox(value: unknown): boolean {
+  return value === 'danger-full-access' || record(value).type === 'dangerFullAccess'
+}
+
+function isWorkspaceWriteSandbox(value: unknown): boolean {
+  return value === 'workspace-write' || record(value).type === 'workspaceWrite'
 }
 
 function isProjectListUnavailable(error: unknown): boolean {

@@ -618,14 +618,12 @@ describe('CodexVirtualHarness', () => {
     expect(client.request).toHaveBeenCalledWith('thread/resume', {
       threadId: 'thr_1',
       model: 'gpt-5.6-terra',
-      permissionPreset: 'workspace-write',
     }, expect.any(AbortSignal))
     expect(client.request).toHaveBeenCalledWith('turn/start', {
       threadId: 'thr_1',
       input: [{ type: 'text', text: 'Continue here' }],
       model: 'gpt-5.6-terra',
       effort: 'high',
-      permissionPreset: 'workspace-write',
     }, expect.any(AbortSignal))
     await target.close()
   })
@@ -654,6 +652,75 @@ describe('CodexVirtualHarness', () => {
         { type: 'image', mediaType: 'image/png', data: 'aW1hZ2U=' },
       ],
     }), expect.any(AbortSignal))
+    await target.close()
+  })
+
+  it('uses the effective App Server permission returned by resume', async () => {
+    const client = fakeCodex([codexThread('thr_full', '/workspace/repo', 'Full access thread')])
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+    const result = await target.dispatch('session/prompt', {
+      args: {
+        request: {
+          sessionId: 'codex:thr_full',
+          content: [{ type: 'text', text: 'Continue with the saved permission' }],
+        },
+      },
+    }, new AbortController().signal)
+
+    expect(result).toEqual({ ok: true, value: { accepted: true } })
+    expect(client.request).toHaveBeenCalledWith('thread/resume', {
+      threadId: 'thr_full',
+      model: 'gpt-5.6-sol',
+    }, expect.any(AbortSignal))
+    expect(client.request).toHaveBeenCalledWith('turn/start', expect.objectContaining({
+      threadId: 'thr_full',
+      permissionPreset: 'danger-full-access',
+    }), expect.any(AbortSignal))
+    await target.close()
+  })
+
+  it('keeps active CodeX history open and exposes the turn id for cancellation', async () => {
+    const history = projectCodexNativeHistory({
+      id: 'thr_active',
+      cwd: '/workspace/repo',
+      status: { type: 'active', activeFlags: [] },
+      turns: [{
+        id: 'turn_active',
+        status: 'inProgress',
+        items: [{ id: 'assistant_active', type: 'agentMessage', text: 'Working', status: 'inProgress' }],
+      }],
+    }, 'codex:thr_active')
+
+    expect(history.activeTurnId).toBe('turn_active')
+    expect(history.entries.map(entry => entry.event.type)).toEqual([
+      'turn/start',
+      'step/start',
+      'assistant/message',
+    ])
+    expect(paginateCodexNativeHistory(history, {}).activeTurnId).toBe('turn_active')
+  })
+
+  it('uses the active turn id restored from paginated history when cancelling', async () => {
+    const client = fakeCodex([{
+      id: 'thr_active',
+      cwd: '/workspace/repo',
+      name: 'Active',
+      status: { type: 'active', activeFlags: [] },
+      turns: [{ id: 'turn_active', status: 'inProgress', items: [] }],
+    }])
+    const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+
+    await target.dispatch('session/history', {
+      args: { request: { sessionId: 'codex:thr_active' } },
+    }, new AbortController().signal)
+    await expect(target.dispatch('session/cancel', {
+      args: { request: { sessionId: 'codex:thr_active' } },
+    }, new AbortController().signal)).resolves.toEqual({ ok: true, value: { accepted: true } })
+
+    expect(client.request).toHaveBeenCalledWith('turn/interrupt', {
+      threadId: 'thr_active',
+      turnId: 'turn_active',
+    }, expect.any(AbortSignal))
     await target.close()
   })
 
@@ -1099,7 +1166,12 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = [], options: F
       threads.push(created)
       return { thread: created }
     }
-    if (method === 'thread/resume') return { thread: threads.find(item => item.id === params?.threadId) ?? thread }
+    if (method === 'thread/resume') {
+      const resumed = threads.find(item => item.id === params?.threadId) ?? thread
+      return params?.threadId === 'thr_full'
+        ? { thread: resumed, approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } }
+        : { thread: resumed }
+    }
     if (method === 'turn/start') return { turn: { id: 'turn_2', status: 'inProgress', items: [] } }
     return {}
   })

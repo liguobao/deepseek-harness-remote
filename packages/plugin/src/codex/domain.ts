@@ -38,6 +38,12 @@ interface PendingApproval {
   expiresAt: number
 }
 
+interface ActiveTurnOwner {
+  connectionId: string
+  peerDeviceId: string
+  turnId?: string
+}
+
 interface CodexWorkspaceAuthority {
   projectIds: Set<string>
   roots: string[]
@@ -55,7 +61,8 @@ export class CodexRemoteDomain {
   private unsubscribeInbound?: () => void
   private unsubscribeUnavailable?: () => void
   private readonly peers = new Map<string, CodexPeerBridge>()
-  private readonly turnOwners = new Map<string, string>()
+  private readonly peerDeviceIds = new Map<string, string>()
+  private readonly turnOwners = new Map<string, ActiveTurnOwner>()
   private readonly approvals = new Map<string, PendingApproval>()
   private approvalExpiryTimer?: ReturnType<typeof setTimeout>
   private restartTimer?: ReturnType<typeof setTimeout>
@@ -109,6 +116,7 @@ export class CodexRemoteDomain {
     if (!this.config.enabled) return undefined
     const bridge = new CodexPeerBridge(this, context, publish, this.logger)
     this.peers.set(context.connectionId, bridge)
+    this.peerDeviceIds.set(context.connectionId, context.peerDeviceId)
     return bridge
   }
 
@@ -134,12 +142,11 @@ export class CodexRemoteDomain {
     }
     if (call.method === 'thread/start') {
       const cwd = await this.requireCodexWorkspacePath(call.params.cwd as string)
-      const permission = codexPermission(call.params)
+      const permission = codexPermission(call.params, 'workspace-write')
       const result = await this.callUpstream(call.method, {
         ...permission.params,
         cwd,
-        approvalPolicy: permission.approvalPolicy,
-        sandbox: permission.sandbox,
+        ...codexThreadPermissionParams(permission),
         serviceName: 'deepseek_harness_remote',
       })
       if (extractThread(result)?.id === undefined) {
@@ -152,7 +159,7 @@ export class CodexRemoteDomain {
 
     if (call.method === 'dsh/sessionHistory') {
       const thread = await this.readThreadForHistory(connectionId, threadId!)
-      return paginateCodexNativeHistory(
+      const page = paginateCodexNativeHistory(
         projectCodexNativeHistory(thread, `codex:${threadId}`),
         {
           beforeSeq: optionalInteger(call.params.beforeSeq),
@@ -160,6 +167,10 @@ export class CodexRemoteDomain {
           maxMessages: optionalInteger(call.params.maxMessages),
         },
       )
+      const activeTurnId = typeof page.activeTurnId === 'string'
+        ? page.activeTurnId
+        : this.turnOwners.get(threadId!)?.turnId
+      return activeTurnId === undefined ? page : { ...page, activeTurnId }
     }
 
     const allowedThread = threadId === undefined ? undefined : await this.readKnownThread(threadId)
@@ -177,8 +188,16 @@ export class CodexRemoteDomain {
     }
 
     let claimed = false
+    let previousOwner: ActiveTurnOwner | undefined
     if (isThreadMutation(call.method) && threadId !== undefined) {
-      claimed = this.claimTurn(threadId, connectionId, call.method)
+      const claim = this.claimTurn(
+        threadId,
+        connectionId,
+        call.method,
+        typeof call.params.turnId === 'string' ? call.params.turnId : undefined,
+      )
+      claimed = claim.claimed
+      previousOwner = claim.previous
     }
     try {
       const permission = codexPermission(call.params)
@@ -186,31 +205,20 @@ export class CodexRemoteDomain {
         ? {
             ...permission.params,
             ...(allowedThread.cwd === undefined ? {} : { cwd: allowedThread.cwd }),
-            approvalPolicy: permission.approvalPolicy,
-            sandbox: permission.sandbox,
+            ...codexThreadPermissionParams(permission),
             excludeTurns: true,
           }
         : call.method === 'thread/fork' && allowedThread !== undefined
           ? {
               ...permission.params,
               ...(allowedThread.cwd === undefined ? {} : { cwd: allowedThread.cwd }),
-              approvalPolicy: permission.approvalPolicy,
-              sandbox: permission.sandbox,
+              ...codexThreadPermissionParams(permission),
             }
         : call.method === 'turn/start'
           ? {
               ...permission.params,
               ...(allowedThread?.cwd === undefined ? {} : { cwd: allowedThread.cwd }),
-              approvalPolicy: permission.approvalPolicy,
-              sandboxPolicy: permission.sandbox === 'danger-full-access'
-                ? { type: 'dangerFullAccess' }
-                : {
-                    type: 'workspaceWrite',
-                    writableRoots: allowedThread?.cwd === undefined ? [] : [allowedThread.cwd],
-                    networkAccess: false,
-                    excludeTmpdirEnvVar: false,
-                    excludeSlashTmp: false,
-                  },
+              ...codexTurnPermissionParams(permission, allowedThread?.cwd),
             }
           : permission.params
       let result: unknown
@@ -223,7 +231,8 @@ export class CodexRemoteDomain {
         if (call.method === 'thread/resume'
           && allowedThread !== undefined
           && error instanceof RpcError
-          && error.code === 'CODEX_UPSTREAM_ERROR') {
+          && error.code === 'CODEX_UPSTREAM_ERROR'
+          && call.params.permissionPreset === undefined) {
           return { thread: allowedThread.thread }
         }
         throw error
@@ -231,9 +240,15 @@ export class CodexRemoteDomain {
       if (call.method === 'thread/resume' || call.method === 'thread/fork' || call.method === 'thread/unarchive') {
         await this.assertResultThreadAllowed(result)
       }
+      if (call.method === 'turn/start' && threadId !== undefined) {
+        this.rememberTurnId(threadId, connectionId, extractTurnId(result))
+      }
       return result
     } catch (error) {
-      if (claimed && threadId !== undefined) this.turnOwners.delete(threadId)
+      if (claimed && threadId !== undefined) {
+        if (previousOwner === undefined) this.turnOwners.delete(threadId)
+        else this.turnOwners.set(threadId, previousOwner)
+      }
       throw mapAppServerError(error)
     }
   }
@@ -254,8 +269,9 @@ export class CodexRemoteDomain {
   async detachPeer(connectionId: string): Promise<void> {
     const bridge = this.peers.get(connectionId)
     if (bridge !== undefined) this.peers.delete(connectionId)
+    this.peerDeviceIds.delete(connectionId)
     for (const [threadId, owner] of this.turnOwners) {
-      if (owner === connectionId) this.turnOwners.delete(threadId)
+      if (owner.connectionId === connectionId) this.turnOwners.delete(threadId)
     }
     const appServer = this.appServer
     const pending = [...this.approvals.entries()].filter(([, approval]) => approval.connectionId === connectionId)
@@ -275,6 +291,7 @@ export class CodexRemoteDomain {
     this.restartTimer = undefined
     for (const bridge of [...this.peers.values()]) await bridge.closeAll()
     this.peers.clear()
+    this.peerDeviceIds.clear()
     this.turnOwners.clear()
     if (this.approvalExpiryTimer !== undefined) clearTimeout(this.approvalExpiryTimer)
     this.approvalExpiryTimer = undefined
@@ -401,6 +418,13 @@ export class CodexRemoteDomain {
     }
     const threadId = extractThreadId(message.params)
     if (message.method === 'turn/completed' && threadId !== undefined) this.turnOwners.delete(threadId)
+    if (message.method === 'turn/started' && threadId !== undefined) {
+      const owner = this.turnOwners.get(threadId)
+      const turnId = extractTurnId(message.params)
+      if (owner !== undefined) {
+        this.turnOwners.set(threadId, { ...owner, ...(turnId === undefined ? {} : { turnId }) })
+      }
+    }
     if (message.method === 'serverRequest/resolved') this.resolveUpstreamApproval(message.params)
     if (threadId === undefined) return
     await Promise.all([...this.peers.values()].map(peer => peer.publishInbound(threadId, {
@@ -419,7 +443,7 @@ export class CodexRemoteDomain {
     }
     const threadId = extractThreadId(message.params)
     const owner = threadId === undefined ? undefined : this.turnOwners.get(threadId)
-    const peer = owner === undefined ? undefined : this.peers.get(owner)
+    const peer = owner === undefined ? undefined : this.peers.get(owner.connectionId)
     if (threadId === undefined || owner === undefined || peer === undefined || !peer.hasThreadSubscription(threadId)) {
       await appServer.respond(message.id, { decision: 'decline' })
       return
@@ -427,7 +451,7 @@ export class CodexRemoteDomain {
     const requestHandle = randomUUID()
     this.approvals.set(requestHandle, {
       upstreamId: message.id,
-      connectionId: owner,
+      connectionId: owner.connectionId,
       threadId,
       method: message.method,
       expiresAt: Date.now() + APPROVAL_TTL_MS,
@@ -578,25 +602,46 @@ export class CodexRemoteDomain {
     }
   }
 
-  private claimTurn(threadId: string, connectionId: string, method: AllowedCodexAppMethod): boolean {
+  private claimTurn(
+    threadId: string,
+    connectionId: string,
+    method: AllowedCodexAppMethod,
+    turnId?: string,
+  ): { claimed: boolean; previous?: ActiveTurnOwner } {
     const owner = this.turnOwners.get(threadId)
+    const peerDeviceId = this.peerDeviceIds.get(connectionId) ?? connectionId
+    const nextOwner: ActiveTurnOwner = { connectionId, peerDeviceId, ...(turnId === undefined ? {} : { turnId }) }
     if (method === 'turn/interrupt') {
       if (owner === undefined) {
         // A replacement connection may recover an already-running persisted
         // turn. Claim only for this explicit mutation; passive viewers still
         // remain observers and cannot steal a live connection's lease.
-        this.turnOwners.set(threadId, connectionId)
-        return true
+        this.turnOwners.set(threadId, nextOwner)
+        return { claimed: true }
       }
-      if (owner !== connectionId) throw new RpcError('CODEX_TURN_OWNED', 'Only the connection that started this Codex turn can interrupt it.')
-      return false
+      if (owner.connectionId !== connectionId && owner.peerDeviceId !== peerDeviceId) {
+        throw new RpcError('CODEX_TURN_OWNED', 'Only the connection that started this Codex turn can interrupt it.')
+      }
+      if (owner.connectionId !== connectionId) {
+        this.turnOwners.set(threadId, { ...owner, connectionId, peerDeviceId, ...(turnId === undefined ? {} : { turnId }) })
+        return { claimed: true, previous: owner }
+      }
+      if (turnId !== undefined && owner.turnId === undefined) this.turnOwners.set(threadId, { ...owner, turnId })
+      return { claimed: false }
     }
-    if (owner !== undefined && owner !== connectionId) {
+    if (owner !== undefined && owner.connectionId !== connectionId && owner.peerDeviceId !== peerDeviceId) {
       throw new RpcError('CODEX_TURN_OWNED', 'Another Remote connection owns the active Codex turn.')
     }
-    if (owner === connectionId) return false
-    this.turnOwners.set(threadId, connectionId)
-    return true
+    if (owner?.connectionId === connectionId) return { claimed: false }
+    this.turnOwners.set(threadId, owner === undefined ? nextOwner : { ...owner, connectionId, peerDeviceId })
+    return { claimed: true, previous: owner }
+  }
+
+  private rememberTurnId(threadId: string, connectionId: string, turnId: string | undefined): void {
+    if (turnId === undefined) return
+    const owner = this.turnOwners.get(threadId)
+    if (owner === undefined || owner.connectionId !== connectionId) return
+    this.turnOwners.set(threadId, { ...owner, turnId })
   }
 
   private hasSubscriber(threadId: string): boolean {
@@ -906,6 +951,13 @@ function extractThread(result: unknown): Record<string, unknown> | undefined {
   return isRecord(result) && isRecord(result.thread) ? result.thread : undefined
 }
 
+function extractTurnId(result: unknown): string | undefined {
+  if (!isRecord(result)) return undefined
+  if (typeof result.turnId === 'string' && result.turnId.length > 0) return result.turnId
+  if (isRecord(result.turn) && typeof result.turn.id === 'string' && result.turn.id.length > 0) return result.turn.id
+  return undefined
+}
+
 function extractThreadId(params: unknown): string | undefined {
   if (!isRecord(params)) return undefined
   if (typeof params.threadId === 'string') return params.threadId
@@ -918,17 +970,52 @@ function optionalInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined
 }
 
-function codexPermission(params: Record<string, unknown>): {
+type CodexPermissionPreset = 'workspace-write' | 'danger-full-access'
+
+interface CodexPermissionMapping {
   params: Record<string, unknown>
-  approvalPolicy: 'on-request' | 'never'
-  sandbox: 'workspace-write' | 'danger-full-access'
-} {
+  approvalPolicy?: 'on-request' | 'never'
+  sandbox?: CodexPermissionPreset
+}
+
+function codexPermission(
+  params: Record<string, unknown>,
+  fallbackPreset?: CodexPermissionPreset,
+): CodexPermissionMapping {
   const { permissionPreset, ...rest } = params
-  const fullAccess = permissionPreset === 'danger-full-access'
+  const preset = permissionPreset === 'workspace-write' || permissionPreset === 'danger-full-access'
+    ? permissionPreset
+    : fallbackPreset
+  if (preset === undefined) return { params: mapCodexImageInputs(rest) }
+  const fullAccess = preset === 'danger-full-access'
   return {
     params: mapCodexImageInputs(rest),
     approvalPolicy: fullAccess ? 'never' : 'on-request',
     sandbox: fullAccess ? 'danger-full-access' : 'workspace-write',
+  }
+}
+
+function codexThreadPermissionParams(permission: CodexPermissionMapping): Record<string, unknown> {
+  if (permission.approvalPolicy === undefined || permission.sandbox === undefined) return {}
+  return {
+    approvalPolicy: permission.approvalPolicy,
+    sandbox: permission.sandbox,
+  }
+}
+
+function codexTurnPermissionParams(permission: CodexPermissionMapping, cwd: string | undefined): Record<string, unknown> {
+  if (permission.approvalPolicy === undefined || permission.sandbox === undefined) return {}
+  return {
+    approvalPolicy: permission.approvalPolicy,
+    sandboxPolicy: permission.sandbox === 'danger-full-access'
+      ? { type: 'dangerFullAccess' }
+      : {
+          type: 'workspaceWrite',
+          writableRoots: cwd === undefined ? [] : [cwd],
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
   }
 }
 

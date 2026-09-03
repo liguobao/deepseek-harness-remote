@@ -187,6 +187,33 @@ describe('CodexRemoteDomain', () => {
     await domain.close()
   })
 
+  it('inherits App Server permission defaults when no preset is provided', async () => {
+    const { root } = await directories()
+    const app = new FakeAppServer(root)
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
+    await domain.start()
+
+    await domain.call('connection-1', {
+      method: 'thread/resume',
+      params: { threadId: 'allowed-thread' },
+    })
+    await domain.call('connection-1', {
+      method: 'turn/start',
+      params: {
+        threadId: 'allowed-thread',
+        input: [{ type: 'text', text: 'Use the thread defaults' }],
+      },
+    })
+
+    const resume = app.calls.find(call => call.method === 'thread/resume')?.params as Record<string, unknown>
+    const turn = app.calls.find(call => call.method === 'turn/start')?.params as Record<string, unknown>
+    expect(resume.approvalPolicy).toBeUndefined()
+    expect(resume.sandbox).toBeUndefined()
+    expect(turn.approvalPolicy).toBeUndefined()
+    expect(turn.sandboxPolicy).toBeUndefined()
+    await domain.close()
+  })
+
   it('maps bounded remote image input to an App Server data URL', async () => {
     const { root } = await directories()
     const app = new FakeAppServer(root)
@@ -283,6 +310,20 @@ describe('CodexRemoteDomain', () => {
     await domain.close()
   })
 
+  it('does not hide App Server rejection for an explicit permission resume', async () => {
+    const { root, outside } = await directories()
+    const app = new FakeAppServer(root, outside)
+    app.rejectResume = true
+    const domain = new CodexRemoteDomain({ enabled: true, binary: '/custom/codex' }, logger(), () => app)
+    await domain.start()
+
+    await expect(domain.call('connection-1', {
+      method: 'thread/resume',
+      params: { threadId: 'allowed-thread', permissionPreset: 'danger-full-access' },
+    })).rejects.toMatchObject({ code: 'CODEX_UPSTREAM_ERROR' })
+    await domain.close()
+  })
+
   it('isolates streams and approval handles to the active turn owner', async () => {
     const { root, outside } = await directories()
     const app = new FakeAppServer(root, outside)
@@ -300,7 +341,10 @@ describe('CodexRemoteDomain', () => {
     )!
     await peerOne.openStream({ streamId: 'stream-1', threadId: 'allowed-thread' })
     await peerTwo.openStream({ streamId: 'stream-2', threadId: 'allowed-thread' })
-    await peerOne.call({ method: 'thread/fork', params: { threadId: 'allowed-thread' } })
+    await peerOne.call({
+      method: 'thread/fork',
+      params: { threadId: 'allowed-thread', permissionPreset: 'workspace-write' },
+    })
     expect(app.calls.find(call => call.method === 'thread/fork')?.params).toMatchObject({
       cwd: root,
       approvalPolicy: 'on-request',
@@ -308,7 +352,11 @@ describe('CodexRemoteDomain', () => {
     })
     await peerOne.call({
       method: 'turn/start',
-      params: { threadId: 'allowed-thread', input: [{ type: 'text', text: 'Run tests' }] },
+      params: {
+        threadId: 'allowed-thread',
+        input: [{ type: 'text', text: 'Run tests' }],
+        permissionPreset: 'workspace-write',
+      },
     })
     const enforcedTurn = app.calls.find(call => call.method === 'turn/start')?.params
     expect(enforcedTurn).toMatchObject({
@@ -362,6 +410,38 @@ describe('CodexRemoteDomain', () => {
       params: { threadId: 'allowed-thread', turnId: 'turn-1' },
     })).resolves.toEqual({})
     await peerTwo.closeAll()
+    await domain.close()
+  })
+
+  it('lets a replacement connection from the same peer stop its recovered active turn', async () => {
+    const { root } = await directories()
+    const app = new FakeAppServer(root)
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
+    await domain.start()
+    const peerOne = domain.createPeer(
+      { connectionId: 'connection-1', peerDeviceId: 'phone-1' },
+      async () => undefined,
+    )!
+    const peerReplacement = domain.createPeer(
+      { connectionId: 'connection-2', peerDeviceId: 'phone-1' },
+      async () => undefined,
+    )!
+
+    await peerOne.call({
+      method: 'turn/start',
+      params: { threadId: 'allowed-thread', input: [{ type: 'text', text: 'Run tests' }] },
+    })
+    await expect(peerOne.call({
+      method: 'dsh/sessionHistory',
+      params: { threadId: 'allowed-thread', maxMessages: 1 },
+    })).resolves.toMatchObject({ activeTurnId: 'turn-1' })
+    await expect(peerReplacement.call({
+      method: 'turn/interrupt',
+      params: { threadId: 'allowed-thread', turnId: 'turn-1' },
+    })).resolves.toEqual({})
+
+    await peerOne.closeAll()
+    await peerReplacement.closeAll()
     await domain.close()
   })
 

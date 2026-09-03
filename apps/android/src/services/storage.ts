@@ -5,7 +5,7 @@ import * as Device from 'expo-device'
 import * as SecureStore from 'expo-secure-store'
 import { isLanguagePreference, type LanguagePreference } from '../locales/i18n'
 import { isThemePreference, type ThemePreference } from '../ui/theme'
-import type { DeviceCredentials, DeviceIdentity, RemoteDevice, ServerConfig } from '../types'
+import type { CodexPermissionPreset, DeviceCredentials, DeviceIdentity, RemoteDevice, ServerConfig } from '../types'
 
 const KEYS = {
   config: 'dshremote.server.v1',
@@ -16,6 +16,7 @@ const KEYS = {
   languagePreference: 'dshremote.language-preference.v1',
   themePreference: 'dshremote.theme-preference.v1',
   collapsedWorkspaces: 'dshremote.collapsed-workspaces.v1',
+  codexPermissionPresets: 'dshremote.codex-permission-presets.v1',
 } as const
 
 const secureOptions: SecureStore.SecureStoreOptions = {
@@ -129,6 +130,37 @@ export function saveCollapsedWorkspaceIds(deviceId: string, workspaceIds: readon
   return collapsedWorkspacesWrite
 }
 
+export async function loadCodexPermissionPresets(hostDeviceId: string): Promise<Record<string, CodexPermissionPreset>> {
+  const stored = await readJson<{ byHost?: Record<string, unknown> }>(KEYS.codexPermissionPresets)
+  const byHost = isRecord(stored?.byHost) ? stored.byHost : {}
+  const raw = isRecord(byHost[hostDeviceId]) ? byHost[hostDeviceId] : {}
+  return Object.fromEntries(Object.entries(raw).flatMap(([threadId, value]) => {
+    const preset = codexPermissionPreset(value)
+    return preset === undefined ? [] : [[threadId, preset]]
+  }))
+}
+
+export async function saveCodexPermissionPreset(
+  hostDeviceId: string,
+  threadId: string,
+  preset: CodexPermissionPreset,
+): Promise<void> {
+  const stored = await readJson<{ byHost?: Record<string, unknown> }>(KEYS.codexPermissionPresets)
+  const byHost = isRecord(stored?.byHost) ? { ...stored.byHost } : {}
+  const current = await loadCodexPermissionPresets(hostDeviceId)
+  current[threadId] = preset
+  byHost[hostDeviceId] = current
+  await writeJson(KEYS.codexPermissionPresets, { byHost })
+}
+
+export async function clearCodexPermissionPresets(hostDeviceId: string): Promise<void> {
+  const stored = await readJson<{ byHost?: Record<string, unknown> }>(KEYS.codexPermissionPresets)
+  const byHost = isRecord(stored?.byHost) ? { ...stored.byHost } : {}
+  if (!(hostDeviceId in byHost)) return
+  delete byHost[hostDeviceId]
+  await writeJson(KEYS.codexPermissionPresets, { byHost })
+}
+
 export async function clearLocalData(): Promise<void> {
   await Promise.all(Object.values(KEYS).map(key => SecureStore.deleteItemAsync(key, secureOptions)))
 }
@@ -146,4 +178,12 @@ async function readJson<T>(key: string): Promise<T | undefined> {
 
 async function writeJson(key: string, value: unknown): Promise<void> {
   await SecureStore.setItemAsync(key, JSON.stringify(value), secureOptions)
+}
+
+function codexPermissionPreset(value: unknown): CodexPermissionPreset | undefined {
+  return value === 'workspace-write' || value === 'danger-full-access' ? value : undefined
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

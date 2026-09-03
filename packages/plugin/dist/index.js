@@ -14537,7 +14537,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         case "commands/list":
           return ok(this.commandList(args));
         case "commands/execute":
-          return ok(this.executeCommand(args));
+          return ok(await this.executeCommand(args, signal));
         default:
           return fail("method-not-found", `CodeX virtual Harness does not implement ${endpoint}.`);
       }
@@ -14611,6 +14611,10 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   permissionSelection(sessionId) {
     return this.selectedPermissions.get(sessionId) ?? CODEX_DEFAULT_PERMISSION;
   }
+  setPermissionSelection(sessionId, preset) {
+    this.selectedPermissions.set(sessionId, preset);
+    this.publishProjection(sessionId, "permissions", codexPermissionsProjection(preset), this.nextProjectionSeq());
+  }
   commandList(args) {
     nativeThreadId(requiredString(args.agentId, "agentId"));
     return [{
@@ -14619,9 +14623,9 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       input: { hint: "<preset>" }
     }];
   }
-  executeCommand(args) {
+  async executeCommand(args, signal) {
     const sessionId = requiredString(args.agentId, "agentId");
-    nativeThreadId(sessionId);
+    const threadId = nativeThreadId(sessionId);
     const line = requiredString(args.line, "command line").trim();
     if (!Array.isArray(args.images)) throw new Error("The CodeX command image list is required.");
     const match = /^\/permission(?:\s+([\s\S]*))?$/u.exec(line);
@@ -14640,9 +14644,10 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       commandId,
       result: { kind: "error", text: `unknown preset "${requested}" (available: workspace-write, danger-full-access)` }
     };
-    this.selectedPermissions.set(sessionId, requested);
-    this.publishProjection(sessionId, "permissions", codexPermissionsProjection(requested), this.nextProjectionSeq());
-    return { commandId, result: { kind: "success", text: `preset ${requested}` } };
+    const result = await this.client.request("thread/resume", { threadId, permissionPreset: requested }, signal);
+    const effective = codexPermissionPresetFromResponse(result) ?? requested;
+    this.setPermissionSelection(sessionId, effective);
+    return { commandId, result: { kind: "success", text: `preset ${effective}` } };
   }
   sessionTitle(sessionId) {
     const session = this.catalog?.sessions.find((item) => item.id === sessionId);
@@ -14786,7 +14791,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       queue,
       nextSeq: history.cursor + 1,
       turn: history.nextTurn,
-      stepOpen: false,
+      stepOpen: history.activeTurnId !== void 0,
       startedItems: /* @__PURE__ */ new Set(),
       completedItems: /* @__PURE__ */ new Set(),
       streamedBlocks: /* @__PURE__ */ new Map(),
@@ -14795,7 +14800,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       liveItems: /* @__PURE__ */ new Map(),
       liveToolOutput: /* @__PURE__ */ new Map(),
       liveToolResultSeq: /* @__PURE__ */ new Map(),
-      requestId: this.pendingRequestIds.get(sessionId)
+      requestId: this.pendingRequestIds.get(sessionId),
+      ...history.activeTurnId === void 0 ? {} : { activeTurnId: history.activeTurnId }
     };
     this.follows.add(follow);
     queue.push({
@@ -14842,6 +14848,11 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       this.updateThreadName(follow.threadId, name2);
       const title = name2.trim() === "" ? null : name2.slice(0, 256);
       this.publishProjection(follow.sessionId, "title", title, seq);
+      return;
+    }
+    if (frame.method === "thread/settings/updated") {
+      const preset = codexPermissionPresetFromResponse(params);
+      if (preset !== void 0) this.setPermissionSelection(follow.sessionId, preset);
       return;
     }
     if (frame.method === "turn/started") {
@@ -15226,12 +15237,13 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     if (cwd === void 0) return failure("workspace-not-found", "The CodeX virtual Workspace was not found.");
     const directory = await this.models(signal);
     const selection = directory.default;
-    const permissionPreset2 = CODEX_DEFAULT_PERMISSION;
+    const requestedPreset = CODEX_DEFAULT_PERMISSION;
     const result = record(await this.client.request("thread/start", {
       cwd,
       model: selection.model,
-      permissionPreset: permissionPreset2
+      permissionPreset: requestedPreset
     }, signal));
+    const permissionPreset2 = codexPermissionPresetFromResponse(result) ?? requestedPreset;
     const thread = { ...record(result.thread), cwd, turns: array(record(result.thread).turns) };
     const projected = projectCodexThread(thread);
     if (projected === void 0) return failure("internal", "CodeX returned an invalid Thread.");
@@ -15252,11 +15264,12 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   }
   async forkSession(request, signal) {
     const sessionId = requiredString(request.sessionId, "sessionId");
-    const permissionPreset2 = this.permissionSelection(sessionId);
+    let permissionPreset2 = this.selectedPermissions.get(sessionId);
     const result = record(await this.client.request("thread/fork", {
       threadId: nativeThreadId(sessionId),
-      permissionPreset: permissionPreset2
+      ...permissionPreset2 === void 0 ? {} : { permissionPreset: permissionPreset2 }
     }, signal));
+    permissionPreset2 = codexPermissionPresetFromResponse(result) ?? permissionPreset2 ?? CODEX_DEFAULT_PERMISSION;
     const projected = projectCodexThread(record(result.thread));
     if (projected === void 0) return failure("internal", "CodeX returned an invalid forked Thread.");
     this.selectedModels.set(projected.id, this.modelSelection(sessionId, await this.models(signal)));
@@ -15273,14 +15286,20 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     if (input2 === void 0) return failure("attachment-error", "CodeX virtual Sessions accept text and pasted PNG, JPEG, WebP, or GIF images only.");
     const threadId = nativeThreadId(sessionId);
     const selection = this.modelSelection(sessionId, await this.models(signal));
-    const permissionPreset2 = this.permissionSelection(sessionId);
+    let permissionPreset2 = this.selectedPermissions.get(sessionId);
     const isFreshBlankThread = this.blankThreads.has(threadId) || this.pendingThreads.has(threadId);
     await this.ensureRcFollow(sessionId);
-    if (!isFreshBlankThread) await this.client.request("thread/resume", {
-      threadId,
-      model: selection.model,
-      permissionPreset: permissionPreset2
-    }, signal);
+    if (!isFreshBlankThread) {
+      const resumeResult = await this.client.request("thread/resume", {
+        threadId,
+        model: selection.model
+      }, signal);
+      const serverPreset = codexPermissionPresetFromResponse(resumeResult);
+      if (permissionPreset2 === void 0 && serverPreset !== void 0) {
+        permissionPreset2 = serverPreset;
+        this.setPermissionSelection(sessionId, serverPreset);
+      }
+    }
     this.pendingRequestIds.set(sessionId, string(request.requestId) ?? "");
     const mode = request.mode === "steer" ? "turn/steer" : "turn/start";
     if (mode === "turn/steer") {
@@ -15292,7 +15311,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         threadId,
         input: input2,
         ...codexModelParams(selection),
-        permissionPreset: permissionPreset2
+        ...permissionPreset2 === void 0 ? {} : { permissionPreset: permissionPreset2 }
       }, signal);
     }
     this.blankThreads.delete(threadId);
@@ -15434,7 +15453,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       queue: new AsyncValueQueue2(controller.signal),
       nextSeq: history.cursor + 1,
       turn: history.nextTurn,
-      stepOpen: false,
+      stepOpen: history.activeTurnId !== void 0,
       startedItems: /* @__PURE__ */ new Set(),
       completedItems: /* @__PURE__ */ new Set(),
       streamedBlocks: /* @__PURE__ */ new Map(),
@@ -15444,7 +15463,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       liveToolOutput: /* @__PURE__ */ new Map(),
       liveToolResultSeq: /* @__PURE__ */ new Map(),
       requestId: this.pendingRequestIds.get(sessionId),
-      rcOnly: true
+      rcOnly: true,
+      ...history.activeTurnId === void 0 ? {} : { activeTurnId: history.activeTurnId }
     };
     this.follows.add(follow);
     try {
@@ -15721,6 +15741,7 @@ function projectCodexNativeHistory(thread, sessionId) {
   const entries = [];
   let seq = 0;
   let turnNumber = 0;
+  const active = activeTurnId(thread.turns);
   const append = (type, data, time = Date.now(), view, sourceEventSeqs) => {
     const eventSeq = seq++;
     entries.push({
@@ -15740,6 +15761,7 @@ function projectCodexNativeHistory(thread, sessionId) {
   for (const rawTurn of array(thread.turns)) {
     const turn = record(rawTurn);
     turnNumber += 1;
+    const turnActive = isActiveCodexTurn(turn);
     const time = normalizeTime(turn.createdAt) || normalizeTime(turn.startedAt) || normalizeTime(thread.createdAt) || Date.now();
     append("turn/start", { turn: turnNumber }, time);
     append("step/start", { turn: turnNumber, step: 1 }, time);
@@ -15757,6 +15779,7 @@ function projectCodexNativeHistory(thread, sessionId) {
         if (event.type === "tool/call") toolCallSeq = eventSeq;
       }
     }
+    if (turnActive) continue;
     append("step/end", { turn: turnNumber, step: 1 }, normalizeTime(turn.updatedAt) || normalizeTime(turn.completedAt) || time);
     append("turn/end", {
       turn: turnNumber,
@@ -15773,7 +15796,8 @@ function projectCodexNativeHistory(thread, sessionId) {
     },
     entries,
     lastSeq: seq - 1,
-    nextTurn: turnNumber
+    nextTurn: turnNumber,
+    ...active === void 0 ? {} : { activeTurnId: active }
   };
 }
 function paginateCodexNativeHistory(history, request) {
@@ -15797,7 +15821,8 @@ function paginateCodexNativeHistory(history, request) {
     cursor: history.lastSeq,
     nextTurn: history.nextTurn,
     records: window.filter((entry) => entry.event.seq >= cut),
-    hasMore: window.some((entry) => entry.event.seq < cut)
+    hasMore: window.some((entry) => entry.event.seq < cut),
+    ...history.activeTurnId === void 0 ? {} : { activeTurnId: history.activeTurnId }
   };
 }
 function itemEvents(item, turn, step, requestId, selection = modelSelection(), sessionId = CODEX_SESSION_PREFIX) {
@@ -16310,6 +16335,22 @@ function codexImageLimitsProjection() {
 function isCodexPermissionPreset(value) {
   return value === "workspace-write" || value === "danger-full-access";
 }
+function codexPermissionPresetFromResponse(value) {
+  const root = record(value);
+  return codexPermissionPresetFromPolicyRecord(root) ?? codexPermissionPresetFromPolicyRecord(record(root.threadSettings));
+}
+function codexPermissionPresetFromPolicyRecord(value) {
+  const sandbox = value.sandbox ?? value.sandboxPolicy;
+  if (value.approvalPolicy === "never" && isDangerFullAccessSandbox(sandbox)) return "danger-full-access";
+  if (value.approvalPolicy === "on-request" && isWorkspaceWriteSandbox(sandbox)) return "workspace-write";
+  return void 0;
+}
+function isDangerFullAccessSandbox(value) {
+  return value === "danger-full-access" || record(value).type === "dangerFullAccess";
+}
+function isWorkspaceWriteSandbox(value) {
+  return value === "workspace-write" || record(value).type === "workspaceWrite";
+}
 function modelCatalog(directory) {
   return {
     default: directory.default,
@@ -16450,6 +16491,17 @@ function nativeThreadId(sessionId) {
   }
   return sessionId.slice(CODEX_SESSION_PREFIX.length);
 }
+function activeTurnId(value) {
+  if (!Array.isArray(value)) return void 0;
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    const turn = record(value[index]);
+    if (isActiveCodexTurn(turn) && typeof turn.id === "string" && turn.id.length > 0) return turn.id;
+  }
+  return void 0;
+}
+function isActiveCodexTurn(turn) {
+  return turn.status === "inProgress" || turn.status === "running";
+}
 function carrierArgs(payload) {
   return record(record(payload).args);
 }
@@ -16532,7 +16584,7 @@ function optionalPositiveInteger(value) {
 function isCodexNativeHistoryPage(value, sessionId) {
   const page = record(value);
   const header = record(page.header);
-  return header.id === sessionId && integer(page.cursor) !== void 0 && integer(page.nextTurn) !== void 0 && Array.isArray(page.records) && typeof page.hasMore === "boolean";
+  return header.id === sessionId && integer(page.cursor) !== void 0 && integer(page.nextTurn) !== void 0 && Array.isArray(page.records) && typeof page.hasMore === "boolean" && (page.activeTurnId === void 0 || typeof page.activeTurnId === "string");
 }
 function truncateCodePoints(value, maximum) {
   return [...value].slice(0, maximum).join("");
@@ -22921,6 +22973,7 @@ var CodexRemoteDomain = class {
   unsubscribeInbound;
   unsubscribeUnavailable;
   peers = /* @__PURE__ */ new Map();
+  peerDeviceIds = /* @__PURE__ */ new Map();
   turnOwners = /* @__PURE__ */ new Map();
   approvals = /* @__PURE__ */ new Map();
   approvalExpiryTimer;
@@ -22960,6 +23013,7 @@ var CodexRemoteDomain = class {
     if (!this.config.enabled) return void 0;
     const bridge = new CodexPeerBridge(this, context, publish, this.logger);
     this.peers.set(context.connectionId, bridge);
+    this.peerDeviceIds.set(context.connectionId, context.peerDeviceId);
     return bridge;
   }
   async call(connectionId, input2) {
@@ -22981,12 +23035,11 @@ var CodexRemoteDomain = class {
     }
     if (call.method === "thread/start") {
       const cwd = await this.requireCodexWorkspacePath(call.params.cwd);
-      const permission = codexPermission(call.params);
+      const permission = codexPermission(call.params, "workspace-write");
       const result = await this.callUpstream(call.method, {
         ...permission.params,
         cwd,
-        approvalPolicy: permission.approvalPolicy,
-        sandbox: permission.sandbox,
+        ...codexThreadPermissionParams(permission),
         serviceName: "deepseek_harness_remote"
       });
       if (extractThread(result)?.id === void 0) {
@@ -22997,7 +23050,7 @@ var CodexRemoteDomain = class {
     const threadId = threadIdFromParams(call.params);
     if (call.method === "dsh/sessionHistory") {
       const thread = await this.readThreadForHistory(connectionId, threadId);
-      return paginateCodexNativeHistory(
+      const page = paginateCodexNativeHistory(
         projectCodexNativeHistory(thread, `codex:${threadId}`),
         {
           beforeSeq: optionalInteger2(call.params.beforeSeq),
@@ -23005,6 +23058,8 @@ var CodexRemoteDomain = class {
           maxMessages: optionalInteger2(call.params.maxMessages)
         }
       );
+      const activeTurnId2 = typeof page.activeTurnId === "string" ? page.activeTurnId : this.turnOwners.get(threadId)?.turnId;
+      return activeTurnId2 === void 0 ? page : { ...page, activeTurnId: activeTurnId2 };
     }
     const allowedThread = threadId === void 0 ? void 0 : await this.readKnownThread(threadId);
     if (call.method === "thread/read") {
@@ -23017,39 +23072,38 @@ var CodexRemoteDomain = class {
       return this.callUpstream(call.method, call.params);
     }
     let claimed = false;
+    let previousOwner;
     if (isThreadMutation(call.method) && threadId !== void 0) {
-      claimed = this.claimTurn(threadId, connectionId, call.method);
+      const claim = this.claimTurn(
+        threadId,
+        connectionId,
+        call.method,
+        typeof call.params.turnId === "string" ? call.params.turnId : void 0
+      );
+      claimed = claim.claimed;
+      previousOwner = claim.previous;
     }
     try {
       const permission = codexPermission(call.params);
       const upstreamParams = call.method === "thread/resume" && allowedThread !== void 0 ? {
         ...permission.params,
         ...allowedThread.cwd === void 0 ? {} : { cwd: allowedThread.cwd },
-        approvalPolicy: permission.approvalPolicy,
-        sandbox: permission.sandbox,
+        ...codexThreadPermissionParams(permission),
         excludeTurns: true
       } : call.method === "thread/fork" && allowedThread !== void 0 ? {
         ...permission.params,
         ...allowedThread.cwd === void 0 ? {} : { cwd: allowedThread.cwd },
-        approvalPolicy: permission.approvalPolicy,
-        sandbox: permission.sandbox
+        ...codexThreadPermissionParams(permission)
       } : call.method === "turn/start" ? {
         ...permission.params,
         ...allowedThread?.cwd === void 0 ? {} : { cwd: allowedThread.cwd },
-        approvalPolicy: permission.approvalPolicy,
-        sandboxPolicy: permission.sandbox === "danger-full-access" ? { type: "dangerFullAccess" } : {
-          type: "workspaceWrite",
-          writableRoots: allowedThread?.cwd === void 0 ? [] : [allowedThread.cwd],
-          networkAccess: false,
-          excludeTmpdirEnvVar: false,
-          excludeSlashTmp: false
-        }
+        ...codexTurnPermissionParams(permission, allowedThread?.cwd)
       } : permission.params;
       let result;
       try {
         result = await this.callUpstream(call.method, upstreamParams);
       } catch (error) {
-        if (call.method === "thread/resume" && allowedThread !== void 0 && error instanceof RpcError && error.code === "CODEX_UPSTREAM_ERROR") {
+        if (call.method === "thread/resume" && allowedThread !== void 0 && error instanceof RpcError && error.code === "CODEX_UPSTREAM_ERROR" && call.params.permissionPreset === void 0) {
           return { thread: allowedThread.thread };
         }
         throw error;
@@ -23057,9 +23111,15 @@ var CodexRemoteDomain = class {
       if (call.method === "thread/resume" || call.method === "thread/fork" || call.method === "thread/unarchive") {
         await this.assertResultThreadAllowed(result);
       }
+      if (call.method === "turn/start" && threadId !== void 0) {
+        this.rememberTurnId(threadId, connectionId, extractTurnId(result));
+      }
       return result;
     } catch (error) {
-      if (claimed && threadId !== void 0) this.turnOwners.delete(threadId);
+      if (claimed && threadId !== void 0) {
+        if (previousOwner === void 0) this.turnOwners.delete(threadId);
+        else this.turnOwners.set(threadId, previousOwner);
+      }
       throw mapAppServerError(error);
     }
   }
@@ -23078,8 +23138,9 @@ var CodexRemoteDomain = class {
   async detachPeer(connectionId) {
     const bridge = this.peers.get(connectionId);
     if (bridge !== void 0) this.peers.delete(connectionId);
+    this.peerDeviceIds.delete(connectionId);
     for (const [threadId, owner] of this.turnOwners) {
-      if (owner === connectionId) this.turnOwners.delete(threadId);
+      if (owner.connectionId === connectionId) this.turnOwners.delete(threadId);
     }
     const appServer = this.appServer;
     const pending = [...this.approvals.entries()].filter(([, approval]) => approval.connectionId === connectionId);
@@ -23098,6 +23159,7 @@ var CodexRemoteDomain = class {
     this.restartTimer = void 0;
     for (const bridge of [...this.peers.values()]) await bridge.closeAll();
     this.peers.clear();
+    this.peerDeviceIds.clear();
     this.turnOwners.clear();
     if (this.approvalExpiryTimer !== void 0) clearTimeout(this.approvalExpiryTimer);
     this.approvalExpiryTimer = void 0;
@@ -23217,6 +23279,13 @@ var CodexRemoteDomain = class {
     }
     const threadId = extractThreadId(message.params);
     if (message.method === "turn/completed" && threadId !== void 0) this.turnOwners.delete(threadId);
+    if (message.method === "turn/started" && threadId !== void 0) {
+      const owner = this.turnOwners.get(threadId);
+      const turnId = extractTurnId(message.params);
+      if (owner !== void 0) {
+        this.turnOwners.set(threadId, { ...owner, ...turnId === void 0 ? {} : { turnId } });
+      }
+    }
     if (message.method === "serverRequest/resolved") this.resolveUpstreamApproval(message.params);
     if (threadId === void 0) return;
     await Promise.all([...this.peers.values()].map((peer) => peer.publishInbound(threadId, {
@@ -23233,7 +23302,7 @@ var CodexRemoteDomain = class {
     }
     const threadId = extractThreadId(message.params);
     const owner = threadId === void 0 ? void 0 : this.turnOwners.get(threadId);
-    const peer = owner === void 0 ? void 0 : this.peers.get(owner);
+    const peer = owner === void 0 ? void 0 : this.peers.get(owner.connectionId);
     if (threadId === void 0 || owner === void 0 || peer === void 0 || !peer.hasThreadSubscription(threadId)) {
       await appServer.respond(message.id, { decision: "decline" });
       return;
@@ -23241,7 +23310,7 @@ var CodexRemoteDomain = class {
     const requestHandle = randomUUID();
     this.approvals.set(requestHandle, {
       upstreamId: message.id,
-      connectionId: owner,
+      connectionId: owner.connectionId,
       threadId,
       method: message.method,
       expiresAt: Date.now() + APPROVAL_TTL_MS
@@ -23370,22 +23439,37 @@ var CodexRemoteDomain = class {
       throw new RpcError("CODEX_THREAD_NOT_ALLOWED", "The Codex thread is not available through this Remote Host.");
     }
   }
-  claimTurn(threadId, connectionId, method) {
+  claimTurn(threadId, connectionId, method, turnId) {
     const owner = this.turnOwners.get(threadId);
+    const peerDeviceId = this.peerDeviceIds.get(connectionId) ?? connectionId;
+    const nextOwner = { connectionId, peerDeviceId, ...turnId === void 0 ? {} : { turnId } };
     if (method === "turn/interrupt") {
       if (owner === void 0) {
-        this.turnOwners.set(threadId, connectionId);
-        return true;
+        this.turnOwners.set(threadId, nextOwner);
+        return { claimed: true };
       }
-      if (owner !== connectionId) throw new RpcError("CODEX_TURN_OWNED", "Only the connection that started this Codex turn can interrupt it.");
-      return false;
+      if (owner.connectionId !== connectionId && owner.peerDeviceId !== peerDeviceId) {
+        throw new RpcError("CODEX_TURN_OWNED", "Only the connection that started this Codex turn can interrupt it.");
+      }
+      if (owner.connectionId !== connectionId) {
+        this.turnOwners.set(threadId, { ...owner, connectionId, peerDeviceId, ...turnId === void 0 ? {} : { turnId } });
+        return { claimed: true, previous: owner };
+      }
+      if (turnId !== void 0 && owner.turnId === void 0) this.turnOwners.set(threadId, { ...owner, turnId });
+      return { claimed: false };
     }
-    if (owner !== void 0 && owner !== connectionId) {
+    if (owner !== void 0 && owner.connectionId !== connectionId && owner.peerDeviceId !== peerDeviceId) {
       throw new RpcError("CODEX_TURN_OWNED", "Another Remote connection owns the active Codex turn.");
     }
-    if (owner === connectionId) return false;
-    this.turnOwners.set(threadId, connectionId);
-    return true;
+    if (owner?.connectionId === connectionId) return { claimed: false };
+    this.turnOwners.set(threadId, owner === void 0 ? nextOwner : { ...owner, connectionId, peerDeviceId });
+    return { claimed: true, previous: owner };
+  }
+  rememberTurnId(threadId, connectionId, turnId) {
+    if (turnId === void 0) return;
+    const owner = this.turnOwners.get(threadId);
+    if (owner === void 0 || owner.connectionId !== connectionId) return;
+    this.turnOwners.set(threadId, { ...owner, turnId });
   }
   hasSubscriber(threadId) {
     return [...this.peers.values()].some((peer) => peer.hasThreadSubscription(threadId));
@@ -23640,6 +23724,12 @@ function normalizeCodexPathForCompare(path) {
 function extractThread(result) {
   return isRecord9(result) && isRecord9(result.thread) ? result.thread : void 0;
 }
+function extractTurnId(result) {
+  if (!isRecord9(result)) return void 0;
+  if (typeof result.turnId === "string" && result.turnId.length > 0) return result.turnId;
+  if (isRecord9(result.turn) && typeof result.turn.id === "string" && result.turn.id.length > 0) return result.turn.id;
+  return void 0;
+}
 function extractThreadId(params) {
   if (!isRecord9(params)) return void 0;
   if (typeof params.threadId === "string") return params.threadId;
@@ -23650,13 +23740,35 @@ function extractThreadId(params) {
 function optionalInteger2(value) {
   return typeof value === "number" && Number.isSafeInteger(value) ? value : void 0;
 }
-function codexPermission(params) {
+function codexPermission(params, fallbackPreset) {
   const { permissionPreset: permissionPreset2, ...rest } = params;
-  const fullAccess = permissionPreset2 === "danger-full-access";
+  const preset = permissionPreset2 === "workspace-write" || permissionPreset2 === "danger-full-access" ? permissionPreset2 : fallbackPreset;
+  if (preset === void 0) return { params: mapCodexImageInputs(rest) };
+  const fullAccess = preset === "danger-full-access";
   return {
     params: mapCodexImageInputs(rest),
     approvalPolicy: fullAccess ? "never" : "on-request",
     sandbox: fullAccess ? "danger-full-access" : "workspace-write"
+  };
+}
+function codexThreadPermissionParams(permission) {
+  if (permission.approvalPolicy === void 0 || permission.sandbox === void 0) return {};
+  return {
+    approvalPolicy: permission.approvalPolicy,
+    sandbox: permission.sandbox
+  };
+}
+function codexTurnPermissionParams(permission, cwd) {
+  if (permission.approvalPolicy === void 0 || permission.sandbox === void 0) return {};
+  return {
+    approvalPolicy: permission.approvalPolicy,
+    sandboxPolicy: permission.sandbox === "danger-full-access" ? { type: "dangerFullAccess" } : {
+      type: "workspaceWrite",
+      writableRoots: cwd === void 0 ? [] : [cwd],
+      networkAccess: false,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false
+    }
   };
 }
 function mapCodexImageInputs(params) {

@@ -115,6 +115,7 @@ export interface CodexNativeHistory {
   entries: Array<{ type: 'event'; event: NativeEvent; view?: ToolEventView }>
   lastSeq: number
   nextTurn: number
+  activeTurnId?: string
 }
 
 export interface CodexNativeHistoryPage {
@@ -123,6 +124,7 @@ export interface CodexNativeHistoryPage {
   nextTurn: number
   records: CodexNativeHistory['entries']
   hasMore: boolean
+  activeTurnId?: string
 }
 
 interface StreamedBlock {
@@ -329,7 +331,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         case 'session/openWorkspacePath': return business(failure('bad-request', 'Opening Host paths is unavailable in CodeX mode.'))
         case 'skills/list': return business(success({ items: [] }))
         case 'commands/list': return ok(this.commandList(args))
-        case 'commands/execute': return ok(this.executeCommand(args))
+        case 'commands/execute': return ok(await this.executeCommand(args, signal))
         default: return fail('method-not-found', `CodeX virtual Harness does not implement ${endpoint}.`)
       }
     } catch (error) {
@@ -411,6 +413,11 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     return this.selectedPermissions.get(sessionId) ?? CODEX_DEFAULT_PERMISSION
   }
 
+  private setPermissionSelection(sessionId: string, preset: CodexPermissionPreset): void {
+    this.selectedPermissions.set(sessionId, preset)
+    this.publishProjection(sessionId, 'permissions', codexPermissionsProjection(preset), this.nextProjectionSeq())
+  }
+
   private commandList(args: JsonRecord): unknown[] {
     nativeThreadId(requiredString(args.agentId, 'agentId'))
     return [{
@@ -420,9 +427,9 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     }]
   }
 
-  private executeCommand(args: JsonRecord): unknown {
+  private async executeCommand(args: JsonRecord, signal: AbortSignal): Promise<unknown> {
     const sessionId = requiredString(args.agentId, 'agentId')
-    nativeThreadId(sessionId)
+    const threadId = nativeThreadId(sessionId)
     const line = requiredString(args.line, 'command line').trim()
     if (!Array.isArray(args.images)) throw new Error('The CodeX command image list is required.')
     const match = /^\/permission(?:\s+([\s\S]*))?$/u.exec(line)
@@ -442,9 +449,10 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       commandId,
       result: { kind: 'error', text: `unknown preset "${requested}" (available: workspace-write, danger-full-access)` },
     }
-    this.selectedPermissions.set(sessionId, requested)
-    this.publishProjection(sessionId, 'permissions', codexPermissionsProjection(requested), this.nextProjectionSeq())
-    return { commandId, result: { kind: 'success', text: `preset ${requested}` } }
+    const result = await this.client.request('thread/resume', { threadId, permissionPreset: requested }, signal)
+    const effective = codexPermissionPresetFromResponse(result) ?? requested
+    this.setPermissionSelection(sessionId, effective)
+    return { commandId, result: { kind: 'success', text: `preset ${effective}` } }
   }
 
   private sessionTitle(sessionId: string): string | null {
@@ -606,7 +614,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       queue,
       nextSeq: history.cursor + 1,
       turn: history.nextTurn,
-      stepOpen: false,
+      stepOpen: history.activeTurnId !== undefined,
       startedItems: new Set(),
       completedItems: new Set(),
       streamedBlocks: new Map(),
@@ -616,6 +624,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       liveToolOutput: new Map(),
       liveToolResultSeq: new Map(),
       requestId: this.pendingRequestIds.get(sessionId),
+      ...(history.activeTurnId === undefined ? {} : { activeTurnId: history.activeTurnId }),
     }
     this.follows.add(follow)
     queue.push({
@@ -663,6 +672,11 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       this.updateThreadName(follow.threadId, name)
       const title = name.trim() === '' ? null : name.slice(0, 256)
       this.publishProjection(follow.sessionId, 'title', title, seq)
+      return
+    }
+    if (frame.method === 'thread/settings/updated') {
+      const preset = codexPermissionPresetFromResponse(params)
+      if (preset !== undefined) this.setPermissionSelection(follow.sessionId, preset)
       return
     }
     if (frame.method === 'turn/started') {
@@ -1114,12 +1128,13 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     if (cwd === undefined) return failure('workspace-not-found', 'The CodeX virtual Workspace was not found.')
     const directory = await this.models(signal)
     const selection = directory.default
-    const permissionPreset = CODEX_DEFAULT_PERMISSION
+    const requestedPreset = CODEX_DEFAULT_PERMISSION
     const result = record(await this.client.request('thread/start', {
       cwd,
       model: selection.model,
-      permissionPreset,
+      permissionPreset: requestedPreset,
     }, signal))
+    const permissionPreset = codexPermissionPresetFromResponse(result) ?? requestedPreset
     const thread = { ...record(result.thread), cwd, turns: array(record(result.thread).turns) }
     const projected = projectCodexThread(thread)
     if (projected === undefined) return failure('internal', 'CodeX returned an invalid Thread.')
@@ -1141,11 +1156,12 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
 
   private async forkSession(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
     const sessionId = requiredString(request.sessionId, 'sessionId')
-    const permissionPreset = this.permissionSelection(sessionId)
+    let permissionPreset = this.selectedPermissions.get(sessionId)
     const result = record(await this.client.request('thread/fork', {
       threadId: nativeThreadId(sessionId),
-      permissionPreset,
+      ...(permissionPreset === undefined ? {} : { permissionPreset }),
     }, signal))
+    permissionPreset = codexPermissionPresetFromResponse(result) ?? permissionPreset ?? CODEX_DEFAULT_PERMISSION
     const projected = projectCodexThread(record(result.thread))
     if (projected === undefined) return failure('internal', 'CodeX returned an invalid forked Thread.')
     this.selectedModels.set(projected.id, this.modelSelection(sessionId, await this.models(signal)))
@@ -1163,14 +1179,20 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     if (input === undefined) return failure('attachment-error', 'CodeX virtual Sessions accept text and pasted PNG, JPEG, WebP, or GIF images only.')
     const threadId = nativeThreadId(sessionId)
     const selection = this.modelSelection(sessionId, await this.models(signal))
-    const permissionPreset = this.permissionSelection(sessionId)
+    let permissionPreset = this.selectedPermissions.get(sessionId)
     const isFreshBlankThread = this.blankThreads.has(threadId) || this.pendingThreads.has(threadId)
     await this.ensureRcFollow(sessionId)
-    if (!isFreshBlankThread) await this.client.request('thread/resume', {
-      threadId,
-      model: selection.model,
-      permissionPreset,
-    }, signal)
+    if (!isFreshBlankThread) {
+      const resumeResult = await this.client.request('thread/resume', {
+        threadId,
+        model: selection.model,
+      }, signal)
+      const serverPreset = codexPermissionPresetFromResponse(resumeResult)
+      if (permissionPreset === undefined && serverPreset !== undefined) {
+        permissionPreset = serverPreset
+        this.setPermissionSelection(sessionId, serverPreset)
+      }
+    }
     this.pendingRequestIds.set(sessionId, string(request.requestId) ?? '')
     const mode = request.mode === 'steer' ? 'turn/steer' : 'turn/start'
     if (mode === 'turn/steer') {
@@ -1182,7 +1204,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         threadId,
         input,
         ...codexModelParams(selection),
-        permissionPreset,
+        ...(permissionPreset === undefined ? {} : { permissionPreset }),
       }, signal)
     }
     this.blankThreads.delete(threadId)
@@ -1348,7 +1370,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       queue: new AsyncValueQueue(controller.signal),
       nextSeq: history.cursor + 1,
       turn: history.nextTurn,
-      stepOpen: false,
+      stepOpen: history.activeTurnId !== undefined,
       startedItems: new Set(),
       completedItems: new Set(),
       streamedBlocks: new Map(),
@@ -1359,6 +1381,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       liveToolResultSeq: new Map(),
       requestId: this.pendingRequestIds.get(sessionId),
       rcOnly: true,
+      ...(history.activeTurnId === undefined ? {} : { activeTurnId: history.activeTurnId }),
     }
     this.follows.add(follow)
     try {
@@ -1662,6 +1685,7 @@ export function projectCodexNativeHistory(thread: JsonRecord, sessionId: string)
   const entries: CodexNativeHistory['entries'] = []
   let seq = 0
   let turnNumber = 0
+  const active = activeTurnId(thread.turns)
   const append = (
     type: string,
     data: unknown,
@@ -1687,6 +1711,7 @@ export function projectCodexNativeHistory(thread: JsonRecord, sessionId: string)
   for (const rawTurn of array(thread.turns)) {
     const turn = record(rawTurn)
     turnNumber += 1
+    const turnActive = isActiveCodexTurn(turn)
     const time = normalizeTime(turn.createdAt) || normalizeTime(turn.startedAt) || normalizeTime(thread.createdAt) || Date.now()
     append('turn/start', { turn: turnNumber }, time)
     append('step/start', { turn: turnNumber, step: 1 }, time)
@@ -1704,6 +1729,7 @@ export function projectCodexNativeHistory(thread: JsonRecord, sessionId: string)
         if (event.type === 'tool/call') toolCallSeq = eventSeq
       }
     }
+    if (turnActive) continue
     append('step/end', { turn: turnNumber, step: 1 }, normalizeTime(turn.updatedAt) || normalizeTime(turn.completedAt) || time)
     append('turn/end', {
       turn: turnNumber,
@@ -1723,6 +1749,7 @@ export function projectCodexNativeHistory(thread: JsonRecord, sessionId: string)
     entries,
     lastSeq: seq - 1,
     nextTurn: turnNumber,
+    ...(active === undefined ? {} : { activeTurnId: active }),
   }
 }
 
@@ -1751,6 +1778,7 @@ export function paginateCodexNativeHistory(
     nextTurn: history.nextTurn,
     records: window.filter(entry => entry.event.seq >= cut),
     hasMore: window.some(entry => entry.event.seq < cut),
+    ...(history.activeTurnId === undefined ? {} : { activeTurnId: history.activeTurnId }),
   }
 }
 
@@ -2403,6 +2431,27 @@ function isCodexPermissionPreset(value: string): value is CodexPermissionPreset 
   return value === 'workspace-write' || value === 'danger-full-access'
 }
 
+function codexPermissionPresetFromResponse(value: unknown): CodexPermissionPreset | undefined {
+  const root = record(value)
+  return codexPermissionPresetFromPolicyRecord(root)
+    ?? codexPermissionPresetFromPolicyRecord(record(root.threadSettings))
+}
+
+function codexPermissionPresetFromPolicyRecord(value: JsonRecord): CodexPermissionPreset | undefined {
+  const sandbox = value.sandbox ?? value.sandboxPolicy
+  if (value.approvalPolicy === 'never' && isDangerFullAccessSandbox(sandbox)) return 'danger-full-access'
+  if (value.approvalPolicy === 'on-request' && isWorkspaceWriteSandbox(sandbox)) return 'workspace-write'
+  return undefined
+}
+
+function isDangerFullAccessSandbox(value: unknown): boolean {
+  return value === 'danger-full-access' || record(value).type === 'dangerFullAccess'
+}
+
+function isWorkspaceWriteSandbox(value: unknown): boolean {
+  return value === 'workspace-write' || record(value).type === 'workspaceWrite'
+}
+
 function modelCatalog(directory: CodexModelDirectory): unknown {
   return {
     default: directory.default,
@@ -2557,6 +2606,19 @@ function nativeThreadId(sessionId: string): string {
   return sessionId.slice(CODEX_SESSION_PREFIX.length)
 }
 
+function activeTurnId(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined
+  for (let index = value.length - 1; index >= 0; index -= 1) {
+    const turn = record(value[index])
+    if (isActiveCodexTurn(turn) && typeof turn.id === 'string' && turn.id.length > 0) return turn.id
+  }
+  return undefined
+}
+
+function isActiveCodexTurn(turn: JsonRecord): boolean {
+  return turn.status === 'inProgress' || turn.status === 'running'
+}
+
 function carrierArgs(payload: unknown): JsonRecord {
   return record(record(payload).args)
 }
@@ -2667,6 +2729,7 @@ function isCodexNativeHistoryPage(value: unknown, sessionId: string): value is C
     && integer(page.nextTurn) !== undefined
     && Array.isArray(page.records)
     && typeof page.hasMore === 'boolean'
+    && (page.activeTurnId === undefined || typeof page.activeTurnId === 'string')
 }
 
 function truncateCodePoints(value: string, maximum: number): string {

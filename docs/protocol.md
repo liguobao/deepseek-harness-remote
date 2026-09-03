@@ -1200,9 +1200,17 @@ App Server 的审批与 sandbox 字段，不接受任意 sandbox、writable root
 `workspace-write` 映射为 `approvalPolicy: "on-request"`、`sandbox: "workspace-write"` 和
 `sandboxPolicy.type: "workspaceWrite"`；用户显式确认的 `danger-full-access` 映射为
 `approvalPolicy: "never"`、`sandbox: "danger-full-access"` 和
-`sandboxPolicy.type: "dangerFullAccess"`。每次 `thread/start|resume|fork` 与 `turn/start` 都由 Host
-重新注入 canonical 策略，不能依赖 Client 提交的底层字段或 Thread 历史里的旧策略。审批响应本身仍
-只允许单次 accept/decline/cancel，不提供 `allow_session`。
+`sandboxPolicy.type: "dangerFullAccess"`。`thread/start` 未带 preset 时使用 `workspace-write` 作为
+Remote 新 Thread 的保守默认；已有 Thread 的 `thread/resume|fork` 与 `turn/start` 未带 preset 时，
+Host 不注入审批或 sandbox 覆盖，让 App Server 继承该 Thread 已保存的默认值。只要 Client 显式提交
+preset，Host 仍必须重新映射为 canonical 策略，不能接受 Client 提交的底层字段或 Thread 历史里的旧策略。
+审批响应本身仍只允许单次 accept/decline/cancel，不提供 `allow_session`。
+
+CodeX App Server 可把 `turn/start` 的部分配置覆盖作为同一 Thread 后续 turn 的默认值；Remote 可从
+`thread/start|resume|fork` 响应或 `thread/settings/updated` 事件里的有效 `approvalPolicy` 与
+`sandbox/sandboxPolicy` 反推上述两个固定 preset。`thread/list` / `thread/read` 的 `Thread` 元数据本身
+不携带该设置，所以 Android Client 仍可以把用户显式选择的 CodeX preset 作为本地 UI 偏好，按 Host
+设备与 Thread 维度保存，并在之后需要显式覆盖时继续提交同一个 preset。
 
 CodeX 虚拟 Session 接受文本，以及 Desktop Composer 从剪贴板或 Android 系统图片选择器产生的
 PNG、JPEG、WebP、GIF 图片 Prompt。
@@ -1230,7 +1238,9 @@ handle，并以 `failed` 结束全部旧 Codex stream。Host 按 `1s -> 2s -> 4s
 重启 App Server；重启只重新执行 initialize/account probe，禁止重放任何 call/mutation。Desktop
 Client 必须重新探测 capability，重新打开 stream，并以 `thread/read(includeTurns:true)` 替换本地
 baseline 后继续归并 live event。Android Client 同样必须重新探测 capability、重开 stream，并以
-Host 分页 `dsh/sessionHistory` 替换移动端 baseline；任何一端都不得自动重放不确定的 mutation。
+Host 分页 `dsh/sessionHistory` 替换移动端 baseline；若分页基线包含仍在运行的 Turn，Host 必须保留
+open step/turn 语义并返回顶层 `activeTurnId`，以便同一连接或同一设备的替换连接可以发起
+`turn/interrupt`。任何一端都不得自动重放不确定的 mutation。
 
 Desktop 打开 Thread 时只用 `thread/read(includeTurns:true)` 建立持久化 baseline，Remote stream
 只是 Host 侧的事件过滤器，不得因纯查看自动调用 `thread/resume`。用户明确继续发送前才

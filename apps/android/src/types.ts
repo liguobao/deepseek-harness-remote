@@ -182,6 +182,8 @@ export interface PermissionSelect {
   options: PermissionPresetOption[]
 }
 
+export type CodexPermissionPreset = 'workspace-write' | 'danger-full-access'
+
 export interface HistoryEntry {
   event: NativeSessionEvent
   view?: { for: 'call' | 'result'; view: unknown }
@@ -190,6 +192,7 @@ export interface HistoryEntry {
 export interface SessionHistoryPage {
   events: HistoryEntry[]
   hasMore: boolean
+  activeTurnId?: string
 }
 
 export interface ChatItemBase {

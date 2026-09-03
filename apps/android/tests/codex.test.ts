@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { CodexRemoteClient } from '@dsh-remote/client-core'
-import { codexItemsToChat, loadCodexCatalog, readCodexHistoryPage } from '../src/services/codex'
+import {
+  codexItemsToChat,
+  codexPermissionPresetFromResponse,
+  loadCodexCatalog,
+  readCodexHistoryPage,
+} from '../src/services/codex'
 
 describe('Android CodeX Remote projection', () => {
   it('prefers project/list workspaces and keeps unprojected Threads hidden', async () => {
@@ -72,11 +77,13 @@ describe('Android CodeX Remote projection', () => {
           event: { type: 'assistant/message', seq: 4, time: 10, data: { message: { id: 'a1' } } },
         }],
         hasMore: true,
+        activeTurnId: 'turn-1',
       })),
     } as unknown as CodexRemoteClient
 
     await expect(readCodexHistoryPage(client, 'thread-1', 5, 20)).resolves.toMatchObject({
       hasMore: true,
+      activeTurnId: 'turn-1',
       events: [{ event: { type: 'assistant/message', seq: 4 } }],
     })
     expect(client.request).toHaveBeenCalledWith('dsh/sessionHistory', {
@@ -100,5 +107,22 @@ describe('Android CodeX Remote projection', () => {
       text: 'Describe this',
       images: [{ uri: 'data:image/png;base64,aW1hZ2U=', name: 'screen.png' }],
     })])
+  })
+
+  it('derives the mobile permission preset from App Server settings', () => {
+    expect(codexPermissionPresetFromResponse({
+      approvalPolicy: 'never',
+      sandbox: { type: 'dangerFullAccess' },
+    })).toBe('danger-full-access')
+    expect(codexPermissionPresetFromResponse({
+      threadSettings: {
+        approvalPolicy: 'on-request',
+        sandboxPolicy: { type: 'workspaceWrite', writableRoots: ['/workspace/project'], networkAccess: false },
+      },
+    })).toBe('workspace-write')
+    expect(codexPermissionPresetFromResponse({
+      approvalPolicy: 'never',
+      sandbox: { type: 'workspaceWrite', writableRoots: ['/workspace/project'], networkAccess: false },
+    })).toBeUndefined()
   })
 })

@@ -30,8 +30,10 @@ import { createNativeRpcId } from '../services/api-proxy'
 import {
   codexItemsToChat,
   codexPermissionPreset,
+  codexPermissionPresetFromResponse,
   codexSession,
   codexThreadId,
+  isCodexPermissionPreset,
   loadCodexCatalog,
   loadCodexModels,
   mergeCodexLive,
@@ -46,14 +48,17 @@ import { resolveAutomaticPreferredTransports } from '../services/network-route'
 import { serverSession } from '../services/server-session'
 import {
   clearLocalData,
+  clearCodexPermissionPresets,
   forgetHost,
   loadOrCreateIdentity,
   loadLanguagePreference,
+  loadCodexPermissionPresets,
   loadServerConfig,
   loadThemePreference,
   loadTransportPreference,
   loadTrustedHosts,
   saveLanguagePreference,
+  saveCodexPermissionPreset,
   saveServerConfig,
   saveThemePreference,
   saveTransportPreference,
@@ -62,6 +67,7 @@ import {
 import type { ThemePreference } from '../ui/theme'
 import type {
   ChatItem,
+  CodexPermissionPreset,
   ConnectionProbeTransport,
   ConnectionStage,
   ConnectionSnapshot,
@@ -280,7 +286,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       const trusted = await loadTrustedHosts()
       const { api } = await serverSession.authenticate(config.baseUrl, identity)
       const result = await reconcileTrustedDevices(api, trusted)
-      await Promise.all(result.missingTrustedDeviceIds.map(forgetHost))
+      await Promise.all(result.missingTrustedDeviceIds.map(async deviceId => {
+        await forgetHost(deviceId)
+        await clearCodexPermissionPresets(deviceId)
+      }))
       set({ devices: result.devices, refreshing: false })
     } catch (error) {
       set({ refreshing: false, error: friendlyError(error) })
@@ -304,6 +313,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           codexError = friendlyError(error)
         }
       }
+      const savedCodexPermissions = await loadSavedCodexPermissions(get().selectedDevice?.deviceId)
       set(state => {
         const codexWorkspaces = codexError === undefined
           ? codexCatalog.workspaces
@@ -314,9 +324,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const codexSessions = catalogSessions.map(session => {
           const previous = state.sessions.find(item => item.sessionId === session.sessionId)
             ?? (state.selectedSession?.sessionId === session.sessionId ? state.selectedSession : undefined)
-          return previous?.backend === 'codex'
-            ? withCodexPermission(session, codexPermissionPreset(previous))
-            : session
+          return withBestCodexPermission(session, previous, savedCodexPermissions)
         })
         const combinedSessions = [...sessions, ...codexSessions]
         return {
@@ -408,13 +416,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           codexError = friendlyError(error)
         }
       }
+      const savedCodexPermissions = await loadSavedCodexPermissions(device.deviceId)
       set(state => {
         const codexSessions = codexCatalog.sessions.map(session => {
           const previous = state.sessions.find(item => item.sessionId === session.sessionId)
             ?? (state.selectedSession?.sessionId === session.sessionId ? state.selectedSession : undefined)
-          return previous?.backend === 'codex'
-            ? withCodexPermission(session, codexPermissionPreset(previous))
-            : session
+          return withBestCodexPermission(session, previous, savedCodexPermissions)
         })
         return {
           hostDescriptor,
@@ -470,14 +477,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         await closeActiveCodexStream()
         const client = connection.requireCodex()
         const threadId = codexThreadId(session)
-        const permission = codexPermissionPreset(session)
+        const savedPermissions = await loadSavedCodexPermissions(get().selectedDevice?.deviceId)
+        const sessionWithPermission = withBestCodexPermission(session, undefined, savedPermissions)
+        const permission = codexPermissionPreset(sessionWithPermission)
         const [read, history] = await Promise.all([
           readCodexSession(client, threadId, permission),
           readCodexHistoryPage(client, threadId),
         ])
         const timeline = createCodexTimelineState({ ...read.thread, turns: [] })
         if (timeline === undefined) throw new Error(zhCN.runtime.codexInvalidResponse)
-        activeCodexTimeline = timeline
+        activeCodexTimeline = withActiveCodexTurn(timeline, history.activeTurnId)
         const stream = await client.subscribe(
           threadId,
           frame => get().handleCodexFrame(frame),
@@ -497,7 +506,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         )
         activeCodexStream = stream
         const items = foldHistory(history.events, session.sessionId)
-        const nextSession = { ...session, ...read.session }
+        const nextSession = {
+          ...sessionWithPermission,
+          ...read.session,
+          ...(history.activeTurnId === undefined ? {} : { running: true }),
+        }
         set(state => ({
           selectedSession: nextSession,
           sessions: state.sessions.map(item => item.sessionId === session.sessionId ? nextSession : item),
@@ -660,12 +673,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ permissionSelecting: true, error: undefined })
     try {
       if (session.backend === 'codex') {
-        if (preset !== 'workspace-write' && preset !== 'danger-full-access') {
+        if (!isCodexPermissionPreset(preset)) {
           throw new Error(zhCN.runtime.codexInvalidResponse)
         }
+        const hostDeviceId = get().selectedDevice?.deviceId
+        if (hostDeviceId === undefined) throw new Error(zhCN.runtime.connectHostFirst)
+        const threadId = codexThreadId(session)
+        const result = await connection.requireCodex().request('thread/resume', { threadId, permissionPreset: preset })
+        const effectivePreset = codexPermissionPresetFromResponse(result) ?? preset
+        await saveCodexPermissionPreset(hostDeviceId, threadId, effectivePreset)
         set(state => ({
-          sessions: state.sessions.map(item => item.sessionId === session.sessionId ? withCodexPermission(item, preset) : item),
-          selectedSession: state.selectedSession === undefined ? undefined : withCodexPermission(state.selectedSession, preset),
+          ...withCodexPermissionState(state, session.sessionId, effectivePreset),
           permissionSelecting: false,
         }))
         return true
@@ -849,17 +867,22 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (activeTurnId !== undefined) {
           await client.request('turn/steer', { threadId, expectedTurnId: activeTurnId, input: promptInput })
         } else {
-          const permissionPreset = codexPermissionPreset(session)
           const selection = get().sessionModels?.current
-          await client.request('thread/resume', {
+          const savedPermissions = await loadSavedCodexPermissions(get().selectedDevice?.deviceId)
+          let permissionPreset = savedPermissions[threadId]
+          const resumeResult = await client.request('thread/resume', {
             threadId,
-            permissionPreset,
             ...(selection?.provider === 'codex' ? { model: selection.model } : {}),
           })
+          const serverPreset = codexPermissionPresetFromResponse(resumeResult)
+          if (permissionPreset === undefined && serverPreset !== undefined) {
+            permissionPreset = serverPreset
+            set(state => withCodexPermissionState(state, session.sessionId, serverPreset))
+          }
           const result = record(await client.request('turn/start', {
             threadId,
             input: promptInput,
-            permissionPreset,
+            ...(permissionPreset === undefined ? {} : { permissionPreset }),
             ...(selection?.provider === 'codex' ? {
               model: selection.model,
               ...(selection.reasoningEffort === undefined ? {} : { effort: selection.reasoningEffort }),
@@ -906,11 +929,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       if (session.backend === 'codex') {
         const threadId = codexThreadId(session)
-        const turnId = activeCodexTimeline?.session.nativeId === threadId
+        const client = connection.requireCodex()
+        let turnId = activeCodexTimeline?.session.nativeId === threadId
           ? activeCodexTimeline.activeTurnId
           : undefined
+        if (turnId === undefined) {
+          const history = await readCodexHistoryPage(client, threadId, undefined, 1)
+          turnId = history.activeTurnId
+          if (turnId !== undefined && activeCodexTimeline?.session.nativeId === threadId) {
+            activeCodexTimeline = withActiveCodexTurn(activeCodexTimeline, turnId)
+          }
+        }
         if (turnId === undefined) throw new Error(zhCN.runtime.codexTurnUnavailable)
-        await connection.requireCodex().interrupt(threadId, turnId)
+        await client.interrupt(threadId, turnId)
       } else {
         await connection.requireProxy().sessionCancel(session.sessionId)
       }
@@ -977,6 +1008,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       if (get().selectedDevice?.deviceId === deviceId) await get().disconnect()
       await forgetHost(deviceId)
+      await clearCodexPermissionPresets(deviceId)
       set(state => ({
         devices: state.devices.filter(device => device.deviceId !== deviceId),
         busyAction: undefined,
@@ -1056,6 +1088,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   handleCodexFrame(frame) {
     const timeline = activeCodexTimeline
     if (timeline === undefined) return
+    const framePermission = codexPermissionPresetFromResponse(record(frame).params)
     const next = reduceCodexTimelineFrame(timeline, frame)
     activeCodexTimeline = next
     const live = codexItemsToChat(next.items)
@@ -1063,7 +1096,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const current = state.sessions.find(item => item.sessionId === next.session.id)
         ?? state.selectedSession
       if (current === undefined || current.backend !== 'codex') return {}
-      const session = updateCodexSession(current, next.session)
+      const session = framePermission === undefined
+        ? updateCodexSession(current, next.session)
+        : withCodexPermission(updateCodexSession(current, next.session), framePermission)
       return {
         sessions: state.sessions.map(item => item.sessionId === session.sessionId ? session : item),
         selectedSession: state.selectedSession?.sessionId === session.sessionId ? session : state.selectedSession,
@@ -1081,6 +1116,52 @@ async function closeActiveCodexStream(notifyRemote = true): Promise<void> {
   activeCodexStream = undefined
   activeCodexTimeline = undefined
   if (notifyRemote && stream !== undefined) await stream.close().catch(() => undefined)
+}
+
+async function loadSavedCodexPermissions(hostDeviceId: string | undefined): Promise<Record<string, CodexPermissionPreset>> {
+  if (hostDeviceId === undefined) return {}
+  try {
+    return await loadCodexPermissionPresets(hostDeviceId)
+  } catch {
+    return {}
+  }
+}
+
+function withBestCodexPermission(
+  session: RemoteSession,
+  previous: RemoteSession | undefined,
+  saved: Record<string, CodexPermissionPreset>,
+): RemoteSession {
+  if (session.backend !== 'codex') return session
+  const savedPreset = session.nativeId === undefined ? undefined : saved[session.nativeId]
+  const previousPreset = previous?.backend === 'codex' ? codexPermissionPreset(previous) : undefined
+  const preset = savedPreset ?? previousPreset
+  return preset === undefined ? session : withCodexPermission(session, preset)
+}
+
+function withCodexPermissionState(
+  state: AppState,
+  sessionId: string,
+  preset: CodexPermissionPreset,
+): Pick<AppState, 'sessions' | 'selectedSession'> {
+  const update = (session: RemoteSession): RemoteSession => (
+    session.sessionId === sessionId ? withCodexPermission(session, preset) : session
+  )
+  return {
+    sessions: state.sessions.map(update),
+    selectedSession: state.selectedSession === undefined ? undefined : update(state.selectedSession),
+  }
+}
+
+function withActiveCodexTurn(timeline: CodexTimelineState, activeTurnId: string | undefined): CodexTimelineState {
+  if (activeTurnId === undefined) return timeline
+  return {
+    ...timeline,
+    activeTurnId,
+    session: timeline.session.status === 'waiting'
+      ? timeline.session
+      : { ...timeline.session, status: 'running' },
+  }
 }
 
 function findApproval(messages: Record<string, ChatItem[]>, itemId: string) {
