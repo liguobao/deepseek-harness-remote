@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.5
+
+- Fixes a `v0.4.4` Desktop startup regression where the Remote browser client
+  could poll `/ds-harness-remote/status` before the local Connection service had
+  registered the plugin control route, producing frequent HTTP 405 transport
+  failures after upgrade. Desktop activation now waits for Connection again
+  while dsh-TUI keeps its connection-less Host startup path.
+
 ## 0.4.4
 
 - Fixes Codex permission inheritance so existing Threads can keep the App Server's
