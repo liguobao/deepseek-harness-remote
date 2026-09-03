@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.8
+
+- Reworks Android workspace creation into one `New workspace` flow. When Codex
+  is available, the creation sheet lets users choose DSH or Codex as the
+  workspace type before selecting the Host directory.
+- Improves Android reply feedback with a visible generating state before the
+  first streamed item, activity indicators for active reasoning and running
+  tools, and an animated streaming cursor.
+- Advances the Plugin and Android app to `0.4.8` (`versionCode 25`).
+
 ## 0.4.5
 
 - Fixes a `v0.4.4` Desktop startup regression where the Remote browser client
