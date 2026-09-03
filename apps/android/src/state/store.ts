@@ -147,7 +147,7 @@ interface AppState {
   selectModel(selection: ModelSelection): Promise<boolean>
   selectPermission(preset: string): Promise<boolean>
   loadOlderHistory(): Promise<void>
-  workspaceCreate(path: string, backend?: 'harness' | 'codex'): Promise<boolean>
+  workspaceCreate(path: string, backend?: 'harness' | 'codex'): Promise<WorkspaceView | undefined>
   workspaceRename(workspaceId: string, title: string): Promise<boolean>
   workspaceDelete(workspaceId: string): Promise<boolean>
   workspaceMove(workspaceId: string, beforeWorkspaceId?: string): Promise<boolean>
@@ -601,16 +601,15 @@ export const useAppStore = create<AppState>((set, get) => ({
             : item),
           busyAction: undefined,
         }))
-        await get().openSession(created)
-        return true
+        return get().openSession(created)
       }
       const proxy = connection.requireProxy()
       const { sessionId } = await proxy.sessionCreate(workspaceId)
       const sessions = await proxy.sessionList()
       set({ sessions, busyAction: undefined })
       const created = sessions.find(session => session.sessionId === sessionId)
-      if (created !== undefined) await get().openSession(created)
-      return true
+      if (created === undefined) return false
+      return get().openSession(created)
     } catch (error) {
       set({ busyAction: undefined, error: friendlyError(error) })
       return false
@@ -830,7 +829,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async workspaceCreate(path, backend = 'harness') {
-    if (get().connection.phase !== 'connected') return false
+    if (get().connection.phase !== 'connected') return undefined
     set({ busyAction: backend === 'codex' ? 'create-codex-workspace' : 'create-workspace', error: undefined })
     try {
       if (backend === 'codex') {
@@ -839,7 +838,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           workspaces: [...state.workspaces.filter(item => item.workspaceId !== workspace.workspaceId), workspace],
           busyAction: undefined,
         }))
-        return true
+        return workspace
       }
       const proxy = connection.requireProxy()
       const { workspace } = await proxy.workspaceCreate(path)
@@ -847,10 +846,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         workspaces: [...state.workspaces.filter(item => item.workspaceId !== workspace.workspaceId), workspace],
         busyAction: undefined,
       }))
-      return true
+      return workspace
     } catch (error) {
       set({ busyAction: undefined, error: friendlyError(error) })
-      return false
+      return undefined
     }
   },
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CirclePlus, Code2, Eye, EyeOff, Folder, FolderOpen, Laptop, MessageSquareText, MoreVertical, Pencil, Trash2, X } from 'lucide-react-native'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CirclePlus, Code2, Eye, EyeOff, Folder, FolderOpen, Laptop, MessageSquareText, MoreVertical, Pencil, Search, Trash2, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import type { DirectoryListing, RemoteSession, WorkspaceView } from '../types'
 import { Button, EmptyState, IconButton, Screen, TopBar } from '../ui/components'
@@ -30,6 +30,8 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
   const openSession = useAppStore(state => state.openSession)
   const [refreshing, setRefreshing] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [activeBackend, setActiveBackend] = useState<'harness' | 'codex'>(() => initialWorkspaceBackend(workspaces, codexAvailable))
+  const [searchQuery, setSearchQuery] = useState('')
   const [renameTarget, setRenameTarget] = useState<WorkspaceView | undefined>(undefined)
   const [actionsTarget, setActionsTarget] = useState<WorkspaceView | undefined>(undefined)
   const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -39,6 +41,8 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
   useEffect(() => {
     const deviceId = selectedDevice?.deviceId
     let cancelled = false
+    setActiveBackend(initialWorkspaceBackend(workspaces, codexAvailable))
+    setSearchQuery('')
     setCollapsedWorkspaceIds(new Set())
     if (deviceId === undefined) return () => { cancelled = true }
     void loadCollapsedWorkspaceIds(deviceId).then(workspaceIds => {
@@ -46,6 +50,10 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
     })
     return () => { cancelled = true }
   }, [selectedDevice?.deviceId])
+
+  useEffect(() => {
+    if (!codexAvailable) setActiveBackend('harness')
+  }, [codexAvailable])
 
   const toggleWorkspace = (workspaceId: string) => setCollapsedWorkspaceIds(current => {
     const next = new Set(current)
@@ -86,6 +94,16 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
   )
 
   const manageableWorkspaces = workspaces.filter(workspace => workspace.backend !== 'codex')
+  const backendWorkspaces = workspaces.filter(workspace => activeBackend === 'codex'
+    ? workspace.backend === 'codex'
+    : workspace.backend !== 'codex')
+  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase()
+  const filteredWorkspaces = normalizedSearchQuery.length === 0
+    ? backendWorkspaces
+    : backendWorkspaces.filter(workspace => [
+        workspace.title,
+        workspace.path,
+      ].some(value => value.toLocaleLowerCase().includes(normalizedSearchQuery)))
   const actionsIndex = actionsTarget === undefined
     ? -1
     : manageableWorkspaces.findIndex(item => item.workspaceId === actionsTarget.workspaceId)
@@ -121,14 +139,70 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
             onPress={() => setCreateOpen(true)}
           />
         </View>
-        {workspaces.length === 0
+        {codexAvailable && <View style={styles.backendTabs} accessibilityRole="tablist">
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeBackend === 'harness' }}
+            onPress={() => setActiveBackend('harness')}
+            style={({ pressed }) => [
+              styles.backendTab,
+              activeBackend === 'harness' && styles.backendTabActive,
+              pressed && styles.workspaceRowPressed,
+            ]}
+          >
+            <Text style={[styles.backendTabText, activeBackend === 'harness' && styles.backendTabTextActive]}>{zhCN.workspaces.dsh}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeBackend === 'codex' }}
+            onPress={() => setActiveBackend('codex')}
+            style={({ pressed }) => [
+              styles.backendTab,
+              activeBackend === 'codex' && styles.backendTabActive,
+              pressed && styles.workspaceRowPressed,
+            ]}
+          >
+            <Text style={[styles.backendTabText, activeBackend === 'codex' && styles.backendTabTextActive]}>{zhCN.workspaces.codex}</Text>
+          </Pressable>
+        </View>}
+        {backendWorkspaces.length > 0 && <View style={styles.searchField}>
+          <Search size={18} color={colors.muted} />
+          <TextInput
+            accessibilityLabel={zhCN.workspaces.search}
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder={zhCN.workspaces.search}
+            placeholderTextColor={colors.muted}
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {searchQuery.length > 0 && <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={zhCN.workspaces.clearSearch}
+            hitSlop={8}
+            onPress={() => setSearchQuery('')}
+            style={({ pressed }) => [styles.clearSearch, pressed && styles.workspaceRowPressed]}
+          >
+            <X size={17} color={colors.muted} />
+          </Pressable>}
+        </View>}
+        {backendWorkspaces.length === 0
           ? <EmptyState
               icon={FolderOpen}
               title={zhCN.workspaces.emptyTitle}
               body={zhCN.workspaces.emptyBody}
               action={<Button label={zhCN.workspaces.create} icon={CirclePlus} onPress={() => setCreateOpen(true)} />}
             />
-          : <View>{workspaces.map(workspace => {
+          : filteredWorkspaces.length === 0
+            ? <EmptyState
+                icon={Search}
+                title={zhCN.workspaces.noSearchResults}
+                body={zhCN.workspaces.noSearchResultsBody}
+                action={<Button label={zhCN.workspaces.clearSearch} variant="secondary" onPress={() => setSearchQuery('')} />}
+              />
+            : <View>{filteredWorkspaces.map(workspace => {
               const workspaceSessions = workspace.sessionIds.flatMap(sessionId => {
                 const session = sessions.find(item => item.sessionId === sessionId)
                 return session === undefined ? [] : [session]
@@ -152,10 +226,7 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
                             : <FolderOpen size={18} color={colors.primary} />}
                       </View>
                       <View style={styles.workspaceCopy}>
-                        <View style={styles.workspaceTitleRow}>
-                          <Text style={styles.workspaceTitle} numberOfLines={1}>{workspace.title}</Text>
-                          {workspace.backend === 'codex' && <Text style={styles.codexBadge}>{zhCN.workspaces.codex}</Text>}
-                        </View>
+                        <Text style={styles.workspaceTitle} numberOfLines={1}>{workspace.title}</Text>
                         <Text style={styles.workspacePath} numberOfLines={1} ellipsizeMode="tail">
                           {workspaceParentPath(workspace.path)}
                         </Text>
@@ -199,9 +270,11 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
       <CreateWorkspaceModal
         visible={createOpen}
         codexAvailable={codexAvailable}
+        initialBackend={activeBackend}
         busy={busy === 'create-workspace' || busy === 'create-codex-workspace'}
         onClose={() => setCreateOpen(false)}
         onCreate={workspaceCreate}
+        onCreated={workspace => void createInWorkspace(workspace.workspaceId)}
       />
       <RenameWorkspaceModal
         target={renameTarget}
@@ -297,12 +370,21 @@ function relativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString(zhCN.time.locale)
 }
 
-function CreateWorkspaceModal({ visible, codexAvailable, busy, onClose, onCreate }: {
+function initialWorkspaceBackend(workspaces: readonly WorkspaceView[], codexAvailable: boolean): 'harness' | 'codex' {
+  if (!codexAvailable) return 'harness'
+  const hasHarnessWorkspace = workspaces.some(workspace => workspace.backend !== 'codex')
+  const hasCodexWorkspace = workspaces.some(workspace => workspace.backend === 'codex')
+  return !hasHarnessWorkspace && hasCodexWorkspace ? 'codex' : 'harness'
+}
+
+function CreateWorkspaceModal({ visible, codexAvailable, initialBackend, busy, onClose, onCreate, onCreated }: {
   visible: boolean
   codexAvailable: boolean
+  initialBackend: 'harness' | 'codex'
   busy: boolean
   onClose: () => void
-  onCreate: (path: string, backend: 'harness' | 'codex') => Promise<boolean>
+  onCreate: (path: string, backend: 'harness' | 'codex') => Promise<WorkspaceView | undefined>
+  onCreated: (workspace: WorkspaceView) => void
 }) {
   const [backend, setBackend] = useState<'harness' | 'codex'>('harness')
   const [path, setPath] = useState('')
@@ -311,16 +393,17 @@ function CreateWorkspaceModal({ visible, codexAvailable, busy, onClose, onCreate
   const styles = useThemedStyles(createStyles)
 
   useEffect(() => {
-    if (visible) setBackend('harness')
-  }, [visible])
+    if (visible) setBackend(codexAvailable ? initialBackend : 'harness')
+  }, [codexAvailable, initialBackend, visible])
 
   const create = async () => {
     const trimmed = path.trim()
     if (trimmed.length === 0) return
-    if (await onCreate(trimmed, backend)) {
-      setPath('')
-      onClose()
-    }
+    const workspace = await onCreate(trimmed, backend)
+    if (workspace === undefined) return
+    setPath('')
+    onClose()
+    onCreated(workspace)
   }
 
   return (
@@ -543,15 +626,21 @@ function createStyles(colors: ThemeColors) {
   pageHeadingCopy: { flex: 1 },
   title: { ...type.title, color: colors.ink },
   subtitle: { ...type.small, color: colors.muted, marginTop: 2 },
+  backendTabs: { flexDirection: 'row', padding: spacing.xxs, borderRadius: radius.md, backgroundColor: colors.surfaceStrong, marginBottom: spacing.md },
+  backendTab: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, paddingHorizontal: spacing.xs },
+  backendTabActive: { backgroundColor: colors.surface },
+  backendTabText: { ...type.smallStrong, color: colors.muted, textAlign: 'center' },
+  backendTabTextActive: { color: colors.primary },
+  searchField: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.lg },
+  searchInput: { flex: 1, ...type.body, color: colors.ink, paddingVertical: spacing.sm },
+  clearSearch: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill },
   workspaceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
   workspaceToggle: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   workspaceRowPressed: { opacity: 0.7 },
   disabled: { opacity: 0.55 },
   workspaceIcon: { width: 38, height: 38, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   workspaceCopy: { flex: 1, gap: 2 },
-  workspaceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   workspaceTitle: { ...type.bodyStrong, color: colors.ink },
-  codexBadge: { ...type.caption, color: colors.primary, backgroundColor: colors.primarySoft, borderRadius: radius.sm, paddingHorizontal: spacing.xs, paddingVertical: 1 },
   workspacePath: { ...type.caption, color: colors.muted, fontFamily: 'monospace', writingDirection: 'ltr' },
   workspaceMeta: { ...type.caption, color: colors.muted },
   workspaceGroup: { marginBottom: spacing.lg, backgroundColor: colors.surface, borderRadius: radius.lg, paddingHorizontal: spacing.sm },
