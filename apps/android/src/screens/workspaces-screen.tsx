@@ -30,7 +30,6 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
   const openSession = useAppStore(state => state.openSession)
   const [refreshing, setRefreshing] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
-  const [createBackend, setCreateBackend] = useState<'harness' | 'codex'>('harness')
   const [renameTarget, setRenameTarget] = useState<WorkspaceView | undefined>(undefined)
   const [actionsTarget, setActionsTarget] = useState<WorkspaceView | undefined>(undefined)
   const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -116,19 +115,11 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
               {selectedDevice === undefined ? zhCN.workspaces.title : zhCN.workspaces.deviceTitle(selectedDevice.name)}
             </Text>
           </View>
-          <View style={styles.createActions}>
-            {codexAvailable && <Button
-              label={zhCN.workspaces.codex}
-              icon={CirclePlus}
-              variant="quiet"
-              onPress={() => { setCreateBackend('codex'); setCreateOpen(true) }}
-            />}
-            <IconButton
-              label={zhCN.workspaces.create}
-              icon={CirclePlus}
-              onPress={() => { setCreateBackend('harness'); setCreateOpen(true) }}
-            />
-          </View>
+          <IconButton
+            label={zhCN.workspaces.create}
+            icon={CirclePlus}
+            onPress={() => setCreateOpen(true)}
+          />
         </View>
         {workspaces.length === 0
           ? <EmptyState
@@ -207,10 +198,10 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
 
       <CreateWorkspaceModal
         visible={createOpen}
-        backend={createBackend}
+        codexAvailable={codexAvailable}
         busy={busy === 'create-workspace' || busy === 'create-codex-workspace'}
         onClose={() => setCreateOpen(false)}
-        onCreate={async path => workspaceCreate(path, createBackend)}
+        onCreate={workspaceCreate}
       />
       <RenameWorkspaceModal
         target={renameTarget}
@@ -306,22 +297,27 @@ function relativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString(zhCN.time.locale)
 }
 
-function CreateWorkspaceModal({ visible, backend, busy, onClose, onCreate }: {
+function CreateWorkspaceModal({ visible, codexAvailable, busy, onClose, onCreate }: {
   visible: boolean
-  backend: 'harness' | 'codex'
+  codexAvailable: boolean
   busy: boolean
   onClose: () => void
-  onCreate: (path: string) => Promise<boolean>
+  onCreate: (path: string, backend: 'harness' | 'codex') => Promise<boolean>
 }) {
+  const [backend, setBackend] = useState<'harness' | 'codex'>('harness')
   const [path, setPath] = useState('')
   const [browseOpen, setBrowseOpen] = useState(false)
   const { colors } = useTheme()
   const styles = useThemedStyles(createStyles)
 
+  useEffect(() => {
+    if (visible) setBackend('harness')
+  }, [visible])
+
   const create = async () => {
     const trimmed = path.trim()
     if (trimmed.length === 0) return
-    if (await onCreate(trimmed)) {
+    if (await onCreate(trimmed, backend)) {
       setPath('')
       onClose()
     }
@@ -333,8 +329,45 @@ function CreateWorkspaceModal({ visible, backend, busy, onClose, onCreate }: {
         <Pressable style={styles.backdrop} onPress={onClose}>
           <Pressable style={styles.sheet} onPress={event => event.stopPropagation()}>
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>{backend === 'codex' ? zhCN.workspaces.createCodex : zhCN.workspaces.create}</Text>
+              <Text style={styles.sheetTitle}>{zhCN.workspaces.create}</Text>
               <IconButton label={zhCN.common.close} icon={X} onPress={onClose} />
+            </View>
+            <Text style={styles.fieldLabel}>{zhCN.workspaces.type}</Text>
+            <View style={styles.backendOptions}>
+              <Pressable
+                accessibilityRole="radio"
+                accessibilityState={{ selected: backend === 'harness', disabled: busy }}
+                disabled={busy}
+                onPress={() => setBackend('harness')}
+                style={({ pressed }) => [
+                  styles.backendOption,
+                  backend === 'harness' && styles.backendOptionSelected,
+                  pressed && !busy && styles.workspaceRowPressed,
+                  busy && styles.disabled,
+                ]}
+              >
+                <View style={[styles.radioIndicator, backend === 'harness' && styles.radioIndicatorSelected]}>
+                  {backend === 'harness' && <View style={styles.radioIndicatorDot} />}
+                </View>
+                <Text style={[styles.backendOptionText, backend === 'harness' && styles.backendOptionTextSelected]}>{zhCN.workspaces.dsh}</Text>
+              </Pressable>
+              {codexAvailable && <Pressable
+                accessibilityRole="radio"
+                accessibilityState={{ selected: backend === 'codex', disabled: busy }}
+                disabled={busy}
+                onPress={() => setBackend('codex')}
+                style={({ pressed }) => [
+                  styles.backendOption,
+                  backend === 'codex' && styles.backendOptionSelected,
+                  pressed && !busy && styles.workspaceRowPressed,
+                  busy && styles.disabled,
+                ]}
+              >
+                <View style={[styles.radioIndicator, backend === 'codex' && styles.radioIndicatorSelected]}>
+                  {backend === 'codex' && <View style={styles.radioIndicatorDot} />}
+                </View>
+                <Text style={[styles.backendOptionText, backend === 'codex' && styles.backendOptionTextSelected]}>{zhCN.workspaces.codex}</Text>
+              </Pressable>}
             </View>
             <Text style={styles.fieldLabel}>{zhCN.workspaces.deviceDirectory}</Text>
             <View style={styles.pathRow}>
@@ -351,7 +384,7 @@ function CreateWorkspaceModal({ visible, backend, busy, onClose, onCreate }: {
               <Button label={zhCN.workspaces.browse} variant="secondary" onPress={() => setBrowseOpen(true)} disabled={busy} />
             </View>
             <Text style={styles.fieldHint}>{backend === 'codex' ? zhCN.workspaces.codexDirectoryHint : zhCN.workspaces.directoryHint}</Text>
-            <Button label={backend === 'codex' ? zhCN.workspaces.createCodex : zhCN.workspaces.create} onPress={() => void create()} loading={busy} disabled={path.trim().length === 0} />
+            <Button label={zhCN.workspaces.create} onPress={() => void create()} loading={busy} disabled={path.trim().length === 0} />
           </Pressable>
         </Pressable>
       </Modal>
@@ -508,7 +541,6 @@ function createStyles(colors: ThemeColors) {
   flex: { flex: 1, backgroundColor: colors.background },
   pageHeading: { paddingTop: spacing.xxl, paddingBottom: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   pageHeadingCopy: { flex: 1 },
-  createActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   title: { ...type.title, color: colors.ink },
   subtitle: { ...type.small, color: colors.muted, marginTop: 2 },
   workspaceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
@@ -543,6 +575,14 @@ function createStyles(colors: ThemeColors) {
   workspaceMoveButton: { flex: 1 },
   fieldLabel: { ...type.smallStrong, color: colors.ink },
   fieldHint: { ...type.caption, color: colors.muted },
+  backendOptions: { flexDirection: 'row', gap: spacing.sm },
+  backendOption: { flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  backendOptionSelected: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  backendOptionText: { ...type.smallStrong, color: colors.muted },
+  backendOptionTextSelected: { color: colors.primary },
+  radioIndicator: { width: 20, height: 20, borderWidth: 2, borderColor: colors.border, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  radioIndicatorSelected: { borderColor: colors.primary },
+  radioIndicatorDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
   pathRow: { flexDirection: 'row', gap: spacing.sm },
   pathInput: { flex: 1, ...type.body, color: colors.ink, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   titleInput: { ...type.body, color: colors.ink, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },

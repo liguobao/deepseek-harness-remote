@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -171,6 +172,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const connected = connection.phase === 'connected' && !reconnectingSession
   const canStop = connected && (busy === 'send-message' || busy === 'stop-session' || session.running)
   const stopping = busy === 'stop-session'
+  const showGenerating = (busy === 'send-message' || session.running) && !messages.some(isActiveChatItem)
   const permissions = sessionPermissions(session)
   const currentPermission = permissions?.options.find(option => option.value === permissions.currentValue)
   const currentModel = sessionModels?.groups
@@ -257,6 +259,7 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
               : <Text style={styles.olderText}>{zhCN.chat.older}</Text>}
           </Pressable>
         ) : undefined}
+        ListFooterComponent={showGenerating ? <GeneratingIndicator /> : undefined}
       />
 
       <View style={styles.composerWrap}>
@@ -653,7 +656,7 @@ function MessageBubble({ item }: { item: ChatMessage }) {
         {item.images !== undefined && item.images.length > 0 && <ChatImages images={item.images} alignEnd={user} />}
         {item.role === 'assistant' && hasVisibleMessageText(item.reasoning ?? '') && <ReasoningDisclosure item={item} embedded />}
         {hasVisibleMessageText(item.text) && <NativeMarkdown text={item.text} />}
-        {item.streaming && item.streamingPhase !== 'reasoning' && <View style={styles.streamingCursor} accessibilityLabel={zhCN.chat.generating} />}
+        {item.streaming && item.streamingPhase !== 'reasoning' && <StreamingCursor />}
       </View>
     </View>
   )
@@ -676,7 +679,9 @@ function ReasoningDisclosure({ item, embedded = false }: { item: ChatMessage; em
         onPress={() => setExpanded(value => !value)}
         style={({ pressed }) => [styles.reasoningHeader, pressed && styles.reasoningHeaderPressed]}
       >
-        <Sparkles size={16} color={active ? colors.accent : colors.muted} />
+        {active
+          ? <ActivityIndicator size="small" color={colors.accent} />
+          : <Sparkles size={16} color={colors.muted} />}
         <Text style={[styles.reasoningLabel, active && styles.reasoningLabelActive]}>{label}</Text>
         <Text style={styles.activitySeparator}>·</Text>
         <Text style={styles.reasoningPreview} numberOfLines={1}>{preview}</Text>
@@ -712,7 +717,10 @@ function ToolRow({ item }: { item: ToolActivity }) {
           {detail !== undefined && <Text style={styles.activitySeparator}>·</Text>}
           {detail !== undefined && <Text style={styles.toolSummary} numberOfLines={1}>{detail}</Text>}
         </View>
-        {item.state !== 'finished' && <Text style={[styles.toolState, item.state === 'failed' && styles.toolFailed]}>{stateText}</Text>}
+        {item.state !== 'finished' && <View style={styles.toolStateGroup}>
+          {item.state === 'running' && <ActivityIndicator size="small" color={colors.success} />}
+          <Text style={[styles.toolState, item.state === 'failed' && styles.toolFailed]}>{stateText}</Text>
+        </View>}
         {hasDetail && (expanded
           ? <ChevronDown size={17} color={colors.muted} />
           : <ChevronRight size={17} color={colors.muted} />)}
@@ -882,6 +890,40 @@ function WelcomeMessage({ backend }: { backend?: 'harness' | 'codex' }) {
   )
 }
 
+function GeneratingIndicator() {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
+  return (
+    <View style={styles.generatingIndicator} accessibilityRole="progressbar" accessibilityLabel={zhCN.chat.generating}>
+      <ActivityIndicator size="small" color={colors.accent} />
+      <Text style={styles.generatingText}>{zhCN.chat.generating}</Text>
+    </View>
+  )
+}
+
+function StreamingCursor() {
+  const opacity = useRef(new Animated.Value(1)).current
+  const styles = useThemedStyles(createStyles)
+
+  useEffect(() => {
+    const animation = Animated.loop(Animated.sequence([
+      Animated.timing(opacity, { toValue: 0.2, duration: 450, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 450, useNativeDriver: true }),
+    ]))
+    animation.start()
+    return () => animation.stop()
+  }, [opacity])
+
+  return <Animated.View style={[styles.streamingCursor, { opacity }]} accessibilityLabel={zhCN.chat.generating} />
+}
+
+function isActiveChatItem(item: ChatItem): boolean {
+  if (item.kind === 'message') return item.streaming === true
+  if (item.kind === 'tool') return item.state === 'running'
+  if (item.kind === 'approval' || item.kind === 'question') return item.outcome === undefined
+  return false
+}
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
@@ -941,6 +983,8 @@ function createStyles(colors: ThemeColors) {
   reasoningPreview: { ...type.small, color: colors.muted, flex: 1 },
   activitySeparator: { ...type.small, color: colors.subtle },
   reasoningBody: { backgroundColor: colors.surface, padding: spacing.sm, marginHorizontal: spacing.xs, marginBottom: spacing.xs, borderRadius: radius.sm },
+  generatingIndicator: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, marginVertical: spacing.xs },
+  generatingText: { ...type.small, color: colors.muted },
   streamingCursor: { width: 7, height: 16, backgroundColor: colors.accent, borderRadius: 2, marginTop: 3 },
   toolCard: { borderRadius: radius.md, overflow: 'hidden' },
   toolCardExpanded: { backgroundColor: colors.surface },
@@ -950,6 +994,7 @@ function createStyles(colors: ThemeColors) {
   toolCopy: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 },
   toolName: { ...type.smallStrong, color: colors.ink },
   toolSummary: { ...type.small, color: colors.muted, flex: 1 },
+  toolStateGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   toolState: { ...type.caption, color: colors.success },
   toolFailed: { color: colors.danger },
   toolDetails: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator, padding: spacing.sm, gap: spacing.md },
