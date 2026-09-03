@@ -1,6 +1,6 @@
 ## English
 
-This release includes changes since `v0.4.3` ([full comparison](https://github.com/liguobao/ds-harness-remote/compare/v0.4.3...v0.4.6)). It supersedes the revoked `v0.4.5` release.
+This release includes changes since `v0.4.2` ([full comparison](https://github.com/liguobao/ds-harness-remote/compare/v0.4.2...v0.4.6)). It supersedes the revoked `v0.4.5` release.
 
 ### Highlights
 
@@ -28,7 +28,7 @@ dsh plugin --profile dsh-tui add ds-harness-remote@0.4.6
 
 ## 中文
 
-本版本包含自 `v0.4.3` 以来的改动（[完整对比](https://github.com/liguobao/ds-harness-remote/compare/v0.4.3...v0.4.6)）。它替代已撤销的 `v0.4.5`。
+本版本包含自 `v0.4.2` 以来的改动（[完整对比](https://github.com/liguobao/ds-harness-remote/compare/v0.4.2...v0.4.6)）。它替代已撤销的 `v0.4.5`。
 
 ### 主要变更
 
