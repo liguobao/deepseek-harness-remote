@@ -91,12 +91,41 @@ describe('Cordis plugin lifecycle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('waits for Desktop connection before activating even when ApiProxy is ready', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-remote-late-connection-'))
+    directories.push(dshHome)
+    vi.stubEnv('DSH_HOME', dshHome)
+
+    const ctx = new Context()
+    const handle = vi.fn(() => async () => undefined)
+    ctx.provide('settings', settings({ deviceName: 'Cordis delayed connection host' }))
+    ctx.provide('apiProxy', apiProxy())
+    ctx.provide('typertGateway', typertGateway())
+    const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis delayed connection host' })
+
+    expect(ctx.get('dshRemote')).toBeUndefined()
+    ctx.provide('connection', { rpc: { handle } } as never)
+    await vi.waitFor(() => {
+      expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis delayed connection host' })
+    })
+    expect(handle).toHaveBeenCalledWith('/ds-harness-remote', expect.any(Function), {
+      authority: 'loopback',
+    })
+
+    await fiber.dispose()
+    expect(ctx.get('dshRemote')).toBeUndefined()
+    await ctx.fiber.dispose()
+  })
+
   it('loads a TUI Host against the alpha Remote Gateway without a Desktop connection service', async () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-remote-alpha-cordis-'))
     directories.push(dshHome)
     vi.stubEnv('DSH_HOME', dshHome)
 
     const ctx = new Context()
+    ctx.provide('commands', { register: vi.fn(() => vi.fn()) })
+    ctx.provide('tuiCommandTrees', { register: vi.fn(() => vi.fn()) })
+    ctx.provide('tuiScenes', { register: vi.fn(() => vi.fn()), open: vi.fn(() => true) })
     ctx.provide('settings', settings({ deviceName: 'Cordis alpha host' }))
     ctx.provide('typertGateway', {
       invoke: vi.fn(async () => undefined),
@@ -174,16 +203,41 @@ describe('Cordis plugin lifecycle', () => {
     vi.stubEnv('DSH_HOME', dshHome)
 
     const ctx = new Context()
+    const handlers: Array<{
+      channel: string
+      handler: (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>
+      disposed: boolean
+    }> = []
     ctx.provide('settings', settings({ deviceName: 'Cordis delayed rc.2 host' }))
     ctx.provide('typertGateway', typertGateway())
-    ctx.provide('connection', connection())
+    ctx.provide('connection', {
+      rpc: {
+        handle: vi.fn((channel: string, handler: typeof handlers[number]['handler']) => {
+          const entry = { channel, handler, disposed: false }
+          handlers.push(entry)
+          return async () => { entry.disposed = true }
+        }),
+      },
+    } as never)
     const fiber = await ctx.plugin(remotePlugin, { deviceName: 'Cordis delayed rc.2 host' })
 
     expect(ctx.get('dshRemote')).toBeUndefined()
+    expect(handlers).toHaveLength(1)
+    expect(handlers[0]?.channel).toBe('/ds-harness-remote')
+    await expect(handlers[0]?.handler('status', {}, new AbortController().signal)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        mode: 'local',
+        available: false,
+        hostAuthorizationAvailable: false,
+      },
+    })
     ctx.provide('apiProxy', apiProxy())
     await vi.waitFor(() => {
       expect(ctx.dshRemote.currentIdentity()).toMatchObject({ name: 'Cordis delayed rc.2 host' })
     })
+    expect(handlers[0]?.disposed).toBe(true)
+    expect(handlers.at(-1)?.disposed).toBe(false)
 
     await fiber.dispose()
     expect(ctx.get('dshRemote')).toBeUndefined()

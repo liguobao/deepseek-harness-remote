@@ -43,6 +43,7 @@ interface RemoteStatus {
   target?: { deviceId: string; name: string }
   workspaceSelection?: RemoteWorkspaceSelection
   available: boolean
+  controlUnavailable?: boolean
   deviceName?: string
   serverUrl?: string
   connected?: boolean
@@ -269,6 +270,7 @@ const en = {
   associationSaved: 'Associated. Restart Harness to apply.',
   signedOut: 'Signed out. Restart Harness to disconnect this mode.',
   remoteRequestFailed: 'Remote mode request failed.',
+  remoteControlUnavailable: 'Remote plugin control is still starting. Restart DSH if it stays unavailable.',
   switchTarget: 'Switch Local / Remote Harness target',
   harnessTarget: 'Harness target',
   close: 'Close',
@@ -473,6 +475,7 @@ const zh: Record<keyof typeof en, string> = {
   associationSaved: '关联成功。重启 Harness 后生效。',
   signedOut: '已退出授权。重启 Harness 后将断开此模式。',
   remoteRequestFailed: '远程模式请求失败。',
+  remoteControlUnavailable: 'Remote 插件控制通道仍在启动；如果一直不可用，请重启 DSH。',
   switchTarget: '切换本地或远程 Harness',
   harnessTarget: 'Harness 目标',
   close: '关闭',
@@ -652,6 +655,26 @@ interface RemoteConnectionProgressStep extends RemoteConnectionProgress {
 }
 
 const defaultPreferredTransports: readonly RemoteTransportPreference[] = ['lan', 'p2p', 'turn', 'relay']
+const controlRouteBackoffStepsMs = [1_000, 2_000, 5_000, 10_000, 30_000] as const
+
+class ControlRouteUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ControlRouteUnavailableError'
+  }
+}
+
+function controlRouteUnavailableStatus(): RemoteStatus {
+  return {
+    mode: 'local',
+    available: false,
+    controlUnavailable: true,
+    connected: false,
+    transport: 'Disconnected',
+    remoteFeatures: { commandList: false, fileViewer: false, codex: false },
+    hostAuthorizationAvailable: false,
+  }
+}
 
 function normalizedPreferredTransports(value: readonly RemoteTransportPreference[] | undefined): RemoteTransportPreference[] {
   return value === undefined || value.length === 0 ? [...defaultPreferredTransports] : [...value]
@@ -2263,19 +2286,24 @@ window.__ModuleLoader__.load({
       ctx.effect(() => () => { window.__DS_HARNESS_REMOTE_CLIENT_ACTIVE__ = false }, 'ds-harness-remote: client singleton')
 
       const t = ctx.locale.bind(localeNamespace)
+      let controlRouteRetryAfter = 0
+      let controlRouteBackoffIndex = 0
       const control = async <T,>(endpoint: string, payload: unknown = {}): Promise<T> => {
+        if (endpoint === 'status' && Date.now() < controlRouteRetryAfter) {
+          return controlRouteUnavailableStatus() as T
+        }
         let result: ControlResult
-        for (let attempt = 0; ; attempt += 1) {
-          try {
-            result = await ctx.connection.rpc.call(CONTROL_RPC_PREFIX, endpoint, payload)
-            break
-          } catch (reason) {
-            // The browser face can mount one turn before the injected Host
-            // runtime has registered its control route. A 405 comes from the static Web
-            // fallback, so the RPC was not dispatched and is safe to retry.
-            if (attempt >= 19 || !isPendingControlRoute(reason)) throw reason
-            await delay(100)
-          }
+        try {
+          result = await ctx.connection.rpc.call(CONTROL_RPC_PREFIX, endpoint, payload)
+          controlRouteRetryAfter = 0
+          controlRouteBackoffIndex = 0
+        } catch (reason) {
+          if (!isMissingControlRoute(reason)) throw reason
+          const delayMs = controlRouteBackoffStepsMs[Math.min(controlRouteBackoffIndex, controlRouteBackoffStepsMs.length - 1)]!
+          controlRouteBackoffIndex += 1
+          controlRouteRetryAfter = Date.now() + delayMs
+          if (endpoint === 'status') return controlRouteUnavailableStatus() as T
+          throw new ControlRouteUnavailableError(t('remoteControlUnavailable'))
         }
         if (!result.ok) throw new Error(result.error?.message ?? t('remoteRequestFailed'))
         return result.value as T
@@ -2403,14 +2431,10 @@ window.__ModuleLoader__.load({
       }, RemotePluginOptions))
     }
 
-    function isPendingControlRoute(reason: unknown): boolean {
+    function isMissingControlRoute(reason: unknown): boolean {
       return reason instanceof Error
         && reason.message.startsWith(`transport failure for ${CONTROL_RPC_PREFIX}/`)
-        && reason.message.endsWith(': HTTP 405')
-    }
-
-    function delay(ms: number): Promise<void> {
-      return new Promise(resolve => window.setTimeout(resolve, ms))
+        && (reason.message.endsWith(': HTTP 404') || reason.message.endsWith(': HTTP 405'))
     }
 
     function messageOf(reason: unknown): string { return reason instanceof Error ? reason.message : String(reason) }

@@ -1761,6 +1761,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
     associationSaved: "Associated. Restart Harness to apply.",
     signedOut: "Signed out. Restart Harness to disconnect this mode.",
     remoteRequestFailed: "Remote mode request failed.",
+    remoteControlUnavailable: "Remote plugin control is still starting. Restart DSH if it stays unavailable.",
     switchTarget: "Switch Local / Remote Harness target",
     harnessTarget: "Harness target",
     close: "Close",
@@ -1963,6 +1964,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
     associationSaved: "\u5173\u8054\u6210\u529F\u3002\u91CD\u542F Harness \u540E\u751F\u6548\u3002",
     signedOut: "\u5DF2\u9000\u51FA\u6388\u6743\u3002\u91CD\u542F Harness \u540E\u5C06\u65AD\u5F00\u6B64\u6A21\u5F0F\u3002",
     remoteRequestFailed: "\u8FDC\u7A0B\u6A21\u5F0F\u8BF7\u6C42\u5931\u8D25\u3002",
+    remoteControlUnavailable: "Remote \u63D2\u4EF6\u63A7\u5236\u901A\u9053\u4ECD\u5728\u542F\u52A8\uFF1B\u5982\u679C\u4E00\u76F4\u4E0D\u53EF\u7528\uFF0C\u8BF7\u91CD\u542F DSH\u3002",
     switchTarget: "\u5207\u6362\u672C\u5730\u6216\u8FDC\u7A0B Harness",
     harnessTarget: "Harness \u76EE\u6807",
     close: "\u5173\u95ED",
@@ -2119,7 +2121,22 @@ Minimum version required to store current data is: ` + bestVersion + `.
     refreshQrCode: "\u5237\u65B0\u4E8C\u7EF4\u7801",
     codexVirtualWorkspace: "CodeX \u5DE5\u4F5C\u533A",
     codexVirtualSessions: "Sessions"
-  }, defaultPreferredTransports = ["lan", "p2p", "turn", "relay"];
+  }, defaultPreferredTransports = ["lan", "p2p", "turn", "relay"], controlRouteBackoffStepsMs = [1e3, 2e3, 5e3, 1e4, 3e4], ControlRouteUnavailableError = class extends Error {
+    constructor(message) {
+      super(message), this.name = "ControlRouteUnavailableError";
+    }
+  };
+  function controlRouteUnavailableStatus() {
+    return {
+      mode: "local",
+      available: !1,
+      controlUnavailable: !0,
+      connected: !1,
+      transport: "Disconnected",
+      remoteFeatures: { commandList: !1, fileViewer: !1, codex: !1 },
+      hostAuthorizationAvailable: !1
+    };
+  }
   function normalizedPreferredTransports(value) {
     return value === void 0 || value.length === 0 ? [...defaultPreferredTransports] : [...value];
   }
@@ -3483,16 +3500,18 @@ Minimum version required to store current data is: ` + bestVersion + `.
         window.__DS_HARNESS_REMOTE_CLIENT_ACTIVE__ = !0, ctx.effect(() => () => {
           window.__DS_HARNESS_REMOTE_CLIENT_ACTIVE__ = !1;
         }, "ds-harness-remote: client singleton");
-        let t = ctx.locale.bind(localeNamespace), control = async (endpoint, payload = {}) => {
+        let t = ctx.locale.bind(localeNamespace), controlRouteRetryAfter = 0, controlRouteBackoffIndex = 0, control = async (endpoint, payload = {}) => {
+          if (endpoint === "status" && Date.now() < controlRouteRetryAfter)
+            return controlRouteUnavailableStatus();
           let result;
-          for (let attempt = 0; ; attempt += 1)
-            try {
-              result = await ctx.connection.rpc.call(CONTROL_RPC_PREFIX, endpoint, payload);
-              break;
-            } catch (reason) {
-              if (attempt >= 19 || !isPendingControlRoute(reason)) throw reason;
-              await delay(100);
-            }
+          try {
+            result = await ctx.connection.rpc.call(CONTROL_RPC_PREFIX, endpoint, payload), controlRouteRetryAfter = 0, controlRouteBackoffIndex = 0;
+          } catch (reason) {
+            if (!isMissingControlRoute(reason)) throw reason;
+            let delayMs = controlRouteBackoffStepsMs[Math.min(controlRouteBackoffIndex, controlRouteBackoffStepsMs.length - 1)];
+            if (controlRouteBackoffIndex += 1, controlRouteRetryAfter = Date.now() + delayMs, endpoint === "status") return controlRouteUnavailableStatus();
+            throw new ControlRouteUnavailableError(t("remoteControlUnavailable"));
+          }
           if (!result.ok) throw new Error(result.error?.message ?? t("remoteRequestFailed"));
           return result.value;
         };
@@ -3564,11 +3583,8 @@ Minimum version required to store current data is: ` + bestVersion + `.
           inject: () => ({ control })
         }, RemotePluginOptions));
       }
-      function isPendingControlRoute(reason) {
-        return reason instanceof Error && reason.message.startsWith(`transport failure for ${CONTROL_RPC_PREFIX}/`) && reason.message.endsWith(": HTTP 405");
-      }
-      function delay(ms) {
-        return new Promise((resolve) => window.setTimeout(resolve, ms));
+      function isMissingControlRoute(reason) {
+        return reason instanceof Error && reason.message.startsWith(`transport failure for ${CONTROL_RPC_PREFIX}/`) && (reason.message.endsWith(": HTTP 404") || reason.message.endsWith(": HTTP 405"));
       }
       function messageOf(reason) {
         return reason instanceof Error ? reason.message : String(reason);

@@ -67,17 +67,44 @@ export function apply(ctx: Context, input: ConfigInput = {}): void {
   // Its rc.2 Gateway also has no stream carrier or ApiProxy, but the Host
   // control plane and `/remote` account commands remain useful. Desktop
   // profiles still wait for one complete official Harness carrier.
-  ctx.inject(['settings', 'typertGateway'], runtimeContext => {
+  const activateWhenCarrierReady = (runtimeContext: Context): void | Promise<void> => {
     const gateway = runtimeContext.get('typertGateway') as TypertGatewayLike
+    const connection = runtimeContext.get('connection') as HostConnectionHandle | undefined
+    let disposePendingControl: (() => Promise<void>) | undefined
+    const installPendingControl = (): void => {
+      if (connection === undefined || disposePendingControl !== undefined) return
+      disposePendingControl = runtimeContext.effect(() => {
+        const control = new PluginControlRuntime(
+          resolveConfig(input),
+          new IdentityStore().directory,
+          undefined,
+          undefined,
+          undefined,
+        )
+        return control.register(connection)
+      }, 'dsh-remote pending control')
+    }
+    const startActiveRuntime = async (activeContext: Context): Promise<void> => {
+      await disposePendingControl?.()
+      disposePendingControl = undefined
+      await activate(activeContext, input, tuiBinding)
+    }
     if (
       tuiCommandsAvailable
       || runtimeContext.get('apiProxy') !== undefined
       || new TypertGatewaySwitch(gateway).supportsCarrier()
     ) {
-      return activate(runtimeContext, input, tuiBinding)
+      return startActiveRuntime(runtimeContext)
     }
-    runtimeContext.inject(['apiProxy'], legacyContext => activate(legacyContext, input))
-  })
+    installPendingControl()
+    runtimeContext.inject(['apiProxy'], legacyContext => startActiveRuntime(legacyContext))
+  }
+
+  if (tuiCommandsAvailable) {
+    ctx.inject(['settings', 'typertGateway'], activateWhenCarrierReady)
+  } else {
+    ctx.inject(['settings', 'connection', 'typertGateway'], activateWhenCarrierReady)
+  }
 }
 
 async function activate(
@@ -102,7 +129,14 @@ async function activate(
   const config: ResolvedConfig = connection === undefined && resolvedConfig.serverUrl === undefined
     ? { ...resolvedConfig, serverUrl: DEFAULT_REMOTE_SERVER_URL }
     : resolvedConfig
-  if (!config.enabled) return
+  const defaultIdentityDirectory = new IdentityStore().directory
+  if (!config.enabled) {
+    if (connection !== undefined) {
+      const controlRuntime = new PluginControlRuntime(config, defaultIdentityDirectory, settingsScope, undefined, undefined)
+      ctx.effect(() => controlRuntime.register(connection), 'dsh-remote disabled control')
+    }
+    return
+  }
   // Mirrors SafeLogger output to the process stdout/stderr as well as the DSH
   // logger: the web process stdout is captured by the Desktop shell into
   // desktop.log, so remote RPC/transport diagnostics stay greppable there.
@@ -112,7 +146,6 @@ async function activate(
     warn: message => { ctx.logger.warn(message); console.warn(message) },
     error: message => { ctx.logger.error(message); console.error(message) },
   }, config.logLevel)
-  const defaultIdentityDirectory = new IdentityStore().directory
   const hostIdentities = new IdentityStore({
     directory: config.serverUrl === undefined
       ? defaultIdentityDirectory
