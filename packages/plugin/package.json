@@ -1,11 +1,27 @@
 {
   "name": "ds-harness-remote",
   "version": "0.4.8",
-  "description": "DeepSeek 远程连接",
+  "description": "End-to-end encrypted remote access to DeepSeek Harness and experimental Codex workspaces from desktop, web, and Android, with dsh-TUI Host support.",
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "codex",
+    "remote-development",
+    "end-to-end-encryption",
+    "webrtc"
+  ],
+  "homepage": "https://github.com/liguobao/ds-harness-remote#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/liguobao/ds-harness-remote.git"
   },
+  "bugs": {
+    "url": "https://github.com/liguobao/ds-harness-remote/issues"
+  },
+  "author": "liguobao <lgb835485368@gmail.com>",
+  "license": "MIT",
   "publishConfig": {
     "access": "public",
     "provenance": true

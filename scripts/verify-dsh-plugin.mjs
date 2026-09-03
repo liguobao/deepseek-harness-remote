@@ -22,7 +22,13 @@ assert.ok(
   componentManifest.contributes?.commands?.some(command => command.id === 'ds-harness.remote'),
   'root Component manifest must declare the /remote command',
 )
-assert.equal(manifest.description, 'DeepSeek 远程连接', 'root package must expose the Chinese plugin name')
+assert.equal(pluginManifest.description, manifest.description, 'root and npm package descriptions must stay unified')
+assert.deepEqual(pluginManifest.keywords, manifest.keywords, 'root and npm package keywords must stay unified')
+assert.equal(pluginManifest.homepage, manifest.homepage, 'root and npm package homepages must stay unified')
+assert.deepEqual(pluginManifest.repository, manifest.repository, 'root and npm package repositories must stay unified')
+assert.deepEqual(pluginManifest.bugs, manifest.bugs, 'root and npm package issue trackers must stay unified')
+assert.equal(pluginManifest.author, manifest.author, 'root and npm package authors must stay unified')
+assert.equal(pluginManifest.license, manifest.license, 'root and npm package licenses must stay unified')
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml', 'root package must declare a DSH bundle patch')
 assert.equal(manifest.dsh?.client?.platform, 'web', 'root package must declare its browser client face')
 assert.ok(

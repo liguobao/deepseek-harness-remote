@@ -1,207 +1,102 @@
-# ds-harness-remote
+# DeepSeek Harness Remote
 
-English | 中文
+Continue your DeepSeek Harness sessions and experimental Codex workspaces from another device over an end-to-end encrypted connection.
 
-## Overview / 概览
+[GitHub](https://github.com/liguobao/ds-harness-remote) · [Full guide](https://github.com/liguobao/ds-harness-remote#readme) · [中文说明](https://github.com/liguobao/ds-harness-remote/blob/main/README.zh.md) · [Remote Web](https://dsh.r2049.cn/app) · [Android](https://github.com/liguobao/ds-harness-remote/releases/latest)
 
-DeepSeek Remote plugin for DSH Host + Remote workspaces. One install provides encrypted remote access from your own devices and remote workspace switching inside the existing Harness UI.
+`ds-harness-remote` is the Remote Host and workspace plugin for DSH. Harness keeps running on your work computer with its existing workspaces, tools, and permission controls; Remote gives your authorized devices another window into that environment.
 
-DeepSeek Remote 是 DSH Host + Remote 工作区插件。一次安装可提供本地设备到远端的加密远程访问能力，以及在现有 Harness UI 内切换远端工作区。
+> Install this package with `dsh plugin`, not `npm install`. The DSH command updates the selected profile and adds the required bundle configuration.
 
-> Install this DSH bundle with `dsh plugin`, not with npm directly. The DSH command updates the
-> selected profile and adds the bundle configuration layer.
->
-> 这是 DSH bundle，请通过 `dsh plugin` 安装，不要直接使用 npm。DSH 命令会更新指定 profile，
-> 并加入 bundle 配置层。
+## Highlights
 
-No Client mode switch is required. Choosing a remote workspace keeps the local UI unchanged, routes rc.2 through `RemoteHarnessApiProxy` or the alpha generation through the Typert Remote Gateway carrier, and falls back to the matching local transport on disconnect or exit.
+- Continue active sessions and review progress from another computer, the web, or Android
+- Send text and image prompts, answer questions, and handle permission requests
+- Open workspaces on another authorized computer without replacing the native Harness interface
+- Reach the Host without opening a public listening port or configuring router port forwarding
+- Protect session traffic with authenticated end-to-end encryption
+- Preview remote files through the optional, read-only `dsh-file-viewer` integration
+- Open Host Codex projects in the existing Remote UI through the optional experimental Codex domain
 
-无需启动或切换 Client 模式。选择远端工作区后，本地 UI 不变：rc.2 请求通过 `RemoteHarnessApiProxy` 路由，alpha 代际请求通过 Typert Remote Gateway carrier 路由；断线或退出时恢复对应的本地 transport。
+## Install
 
-## User flow / 用户流程
+### DSH Desktop
 
-1. Open **Remote** from the sidebar.
-2. Sign in with GitHub or Zhihu QR authorization, or with your account and password. New password accounts can register through [Remote Web](https://dsh.r2049.cn/app/register); the site shows the current invitation requirements.
-3. Enable remote control for the current computer, or select another online device to control it directly.
-4. Enter an existing workspace or browse remote directories to open one. Use **Exit** to return local and stop forwarding.
+[DSH Desktop](https://github.com/liguobao/dsh-desktop) includes Remote and enables it by default. No separate plugin installation is required.
 
-1. 从侧边栏打开 **Remote** 入口。
-2. 使用 GitHub/知乎扫码授权登录，或使用账号密码登录。新的账号密码用户可从 [Remote Web](https://dsh.r2049.cn/app/register) 注册，当前邀请要求以站点页面为准。
-3. 为当前机器启用远端控制，或直接选择另一台在线设备并控制它。
-4. 进入已有 Workspace，或浏览远端目录后打开 Workspace；使用 **退出** 回到本地并停止转发。
+### Existing DSH installation
 
-## Harness images / Harness 图片
-
-With DSH `dsh-v0.1.1-rc.2` or `dsh-v0.1.2-alpha.1`–`rc.1`, the native conversation UI
-can send images through `session.prompt` and render them through the read-only
-`session.attachment` lookup. Large ApiProxy or Gateway envelopes use bounded
-512 KiB transfer chunks; image preprocessing, DeepSeek Files API upload, and
-file-id reuse stay on the Host in the official adapter.
-
-使用 DSH `dsh-v0.1.1-rc.2` 或 `dsh-v0.1.2-alpha.1`–`rc.1` 时，原生会话 UI 可通过
-`session.prompt` 发送图片，并通过只读 `session.attachment` 回读显示。较大的 ApiProxy 或
-Gateway envelope 使用受限的 512 KiB 分块；图片预处理、DeepSeek Files API 上传与 file-id
-复用仍由 Host 官方 adapter 完成。
-
-## Directory browsing / 目录浏览
-
-- Calls remote `host.listDirectory` first.
-- Returns read-only metadata only: one-level children, absolute path, breadcrumbs, Home, hidden flag.
-- The picker does not read file contents and never writes or mutates directories.
-
-- 默认先调用远端 `host.listDirectory`。
-- 仅返回只读元数据：单层子目录、绝对路径、面包屑、Home、隐藏标记。
-- Workspace 选择器不读取文件内容，也不改文件系统、不建/改/删目录。
-
-## Remote File Viewer / 远端文件查看
-
-Install `dsh-file-viewer` on the Host and Client profiles to reuse its in-app
-renderers for remote workspace files. Remote exposes only `stat`, bounded
-`readRange`, and directory `list` over the authenticated encrypted channel.
-Each transport read is capped at 512 KiB and larger viewer reads are assembled
-from multiple chunks. Provider root/locator authorization remains in File Viewer.
-
-在 Host 与 Client profile 中安装 `dsh-file-viewer` 后，可复用其内置渲染器查看远端
-Workspace 文件。Remote 仅在认证加密通道中开放 `stat`、受限 `readRange` 与目录 `list`；
-每个传输分块最多 512 KiB，更大的读取由客户端自动拼接。根目录与 locator 权限继续由
-File Viewer provider 校验。
-
-Remote preview never exposes write/delete/upload/execute, `openExternal`, or a
-general filesystem RPC.
-
-远端预览不开放写入、删除、上传、执行、`openExternal` 或通用文件系统 RPC。
-
-## Architecture / 架构
-
-```text
-Local Harness UI
-  -> ApiProxySwitch (rc.2) / TypertGatewaySwitch (alpha)
-  -> RemoteHarnessApiProxy / RemoteTypertGateway
-  -> Adaptive transport (LAN / P2P / TURN / Relay)
-  -> Noise IK secure channel
-  -> HarnessApiBridge / HarnessRemoteBridge allowlist
-  -> Remote Harness ApiProxy or TypertGateway / FileViewerHost read-only bridge
-```
-
-```text
-本地 Harness UI
-  -> ApiProxySwitch（rc.2）/ TypertGatewaySwitch（alpha）
-  -> RemoteHarnessApiProxy / RemoteTypertGateway
-  -> 自适应传输（LAN / P2P / TURN / Relay）
-  -> Noise IK 安全通道
-  -> HarnessApiBridge / HarnessRemoteBridge 白名单
-  -> 远端 Harness ApiProxy 或 TypertGateway / FileViewerHost 只读桥
-```
-
-## Key modules / 核心模块
-
-- `service.ts`: Host lifecycle / Host 生命周期
-- `client-runtime.ts`: device list, connection, workspace actions / 设备列表、连接、工作区操作
-- `client.ts`: settings UI, remote modal, sidebar, remote header / 设置卡片、Remote 弹窗、侧边栏、远端 Header
-- `harness-api-bridge.ts`: ApiProxy allowlist and stream bridge / ApiProxy 白名单与 stream 桥接
-- `harness-remote-bridge.ts`: v0.1.2 Typert Remote allowlist and stream carrier / v0.1.2 Typert Remote 白名单与 stream carrier
-- `file-viewer-bridge.ts`: bounded File Viewer read bridge / 受限 File Viewer 读取桥
-- `identity-store.ts` / `server-credentials.ts`: account-scoped identity and credentials / 账号隔离的身份与凭证
-
-## Security model / 安全模型
-
-- The Harness Host does not require a public listening port. Clients can connect from anywhere with internet access over a bidirectional end-to-end encrypted channel.
-- Host/Client authenticate with long-lived X25519 keys using Noise IK.
-- ApiProxy methods and Typert Remote endpoints are allowlist-driven (fail-closed).
-- Workspace-picker browsing is metadata-only. Optional File Viewer preview is read-only, bounded, and provider-authorized.
-- Remote does not expose a direct shell, PTY, general tool RPC, remote desktop, or direct file-mutation API. Harness tools may still modify files or run commands under the Host's normal permission controls.
-- Data is stored under `$DSH_HOME/remote/servers/<origin-hash>/{host,client}`. Unix private keys must be `0600`.
-
-- Harness 主机无需开放公网监听端口；Client 可以从任意可上网的地方通过双向端到端加密链路连接。
-- Host/Client 使用长期 X25519 key + Noise IK 进行相互认证。
-- ApiProxy 方法与 Typert Remote endpoint 均使用固定白名单（未命中即拒绝）。
-- Workspace 选择器目录浏览仅返回元数据；可选的 File Viewer 预览只读、分块且继续执行 provider 授权。
-- Remote 不开放直接 Shell、PTY、通用工具 RPC、远程桌面或直接文件修改 API。Harness 工具仍可以在 Host 原有权限控制下修改文件或运行命令。
-- 数据位于 `$DSH_HOME/remote/servers/<origin-hash>/{host,client}`，私钥权限需 `0600`。
-
-## Configuration and install / 配置与安装
-
-Settings are written to `$DSH_HOME/settings.yaml` under `ds-harness-remote` (restart required).
-
-配置写入 `$DSH_HOME/settings.yaml` 的 `ds-harness-remote`（重启后生效）。
-
-### dsh-TUI Host login / dsh-TUI Host 登录
-
-The Host runtime can start without the Desktop browser `connection` service. For a terminal-only
-[dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) profile, install the plugin, start `dsh-tui`, and
-use the native `/remote` slash command:
-
-纯终端 [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) profile 不需要 Desktop 浏览器的
-`connection` 服务。安装插件并启动 `dsh-tui` 后，使用原生 `/remote` Slash Command：
-
-```sh
-dsh plugin --profile dsh-tui add ds-harness-remote@0.4.8
-```
-
-```text
-/remote
-/remote login [github|zhihu]
-/remote status
-/remote logout
-```
-
-`/remote login` defaults to Zhihu and opens a TUI-native QR scene with a clickable authorization URL
-below the code. GitHub is also supported. dsh-TUI enables Host control by default; `/remote logout`
-revokes the Host and rotates its local identity. Host configuration is intentionally not exposed yet;
-the Server is `https://dsh.r2049.cn`.
-
-`/remote login` 默认使用知乎，并打开 TUI 原生二维码场景，二维码下方会显示可点击的授权 URL；
-同时支持 GitHub。dsh-TUI 默认开启 Host 控制；`/remote logout` 会撤销 Host 并轮换本地身份。
-目前不提供 Host 配置，Server 固定为 `https://dsh.r2049.cn`。
-
-Install the package through `dsh plugin`; installing it directly with npm does not update a DSH
-profile or add the bundle configuration layer. Use `/remote` for dsh-TUI Host authorization and
-status management. Server presence remains visible to authorized Remote clients while dsh-TUI is
-running.
-
-请通过 `dsh plugin` 安装。直接使用 npm 安装不会更新 DSH profile，也不会加入 bundle 配置层。
-dsh-TUI Host 的授权与状态管理统一使用 `/remote`；dsh-TUI 运行时，Server presence 仍由已授权的
-Remote Client 查询。
-
-Codex Remote is an experimental optional domain inside this same plugin. It is enabled by default,
-can be disabled from the DeepSeek Remote settings card, and lets authorized clients open Host Codex
-projects in the existing Remote workspace and session UI. Desktop and Android can also browse to an
-existing Host directory, register it as a Codex project, and open the resulting virtual workspace. See
-[Codex Remote technical notes](../../docs/codex-remote.md) for workspace authority, data boundaries,
-configuration, and validation status.
-
-Codex Remote 是当前插件内部的实验性可选领域，默认开启，可在 DeepSeek Remote 设置卡片中关闭。它让
-已授权客户端可以在现有 Remote Workspace 和 Session UI 中打开 Host 上的 Codex 项目。Desktop 与
-Android 还可浏览并选择 Host 上已存在的目录，将它注册为 Codex Project 后直接打开对应虚拟 Workspace。
-Workspace 来源、数据边界、配置方式和验证状态见
-[Codex Remote 技术说明](../../docs/codex-remote.md)。
-
-```sh
-export DSH_REMOTE_SERVER=https://dsh.r2049.cn
-```
-
-Add the package to the `web` profile through DSH's plugin manager:
-
-通过 DSH 插件管理命令将包加入 `web` profile：
+Add the exact package version to the `web` profile, then restart Harness:
 
 ```sh
 dsh plugin --profile web add ds-harness-remote@0.4.8
 ```
 
-Do not run npm directly; it does not configure the DSH profile.
+### dsh-TUI Host
 
-不要直接运行 npm；它不会配置 DSH profile。
-
-Alternatively, install the pinned GitHub release in DSH Desktop or with the CLI:
-
-也可以在 DSH Desktop 中安装固定版本的 GitHub Release，或使用命令行安装：
-
-```text
-github:liguobao/ds-harness-remote#v0.4.8
-```
+Remote can also run as a Host in a terminal-only [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI) profile:
 
 ```sh
-dsh plugin --profile web add "github:liguobao/ds-harness-remote#v0.4.8"
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.8
 ```
 
-GitHub / 项目地址：<https://github.com/liguobao/ds-harness-remote>
+After starting dsh-TUI, manage Remote with its native slash command:
+
+```text
+/remote
+/remote login
+/remote login github
+/remote status
+/remote logout
+```
+
+`/remote login` uses Zhihu QR authorization by default; GitHub QR authorization is also supported.
+
+## Quick start
+
+1. Open **Remote** from the Harness sidebar.
+2. Sign in with GitHub or Zhihu QR authorization, or with your account and password.
+3. Enable remote control for the computer that will remain running.
+4. Sign in to the same account from DSH Desktop, [Remote Web](https://dsh.r2049.cn/app), or the [Android client](https://github.com/liguobao/ds-harness-remote/releases/latest).
+5. Select the online Host and open one of its workspaces.
+
+The public service currently uses the hosted Remote relay at `dsh.r2049.cn`. A supported self-hosted relay option is not available yet.
+
+## Experimental Codex workspaces
+
+Codex Remote is an optional domain inside this plugin. It lets authorized clients open projects reported by the Codex App Server while continuing to use the existing Harness or Android workspace and conversation UI.
+
+Codex support is enabled by default and can be disabled in the DeepSeek Remote settings card. It remains experimental while long-running recovery and cross-version compatibility work continue. See the [Codex Remote technical notes](https://github.com/liguobao/ds-harness-remote/blob/main/docs/codex-remote.md) for the current boundaries and validation status.
+
+## Security boundary
+
+- Session traffic is encrypted on the Client and decrypted only by the selected Host using `Noise_IK_25519_ChaChaPoly_SHA256`.
+- Account membership and the Host's locally pinned device identity must both authorize a connection.
+- The Host creates outbound connections only; it does not listen on a public port.
+- Remote does not expose a direct shell, PTY, general tool RPC, remote desktop, or file-mutation API. Harness tools continue to operate under the Host's normal permission controls.
+- Workspace browsing returns bounded, read-only directory metadata. Optional file previews remain read-only and provider-authorized.
+- The relay can observe necessary connection metadata but cannot read session messages, prompts, tool output, workspace paths, or file-preview content.
+
+## Compatibility
+
+Plugin `0.4.8` supports:
+
+- DeepSeek Harness `dsh-v0.1.1-rc.2` through the official legacy `ApiProxy`
+- DeepSeek Harness `dsh-v0.1.2-alpha.1` through `dsh-v0.1.2-rc.1` through the official Typert Remote Gateway
+
+Both Desktop endpoints must use the same Harness transport generation. ApiProxy and Typert connections are not translated and mixed-generation connections are rejected.
+
+## Documentation
+
+- [Complete English guide](https://github.com/liguobao/ds-harness-remote#readme)
+- [完整中文说明](https://github.com/liguobao/ds-harness-remote/blob/main/README.zh.md)
+- [dsh-TUI Remote guide](https://github.com/liguobao/ds-harness-remote/blob/main/docs/dsh-tui.md)
+- [End-to-end encryption](https://github.com/liguobao/ds-harness-remote/blob/main/docs/end-to-end-encryption.md)
+- [Network and transport](https://github.com/liguobao/ds-harness-remote/blob/main/docs/network.md)
+- [Protocol reference](https://github.com/liguobao/ds-harness-remote/blob/main/docs/protocol.md)
+
+## Project status
+
+This is an independent community project and is not an official DeepSeek product. DeepSeek and related names and marks belong to their respective owners.
+
+Licensed under the [MIT License](https://github.com/liguobao/ds-harness-remote/blob/main/packages/plugin/LICENSE).
