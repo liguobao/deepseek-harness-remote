@@ -5,8 +5,10 @@ import {
   Animated,
   FlatList,
   Image,
-  KeyboardAvoidingView,
+  Keyboard,
   Modal,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +17,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
 import { Bot, Check, ChevronDown, ChevronLeft, ChevronRight, CircleStop, Code2, ImagePlus, Images, RefreshCw, Send, ShieldAlert, Sparkles, User, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
@@ -57,6 +60,10 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const [reconnectingSession, setReconnectingSession] = useState(false)
   const listRef = useRef<FlatList<ChatItem>>(null)
   const lastStreamingScrollAt = useRef(0)
+  /** Keep the viewport on the latest turn until the user scrolls away. */
+  const pinToBottomRef = useRef(true)
+  /** Re-pin while the first session layout (markdown / images) is still settling. */
+  const initialPinRef = useRef(true)
   const visibleMessages = useMemo(() => messages.filter(item =>
     item.kind !== 'message'
       || hasVisibleMessageText(item.text)
@@ -66,29 +73,64 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
   const lastContentVersion = lastItem?.kind === 'message'
     ? `${lastItem.id}:${lastItem.text.length}:${lastItem.reasoning?.length ?? 0}`
     : undefined
+  const sessionId = session?.sessionId
 
   const { colors } = useTheme()
   const styles = useThemedStyles(createStyles)
 
-  // Scroll smoothly only when a brand-new item is appended. Streaming deltas
-  // keep the same item id, so this fires once per assistant step instead of
-  // once per chunk.
+  const scrollToBottom = useCallback((animated: boolean) => {
+    listRef.current?.scrollToEnd({ animated })
+  }, [])
+
+  // Entering a session (or switching sessions) should land on the latest turn.
   useEffect(() => {
-    if (messages.length === 0) return
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }))
-  }, [messages.length])
+    pinToBottomRef.current = true
+    initialPinRef.current = true
+  }, [sessionId])
+
+  // Loading older history prepends above the viewport — do not yank to the end.
+  useEffect(() => {
+    if (!historyLoadingOlder) return
+    pinToBottomRef.current = false
+    initialPinRef.current = false
+  }, [historyLoadingOlder])
+
+  // Scroll when a brand-new item is appended. Streaming deltas keep the same
+  // item id, so this fires once per assistant step instead of once per chunk.
+  useEffect(() => {
+    if (visibleMessages.length === 0 || historyLoadingOlder) return
+    if (!pinToBottomRef.current && !initialPinRef.current) return
+    requestAnimationFrame(() => scrollToBottom(initialPinRef.current ? false : true))
+  }, [visibleMessages.length, historyLoadingOlder, scrollToBottom])
 
   // While an assistant message is streaming, its text grows on every chunk.
   // Following it with animated scrolls piles up animation frames on the JS
   // thread (freezing back navigation and the keyboard). Snap to the end at
   // most ~10 Hz instead, without animation.
   useEffect(() => {
-    if (messages.length === 0 || lastContentVersion === undefined) return
+    if (visibleMessages.length === 0 || lastContentVersion === undefined || historyLoadingOlder) return
+    if (!pinToBottomRef.current) return
     const now = Date.now()
     if (now - lastStreamingScrollAt.current < 100) return
     lastStreamingScrollAt.current = now
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }))
-  }, [lastContentVersion, messages.length])
+    requestAnimationFrame(() => scrollToBottom(false))
+  }, [lastContentVersion, visibleMessages.length, historyLoadingOlder, scrollToBottom])
+
+  const onListContentSizeChange = useCallback(() => {
+    // FlatList often mounts before variable-height markdown finishes laying
+    // out; scroll again whenever content grows while we still want the bottom.
+    if (visibleMessages.length === 0 || historyLoadingOlder) return
+    if (!pinToBottomRef.current && !initialPinRef.current) return
+    scrollToBottom(false)
+  }, [visibleMessages.length, historyLoadingOlder, scrollToBottom])
+
+  const onListScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+    const distanceFromEnd = contentSize.height - layoutMeasurement.height - contentOffset.y
+    const atBottom = distanceFromEnd <= 80
+    pinToBottomRef.current = atBottom
+    if (!atBottom) initialPinRef.current = false
+  }, [])
 
   // Stable renderItem keeps FlatList rows from re-rendering on every streaming
   // delta; ChatItemView is memoized so only the changing row re-renders.
@@ -194,8 +236,8 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         session.backend === 'codex' ? zhCN.chat.codexFullAccessTitle : zhCN.chat.fullAccessTitle,
         session.backend === 'codex' ? zhCN.chat.codexFullAccessBody : zhCN.chat.fullAccessBody,
         [
-        { text: zhCN.common.cancel, style: 'cancel' },
-        { text: zhCN.chat.enable, style: 'destructive', onPress: apply },
+          { text: zhCN.common.cancel, style: 'cancel' },
+          { text: zhCN.chat.enable, style: 'destructive', onPress: apply },
         ],
       )
     } else apply()
@@ -245,6 +287,12 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
         renderItem={renderChatItem}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
+        onContentSizeChange={onListContentSizeChange}
+        onScroll={onListScroll}
+        scrollEventThrottle={16}
+        onScrollBeginDrag={() => {
+          initialPinRef.current = false
+        }}
         ListEmptyComponent={<WelcomeMessage backend={session.backend} />}
         ListHeaderComponent={historyHasMore ? (
           <Pressable
@@ -344,14 +392,39 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
 }
 
 function ChatKeyboardInset({ children }: { children: ReactNode }) {
-  const { colors } = useTheme()
   const styles = useThemedStyles(createStyles)
-  // Edge-to-edge Android windows do not consistently resize around the IME,
-  // even when the Activity requests adjustResize. KeyboardAvoidingView measures
-  // the actual overlap, so it is a no-op when the window already resized and
-  // adds only the missing inset when it did not. Its hide event also clears the
-  // padding instead of leaving the conversation at the compact keyboard height.
-  return <KeyboardAvoidingView style={styles.flex} behavior="padding">{children}</KeyboardAvoidingView>
+  const insets = useSafeAreaInsets()
+  const { height: windowHeight } = useWindowDimensions()
+  const [keyboardCover, setKeyboardCover] = useState(0)
+
+  useEffect(() => {
+    // Edge-to-edge Android often keeps the RN root full-screen even with
+    // adjustResize, so KeyboardAvoidingView under-pads and the IME toolbar
+    // clips the composer. Measure the real covered band from screenY.
+    const show = Keyboard.addListener('keyboardDidShow', event => {
+      setKeyboardCover(Math.max(0, windowHeight - event.endCoordinates.screenY))
+    })
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardCover(0)
+    })
+    return () => {
+      show.remove()
+      hide.remove()
+    }
+  }, [windowHeight])
+
+  // App shell already reserved insets.bottom below this tree; subtract it so
+  // we clear the IME without double-counting the gesture/nav inset. When
+  // adjustResize already shrank the window, cover≈0 and this is a no-op.
+  const paddingBottom = keyboardCover > 0
+    ? Math.max(0, keyboardCover - insets.bottom) + spacing.sm
+    : 0
+
+  return (
+    <View style={[styles.flex, paddingBottom > 0 ? { paddingBottom } : null]}>
+      {children}
+    </View>
+  )
 }
 
 function PermissionPicker({ visible, permissions, onClose, onPick }: {
