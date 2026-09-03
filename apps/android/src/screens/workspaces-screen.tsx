@@ -17,6 +17,7 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
   onDeviceInfo: () => void
 }) {
   const selectedDevice = useAppStore(state => state.selectedDevice)
+  const codexAvailable = useAppStore(state => state.codexAvailable)
   const workspaces = useAppStore(state => state.workspaces)
   const sessions = useAppStore(state => state.sessions)
   const busy = useAppStore(state => state.busyAction)
@@ -29,6 +30,7 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
   const openSession = useAppStore(state => state.openSession)
   const [refreshing, setRefreshing] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [createBackend, setCreateBackend] = useState<'harness' | 'codex'>('harness')
   const [renameTarget, setRenameTarget] = useState<WorkspaceView | undefined>(undefined)
   const [actionsTarget, setActionsTarget] = useState<WorkspaceView | undefined>(undefined)
   const [collapsedWorkspaceIds, setCollapsedWorkspaceIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -114,7 +116,19 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
               {selectedDevice === undefined ? zhCN.workspaces.title : zhCN.workspaces.deviceTitle(selectedDevice.name)}
             </Text>
           </View>
-          <IconButton label={zhCN.workspaces.create} icon={CirclePlus} onPress={() => setCreateOpen(true)} />
+          <View style={styles.createActions}>
+            {codexAvailable && <Button
+              label={zhCN.workspaces.codex}
+              icon={CirclePlus}
+              variant="quiet"
+              onPress={() => { setCreateBackend('codex'); setCreateOpen(true) }}
+            />}
+            <IconButton
+              label={zhCN.workspaces.create}
+              icon={CirclePlus}
+              onPress={() => { setCreateBackend('harness'); setCreateOpen(true) }}
+            />
+          </View>
         </View>
         {workspaces.length === 0
           ? <EmptyState
@@ -193,9 +207,10 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
 
       <CreateWorkspaceModal
         visible={createOpen}
-        busy={busy === 'create-workspace'}
+        backend={createBackend}
+        busy={busy === 'create-workspace' || busy === 'create-codex-workspace'}
         onClose={() => setCreateOpen(false)}
-        onCreate={async path => workspaceCreate(path)}
+        onCreate={async path => workspaceCreate(path, createBackend)}
       />
       <RenameWorkspaceModal
         target={renameTarget}
@@ -291,8 +306,9 @@ function relativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString(zhCN.time.locale)
 }
 
-function CreateWorkspaceModal({ visible, busy, onClose, onCreate }: {
+function CreateWorkspaceModal({ visible, backend, busy, onClose, onCreate }: {
   visible: boolean
+  backend: 'harness' | 'codex'
   busy: boolean
   onClose: () => void
   onCreate: (path: string) => Promise<boolean>
@@ -317,7 +333,7 @@ function CreateWorkspaceModal({ visible, busy, onClose, onCreate }: {
         <Pressable style={styles.backdrop} onPress={onClose}>
           <Pressable style={styles.sheet} onPress={event => event.stopPropagation()}>
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>{zhCN.workspaces.create}</Text>
+              <Text style={styles.sheetTitle}>{backend === 'codex' ? zhCN.workspaces.createCodex : zhCN.workspaces.create}</Text>
               <IconButton label={zhCN.common.close} icon={X} onPress={onClose} />
             </View>
             <Text style={styles.fieldLabel}>{zhCN.workspaces.deviceDirectory}</Text>
@@ -334,8 +350,8 @@ function CreateWorkspaceModal({ visible, busy, onClose, onCreate }: {
               />
               <Button label={zhCN.workspaces.browse} variant="secondary" onPress={() => setBrowseOpen(true)} disabled={busy} />
             </View>
-            <Text style={styles.fieldHint}>{zhCN.workspaces.directoryHint}</Text>
-            <Button label={zhCN.workspaces.create} onPress={() => void create()} loading={busy} disabled={path.trim().length === 0} />
+            <Text style={styles.fieldHint}>{backend === 'codex' ? zhCN.workspaces.codexDirectoryHint : zhCN.workspaces.directoryHint}</Text>
+            <Button label={backend === 'codex' ? zhCN.workspaces.createCodex : zhCN.workspaces.create} onPress={() => void create()} loading={busy} disabled={path.trim().length === 0} />
           </Pressable>
         </Pressable>
       </Modal>
@@ -492,6 +508,7 @@ function createStyles(colors: ThemeColors) {
   flex: { flex: 1, backgroundColor: colors.background },
   pageHeading: { paddingTop: spacing.xxl, paddingBottom: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   pageHeadingCopy: { flex: 1 },
+  createActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   title: { ...type.title, color: colors.ink },
   subtitle: { ...type.small, color: colors.muted, marginTop: 2 },
   workspaceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },

@@ -373,7 +373,7 @@ describe('CodexVirtualHarness', () => {
     await target.close()
   })
 
-  it('projects CodeX message image data URLs into native image blocks and virtual attachments', async () => {
+  it('projects CodeX message and MCP result images into native image blocks and virtual attachments', async () => {
     const imageData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lJihxwAAAABJRU5ErkJggg=='
     const client = fakeCodex([{
       id: 'thr_image',
@@ -385,15 +385,37 @@ describe('CodexVirtualHarness', () => {
       turns: [{
         id: 'turn_image',
         status: 'completed',
-        items: [{
-          id: 'user_image',
-          type: 'userMessage',
-          content: [
-            { type: 'text', text: 'Describe this image' },
-            { type: 'image', url: `data:image/png;base64,${imageData}`, name: 'screen.png' },
-            { type: 'image', url: 'https://example.test/not-allowed.png', name: 'external.png' },
-          ],
-        }],
+        items: [
+          {
+            id: 'user_image',
+            type: 'userMessage',
+            content: [
+              { type: 'text', text: 'Describe this image' },
+              { type: 'image', url: `data:image/png;base64,${imageData}`, name: 'screen.png' },
+              { type: 'image', url: 'https://example.test/not-allowed.png', name: 'external.png' },
+            ],
+          },
+          {
+            id: 'screenshot_tool',
+            type: 'mcpToolCall',
+            server: 'cua_repl',
+            tool: 'js',
+            status: 'completed',
+            result: {
+              content: [
+                { type: 'text', text: '/workspace/current-browser.png' },
+                { type: 'image', data: imageData, mimeType: 'image/png', name: 'current-browser.png' },
+              ],
+              isError: false,
+            },
+          },
+          {
+            id: 'assistant_image',
+            type: 'agentMessage',
+            content: [{ type: 'text', text: '![Current browser](/workspace/current-browser.png)' }],
+            status: 'completed',
+          },
+        ],
       }],
     }])
     const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
@@ -421,6 +443,20 @@ describe('CodexVirtualHarness', () => {
     ])
     expect(JSON.stringify(message)).not.toContain('example.test')
 
+    const assistant = history.result.value.events.find(entry => entry.event.type === 'assistant/message')!.event.data as {
+      message: { content: Array<{ type: string; attachment?: { attachmentId?: string }; data?: string; name?: string }> }
+    }
+    expect(assistant.message.content).toMatchObject([
+      { type: 'text', text: '![Current browser](/workspace/current-browser.png)' },
+      {
+        type: 'image',
+        mediaType: 'image/png',
+        data: imageData,
+        name: 'current-browser.png',
+        attachment: { mediaType: 'image/png', width: 1, height: 1, name: 'current-browser.png' },
+      },
+    ])
+
     const attachmentId = message.content[1]!.attachment!.attachmentId!
     const attachment = await target.api.sessions.attachment({
       rpcId: 'attachment-image' as never,
@@ -433,6 +469,17 @@ describe('CodexVirtualHarness', () => {
         data: imageData,
       },
     })
+    const toolAttachmentId = assistant.message.content[1]!.attachment!.attachmentId!
+    await expect(target.api.sessions.attachment({
+      rpcId: 'attachment-tool-image' as never,
+      payload: { sessionId: 'codex:thr_image' as never, attachmentId: toolAttachmentId as never },
+    })).resolves.toMatchObject({ result: {
+      ok: true,
+      value: {
+        attachment: { attachmentId: toolAttachmentId, mediaType: 'image/png', name: 'current-browser.png' },
+        data: imageData,
+      },
+    } })
     await target.close()
   })
 
@@ -552,6 +599,34 @@ describe('CodexVirtualHarness', () => {
       event: { type: 'tool/result' },
       view: { view: { title: 'CodeX MCP tool in progress', content: [{ text: 'Scanning repository' }] } },
     } })
+
+    const liveImageData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lJihxwAAAABJRU5ErkJggg=='
+    client.emit('thr_1', {
+      method: 'item/completed',
+      params: { turnId: 'turn_2', item: {
+        id: 'mcp_2', type: 'mcpToolCall', server: 'demo', tool: 'scan', status: 'completed',
+        result: { content: [{ type: 'image', data: liveImageData, mimeType: 'image/png', name: 'live.png' }] },
+      } },
+    })
+    await expect(iterator.next()).resolves.toMatchObject({ value: { event: {
+      type: 'tool/result', surfaceOp: 'replace',
+    } } })
+    client.emit('thr_1', {
+      method: 'item/completed',
+      params: { turnId: 'turn_2', item: {
+        id: 'assistant_after_image', type: 'agentMessage', text: 'Here is the live image.', status: 'completed',
+      } },
+    })
+    const liveAssistant = await iterator.next()
+    expect(liveAssistant.value).toMatchObject({ event: { type: 'assistant/message', data: { message: { content: [
+      { type: 'text', text: 'Here is the live image.' },
+      { type: 'image', data: liveImageData, attachment: { mediaType: 'image/png', name: 'live.png' } },
+    ] } } } })
+    const liveAttachmentId = liveAssistant.value.event.data.message.content[1].attachment.attachmentId
+    await expect(target.api.sessions.attachment({
+      rpcId: 'live-tool-image' as never,
+      payload: { sessionId: 'codex:thr_1' as never, attachmentId: liveAttachmentId as never },
+    })).resolves.toMatchObject({ result: { ok: true, value: { data: liveImageData } } })
 
     client.emit('thr_1', {
       method: 'thread/status/changed',

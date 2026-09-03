@@ -132,6 +132,17 @@ describe('Codex display projection', () => {
             content: [{ type: 'input_image', image_url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' }],
             status: 'completed',
           },
+          {
+            id: 'tool-image',
+            type: 'mcpToolCall',
+            server: 'cua_repl',
+            tool: 'js',
+            result: { content: [
+              { type: 'text', text: '/workspace/current-browser.png' },
+              { type: 'image', mimeType: 'image/png', data: 'aW1hZ2U=', name: 'current-browser.png' },
+            ] },
+            status: 'completed',
+          },
         ],
       }],
     })
@@ -149,6 +160,12 @@ describe('Codex display projection', () => {
         kind: 'message',
         role: 'assistant',
         images: [{ uri: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' }],
+      },
+      {
+        id: 'codex:thr_123:turn_1:tool-image',
+        kind: 'tool',
+        text: 'js\n\n/workspace/current-browser.png',
+        images: [{ uri: 'data:image/png;base64,aW1hZ2U=', name: 'current-browser.png' }],
       },
     ])
     expect(JSON.stringify(items)).not.toContain('example.test')

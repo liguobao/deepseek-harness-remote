@@ -44,6 +44,21 @@ export interface CodexSessionRead {
   session: RemoteSession
 }
 
+export async function createCodexWorkspace(
+  client: CodexRemoteClient,
+  path: string,
+  idempotencyKey: string,
+): Promise<WorkspaceView> {
+  const result = record(await client.request('project/create', {
+    name: basename(path),
+    roots: [{ path }],
+    idempotencyKey,
+  }))
+  const project = parseCodexProject(result.project, 0)
+  if (project === undefined) throw new Error(strings.runtime.codexInvalidResponse)
+  return projectWorkspace(project)
+}
+
 export async function loadCodexCatalog(client: CodexRemoteClient): Promise<CodexCatalog> {
   const [listedProjects, threads] = await Promise.all([
     loadProjects(client),
@@ -322,6 +337,7 @@ export function codexItemsToChat(items: DisplayHistoryItem[]): ChatItem[] {
       sessionId: item.sessionId,
       toolName: codexToolName(item),
       summary: text.split('\n', 1)[0],
+      ...(item.images === undefined || item.images.length === 0 ? {} : { images: item.images }),
       ...(text.length === 0 ? {} : {
         [item.status === 'running' ? 'callDetail' : 'resultDetail']: {
           text,
@@ -379,21 +395,8 @@ async function loadProjects(client: CodexRemoteClient): Promise<CodexProject[]> 
       }))
       if (!Array.isArray(result.data)) throw new Error(strings.runtime.codexInvalidResponse)
       for (const value of result.data) {
-        const source = record(value)
-        const id = string(source.id)
-        const name = string(source.name)
-        const roots = Array.isArray(source.roots)
-          ? source.roots.flatMap(root => string(record(root).path) ?? [])
-          : []
-        if (id === undefined || name === undefined || roots.length === 0 || projects.some(project => project.id === id)) continue
-        projects.push({
-          id,
-          name,
-          roots,
-          position: finiteNumber(source.position) ?? projects.length,
-          createdAt: timestamp(source.createdAt),
-          updatedAt: timestamp(source.updatedAt),
-        })
+        const project = parseCodexProject(value, projects.length)
+        if (project !== undefined && !projects.some(existing => existing.id === project.id)) projects.push(project)
       }
       cursor = string(result.nextCursor)
       if (cursor === undefined) break
@@ -402,6 +405,24 @@ async function loadProjects(client: CodexRemoteClient): Promise<CodexProject[]> 
     if (!isProjectListUnavailable(error)) throw error
   }
   return projects.sort((left, right) => left.position - right.position || left.name.localeCompare(right.name))
+}
+
+function parseCodexProject(value: unknown, fallbackPosition: number): CodexProject | undefined {
+  const source = record(value)
+  const id = string(source.id)
+  const name = string(source.name)
+  const roots = Array.isArray(source.roots)
+    ? source.roots.flatMap(root => string(record(root).path) ?? [])
+    : []
+  if (id === undefined || name === undefined || roots.length === 0) return undefined
+  return {
+    id,
+    name,
+    roots,
+    position: finiteNumber(source.position) ?? fallbackPosition,
+    createdAt: timestamp(source.createdAt),
+    updatedAt: timestamp(source.updatedAt),
+  }
 }
 
 async function loadThreads(client: CodexRemoteClient): Promise<Record<string, unknown>[]> {

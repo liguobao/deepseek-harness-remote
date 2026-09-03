@@ -567,7 +567,15 @@ export function projectCodexItem(
     return { ...base, kind: 'tool', text: commandExecutionText(item), status: projectItemStatus(item.status), details: { type } }
   }
   if (isToolItemType(type)) {
-    return { ...base, kind: 'tool', text: toolCallText(item), status: projectItemStatus(item.status), details: { type } }
+    const images = toolItemImages(item)
+    return {
+      ...base,
+      kind: 'tool',
+      text: toolCallText(item),
+      ...(images.length === 0 ? {} : { images }),
+      status: projectItemStatus(item.status),
+      details: { type },
+    }
   }
   if (type === 'fileChange') {
     return { ...base, kind: 'file-change', text: fileChangeText(item.changes), status: projectItemStatus(item.status), details: { type } }
@@ -726,6 +734,21 @@ function itemImages(item: Record<string, unknown>): DisplayImage[] {
   })
 }
 
+function toolItemImages(item: Record<string, unknown>): DisplayImage[] {
+  const candidates = [
+    isRecord(item.result) ? item.result : undefined,
+    isRecord(item.output) ? item.output : undefined,
+    Array.isArray(item.contentItems) ? { content: item.contentItems } : undefined,
+    Array.isArray(item.output) ? { content: item.output } : undefined,
+  ]
+  for (const candidate of candidates) {
+    if (candidate === undefined || !Array.isArray(candidate.content)) continue
+    const images = itemImages(candidate)
+    if (images.length > 0) return images
+  }
+  return []
+}
+
 function isImageContent(value: Record<string, unknown>): boolean {
   return value.type === 'image' || value.type === 'input_image'
 }
@@ -744,7 +767,7 @@ function imageDataUri(value: Record<string, unknown>): string | undefined {
   if (typeof value.data !== 'string' || !isCanonicalBase64(value.data)) return undefined
   const mediaType = typeof value.mediaType === 'string'
     ? value.mediaType
-    : sniffImageMediaType(value.data)
+    : typeof value.mimeType === 'string' ? value.mimeType : sniffImageMediaType(value.data)
   return mediaType !== undefined && CODEX_IMAGE_MEDIA_TYPES.has(mediaType)
     ? `data:${mediaType};base64,${value.data}`
     : undefined
@@ -866,7 +889,9 @@ function toolCallText(item: Record<string, unknown>): string | undefined {
   }
   const label = toolLabel(item)
   const error = compactUnknown(item.error)
-  const result = compactUnknown(item.result ?? item.contentItems)
+  const rawResult = item.result ?? item.contentItems
+  const result = itemText(isRecord(rawResult) ? rawResult : {})
+    ?? (toolItemImages(item).length > 0 ? undefined : compactUnknown(rawResult))
   return boundedText([label, error, result].filter((value): value is string => value !== undefined && value !== '').join('\n\n')) || undefined
 }
 

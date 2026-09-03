@@ -152,7 +152,8 @@ Remote 通过双向端到端加密链路通信。它将客户端切换到所选 
 ## 实验性 Codex 工作区
 
 Remote 也可以显示已授权 Host 上的 Codex 项目。你从原来的 Workspace 选择器进入，继续在现有
-Harness 或 Android 界面里使用 Codex，不需要学习另一个 Codex 页面。
+Harness 或 Android 界面里使用 Codex，不需要学习另一个 Codex 页面。Desktop 选择器和 Android
+工作区页面也可以把 Host 上的目录新增到 Codex 项目目录，不会导入 Harness 存储。
 
 Codex Remote 是面向自有设备的便捷入口。它支持文本 Prompt、可用客户端上的图片 Prompt、模型与
 权限控制、停止和审批。它仍以实验功能发布；长期运行恢复和兼容性工作会继续按 TODO 跟进。

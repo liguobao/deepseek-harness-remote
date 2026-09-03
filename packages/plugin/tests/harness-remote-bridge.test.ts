@@ -30,7 +30,7 @@ describe('HarnessRemoteBridge', () => {
     expect(dispatch).toHaveBeenCalledTimes(1)
   })
 
-  it('falls back to Host directory metadata when alpha picker needs the Browser capability', async () => {
+  it('falls back to Host directory metadata for the v0.1.2-rc.1 native-only picker failure', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-remote-alpha-directory-'))
     await mkdir(join(root, 'project'))
     const dispatch = vi.fn(async (endpoint: string) => {
@@ -38,9 +38,9 @@ describe('HarnessRemoteBridge', () => {
         return {
           ok: false as const,
           error: {
-            code: 'missing-capability',
-            message: 'directoryPicker.list needs the Brower capability',
-            details: {},
+            code: 'directory-picker/unavailable',
+            message: 'directoryPicker.list needs the browse capability; the composed picker serves "native"',
+            details: { capability: 'native' },
           },
         }
       }

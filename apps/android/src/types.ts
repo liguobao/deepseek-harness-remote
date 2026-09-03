@@ -244,6 +244,7 @@ export interface ImageAttachmentLimits {
 export interface ToolActivity extends ChatItemBase {
   kind: 'tool'
   toolName: string
+  images?: ChatImage[]
   arguments?: string
   summary?: string
   callDetail?: ToolDisplayDetail

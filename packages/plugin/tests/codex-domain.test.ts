@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -153,6 +153,51 @@ describe('CodexRemoteDomain', () => {
       method: 'thread/start', params: { cwd: outside },
     })).resolves.toMatchObject({ thread: { id: 'new-thread' } })
     expect(base).toContain(tmpdir())
+    await domain.close()
+  })
+
+  it('creates a sanitized CodeX project only for an existing absolute directory', async () => {
+    const { base, root } = await directories()
+    const canonicalRoot = await realpath(root)
+    const link = join(base, 'selected-project-link')
+    await symlink(root, link, 'dir')
+    const app = new FakeAppServer(root)
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
+    await domain.start()
+
+    await expect(domain.call('connection-1', {
+      method: 'project/create',
+      params: {
+        name: '  New Project  ',
+        roots: [{ path: link }],
+        idempotencyKey: '018f47f6-5f5a-7b5a-8d74-2e797b4d749c',
+      },
+    })).resolves.toEqual({
+      project: {
+        id: 'created-project',
+        name: 'New Project',
+        roots: [{ path: canonicalRoot }],
+        position: 2,
+        createdAt: 3,
+        updatedAt: 3,
+      },
+    })
+    expect(app.calls.find(call => call.method === 'project/create')).toEqual({
+      method: 'project/create',
+      params: {
+        name: 'New Project',
+        roots: [{ path: canonicalRoot }],
+        idempotencyKey: '018f47f6-5f5a-7b5a-8d74-2e797b4d749c',
+      },
+    })
+    await expect(domain.call('connection-1', {
+      method: 'project/create',
+      params: {
+        name: 'Missing',
+        roots: [{ path: join(base, 'missing') }],
+        idempotencyKey: '018f47f6-5f5a-7b5a-8d74-2e797b4d749d',
+      },
+    })).rejects.toMatchObject({ code: 'CODEX_PATH_NOT_ALLOWED' })
     await domain.close()
   })
 
@@ -594,6 +639,20 @@ class FakeAppServer implements CodexAppServerLike {
           },
         ],
         nextCursor: null,
+      }
+    }
+    if (method === 'project/create') {
+      const source = isRecord(params) ? params : {}
+      return {
+        project: {
+          id: 'created-project',
+          name: source.name,
+          roots: source.roots,
+          metadata: { secret: 'private metadata' },
+          position: 2,
+          createdAt: 3,
+          updatedAt: 3,
+        },
       }
     }
     if (method === 'thread/read') {

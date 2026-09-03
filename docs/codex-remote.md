@@ -19,6 +19,7 @@ Android 会话界面：
 
 - Desktop 复用 Harness 原生 Workspace、Session、Conversation、Composer、工具卡片和审批控件。
 - Android 复用移动端已有 Workspace、Session、Chat、模型、权限、图片、停止和审批控件。
+- Desktop Remote 选择器和 Android Workspace 页面都可选择 Host 上的真实目录并新增 Codex 项目。
 - 不增加独立 Codex 页面、本地模式入口或第二套 Thread 导航。
 
 虚拟 Workspace 和 Session 只存在于内存展示层。退出 Codex 模式、切换 Host 或断开连接时，对应
@@ -28,6 +29,10 @@ Android 会话界面：
 
 可见 Workspace 优先来自 Codex App Server 的 `project/list`。当该接口不可用或没有可用根目录时，
 Host 可以使用 `thread/list` 已返回的绝对 `cwd` 精确生成只读后备 Workspace。
+
+新增 Workspace 通过固定白名单中的 `project/create` 写入 Codex 项目目录。Host 只接受单个现存绝对
+目录，并在调用 App Server 前执行 `realpath` 和目录类型校验；成功后 Client 重新读取 `project/list`，
+不会把项目写入 DSH Workspace 存储。后备 Workspace 不支持此创建流程。
 
 新建 Thread 的目录只能来自上述 authority root 内的真实子目录。Host 必须同时执行词法路径校验和
 `realpath` 校验，拒绝 `..`、符号链接逃逸和 Client 自报的越界路径，也不得推测共同父目录。
@@ -47,7 +52,7 @@ History 由 Host 按 DSH 消息边界分页后再传输。Client 只在当前可
 
 ## 操作与权限
 
-Create、rename、archive、restore、prompt、interrupt 和 approval 操作都必须路由回 Codex App Server
+Project create、Thread create、rename、archive、restore、prompt、interrupt 和 approval 操作都必须路由回 Codex App Server
 的固定白名单方法。Remote 不能通过反射、任意 method name、process/config 入口或通用文件系统协议
 扩权。
 

@@ -393,7 +393,9 @@ function needsDirectoryFallback(result: TypertRpcResult): boolean {
   const code = result.error.code.toLocaleLowerCase()
   const message = result.error.message.toLocaleLowerCase()
   return code.includes('capability')
+    || code === 'directory-picker/unavailable'
     || code === 'directory-picker-unavailable'
+    || message.includes('browse capability')
     || message.includes('browser capability')
     || message.includes('brower capability')
     || message.includes('directory-picker-unavailable')

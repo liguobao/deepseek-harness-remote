@@ -43,6 +43,10 @@ export interface CodexVirtualWorkspaceView {
   updatedAt: string
 }
 
+export function codexProjectWorkspaceId(projectId: string): string {
+  return `${CODEX_WORKSPACE_PREFIX}project:${projectId}`
+}
+
 interface CodexProjectRoot {
   path: string
 }
@@ -163,6 +167,7 @@ interface FollowState {
   liveItems: Map<string, JsonRecord>
   liveToolOutput: Map<string, string>
   liveToolResultSeq: Map<string, number>
+  pendingToolImages: JsonRecord[]
   requestId?: string
   activeTurnId?: string
   rcOnly?: boolean
@@ -640,6 +645,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       liveItems: new Map(),
       liveToolOutput: new Map(),
       liveToolResultSeq: new Map(),
+      pendingToolImages: [],
       requestId: this.pendingRequestIds.get(sessionId),
       ...(history.activeTurnId === undefined ? {} : { activeTurnId: history.activeTurnId }),
     }
@@ -868,6 +874,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     follow.completedItems.add(itemId)
     this.closeItemStreamBlocks(follow, itemId, itemText(item))
     if (type === 'agentMessage' && follow.streamActive && follow.streamedBlocks.size === 0) this.finishStream(follow)
+    const supplementalImages = type === 'agentMessage' ? follow.pendingToolImages : []
     for (const event of itemEvents(
       item,
       follow.turn,
@@ -875,10 +882,15 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       follow.requestId,
       this.modelSelection(follow.sessionId),
       follow.sessionId,
+      supplementalImages,
     )) {
       if (event.type === 'tool/call' && follow.startedItems.has(itemId)) continue
       if (event.type === 'tool/result') this.pushToolResult(follow, itemId, event)
       else this.pushEvent(follow, event.type, event.data, event.view)
+    }
+    if (type === 'agentMessage' && supplementalImages.length > 0) follow.pendingToolImages = []
+    else if (type !== undefined && isToolItemType(type)) {
+      follow.pendingToolImages.push(...toolOutputImageBlocks(item))
     }
     follow.liveItems.delete(itemId)
     follow.liveToolOutput.delete(itemId)
@@ -1054,6 +1066,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     follow.liveItems.clear()
     follow.liveToolOutput.clear()
     follow.liveToolResultSeq.clear()
+    follow.pendingToolImages = []
   }
 
   private emitRemoteEvent(event: string, args: unknown[]): void {
@@ -1445,6 +1458,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       liveItems: new Map(),
       liveToolOutput: new Map(),
       liveToolResultSeq: new Map(),
+      pendingToolImages: [],
       requestId: this.pendingRequestIds.get(sessionId),
       rcOnly: true,
       ...(history.activeTurnId === undefined ? {} : { activeTurnId: history.activeTurnId }),
@@ -1779,15 +1793,29 @@ export function projectCodexNativeHistory(thread: JsonRecord, sessionId: string)
   }
   for (const rawTurn of array(thread.turns)) {
     const turn = record(rawTurn)
+    const turnItems = array(turn.items).map(record)
+    const toolImages = turnItems.flatMap(toolOutputImageBlocks)
+    let imageOwner = -1
+    for (let index = 0; index < turnItems.length; index += 1) {
+      if (turnItems[index]!.type === 'agentMessage') imageOwner = index
+    }
     turnNumber += 1
     const turnActive = isActiveCodexTurn(turn)
     const time = normalizeTime(turn.createdAt) || normalizeTime(turn.startedAt) || normalizeTime(thread.createdAt) || Date.now()
     append('turn/start', { turn: turnNumber }, time)
     append('step/start', { turn: turnNumber, step: 1 }, time)
-    for (const rawItem of array(turn.items)) {
-      const item = record(rawItem)
+    for (let itemIndex = 0; itemIndex < turnItems.length; itemIndex += 1) {
+      const item = turnItems[itemIndex]!
       let toolCallSeq: number | undefined
-      for (const event of itemEvents(item, turnNumber, 1, undefined, modelSelection(), sessionId)) {
+      for (const event of itemEvents(
+        item,
+        turnNumber,
+        1,
+        undefined,
+        modelSelection(),
+        sessionId,
+        itemIndex === imageOwner ? toolImages : [],
+      )) {
         const eventSeq = append(
           event.type,
           event.data,
@@ -1858,6 +1886,7 @@ function itemEvents(
   requestId?: string,
   selection: CodexModelSelection = modelSelection(),
   sessionId = CODEX_SESSION_PREFIX,
+  supplementalImages: JsonRecord[] = [],
 ): ProjectedNativeEvent[] {
   const type = string(item.type)
   const id = string(item.id) ?? `${turn}:${step}:${hashString(JSON.stringify(item))}`
@@ -1879,7 +1908,13 @@ function itemEvents(
       message: {
         id,
         role: 'assistant',
-        content: messageContent(item, `${sessionId}:${id}`, type === 'reasoning' ? 'reasoning' : 'text', text),
+        content: messageContent(
+          item,
+          `${sessionId}:${id}`,
+          type === 'reasoning' ? 'reasoning' : 'text',
+          text,
+          type === 'agentMessage' ? supplementalImages : [],
+        ),
         source: { kind: 'model', provider: selection.provider, model: selection.model },
       },
     },
@@ -1917,11 +1952,33 @@ function messageContent(
   attachmentSeed: string,
   fallbackType: 'text' | 'reasoning',
   fallbackText?: string,
+  supplementalImages: JsonRecord[] = [],
 ): JsonRecord[] {
   const source = item.content ?? item.input
   const blocks = contentBlocks(source, attachmentSeed)
-  if (blocks.length > 0) return blocks
+  const images = contentBlocks(supplementalImages, `${attachmentSeed}:tool-output`)
+  if (blocks.length > 0 || images.length > 0) {
+    return [...(blocks.length > 0 ? blocks : [{ type: fallbackType, text: fallbackText ?? '' }]), ...images]
+  }
   return [{ type: fallbackType, text: fallbackText ?? '' }]
+}
+
+function toolOutputImageBlocks(item: JsonRecord): JsonRecord[] {
+  const candidates = [
+    record(item.result).content,
+    record(item.output).content,
+    item.contentItems,
+    Array.isArray(item.output) ? item.output : undefined,
+  ]
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue
+    const images = candidate.flatMap(value => {
+      const block = record(value)
+      return isImageContent(block) && parseImageBlock(block) !== undefined ? [block] : []
+    })
+    if (images.length > 0) return images
+  }
+  return []
 }
 
 function contentBlocks(value: unknown, attachmentSeed: string): JsonRecord[] {
@@ -1984,7 +2041,8 @@ function parseImageBlock(block: JsonRecord): { mediaType: string; data: string; 
 
   const data = string(block.data)
   if (data === undefined || !isCanonicalBase64(data)) return undefined
-  const mediaType = string(block.mediaType) ?? sniffImageMediaType(data)
+  if (data.length > MAX_CODEX_IMAGE_BASE64) return undefined
+  const mediaType = string(block.mediaType) ?? string(block.mimeType) ?? sniffImageMediaType(data)
   return mediaType !== undefined && CODEX_IMAGE_MEDIA_TYPES.has(mediaType)
     ? { mediaType, data, url: `data:${mediaType};base64,${data}` }
     : undefined
@@ -2357,7 +2415,7 @@ function nativeVisibleWorkspaces(catalog: CatalogState, selectedWorkspaceId?: st
 function projectWorkspace(project: CodexProject): CodexVirtualWorkspaceView {
   const root = project.roots[0]!
   return {
-    workspaceId: `${CODEX_WORKSPACE_PREFIX}project:${project.id}`,
+    workspaceId: codexProjectWorkspaceId(project.id),
     path: root.path,
     title: project.name.trim() || basename(root.path),
     sessionIds: [],

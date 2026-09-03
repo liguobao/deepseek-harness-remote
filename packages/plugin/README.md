@@ -165,13 +165,15 @@ Remote Client 查询。
 
 Codex Remote is an experimental optional domain inside this same plugin. It is enabled by default,
 can be disabled from the DeepSeek Remote settings card, and lets authorized clients open Host Codex
-projects in the existing Remote workspace and session UI. See
+projects in the existing Remote workspace and session UI. Desktop and Android can also browse to an
+existing Host directory, register it as a Codex project, and open the resulting virtual workspace. See
 [Codex Remote technical notes](../../docs/codex-remote.md) for workspace authority, data boundaries,
 configuration, and validation status.
 
 Codex Remote 是当前插件内部的实验性可选领域，默认开启，可在 DeepSeek Remote 设置卡片中关闭。它让
-已授权客户端可以在现有 Remote Workspace 和 Session UI 中打开 Host 上的 Codex 项目。Workspace
-来源、数据边界、配置方式和验证状态见
+已授权客户端可以在现有 Remote Workspace 和 Session UI 中打开 Host 上的 Codex 项目。Desktop 与
+Android 还可浏览并选择 Host 上已存在的目录，将它注册为 Codex Project 后直接打开对应虚拟 Workspace。
+Workspace 来源、数据边界、配置方式和验证状态见
 [Codex Remote 技术说明](../../docs/codex-remote.md)。
 
 ```sh

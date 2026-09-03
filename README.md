@@ -163,7 +163,8 @@ API. Credential values remain write-only, and Host-local document/open actions a
 
 Remote can also show Codex projects from an authorized Host. Pick one from the normal workspace
 chooser and continue in the existing Harness or Android interface; there is no separate Codex screen
-to learn.
+to learn. The Desktop chooser and Android workspace page can also add a Host directory to the Codex
+project catalog without importing it into Harness storage.
 
 Codex Remote is meant as a convenience layer for your own devices. It supports text prompts, image
 prompts where available, model and permission controls, interrupt, and approvals. It is still

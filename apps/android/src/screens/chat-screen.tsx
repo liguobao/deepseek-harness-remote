@@ -18,7 +18,7 @@ import * as ImagePicker from 'expo-image-picker'
 import { Bot, Check, ChevronDown, ChevronLeft, ChevronRight, CircleStop, Code2, ImagePlus, Images, RefreshCw, Send, ShieldAlert, Sparkles, User, X } from 'lucide-react-native'
 import { useAppStore } from '../state/store'
 import { hasVisibleMessageText } from '../state/event-reducer'
-import type { ApprovalActivity, ChatItem, ChatMessage, ImageAttachmentLimits, ImageMediaType, ModelCatalogModel, ModelProviderGroup, PermissionSelect, PromptImage, QuestionActivity, RemoteSession, ToolActivity, ToolDisplayDetail } from '../types'
+import type { ApprovalActivity, ChatImage, ChatItem, ChatMessage, ImageAttachmentLimits, ImageMediaType, ModelCatalogModel, ModelProviderGroup, PermissionSelect, PromptImage, QuestionActivity, RemoteSession, ToolActivity, ToolDisplayDetail } from '../types'
 import { Button, IconButton, TopBar } from '../ui/components'
 import { NativeMarkdown } from '../ui/markdown'
 import { radius, spacing, type } from '../ui/theme'
@@ -650,18 +650,7 @@ function MessageBubble({ item }: { item: ChatMessage }) {
       </View>
       <View style={[styles.messageBody, user && styles.messageBodyUser]}>
         <Text style={styles.messageLabel}>{user ? zhCN.chat.you : item.role === 'system' ? zhCN.chat.system : 'Remote'}</Text>
-        {item.images !== undefined && item.images.length > 0 && (
-          <View style={[styles.messageImages, user && styles.messageImagesUser]}>
-            {item.images.map((image, index) => image.uri !== undefined
-              ? <Image key={`${image.uri}:${index}`} source={{ uri: image.uri }} style={styles.messageImage} resizeMode="cover" />
-              : (
-                  <View key={`${image.name ?? 'image'}:${index}`} style={styles.messageImagePlaceholder}>
-                    <Images size={20} color={colors.primary} />
-                    <Text style={styles.messageImageName} numberOfLines={1}>{image.name ?? zhCN.chat.unnamedImage}</Text>
-                  </View>
-                ))}
-          </View>
-        )}
+        {item.images !== undefined && item.images.length > 0 && <ChatImages images={item.images} alignEnd={user} />}
         {item.role === 'assistant' && hasVisibleMessageText(item.reasoning ?? '') && <ReasoningDisclosure item={item} embedded />}
         {hasVisibleMessageText(item.text) && <NativeMarkdown text={item.text} />}
         {item.streaming && item.streamingPhase !== 'reasoning' && <View style={styles.streamingCursor} accessibilityLabel={zhCN.chat.generating} />}
@@ -728,12 +717,30 @@ function ToolRow({ item }: { item: ToolActivity }) {
           ? <ChevronDown size={17} color={colors.muted} />
           : <ChevronRight size={17} color={colors.muted} />)}
       </Pressable>
+      {item.images !== undefined && item.images.length > 0 && <ChatImages images={item.images} tool />}
       {expanded && hasDetail && (
         <View style={styles.toolDetails}>
           {item.callDetail !== undefined && <ToolDetailView label={zhCN.chat.toolCall} detail={item.callDetail} />}
           {item.resultDetail !== undefined && <ToolDetailView label={zhCN.chat.toolResult} detail={item.resultDetail} />}
         </View>
       )}
+    </View>
+  )
+}
+
+function ChatImages({ images, alignEnd = false, tool = false }: { images: ChatImage[]; alignEnd?: boolean; tool?: boolean }) {
+  const { colors } = useTheme()
+  const styles = useThemedStyles(createStyles)
+  return (
+    <View style={[styles.messageImages, alignEnd && styles.messageImagesUser, tool && styles.toolImages]}>
+      {images.map((image, index) => image.uri !== undefined
+        ? <Image key={`${image.uri}:${index}`} source={{ uri: image.uri }} style={styles.messageImage} resizeMode="cover" />
+        : (
+            <View key={`${image.name ?? 'image'}:${index}`} style={styles.messageImagePlaceholder}>
+              <Images size={20} color={colors.primary} />
+              <Text style={styles.messageImageName} numberOfLines={1}>{image.name ?? zhCN.chat.unnamedImage}</Text>
+            </View>
+          ))}
     </View>
   )
 }
@@ -921,6 +928,7 @@ function createStyles(colors: ThemeColors) {
   messageLabel: { ...type.caption, color: colors.muted, marginBottom: 4 },
   messageImages: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs },
   messageImagesUser: { justifyContent: 'flex-end' },
+  toolImages: { marginLeft: 32, marginRight: spacing.xs, marginBottom: spacing.sm },
   messageImage: { width: 132, height: 104, borderRadius: radius.md, backgroundColor: colors.surfaceStrong },
   messageImagePlaceholder: { width: 132, minHeight: 76, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', padding: spacing.sm, gap: spacing.xs },
   messageImageName: { ...type.caption, color: colors.primary, maxWidth: '100%' },

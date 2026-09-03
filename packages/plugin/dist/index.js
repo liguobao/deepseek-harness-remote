@@ -4715,7 +4715,15 @@ function projectCodexItem(value, threadId, turnId, sessionId, index) {
     return { ...base, kind: "tool", text: commandExecutionText(item), status: projectItemStatus(item.status), details: { type } };
   }
   if (isToolItemType(type)) {
-    return { ...base, kind: "tool", text: toolCallText(item), status: projectItemStatus(item.status), details: { type } };
+    const images = toolItemImages(item);
+    return {
+      ...base,
+      kind: "tool",
+      text: toolCallText(item),
+      ...images.length === 0 ? {} : { images },
+      status: projectItemStatus(item.status),
+      details: { type }
+    };
   }
   if (type === "fileChange") {
     return { ...base, kind: "file-change", text: fileChangeText(item.changes), status: projectItemStatus(item.status), details: { type } };
@@ -4786,6 +4794,22 @@ function itemImages(item) {
     }];
   });
 }
+function toolItemImages(item) {
+  const candidates = [
+    isRecord(item.result) ? item.result : void 0,
+    isRecord(item.output) ? item.output : void 0,
+    Array.isArray(item.contentItems) ? { content: item.contentItems } : void 0,
+    Array.isArray(item.output) ? { content: item.output } : void 0
+  ];
+  for (const candidate of candidates) {
+    if (candidate === void 0 || !Array.isArray(candidate.content))
+      continue;
+    const images = itemImages(candidate);
+    if (images.length > 0)
+      return images;
+  }
+  return [];
+}
 function isImageContent(value) {
   return value.type === "image" || value.type === "input_image";
 }
@@ -4796,7 +4820,7 @@ function imageDataUri(value) {
     return parsed.url;
   if (typeof value.data !== "string" || !isCanonicalBase64(value.data))
     return void 0;
-  const mediaType = typeof value.mediaType === "string" ? value.mediaType : sniffImageMediaType(value.data);
+  const mediaType = typeof value.mediaType === "string" ? value.mediaType : typeof value.mimeType === "string" ? value.mimeType : sniffImageMediaType(value.data);
   return mediaType !== void 0 && CODEX_IMAGE_MEDIA_TYPES.has(mediaType) ? `data:${mediaType};base64,${value.data}` : void 0;
 }
 function parseDataImageUrl(value) {
@@ -4885,7 +4909,8 @@ function toolCallText(item) {
   }
   const label = toolLabel(item);
   const error = compactUnknown(item.error);
-  const result = compactUnknown(item.result ?? item.contentItems);
+  const rawResult = item.result ?? item.contentItems;
+  const result = itemText(isRecord(rawResult) ? rawResult : {}) ?? (toolItemImages(item).length > 0 ? void 0 : compactUnknown(rawResult));
   return boundedText([label, error, result].filter((value) => value !== void 0 && value !== "").join("\n\n")) || void 0;
 }
 function fileChangeText(value) {
@@ -14388,6 +14413,9 @@ var MAX_CODEX_IMAGE_BASE64 = 288 * 1024 * 1024;
 var CODEX_IMAGE_MEDIA_TYPES2 = /* @__PURE__ */ new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 var CODEX_IMAGE_ATTACHMENT_PREFIX = "codex-image:";
 var DATA_IMAGE_URL2 = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/u;
+function codexProjectWorkspaceId(projectId) {
+  return `${CODEX_WORKSPACE_PREFIX}project:${projectId}`;
+}
 async function discoverCodexVirtualWorkspaces(client, signal) {
   return (await loadCatalog(client, signal)).workspaces;
 }
@@ -14806,6 +14834,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       liveItems: /* @__PURE__ */ new Map(),
       liveToolOutput: /* @__PURE__ */ new Map(),
       liveToolResultSeq: /* @__PURE__ */ new Map(),
+      pendingToolImages: [],
       requestId: this.pendingRequestIds.get(sessionId),
       ...history.activeTurnId === void 0 ? {} : { activeTurnId: history.activeTurnId }
     };
@@ -15015,17 +15044,23 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     follow.completedItems.add(itemId);
     this.closeItemStreamBlocks(follow, itemId, itemText2(item));
     if (type === "agentMessage" && follow.streamActive && follow.streamedBlocks.size === 0) this.finishStream(follow);
+    const supplementalImages = type === "agentMessage" ? follow.pendingToolImages : [];
     for (const event of itemEvents(
       item,
       follow.turn,
       1,
       follow.requestId,
       this.modelSelection(follow.sessionId),
-      follow.sessionId
+      follow.sessionId,
+      supplementalImages
     )) {
       if (event.type === "tool/call" && follow.startedItems.has(itemId)) continue;
       if (event.type === "tool/result") this.pushToolResult(follow, itemId, event);
       else this.pushEvent(follow, event.type, event.data, event.view);
+    }
+    if (type === "agentMessage" && supplementalImages.length > 0) follow.pendingToolImages = [];
+    else if (type !== void 0 && isToolItemType2(type)) {
+      follow.pendingToolImages.push(...toolOutputImageBlocks(item));
     }
     follow.liveItems.delete(itemId);
     follow.liveToolOutput.delete(itemId);
@@ -15167,6 +15202,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     follow.liveItems.clear();
     follow.liveToolOutput.clear();
     follow.liveToolResultSeq.clear();
+    follow.pendingToolImages = [];
   }
   emitRemoteEvent(event, args) {
     for (const queue of this.eventStreams.values()) queue.push({ type: "emit", event, args });
@@ -15512,6 +15548,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       liveItems: /* @__PURE__ */ new Map(),
       liveToolOutput: /* @__PURE__ */ new Map(),
       liveToolResultSeq: /* @__PURE__ */ new Map(),
+      pendingToolImages: [],
       requestId: this.pendingRequestIds.get(sessionId),
       rcOnly: true,
       ...history.activeTurnId === void 0 ? {} : { activeTurnId: history.activeTurnId }
@@ -15813,15 +15850,29 @@ function projectCodexNativeHistory(thread, sessionId) {
   };
   for (const rawTurn of array(thread.turns)) {
     const turn = record(rawTurn);
+    const turnItems = array(turn.items).map(record);
+    const toolImages = turnItems.flatMap(toolOutputImageBlocks);
+    let imageOwner = -1;
+    for (let index = 0; index < turnItems.length; index += 1) {
+      if (turnItems[index].type === "agentMessage") imageOwner = index;
+    }
     turnNumber += 1;
     const turnActive = isActiveCodexTurn(turn);
     const time = normalizeTime(turn.createdAt) || normalizeTime(turn.startedAt) || normalizeTime(thread.createdAt) || Date.now();
     append("turn/start", { turn: turnNumber }, time);
     append("step/start", { turn: turnNumber, step: 1 }, time);
-    for (const rawItem of array(turn.items)) {
-      const item = record(rawItem);
+    for (let itemIndex = 0; itemIndex < turnItems.length; itemIndex += 1) {
+      const item = turnItems[itemIndex];
       let toolCallSeq;
-      for (const event of itemEvents(item, turnNumber, 1, void 0, modelSelection(), sessionId)) {
+      for (const event of itemEvents(
+        item,
+        turnNumber,
+        1,
+        void 0,
+        modelSelection(),
+        sessionId,
+        itemIndex === imageOwner ? toolImages : []
+      )) {
         const eventSeq = append(
           event.type,
           event.data,
@@ -15878,7 +15929,7 @@ function paginateCodexNativeHistory(history, request) {
     ...history.activeTurnId === void 0 ? {} : { activeTurnId: history.activeTurnId }
   };
 }
-function itemEvents(item, turn, step, requestId, selection = modelSelection(), sessionId = CODEX_SESSION_PREFIX) {
+function itemEvents(item, turn, step, requestId, selection = modelSelection(), sessionId = CODEX_SESSION_PREFIX, supplementalImages = []) {
   const type = string(item.type);
   const id2 = string(item.id) ?? `${turn}:${step}:${hashString(JSON.stringify(item))}`;
   const text = itemText2(item);
@@ -15899,7 +15950,13 @@ function itemEvents(item, turn, step, requestId, selection = modelSelection(), s
       message: {
         id: id2,
         role: "assistant",
-        content: messageContent(item, `${sessionId}:${id2}`, type === "reasoning" ? "reasoning" : "text", text),
+        content: messageContent(
+          item,
+          `${sessionId}:${id2}`,
+          type === "reasoning" ? "reasoning" : "text",
+          text,
+          type === "agentMessage" ? supplementalImages : []
+        ),
         source: { kind: "model", provider: selection.provider, model: selection.model }
       }
     }
@@ -15931,11 +15988,31 @@ function itemEvents(item, turn, step, requestId, selection = modelSelection(), s
   }];
   return [];
 }
-function messageContent(item, attachmentSeed, fallbackType, fallbackText) {
+function messageContent(item, attachmentSeed, fallbackType, fallbackText, supplementalImages = []) {
   const source = item.content ?? item.input;
   const blocks = contentBlocks(source, attachmentSeed);
-  if (blocks.length > 0) return blocks;
+  const images = contentBlocks(supplementalImages, `${attachmentSeed}:tool-output`);
+  if (blocks.length > 0 || images.length > 0) {
+    return [...blocks.length > 0 ? blocks : [{ type: fallbackType, text: fallbackText ?? "" }], ...images];
+  }
   return [{ type: fallbackType, text: fallbackText ?? "" }];
+}
+function toolOutputImageBlocks(item) {
+  const candidates = [
+    record(item.result).content,
+    record(item.output).content,
+    item.contentItems,
+    Array.isArray(item.output) ? item.output : void 0
+  ];
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue;
+    const images = candidate.flatMap((value) => {
+      const block = record(value);
+      return isImageContent2(block) && parseImageBlock(block) !== void 0 ? [block] : [];
+    });
+    if (images.length > 0) return images;
+  }
+  return [];
 }
 function contentBlocks(value, attachmentSeed) {
   if (typeof value === "string") return [{ type: "text", text: value }];
@@ -15991,7 +16068,8 @@ function parseImageBlock(block) {
   if (parsed !== void 0) return parsed;
   const data = string(block.data);
   if (data === void 0 || !isCanonicalBase642(data)) return void 0;
-  const mediaType = string(block.mediaType) ?? sniffImageMediaType2(data);
+  if (data.length > MAX_CODEX_IMAGE_BASE64) return void 0;
+  const mediaType = string(block.mediaType) ?? string(block.mimeType) ?? sniffImageMediaType2(data);
   return mediaType !== void 0 && CODEX_IMAGE_MEDIA_TYPES2.has(mediaType) ? { mediaType, data, url: `data:${mediaType};base64,${data}` } : void 0;
 }
 function parseDataImageUrl2(value) {
@@ -16274,7 +16352,7 @@ function nativeVisibleWorkspaces(catalog, selectedWorkspaceId) {
 function projectWorkspace(project) {
   const root = project.roots[0];
   return {
-    workspaceId: `${CODEX_WORKSPACE_PREFIX}project:${project.id}`,
+    workspaceId: codexProjectWorkspaceId(project.id),
     path: root.path,
     title: project.name.trim() || basename(root.path),
     sessionIds: [],
@@ -18703,6 +18781,26 @@ var ClientModeRuntime = class {
     this.logger.info("CodeX virtual workspace opened", { targetDeviceId: shortId(remote.target.deviceId) });
     return { ...this.status(), workspace };
   }
+  async createCodexWorkspace(targetDeviceId, path, signal) {
+    const trimmedPath = path.trim();
+    if (trimmedPath === "") throw new ClientModeError("INVALID_MESSAGE", "A CodeX project directory is required.");
+    const remote = await this.ensureConnected(targetDeviceId, signal);
+    remote.features = await probeRemoteHostFeatures(remote.client, remote.clientVersion);
+    if (!remote.features.codex) {
+      throw new ClientModeError("FEATURE_NOT_SUPPORTED", "The selected Host does not provide CodeX workspaces.");
+    }
+    this.assertRemoteCompatible(remote);
+    const result = record2(await new CodexRemoteClient(remote.client).request("project/create", {
+      name: remoteWorkspaceTitle(trimmedPath),
+      roots: [{ path: trimmedPath }],
+      idempotencyKey: uuidV7()
+    }, signal));
+    const project = record2(result.project);
+    if (typeof project.id !== "string" || project.id.length === 0) {
+      throw new ClientModeError("INVALID_MESSAGE", "The Host returned an invalid CodeX project.");
+    }
+    return this.openCodexWorkspace(targetDeviceId, codexProjectWorkspaceId(project.id), signal);
+  }
   consumeWorkspaceSelection(selection) {
     const pending = this.pendingWorkspaceSelection;
     if (pending?.targetDeviceId === selection.targetDeviceId && pending.workspaceId === selection.workspaceId && (pending.backend ?? "harness") === (selection.backend ?? "harness")) {
@@ -19079,6 +19177,13 @@ var ClientModeRuntime = class {
         }
         return ok2(await this.openCodexWorkspace(value.targetDeviceId, value.workspaceId, signal));
       }
+      if (endpoint === "codex.workspace.create") {
+        const value = record2(payload);
+        if (typeof value.targetDeviceId !== "string" || typeof value.path !== "string") {
+          throw new ClientModeError("INVALID_MESSAGE", "A Host and CodeX project directory are required.");
+        }
+        return ok2(await this.createCodexWorkspace(value.targetDeviceId, value.path, signal));
+      }
       if (endpoint === "workspace.selection.consume") {
         const value = record2(payload);
         if (typeof value.targetDeviceId !== "string" || typeof value.workspaceId !== "string") {
@@ -19278,6 +19383,10 @@ function workspaceRecordId(value) {
     throw new ClientModeError("INVALID_MESSAGE", "The remote Host returned an invalid Workspace.");
   }
   return value.workspaceId;
+}
+function remoteWorkspaceTitle(path) {
+  const normalized = path.replace(/[\\/]+$/u, "");
+  return normalized.split(/[\\/]+/u).filter(Boolean).at(-1) ?? path;
 }
 function fail2(error) {
   const source = error instanceof Error ? error : void 0;
@@ -22461,7 +22570,7 @@ function needsDirectoryFallback(result) {
   if (result.ok) return false;
   const code = result.error.code.toLocaleLowerCase();
   const message = result.error.message.toLocaleLowerCase();
-  return code.includes("capability") || code === "directory-picker-unavailable" || message.includes("browser capability") || message.includes("brower capability") || message.includes("directory-picker-unavailable");
+  return code.includes("capability") || code === "directory-picker/unavailable" || code === "directory-picker-unavailable" || message.includes("browse capability") || message.includes("browser capability") || message.includes("brower capability") || message.includes("directory-picker-unavailable");
 }
 function requestArgs(payload) {
   const root = record4(payload);
@@ -22737,6 +22846,9 @@ var imageInput = external_exports.object({
 }).strict();
 var input = external_exports.array(external_exports.union([textInput, imageInput])).min(1).max(16);
 var permissionPreset = external_exports.enum(["workspace-write", "danger-full-access"]);
+var projectRoot = external_exports.object({
+  path: external_exports.string().min(1).max(4096)
+}).strict();
 var schemas = {
   "account/read": external_exports.object({ refreshToken: external_exports.literal(false).optional() }).strict(),
   "model/list": external_exports.object({
@@ -22747,6 +22859,11 @@ var schemas = {
   "project/list": external_exports.object({
     cursor,
     limit: external_exports.number().int().min(1).max(100).optional()
+  }).strict(),
+  "project/create": external_exports.object({
+    name: external_exports.string().trim().min(1).max(256),
+    roots: external_exports.array(projectRoot).length(1),
+    idempotencyKey: external_exports.string().min(16).max(256)
   }).strict(),
   "thread/list": external_exports.object({
     cursor,
@@ -23168,6 +23285,15 @@ var CodexRemoteDomain = class {
     }
     if (call.method === "project/list") {
       return sanitizeProjectList(await this.callUpstream(call.method, call.params));
+    }
+    if (call.method === "project/create") {
+      const roots = call.params.roots;
+      const path = await this.requireNewCodexProjectPath(roots[0].path);
+      return sanitizeProjectCreate(await this.callUpstream(call.method, {
+        name: call.params.name,
+        roots: [{ path }],
+        idempotencyKey: call.params.idempotencyKey
+      }));
     }
     if (call.method === "thread/list") {
       const result = sanitizeThreadList(await this.callUpstream(call.method, call.params));
@@ -23748,6 +23874,18 @@ var CodexRemoteDomain = class {
     }
     throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX working directory is not available as a Workspace.");
   }
+  async requireNewCodexProjectPath(path) {
+    if (!isAbsolute3(path)) {
+      throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX project directory must be an existing absolute directory.");
+    }
+    try {
+      const canonical = await realpath(resolve2(path));
+      if (!(await stat4(canonical)).isDirectory()) throw new Error("not a directory");
+      return canonical;
+    } catch {
+      throw new RpcError("CODEX_PATH_NOT_ALLOWED", "The CodeX project directory must be an existing absolute directory.");
+    }
+  }
   async listCodexDirectory(path) {
     const target = await this.resolveCodexDirectory(path);
     const rows = await readdir2(target.path, { withFileTypes: true }).catch(() => void 0);
@@ -23890,30 +24028,38 @@ function filterThreadListByWorkspaceAuthority(result, authority) {
     data: result.data.map((record5) => isRecord10(record5) ? record5 : void 0).filter((thread) => thread !== void 0 && isThreadAllowedByWorkspaceAuthority(thread, authority))
   };
 }
+function sanitizeProject(value) {
+  if (!isRecord10(value) || typeof value.id !== "string" || typeof value.name !== "string") return void 0;
+  const roots = Array.isArray(value.roots) ? value.roots.flatMap((root) => {
+    const path = isRecord10(root) && typeof root.path === "string" && root.path.length > 0 ? root.path : void 0;
+    return path === void 0 || !isAbsolute3(path) ? [] : [{ path }];
+  }) : [];
+  if (roots.length === 0) return void 0;
+  return {
+    id: value.id,
+    name: value.name,
+    roots,
+    ...typeof value.position === "number" && Number.isFinite(value.position) ? { position: value.position } : {},
+    ...typeof value.createdAt === "number" && Number.isFinite(value.createdAt) ? { createdAt: value.createdAt } : {},
+    ...typeof value.updatedAt === "number" && Number.isFinite(value.updatedAt) ? { updatedAt: value.updatedAt } : {}
+  };
+}
 function sanitizeProjectList(result) {
   if (!isRecord10(result) || !Array.isArray(result.data)) {
     throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid project list.");
   }
-  const data = result.data.flatMap((value) => {
-    if (!isRecord10(value) || typeof value.id !== "string" || typeof value.name !== "string") return [];
-    const roots = Array.isArray(value.roots) ? value.roots.flatMap((root) => {
-      const path = isRecord10(root) && typeof root.path === "string" && root.path.length > 0 ? root.path : void 0;
-      return path === void 0 || !isAbsolute3(path) ? [] : [{ path }];
-    }) : [];
-    if (roots.length === 0) return [];
-    return [{
-      id: value.id,
-      name: value.name,
-      roots,
-      ...typeof value.position === "number" && Number.isFinite(value.position) ? { position: value.position } : {},
-      ...typeof value.createdAt === "number" && Number.isFinite(value.createdAt) ? { createdAt: value.createdAt } : {},
-      ...typeof value.updatedAt === "number" && Number.isFinite(value.updatedAt) ? { updatedAt: value.updatedAt } : {}
-    }];
-  });
+  const data = result.data.flatMap((value) => sanitizeProject(value) ?? []);
   return {
     data,
     ...typeof result.nextCursor === "string" && result.nextCursor.length > 0 ? { nextCursor: result.nextCursor } : { nextCursor: null }
   };
+}
+function sanitizeProjectCreate(result) {
+  const project = isRecord10(result) ? sanitizeProject(result.project) : void 0;
+  if (project === void 0) {
+    throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid created project.");
+  }
+  return { project };
 }
 function isThreadAllowedByWorkspaceAuthority(thread, authority) {
   const projectId = typeof thread.projectId === "string" ? thread.projectId : void 0;

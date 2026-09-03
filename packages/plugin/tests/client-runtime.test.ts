@@ -300,6 +300,78 @@ describe('ClientModeRuntime Host account control', () => {
     await runtime.close()
   })
 
+  it('creates a CodeX project and selects its virtual Workspace', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-client-codex-project-'))
+    directories.push(directory)
+    const runtime = new ClientModeRuntime(
+      config(),
+      new IdentityStore({ directory }),
+      { bindIdentity: vi.fn() } as unknown as ClientServerApi,
+      apiProxy(),
+      gateway(),
+      logger(),
+    )
+    await runtime.start()
+    const project = {
+      id: 'created-project',
+      name: 'project',
+      roots: [{ path: '/srv/project' }],
+      position: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const rpc = vi.fn(async (method: string, params: unknown) => {
+      if (method === 'harness.transport.describe') return {
+        capabilities: ['harness.api.v1', 'harness.api.transfer.v1', 'codex.appserver.v1'],
+      }
+      if (method === 'codex.app.call') {
+        const request = params as { method: string; params: Record<string, unknown> }
+        if (request.method === 'project/create') return { project }
+        if (request.method === 'project/list') return { data: [project], nextCursor: null }
+        if (request.method === 'thread/list') return { data: [], nextCursor: null }
+      }
+      throw new Error(`unexpected method: ${method} ${JSON.stringify(params)}`)
+    })
+    const client = {
+      rpc,
+      close: vi.fn(async () => undefined),
+      getStats: () => ({ mode: 'Relay', connected: true }),
+      onEvent: () => () => undefined,
+    }
+    ;(runtime as unknown as { connected: unknown }).connected = {
+      client,
+      target: {
+        deviceId: 'host-device-1', name: 'Workstation', platform: 'linux', publicKey: 'peer-key', fingerprint: 'PEER', trustedAt: 1,
+      },
+      transport: {},
+      features: { commandList: true, fileViewer: false, apiProxy: true, remoteGateway: false, codex: true },
+    }
+
+    await expect(runtime.createCodexWorkspace('host-device-1', '/srv/project')).resolves.toMatchObject({
+      mode: 'remote',
+      backend: 'codex',
+      workspaceSelection: {
+        targetDeviceId: 'host-device-1',
+        workspaceId: 'codex-workspace:project:created-project',
+        backend: 'codex',
+      },
+      workspace: {
+        workspaceId: 'codex-workspace:project:created-project',
+        path: '/srv/project',
+        title: 'project',
+      },
+    })
+    expect(rpc).toHaveBeenCalledWith('codex.app.call', {
+      method: 'project/create',
+      params: {
+        name: 'project',
+        roots: [{ path: '/srv/project' }],
+        idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      },
+    }, undefined)
+    await runtime.close()
+  })
+
   it('uses alpha Gateway directory and Workspace contracts before switching the native UI', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-client-alpha-workspace-'))
     directories.push(directory)

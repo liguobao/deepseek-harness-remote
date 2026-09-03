@@ -31,6 +31,7 @@ import {
   codexItemsToChat,
   codexPermissionPreset,
   codexPermissionPresetFromResponse,
+  createCodexWorkspace,
   codexSession,
   codexThreadId,
   isCodexPermissionPreset,
@@ -101,6 +102,7 @@ interface AppState {
   connectionStage?: ConnectionStage
   connectionProbeOrder: ConnectionProbeTransport[]
   hostDescriptor?: HostDescriptor
+  codexAvailable: boolean
   workspaces: WorkspaceView[]
   archivedSessionIds: string[]
   sessions: RemoteSession[]
@@ -145,7 +147,7 @@ interface AppState {
   selectModel(selection: ModelSelection): Promise<boolean>
   selectPermission(preset: string): Promise<boolean>
   loadOlderHistory(): Promise<void>
-  workspaceCreate(path: string): Promise<boolean>
+  workspaceCreate(path: string, backend?: 'harness' | 'codex'): Promise<boolean>
   workspaceRename(workspaceId: string, title: string): Promise<boolean>
   workspaceDelete(workspaceId: string): Promise<boolean>
   workspaceMove(workspaceId: string, beforeWorkspaceId?: string): Promise<boolean>
@@ -177,6 +179,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   devices: [],
   connection: disconnected,
   connectionProbeOrder: [],
+  codexAvailable: false,
   workspaces: [],
   archivedSessionIds: [],
   sessions: [],
@@ -361,6 +364,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       connectionStage: 'authenticating',
       connectionProbeOrder: [],
       hostDescriptor: undefined,
+      codexAvailable: false,
       workspaces: [],
       sessions: [],
       error: undefined,
@@ -395,7 +399,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           })),
           onClose: () => {
             if (get().connection.phase === 'connected' || get().connection.phase === 'reconnecting') {
-              set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: zhCN.runtime.hostClosed } })
+              set({
+                connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: zhCN.runtime.hostClosed },
+                codexAvailable: false,
+              })
             }
           },
         },
@@ -425,6 +432,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         })
         return {
           hostDescriptor,
+          codexAvailable: connection.hasCodex(),
           workspaces: [...workspaceList.items, ...codexCatalog.workspaces],
           archivedSessionIds: workspaceList.archivedSessionIds,
           sessions: [...sessions, ...codexSessions],
@@ -437,7 +445,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       await connection.close()
       const message = friendlyError(error)
-      set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: message }, error: message })
+      set({
+        connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: message },
+        codexAvailable: false,
+        error: message,
+      })
       return false
     }
   },
@@ -459,6 +471,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       connectionProbeOrder: [],
       selectedDevice: undefined,
       hostDescriptor: undefined,
+      codexAvailable: false,
       workspaces: [],
       archivedSessionIds: [],
       sessions: [],
@@ -816,10 +829,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  async workspaceCreate(path) {
+  async workspaceCreate(path, backend = 'harness') {
     if (get().connection.phase !== 'connected') return false
-    set({ busyAction: 'create-workspace', error: undefined })
+    set({ busyAction: backend === 'codex' ? 'create-codex-workspace' : 'create-workspace', error: undefined })
     try {
+      if (backend === 'codex') {
+        const workspace = await createCodexWorkspace(connection.requireCodex(), path, createNativeRpcId())
+        set(state => ({
+          workspaces: [...state.workspaces.filter(item => item.workspaceId !== workspace.workspaceId), workspace],
+          busyAction: undefined,
+        }))
+        return true
+      }
       const proxy = connection.requireProxy()
       const { workspace } = await proxy.workspaceCreate(path)
       set(state => ({
@@ -1071,7 +1092,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setOffline() {
     if (get().connection.phase !== 'disconnected') {
-      set({ connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: zhCN.runtime.networkUnavailable } })
+      set({
+        connection: { phase: 'offline', stats: { mode: 'Disconnected', connected: false }, error: zhCN.runtime.networkUnavailable },
+        codexAvailable: false,
+      })
     }
   },
 
@@ -1296,7 +1320,7 @@ async function finalizeLogin(
 }
 
 function initialData(): Pick<AppState,
-  'config' | 'account' | 'devices' | 'selectedDevice' | 'connection' | 'hostDescriptor' | 'workspaces' |
+  'config' | 'account' | 'devices' | 'selectedDevice' | 'connection' | 'hostDescriptor' | 'codexAvailable' | 'workspaces' |
   'archivedSessionIds' | 'sessions' | 'selectedSession' | 'messages' | 'sessionModels' | 'modelSelecting' | 'permissionSelecting' |
   'historyHasMore' | 'historyLoadingOlder' | 'oldestLoadedSeq' | 'transportPreference' | 'authPhase' | 'refreshing' | 'busyAction' | 'error' |
   'connectionProbeOrder'> {
@@ -1308,6 +1332,7 @@ function initialData(): Pick<AppState,
     connection: disconnected,
     connectionProbeOrder: [],
     hostDescriptor: undefined,
+    codexAvailable: false,
     workspaces: [],
     archivedSessionIds: [],
     sessions: [],

@@ -146,6 +146,15 @@ export class CodexRemoteDomain {
     if (call.method === 'project/list') {
       return sanitizeProjectList(await this.callUpstream(call.method, call.params))
     }
+    if (call.method === 'project/create') {
+      const roots = call.params.roots as Array<{ path: string }>
+      const path = await this.requireNewCodexProjectPath(roots[0]!.path)
+      return sanitizeProjectCreate(await this.callUpstream(call.method, {
+        name: call.params.name,
+        roots: [{ path }],
+        idempotencyKey: call.params.idempotencyKey,
+      }))
+    }
     if (call.method === 'thread/list') {
       const result = sanitizeThreadList(await this.callUpstream(call.method, call.params)) as {
         data: Record<string, unknown>[]
@@ -809,6 +818,19 @@ export class CodexRemoteDomain {
     throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX working directory is not available as a Workspace.')
   }
 
+  private async requireNewCodexProjectPath(path: string): Promise<string> {
+    if (!isAbsolute(path)) {
+      throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX project directory must be an existing absolute directory.')
+    }
+    try {
+      const canonical = await realpath(resolve(path))
+      if (!(await stat(canonical)).isDirectory()) throw new Error('not a directory')
+      return canonical
+    } catch {
+      throw new RpcError('CODEX_PATH_NOT_ALLOWED', 'The CodeX project directory must be an existing absolute directory.')
+    }
+  }
+
   private async listCodexDirectory(path: string): Promise<CodexDirectoryListing> {
     const target = await this.resolveCodexDirectory(path)
     const rows = await readdir(target.path, { withFileTypes: true }).catch(() => undefined)
@@ -983,32 +1005,42 @@ function filterThreadListByWorkspaceAuthority(result: unknown, authority: CodexW
   }
 }
 
+function sanitizeProject(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.name !== 'string') return undefined
+  const roots = Array.isArray(value.roots)
+    ? value.roots.flatMap(root => {
+        const path = isRecord(root) && typeof root.path === 'string' && root.path.length > 0 ? root.path : undefined
+        return path === undefined || !isAbsolute(path) ? [] : [{ path }]
+      })
+    : []
+  if (roots.length === 0) return undefined
+  return {
+    id: value.id,
+    name: value.name,
+    roots,
+    ...(typeof value.position === 'number' && Number.isFinite(value.position) ? { position: value.position } : {}),
+    ...(typeof value.createdAt === 'number' && Number.isFinite(value.createdAt) ? { createdAt: value.createdAt } : {}),
+    ...(typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt) ? { updatedAt: value.updatedAt } : {}),
+  }
+}
+
 function sanitizeProjectList(result: unknown): unknown {
   if (!isRecord(result) || !Array.isArray(result.data)) {
     throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid project list.')
   }
-  const data = result.data.flatMap(value => {
-    if (!isRecord(value) || typeof value.id !== 'string' || typeof value.name !== 'string') return []
-    const roots = Array.isArray(value.roots)
-      ? value.roots.flatMap(root => {
-          const path = isRecord(root) && typeof root.path === 'string' && root.path.length > 0 ? root.path : undefined
-          return path === undefined || !isAbsolute(path) ? [] : [{ path }]
-        })
-      : []
-    if (roots.length === 0) return []
-    return [{
-      id: value.id,
-      name: value.name,
-      roots,
-      ...(typeof value.position === 'number' && Number.isFinite(value.position) ? { position: value.position } : {}),
-      ...(typeof value.createdAt === 'number' && Number.isFinite(value.createdAt) ? { createdAt: value.createdAt } : {}),
-      ...(typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt) ? { updatedAt: value.updatedAt } : {}),
-    }]
-  })
+  const data = result.data.flatMap(value => sanitizeProject(value) ?? [])
   return {
     data,
     ...(typeof result.nextCursor === 'string' && result.nextCursor.length > 0 ? { nextCursor: result.nextCursor } : { nextCursor: null }),
   }
+}
+
+function sanitizeProjectCreate(result: unknown): unknown {
+  const project = isRecord(result) ? sanitizeProject(result.project) : undefined
+  if (project === undefined) {
+    throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid created project.')
+  }
+  return { project }
 }
 
 function isThreadAllowedByWorkspaceAuthority(thread: Record<string, unknown>, authority: CodexWorkspaceAuthority): boolean {

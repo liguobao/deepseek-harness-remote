@@ -21,6 +21,9 @@ const imageInput = z.object({
 }).strict()
 const input = z.array(z.union([textInput, imageInput])).min(1).max(16)
 const permissionPreset = z.enum(['workspace-write', 'danger-full-access'])
+const projectRoot = z.object({
+  path: z.string().min(1).max(4096),
+}).strict()
 
 const schemas = {
   'account/read': z.object({ refreshToken: z.literal(false).optional() }).strict(),
@@ -32,6 +35,11 @@ const schemas = {
   'project/list': z.object({
     cursor,
     limit: z.number().int().min(1).max(100).optional(),
+  }).strict(),
+  'project/create': z.object({
+    name: z.string().trim().min(1).max(256),
+    roots: z.array(projectRoot).length(1),
+    idempotencyKey: z.string().min(16).max(256),
   }).strict(),
   'thread/list': z.object({
     cursor,

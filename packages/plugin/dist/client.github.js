@@ -1849,6 +1849,11 @@ Minimum version required to store current data is: ` + bestVersion + `.
     activeRemote: "{name}",
     exitRemote: "Exit",
     addRemoteWorkspace: "Add remote workspace",
+    addCodexWorkspace: "Add CodeX workspace",
+    noCodexWorkspaces: "No CodeX workspaces yet.",
+    cancelAddWorkspace: "Cancel",
+    confirmAddWorkspace: "Add and open",
+    showAllCodexWorkspaces: "Show all CodeX workspaces",
     remoteModeLabel: "Remote mode \xB7 {name}",
     remoteNetworkP2p: "P2P",
     remoteNetworkTurn: "TURN",
@@ -2052,6 +2057,11 @@ Minimum version required to store current data is: ` + bestVersion + `.
     activeRemote: "{name}",
     exitRemote: "\u9000\u51FA",
     addRemoteWorkspace: "\u6DFB\u52A0\u8FDC\u7A0B\u5DE5\u4F5C\u533A",
+    addCodexWorkspace: "\u6DFB\u52A0 CodeX \u5DE5\u4F5C\u533A",
+    noCodexWorkspaces: "\u8FD8\u6CA1\u6709 CodeX \u5DE5\u4F5C\u533A\u3002",
+    cancelAddWorkspace: "\u53D6\u6D88",
+    confirmAddWorkspace: "\u786E\u8BA4\u5E76\u6253\u5F00",
+    showAllCodexWorkspaces: "\u663E\u793A\u5168\u90E8 CodeX \u5DE5\u4F5C\u533A",
     remoteModeLabel: "\u8FDC\u7A0B\u6A21\u5F0F \xB7 {name}",
     remoteNetworkP2p: "P2P",
     remoteNetworkTurn: "TURN",
@@ -2545,7 +2555,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
         );
       }
       function RemoteWorkspaceAction(props) {
-        let { t } = props, [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [selectedHost, setSelectedHost] = React.useState(void 0), [workspaces, setWorkspaces] = React.useState([]), [codexWorkspaces, setCodexWorkspaces] = React.useState([]), [workspaceBackend, setWorkspaceBackend] = React.useState("harness"), [codexWorkspaceId, setCodexWorkspaceId] = React.useState(void 0), [directory, setDirectory] = React.useState(void 0), [path, setPath] = React.useState(""), [addingWorkspace, setAddingWorkspace] = React.useState(!1), [busy, setBusy] = React.useState(!1), [needsAuthorization, setNeedsAuthorization] = React.useState(!1), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [loginMethod, setLoginMethod] = React.useState(props.preferredQrProvider), [loginMethodManuallySelected, setLoginMethodManuallySelected] = React.useState(!1), [qrSession, setQrSession] = React.useState(void 0), [qrImage, setQrImage] = React.useState(void 0), [qrExpired, setQrExpired] = React.useState(!1), [progress, setProgress] = React.useState(void 0), progressRun = React.useRef(0), qrFlowRun = React.useRef(0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0);
+        let { t } = props, [open, setOpen] = React.useState(!1), [status, setStatus] = React.useState(void 0), [devices, setDevices] = React.useState([]), [selectedHost, setSelectedHost] = React.useState(void 0), [workspaces, setWorkspaces] = React.useState([]), [codexWorkspaces, setCodexWorkspaces] = React.useState([]), [workspaceBackend, setWorkspaceBackend] = React.useState("harness"), [codexWorkspaceId, setCodexWorkspaceId] = React.useState(void 0), [directory, setDirectory] = React.useState(void 0), [path, setPath] = React.useState(""), [addingWorkspace, setAddingWorkspace] = React.useState(!1), [showAllCodexWorkspaces, setShowAllCodexWorkspaces] = React.useState(!1), codexWorkspaceHeadingId = "dsh-remote-codex-workspace-heading", codexWorkspaceListId = "dsh-remote-codex-workspace-list", [busy, setBusy] = React.useState(!1), [needsAuthorization, setNeedsAuthorization] = React.useState(!1), [email, setEmail] = React.useState(""), [password, setPassword] = React.useState(""), [loginMethod, setLoginMethod] = React.useState(props.preferredQrProvider), [loginMethodManuallySelected, setLoginMethodManuallySelected] = React.useState(!1), [qrSession, setQrSession] = React.useState(void 0), [qrImage, setQrImage] = React.useState(void 0), [qrExpired, setQrExpired] = React.useState(!1), [progress, setProgress] = React.useState(void 0), progressRun = React.useRef(0), qrFlowRun = React.useRef(0), [notice, setNotice] = React.useState(void 0), [error, setError] = React.useState(void 0);
         React.useEffect(() => {
           if (!open) return;
           let closeOnEscape = (event) => {
@@ -2624,7 +2634,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           disabled: busy,
           onClick: () => selectLoginMethod(provider)
         }, t(provider === "github" ? "githubLogin" : "zhihuLogin")), selectHost = async (host) => {
-          setBusy(!0), setError(void 0), setCodexWorkspaces([]);
+          setBusy(!0), setError(void 0), setCodexWorkspaces([]), setShowAllCodexWorkspaces(!1);
           try {
             let result = await runRemoteProgress(
               connectHostProgressSteps(status?.preferredTransports),
@@ -2655,29 +2665,33 @@ Minimum version required to store current data is: ` + bestVersion + `.
                 targetDeviceId: selectedHost.deviceId,
                 ...nextPath === void 0 ? {} : { path: nextPath }
               });
-              setDirectory(listing), setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setPath(listing.path);
+              setDirectory(listing), setCodexWorkspaceId(void 0), setPath(listing.path);
             } catch (reason) {
               setError(messageOf(reason));
             } finally {
               setBusy(!1);
             }
           }
+        }, startAddingWorkspace = (backend) => {
+          setAddingWorkspace(!0), setWorkspaceBackend(backend), setCodexWorkspaceId(void 0), setShowAllCodexWorkspaces(!1), setDirectory(void 0), setPath(""), browseDirectory();
+        }, cancelAddingWorkspace = () => {
+          setAddingWorkspace(!1), setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setDirectory(void 0), setPath("");
         }, refreshRemote = async () => {
           setBusy(!0), setNotice(void 0), setError(void 0);
           try {
             let nextStatus = await props.control("status");
             if (setStatus(nextStatus), !nextStatus.available) {
-              setDevices([]), setNeedsAuthorization(!1), setSelectedHost(void 0), setWorkspaces([]), setCodexWorkspaces([]), setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setPath(""), setAddingWorkspace(!1), setDirectory(void 0);
+              setDevices([]), setNeedsAuthorization(!1), setSelectedHost(void 0), setWorkspaces([]), setCodexWorkspaces([]), setShowAllCodexWorkspaces(!1), setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setPath(""), setAddingWorkspace(!1), setDirectory(void 0);
               return;
             }
             try {
               let nextDevices = await props.control("devices");
               if (setDevices(nextDevices), setNeedsAuthorization(!1), selectedHost !== void 0) {
                 let nextSelectedHost = nextDevices.find((device) => device.deviceId === selectedHost.deviceId);
-                nextSelectedHost === void 0 ? (setSelectedHost(void 0), setWorkspaces([]), setCodexWorkspaces([]), setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setPath(""), setAddingWorkspace(!1), setDirectory(void 0)) : setSelectedHost(nextSelectedHost);
+                nextSelectedHost === void 0 ? (setSelectedHost(void 0), setWorkspaces([]), setCodexWorkspaces([]), setShowAllCodexWorkspaces(!1), setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setPath(""), setAddingWorkspace(!1), setDirectory(void 0)) : setSelectedHost(nextSelectedHost);
               }
             } catch {
-              setDevices([]), setNeedsAuthorization(!0), setSelectedHost(void 0), setWorkspaces([]), setCodexWorkspaces([]), setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setPath(""), setAddingWorkspace(!1), setDirectory(void 0);
+              setDevices([]), setNeedsAuthorization(!0), setSelectedHost(void 0), setWorkspaces([]), setCodexWorkspaces([]), setShowAllCodexWorkspaces(!1), setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setPath(""), setAddingWorkspace(!1), setDirectory(void 0);
             }
           } catch (reason) {
             setError(messageOf(reason));
@@ -2685,7 +2699,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
             setBusy(!1);
           }
         }, show = async () => {
-          setOpen(!0), await refreshRemote();
+          setShowAllCodexWorkspaces(!1), setOpen(!0), await refreshRemote();
         }, signInClient = async () => {
           if (!(email.trim() === "" || password === "")) {
             setBusy(!0), setError(void 0);
@@ -2723,14 +2737,17 @@ Minimum version required to store current data is: ` + bestVersion + `.
             setBusy(!1);
           }
         }, openWorkspace = async () => {
-          if (!(selectedHost === void 0 || workspaceBackend === "harness" && path.trim() === "" || workspaceBackend === "codex" && codexWorkspaceId === void 0)) {
+          if (!(selectedHost === void 0 || path.trim() === "" || !addingWorkspace && workspaceBackend === "codex" && codexWorkspaceId === void 0)) {
             setBusy(!0), setError(void 0);
             try {
               let nextStatus = await runRemoteProgress(
                 openWorkspaceProgressSteps,
                 setProgress,
                 progressRun,
-                () => workspaceBackend === "codex" ? props.control("codex.workspace.open", {
+                () => workspaceBackend === "codex" ? addingWorkspace ? props.control("codex.workspace.create", {
+                  targetDeviceId: selectedHost.deviceId,
+                  path: path.trim()
+                }) : props.control("codex.workspace.open", {
                   targetDeviceId: selectedHost.deviceId,
                   workspaceId: codexWorkspaceId
                 }) : props.control("workspace.open", {
@@ -2744,7 +2761,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
               setError(messageOf(reason)), setBusy(!1);
             }
           }
-        }, remoteLabel = status?.mode === "remote" ? t("activeRemote", { name: status.target?.name ?? t("host") }) : t("remoteEntry");
+        }, remoteLabel = status?.mode === "remote" ? t("activeRemote", { name: status.target?.name ?? t("host") }) : t("remoteEntry"), visibleCodexWorkspaces = showAllCodexWorkspaces ? codexWorkspaces : codexWorkspaces.slice(0, 3), codexAvailable = status?.remoteFeatures?.codex === !0;
         return React.createElement(
           React.Fragment,
           null,
@@ -2961,7 +2978,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
                         React.createElement("button", {
                           type: "button",
                           onClick: () => {
-                            setSelectedHost(void 0), setWorkspaces([]), setCodexWorkspaces([]), setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setDirectory(void 0), setPath(""), setAddingWorkspace(!1), setError(void 0);
+                            setSelectedHost(void 0), setWorkspaces([]), setCodexWorkspaces([]), setShowAllCodexWorkspaces(!1), setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setDirectory(void 0), setPath(""), setAddingWorkspace(!1), setError(void 0);
                           }
                         }, t("backToHosts"))
                       )
@@ -2998,72 +3015,26 @@ Minimum version required to store current data is: ` + bestVersion + `.
                     { className: "dshRemoteBrowser", "aria-label": t("chooseDirectory") },
                     React.createElement(
                       "div",
-                      { className: "dshRemoteSectionHeading" },
-                      React.createElement("strong", null, t("existingWorkspaces")),
-                      React.createElement("button", {
+                      { className: "dshRemoteSectionHeading dshRemoteWorkspaceHeading" },
+                      React.createElement("strong", null, t(addingWorkspace ? workspaceBackend === "codex" ? "addCodexWorkspace" : "addRemoteWorkspace" : "existingWorkspaces")),
+                      addingWorkspace ? React.createElement("button", {
+                        type: "button",
+                        className: "dshRemoteCancelWorkspace",
+                        disabled: busy,
+                        onClick: cancelAddingWorkspace
+                      }, t("cancelAddWorkspace")) : React.createElement("button", {
                         type: "button",
                         className: "dshRemoteAddWorkspace",
+                        disabled: busy,
                         title: t("addRemoteWorkspace"),
                         "aria-label": t("addRemoteWorkspace"),
-                        "aria-expanded": addingWorkspace,
-                        onClick: () => {
-                          if (addingWorkspace) {
-                            setAddingWorkspace(!1), setDirectory(void 0), setPath("");
-                            return;
-                          }
-                          setAddingWorkspace(!0), browseDirectory();
-                        }
-                      }, "+")
-                    ),
-                    React.createElement(
-                      "div",
-                      { className: "dshRemoteWorkspaceLists" },
-                      React.createElement("div", { className: "dshRemoteDirectoryList" }, workspaces.length === 0 ? React.createElement("p", null, t("noRemoteWorkspaces")) : workspaces.map((workspace) => React.createElement(
-                        "button",
-                        {
-                          type: "button",
-                          key: workspace.workspaceId,
-                          disabled: busy,
-                          className: workspaceBackend === "harness" && !addingWorkspace && path === workspace.path ? "isSelected" : "",
-                          "aria-pressed": workspaceBackend === "harness" && !addingWorkspace && path === workspace.path,
-                          onClick: () => {
-                            setAddingWorkspace(!1), setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setPath(workspace.path);
-                          }
-                        },
-                        React.createElement("span", { "aria-hidden": !0 }, "\u25B1"),
-                        React.createElement("span", null, workspace.title),
-                        React.createElement("small", null, workspace.path)
-                      ))),
-                      codexWorkspaces.length === 0 ? null : React.createElement(
-                        React.Fragment,
-                        null,
-                        React.createElement(
-                          "div",
-                          { className: "dshRemoteWorkspaceSourceHeading" },
-                          React.createElement("strong", null, t("codexVirtualWorkspace")),
-                          React.createElement("small", null, t("codexVirtualSessions"))
-                        ),
-                        React.createElement(
-                          "div",
-                          { className: "dshRemoteDirectoryList dshRemoteCodexWorkspaceList" },
-                          codexWorkspaces.map((workspace) => React.createElement(
-                            "button",
-                            {
-                              type: "button",
-                              key: workspace.workspaceId,
-                              disabled: busy,
-                              className: workspaceBackend === "codex" && codexWorkspaceId === workspace.workspaceId ? "isSelected" : "",
-                              "aria-pressed": workspaceBackend === "codex" && codexWorkspaceId === workspace.workspaceId,
-                              onClick: () => {
-                                setAddingWorkspace(!1), setWorkspaceBackend("codex"), setCodexWorkspaceId(workspace.workspaceId), setPath(workspace.path);
-                              }
-                            },
-                            React.createElement("span", { className: "dshRemoteCodexMark", "aria-hidden": !0 }, "C"),
-                            React.createElement("span", null, workspace.title),
-                            React.createElement("small", null, `${workspace.path} \xB7 ${workspace.sessionCount}`)
-                          ))
-                        )
-                      )
+                        onClick: () => startAddingWorkspace("harness")
+                      }, React.createElement("svg", {
+                        className: "dshRemoteAddWorkspaceIcon",
+                        viewBox: "0 0 16 16",
+                        "aria-hidden": !0,
+                        focusable: !1
+                      }, React.createElement("path", { d: "M8 3v10M3 8h10", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" })))
                     ),
                     addingWorkspace ? React.createElement(
                       "div",
@@ -3089,16 +3060,96 @@ Minimum version required to store current data is: ` + bestVersion + `.
                         }, React.createElement("span", { "aria-hidden": !0 }, "\u25B1"), React.createElement("span", null, entry.name)))),
                         directory.truncated ? React.createElement("small", null, t("directoryTruncated")) : null
                       )
-                    ) : null,
+                    ) : React.createElement(
+                      React.Fragment,
+                      null,
+                      React.createElement(
+                        "div",
+                        { className: "dshRemoteWorkspaceLists" },
+                        React.createElement("div", { className: "dshRemoteDirectoryList" }, workspaces.length === 0 ? React.createElement("p", null, t("noRemoteWorkspaces")) : workspaces.map((workspace) => React.createElement(
+                          "button",
+                          {
+                            type: "button",
+                            key: workspace.workspaceId,
+                            disabled: busy,
+                            className: workspaceBackend === "harness" && path === workspace.path ? "isSelected" : "",
+                            "aria-pressed": workspaceBackend === "harness" && path === workspace.path,
+                            onClick: () => {
+                              setWorkspaceBackend("harness"), setCodexWorkspaceId(void 0), setPath(workspace.path);
+                            }
+                          },
+                          React.createElement("span", { "aria-hidden": !0 }, "\u25B1"),
+                          React.createElement("span", null, workspace.title),
+                          React.createElement("small", null, workspace.path)
+                        )))
+                      ),
+                      !codexAvailable && codexWorkspaces.length === 0 ? null : React.createElement(
+                        "section",
+                        { className: "dshRemoteCodexWorkspaceGroup" },
+                        React.createElement(
+                          "div",
+                          {
+                            id: codexWorkspaceHeadingId,
+                            className: "dshRemoteWorkspaceSourceHeading"
+                          },
+                          React.createElement(
+                            "span",
+                            { className: "dshRemoteWorkspaceSourceText" },
+                            React.createElement("strong", null, t("codexVirtualWorkspace"))
+                          ),
+                          codexAvailable ? React.createElement("button", {
+                            type: "button",
+                            className: "dshRemoteAddWorkspace",
+                            disabled: busy,
+                            title: t("addCodexWorkspace"),
+                            "aria-label": t("addCodexWorkspace"),
+                            onClick: () => startAddingWorkspace("codex")
+                          }, React.createElement("svg", {
+                            className: "dshRemoteAddWorkspaceIcon",
+                            viewBox: "0 0 16 16",
+                            "aria-hidden": !0,
+                            focusable: !1
+                          }, React.createElement("path", { d: "M8 3v10M3 8h10", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" }))) : null
+                        ),
+                        React.createElement("div", {
+                          id: codexWorkspaceListId,
+                          className: "dshRemoteDirectoryList dshRemoteCodexWorkspaceList",
+                          "aria-labelledby": codexWorkspaceHeadingId
+                        }, visibleCodexWorkspaces.length === 0 ? React.createElement("p", null, t("noCodexWorkspaces")) : visibleCodexWorkspaces.map((workspace) => React.createElement(
+                          "button",
+                          {
+                            type: "button",
+                            key: workspace.workspaceId,
+                            disabled: busy,
+                            className: workspaceBackend === "codex" && codexWorkspaceId === workspace.workspaceId ? "isSelected" : "",
+                            "aria-pressed": workspaceBackend === "codex" && codexWorkspaceId === workspace.workspaceId,
+                            onClick: () => {
+                              setWorkspaceBackend("codex"), setCodexWorkspaceId(workspace.workspaceId), setPath(workspace.path);
+                            }
+                          },
+                          React.createElement("span", { className: "dshRemoteCodexMark", "aria-hidden": !0 }, "C"),
+                          React.createElement("span", null, workspace.title),
+                          React.createElement("small", null, `${workspace.path} \xB7 ${workspace.sessionCount}`)
+                        ))),
+                        codexWorkspaces.length <= 3 || showAllCodexWorkspaces ? null : React.createElement("button", {
+                          type: "button",
+                          className: "dshRemoteCodexWorkspaceMore",
+                          disabled: busy,
+                          "aria-controls": codexWorkspaceListId,
+                          "aria-label": t("showAllCodexWorkspaces"),
+                          onClick: () => setShowAllCodexWorkspaces(!0)
+                        }, "\u2026")
+                      )
+                    ),
                     React.createElement(
                       "footer",
                       { className: "dshRemoteOpenBar" },
                       React.createElement("div", null, React.createElement("span", null, t("currentDirectory")), React.createElement("strong", null, path || "\u2014")),
                       React.createElement("button", {
                         type: "button",
-                        disabled: busy || workspaceBackend === "harness" && path.trim() === "" || workspaceBackend === "codex" && codexWorkspaceId === void 0,
+                        disabled: busy || path.trim() === "" || !addingWorkspace && workspaceBackend === "codex" && codexWorkspaceId === void 0,
                         onClick: () => void openWorkspace()
-                      }, t(busy ? "openingWorkspace" : "openWorkspace"))
+                      }, t(busy ? "openingWorkspace" : addingWorkspace ? "confirmAddWorkspace" : "openWorkspace"))
                     )
                   )
                 )
@@ -3453,14 +3504,14 @@ Minimum version required to store current data is: ` + bestVersion + `.
           ".dshRemotePageHeader{min-height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-bottom:1px solid var(--dsw-alias-border-l2)}.dshRemotePageIntro{min-width:0;flex:1}.dshRemotePageHeader strong{display:block;font-size:18px;line-height:1.4}.dshRemotePageHeader p{min-width:0;max-width:70ch;margin:3px 0 0;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:1.5}.dshRemotePageActions{flex:0 0 auto;display:flex;align-items:center;gap:4px}.dshRemotePageActions>button{height:40px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;border:0;border-radius:8px;background:transparent;color:inherit;line-height:1;cursor:pointer}.dshRemotePageActions>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemotePageActions>button:disabled{opacity:.45;cursor:default}.dshRemotePageRefresh{min-width:48px;padding:0 10px;font:inherit;font-size:13px}.dshRemotePageActions>button:not(.dshRemotePageRefresh){width:40px;padding:0;font-size:24px}",
           ".dshRemotePageBody{padding:24px;overflow:auto;display:flex;flex-direction:column;gap:24px}.dshRemotePageBody button{font:inherit;color:inherit}",
           ".dshRemoteSectionHeading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}.dshRemoteSectionTitle{min-width:0;display:flex;align-items:center;gap:10px}.dshRemoteSectionTitle>strong{font-size:14px}.dshRemoteSectionActions{display:flex;align-items:center;gap:14px}.dshRemoteSectionActions>button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:5px 0;font-size:12px}.dshRemoteSectionActions>button:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}",
-          ".dshRemoteSectionHeading>.dshRemoteAddWorkspace{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:50%;font-size:20px;line-height:1}.dshRemoteSectionHeading>.dshRemoteAddWorkspace:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}",
+          ".dshRemoteCancelWorkspace{min-height:36px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:6px 0;cursor:pointer}.dshRemoteCancelWorkspace:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}.dshRemoteCancelWorkspace:disabled{opacity:.5;cursor:default}",
           ".dshRemoteHostList{display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteHostList>button{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:10px 4px;cursor:pointer}.dshRemoteHostList>button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteHostList>button:disabled{opacity:.5;cursor:default}.dshRemoteHostList>button>span{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteHostList>button strong{font-size:14px;font-weight:500}.dshRemoteHostList small,.dshRemoteSelectedHost small{color:var(--dsw-alias-label-secondary);font-size:12px}",
           ".dshRemoteSelectedHost{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}",
           '.dshRemoteProgress{display:flex;flex-direction:column;gap:8px;margin:12px 0;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}.dshRemoteProgressHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}.dshRemoteProgressHeader strong{font-size:13px;font-weight:600}.dshRemoteProgressHeader span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteProgressBar{height:6px;overflow:hidden;border-radius:999px;background:var(--dsw-alias-bg-layer-3)}.dshRemoteProgressBar>span{display:block;width:100%;height:100%;border-radius:inherit;background:var(--dsw-alias-brand-primary);transform-origin:left center;transition:transform .22s ease-out}[dir="rtl"] .dshRemoteProgressBar>span{transform-origin:right center}.dshRemoteProgress p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.45}.dshRemoteProgressRoute{font-weight:500}.dshRemoteProgressRoute .isActive{color:var(--dsw-alias-state-success-primary);font-weight:700}.dshRemoteProgressRouteArrow{color:var(--dsw-alias-label-tertiary)}@media(prefers-reduced-motion:reduce){.dshRemoteProgressBar>span{transition:none}}',
           '.dshRemoteBrowser{display:flex;flex-direction:column}.dshRemoteCrumbs{display:flex;align-items:center;gap:4px;overflow:auto;padding:2px 0 10px}.dshRemoteCrumbs>button{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:5px 7px;border-radius:6px;cursor:pointer}.dshRemoteCrumbs>button:not(:last-child)::after{content:" /";color:var(--dsw-alias-label-tertiary)}.dshRemoteCrumbs>button:disabled{color:var(--dsw-alias-label-primary);font-weight:600}',
           ".dshRemoteWorkspaceLists{max-height:min(360px,42vh);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-label-tertiary) transparent}.dshRemoteWorkspaceLists::-webkit-scrollbar{width:8px}.dshRemoteWorkspaceLists::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:8px;background:var(--dsw-alias-label-tertiary);background-clip:padding-box}.dshRemoteWorkspaceLists::-webkit-scrollbar-track{background:transparent}",
           ".dshRemoteDirectoryList{min-height:72px;display:flex;flex-direction:column;border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteDirectoryList>button{min-height:52px;display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:10px;text-align:left;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:8px 4px;cursor:pointer}.dshRemoteDirectoryList>button:hover,.dshRemoteDirectoryList>button.isSelected{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteDirectoryList>button.isSelected{color:var(--dsw-alias-label-primary)}.dshRemoteDirectoryList>button>span:first-child{grid-row:1/3}.dshRemoteDirectoryList>button>span:not(:first-child),.dshRemoteDirectoryList>button>small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dshRemoteDirectoryList>button>small{grid-column:2;color:var(--dsw-alias-label-secondary)}.dshRemoteDirectoryList>p,.dshRemoteHint{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}",
-          ".dshRemoteWorkspaceSourceHeading{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;padding:8px 4px 7px;background:var(--dsw-alias-bg-layer-1)}.dshRemoteWorkspaceSourceHeading>strong{font-size:13px}.dshRemoteWorkspaceSourceHeading>small{color:var(--dsw-alias-label-secondary);font-size:11px}.dshRemoteCodexWorkspaceList{min-height:0}.dshRemoteCodexMark{box-sizing:border-box;width:22px;height:22px;display:grid;place-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;color:var(--dsw-alias-label-primary);font-size:11px;font-weight:650}",
+          ".dshRemoteAddWorkspace{box-sizing:border-box;width:40px;height:40px;display:inline-grid;place-items:center;flex:0 0 auto;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);padding:0;cursor:pointer}.dshRemoteAddWorkspace:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteAddWorkspace:disabled{opacity:.5;cursor:default}.dshRemoteAddWorkspaceIcon{width:20px;height:20px}.dshRemoteCodexWorkspaceGroup{margin-top:16px}.dshRemoteWorkspaceSourceHeading{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 4px 7px}.dshRemoteWorkspaceSourceText{min-width:0;display:flex;flex-direction:column;gap:2px}.dshRemoteWorkspaceSourceText>strong{font-size:13px}.dshRemoteWorkspaceSourceText>small{color:var(--dsw-alias-label-secondary);font-size:11px}.dshRemoteCodexWorkspaceList{min-height:0;max-height:min(260px,32vh);overflow-y:auto;overscroll-behavior:contain}.dshRemoteCodexWorkspaceMore{width:100%;min-height:48px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);padding:8px 4px;text-align:center;font-size:12px;cursor:pointer}.dshRemoteCodexWorkspaceMore:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteCodexWorkspaceMore:disabled{opacity:.5;cursor:default}.dshRemoteCodexMark{box-sizing:border-box;width:22px;height:22px;display:grid;place-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;color:var(--dsw-alias-label-primary);font-size:11px;font-weight:650}",
           ".dshRemoteFolderBrowser{margin-top:14px}.dshRemoteFolderBrowser>p,.dshRemoteFolderList>p{margin:12px 0;color:var(--dsw-alias-label-secondary);font-size:13px}.dshRemoteFolderList{max-height:260px;overflow:auto;border-block:1px solid var(--dsw-alias-border-l2)}.dshRemoteFolderList>button{width:100%;min-height:42px;display:flex;align-items:center;gap:9px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2);background:transparent;padding:7px 6px;text-align:left;cursor:pointer}.dshRemoteFolderList>button:hover{background:var(--dsw-alias-interactive-bg-hover)}.dshRemoteFolderBrowser>small{display:block;margin-top:8px;color:var(--dsw-alias-state-warn-label)}",
           ".dshRemotePathField{display:flex;flex-direction:column;gap:6px;margin-top:20px}.dshRemotePathField>span{font-size:13px;font-weight:600}.dshRemotePathField>input{min-height:40px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-3);color:inherit;padding:0 12px;font:inherit}.dshRemotePathField>small{color:var(--dsw-alias-label-secondary)}",
           ".dshRemoteOpenBar{position:sticky;bottom:-96px;display:flex;align-items:center;justify-content:space-between;gap:20px;margin-top:20px;padding:14px 0;background:var(--dsw-alias-bg-layer-1);border-top:1px solid var(--dsw-alias-border-l2)}.dshRemoteOpenBar>div{min-width:0;display:flex;flex-direction:column;gap:3px}.dshRemoteOpenBar span{color:var(--dsw-alias-label-secondary);font-size:12px}.dshRemoteOpenBar strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.dshRemoteOpenBar>button,.dshRemoteEnable>button{min-height:40px;flex:0 0 auto;border:0;border-radius:8px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1);padding:8px 16px;cursor:pointer}.dshRemoteOpenBar>button:disabled,.dshRemoteEnable>button:disabled{opacity:.5;cursor:default}",
@@ -3472,7 +3523,7 @@ Minimum version required to store current data is: ` + bestVersion + `.
           '.dshRemoteHostControlToggle{display:flex;align-items:center;gap:7px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;white-space:nowrap;cursor:default}.dshRemoteHostControlToggle>input{appearance:none;box-sizing:border-box;position:relative;width:32px;height:18px;flex:0 0 auto;margin:0;border:1px solid var(--dsw-alias-label-secondary);border-radius:999px;background:var(--dsw-alias-bg-layer-3);cursor:pointer;box-shadow:inset 0 0 0 1px var(--dsw-alias-border-l2);transition:background .16s ease-out,border-color .16s ease-out,box-shadow .16s ease-out}.dshRemoteHostControlToggle>input::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--dsw-alias-label-secondary);transition:transform .16s ease-out,background .16s ease-out}.dshRemoteHostControlToggle>input:checked{border-color:var(--dsw-alias-state-success-primary);background:var(--dsw-alias-state-success-primary);box-shadow:none}.dshRemoteHostControlToggle>input:checked::after{transform:translateX(14px);background:var(--dsw-alias-bg-layer-1)}.dshRemoteHostControlToggle>input:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.dshRemoteHostControlToggle>input:disabled{opacity:.5;cursor:default}@media(prefers-reduced-motion:reduce){.dshRemoteHostControlToggle>input,.dshRemoteHostControlToggle>input::after{transition:none}}',
           ".dshRemoteAccountExit{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;padding:5px 0;font-size:12px;line-height:1.5;white-space:nowrap}.dshRemoteAccountExit:hover:not(:disabled){color:var(--dsw-alias-label-primary);text-decoration:underline}.dshRemoteAccountExit:disabled{opacity:.5;cursor:default;text-decoration:none}",
           ".dshRemoteLocalLink{align-self:flex-start;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:4px 0;cursor:pointer}.dshRemoteLocalLink:hover{color:var(--dsw-alias-label-primary)}",
-          "@keyframes dshRemotePageIn{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.dshRemotePage{animation:none}}@media(max-width:620px){.dshRemoteBackdrop{padding:12px}.dshRemotePage{max-height:calc(100vh - 24px)}.dshRemotePageHeader{padding:12px 16px}.dshRemoteSectionHeading{align-items:flex-start;flex-direction:column;gap:8px}.dshRemoteSectionActions{width:100%;justify-content:space-between}.dshRemotePageBody{padding:20px 16px}.dshRemoteOpenBar{align-items:flex-end}.dshRemoteOpenBar>button{min-height:48px}}",
+          "@keyframes dshRemotePageIn{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.dshRemotePage{animation:none}}@media(max-width:620px){.dshRemoteBackdrop{padding:12px}.dshRemotePage{max-height:calc(100vh - 24px)}.dshRemotePageHeader{padding:12px 16px}.dshRemoteSectionHeading{align-items:flex-start;flex-direction:column;gap:8px}.dshRemoteWorkspaceHeading{align-items:center;flex-direction:row}.dshRemoteSectionActions{width:100%;justify-content:space-between}.dshRemotePageBody{padding:20px 16px}.dshRemoteOpenBar{align-items:flex-end}.dshRemoteOpenBar>button{min-height:48px}}",
           ".dshRemoteBackdrop{position:fixed;inset:0;z-index:1000;background:var(--dsw-alias-bg-mask-3);display:grid;place-items:center;padding:20px}",
           ".dshRemoteDialog{width:min(460px,100%);max-height:80vh;overflow:auto;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l2);border-radius:14px;padding:18px;display:grid;gap:12px;box-shadow:var(--dsw-shadow-lv2)}",
           ".dshRemoteDialog button,.dshRemoteDialog input{font:inherit;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;padding:9px 10px;background:transparent;color:inherit}",

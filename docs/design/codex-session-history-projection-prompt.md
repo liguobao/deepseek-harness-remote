@@ -12,8 +12,8 @@
 Composer、Tool、file change 与 approval UI 直接消费 CodeX 数据。
 
 CodeX 必须继续位于同一个 Remote Plugin 中，并作为 `packages/plugin/src/codex/` 下的独立领域。
-不得拆成第二个 Plugin，不修改 DSH 主仓库，不为 Android 或 VS Code 增加本功能，也不得在本仓库
-增加 Remote Web、Server 或 Admin runtime。
+不得拆成第二个 Plugin，不修改 DSH 主仓库，也不得在本仓库增加 Remote Web、Server 或 Admin runtime。
+Android 可直接消费同一 `codex.app.*`；VS Code 暂不增加本功能。
 
 ## 产品入口
 
@@ -28,8 +28,9 @@ CodeX 必须继续位于同一个 Remote Plugin 中，并作为 `packages/plugin
         -> 进入 DSH 原生 Workspace/Session/Conversation 流程
 ```
 
-禁止增加本地模式下的 CodeX 切换按钮、独立 CodeX 页面/弹窗/时间线/Composer、第二套 Thread
-导航，以及 Android 或 VS Code CodeX 入口。Host 未启用 CodeX、App Server 不可用或 capability
+禁止增加本地模式下的 CodeX 切换按钮、独立 CodeX 页面/时间线/Composer、第二套 Thread
+导航，以及 VS Code CodeX 入口。Desktop Remote 工作区选择器与 Android 工作区页可以提供添加 CodeX
+Project 的目录选择入口。Host 未启用 CodeX、App Server 不可用或 capability
 未协商时，Remote 工作区选择器不显示可操作的 CodeX 工作区。
 
 ## 数据所有权
@@ -75,7 +76,8 @@ Workspace ID = codex-workspace:project:<projectId-or-cwd-derived-id>
 Session ID   = codex:<threadId>
 ```
 
-Workspace 优先来自 CodeX App Server 的 `project/list`。一个 CodeX project 对应一个虚拟 Workspace；
+Workspace 优先来自 CodeX App Server 的 `project/list`。Desktop 与 Android 还可通过受限的
+`project/create` 将 Host 上已存在的真实目录注册为 CodeX Project；一个 CodeX project 对应一个虚拟 Workspace；
 该 project id 或 project root 能归属的 Thread 对应 Session。当 `project/list` 不可用或没有可用根目录时，
 Client 可按 `thread/list` 已返回的绝对 `cwd` 精确合成只读后备 Workspace；新 Thread 可使用这些
 authority 根内通过词法路径与 `realpath` 双重校验的真实子目录。不得合并到推测的父目录，也
@@ -86,14 +88,16 @@ authority 根内通过词法路径与 `realpath` 双重校验的真实子目录�
 Host 只通过 stdio 启动 `codex app-server`。实现以当前官方 schema 和运行时生成的 schema 为准，
 不得读取或解析 `~/.codex` 的私有 JSONL、SQLite 或其它内部存储。
 
-第一版允许的方法包括 `account/read`、`model/list`、`thread/list`、`thread/read`、`thread/start`、
+允许的方法包括 `account/read`、`model/list`、`project/list`、`project/create`、`thread/list`、`thread/read`、`thread/start`、
 `thread/resume`、`thread/fork`、`thread/name/set`、`thread/archive`、`thread/unarchive`、
 `thread/unsubscribe`、`turn/start`、`turn/steer` 与 `turn/interrupt`。
 
 禁止 raw App Server 代理、Shell、PTY、`command/*`、`process/*`、任意 `config/*`、任意文件读取、
 `thread/delete`、`thread/shellCommand`、`thread/inject_items` 与远程 API Key 登录。
 
-`project/list` 是 CodeX Workspace 的首选来源。该接口不可用或没有可用根目录时，Host 可使用
+`project/list` 是 CodeX Workspace 的首选来源。`project/create` 仅接受一个 Host 现存绝对目录；Host
+必须将其解析为 canonical `realpath` 并确认是目录，再交给 App Server 注册。只有 App Server 返回的
+Project 才能扩展 Workspace authority，映射仍只保留在 Client 内存中。`project/list` 不可用或没有可用根目录时，Host 可使用
 `thread/list` 已返回的绝对 `cwd` 作为精确 Workspace authority；新增 Thread 可使用 authority 根内经过
 词法路径与 `realpath` 双重校验的真实子目录；其它带 `threadId` 的调用必须再次验证
 该 Thread 属于当前 authority，不能只信任 Client 发来的 ID。
@@ -147,6 +151,7 @@ delta、command/file/MCP progress、file patch update、`thread/status/changed`�
 
 | DSH 原生动作 | CodeX App Server |
 | --- | --- |
+| 添加 CodeX Workspace | `project/create` |
 | 新建 Session | `thread/start` |
 | Fork Session | `thread/fork` |
 | Rename Session | `thread/name/set` |
@@ -210,6 +215,6 @@ git diff --check
 5. 虚拟记录不进入 DSH SessionStore、Workspace 数据库或 Harness 日志；
 6. Host allowlist、CodeX Workspace authority、membership、identity 固定、Noise 与连接隔离仍然生效；
 7. 退出或断线后无残留虚拟 target、stream 或 approval；
-8. 不修改 Android、VS Code、Server runtime 或 DSH 主仓库；
+8. Android 仅直接消费同一 `codex.app.*`；不修改 VS Code、Server runtime 或 DSH 主仓库；
 9. 核心测试、check、bundle 校验、build、test 与 `git diff --check` 通过；
 10. README、中文 README、AGENTS、TODO、协议和本文与真实实现一致。

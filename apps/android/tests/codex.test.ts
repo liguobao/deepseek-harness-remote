@@ -3,11 +3,44 @@ import type { CodexRemoteClient } from '@dsh-remote/client-core'
 import {
   codexItemsToChat,
   codexPermissionPresetFromResponse,
+  createCodexWorkspace,
   loadCodexCatalog,
   readCodexHistoryPage,
 } from '../src/services/codex'
 
 describe('Android CodeX Remote projection', () => {
+  it('creates a CodeX project from the selected Host directory', async () => {
+    const request = vi.fn(async () => ({
+      project: {
+        id: 'project-new',
+        name: 'project',
+        roots: [{ path: '/workspace/project' }],
+        position: 3,
+        createdAt: 10,
+        updatedAt: 11,
+        metadata: { secret: 'not projected' },
+      },
+    }))
+
+    await expect(createCodexWorkspace(
+      { request } as unknown as CodexRemoteClient,
+      '/workspace/project',
+      '018f47f6-5f5a-7b5a-8d74-2e797b4d749c',
+    )).resolves.toMatchObject({
+      workspaceId: 'codex:project:project-new',
+      backend: 'codex',
+      nativeId: 'project-new',
+      path: '/workspace/project',
+      title: 'project',
+      sessionIds: [],
+    })
+    expect(request).toHaveBeenCalledWith('project/create', {
+      name: 'project',
+      roots: [{ path: '/workspace/project' }],
+      idempotencyKey: '018f47f6-5f5a-7b5a-8d74-2e797b4d749c',
+    })
+  })
+
   it('prefers project/list workspaces and keeps unprojected Threads hidden', async () => {
     const request = vi.fn(async (method: string) => {
       if (method === 'project/list') return {
@@ -92,21 +125,40 @@ describe('Android CodeX Remote projection', () => {
   })
 
   it('renders image-bearing Codex display messages as chat images', () => {
-    expect(codexItemsToChat([{
-      id: 'codex:thread-1:turn-1:user-1',
-      sessionId: 'codex:thread-1',
-      backend: 'codex',
-      kind: 'message',
-      role: 'user',
-      text: 'Describe this',
-      images: [{ uri: 'data:image/png;base64,aW1hZ2U=', name: 'screen.png' }],
-      nativeRef: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'user-1' },
-    }])).toEqual([expect.objectContaining({
-      kind: 'message',
-      role: 'user',
-      text: 'Describe this',
-      images: [{ uri: 'data:image/png;base64,aW1hZ2U=', name: 'screen.png' }],
-    })])
+    expect(codexItemsToChat([
+      {
+        id: 'codex:thread-1:turn-1:user-1',
+        sessionId: 'codex:thread-1',
+        backend: 'codex',
+        kind: 'message',
+        role: 'user',
+        text: 'Describe this',
+        images: [{ uri: 'data:image/png;base64,aW1hZ2U=', name: 'screen.png' }],
+        nativeRef: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'user-1' },
+      },
+      {
+        id: 'codex:thread-1:turn-1:tool-1',
+        sessionId: 'codex:thread-1',
+        backend: 'codex',
+        kind: 'tool',
+        text: 'Current browser screenshot',
+        images: [{ uri: 'data:image/jpeg;base64,aW1hZ2U=', name: 'current-browser.jpg' }],
+        status: 'completed',
+        nativeRef: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'tool-1' },
+        details: { type: 'mcpToolCall' },
+      },
+    ])).toEqual([
+      expect.objectContaining({
+        kind: 'message',
+        role: 'user',
+        text: 'Describe this',
+        images: [{ uri: 'data:image/png;base64,aW1hZ2U=', name: 'screen.png' }],
+      }),
+      expect.objectContaining({
+        kind: 'tool',
+        images: [{ uri: 'data:image/jpeg;base64,aW1hZ2U=', name: 'current-browser.jpg' }],
+      }),
+    ])
   })
 
   it('derives the mobile permission preset from App Server settings', () => {

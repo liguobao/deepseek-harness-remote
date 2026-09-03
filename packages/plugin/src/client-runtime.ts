@@ -19,6 +19,7 @@ import type { SafeLogger } from './logging.js'
 import { RemoteHarnessApiProxy } from './remote-api-proxy.js'
 import { RemoteTypertGateway } from './remote-typert-gateway.js'
 import {
+  codexProjectWorkspaceId,
   CodexVirtualHarness,
   discoverCodexVirtualWorkspaces,
   type CodexVirtualWorkspaceView,
@@ -433,6 +434,31 @@ export class ClientModeRuntime {
     }
     this.logger.info('CodeX virtual workspace opened', { targetDeviceId: shortId(remote.target.deviceId) })
     return { ...this.status(), workspace }
+  }
+
+  async createCodexWorkspace(
+    targetDeviceId: string,
+    path: string,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    const trimmedPath = path.trim()
+    if (trimmedPath === '') throw new ClientModeError('INVALID_MESSAGE', 'A CodeX project directory is required.')
+    const remote = await this.ensureConnected(targetDeviceId, signal)
+    remote.features = await probeRemoteHostFeatures(remote.client, remote.clientVersion)
+    if (!remote.features.codex) {
+      throw new ClientModeError('FEATURE_NOT_SUPPORTED', 'The selected Host does not provide CodeX workspaces.')
+    }
+    this.assertRemoteCompatible(remote)
+    const result = record(await new CodexRemoteClient(remote.client).request('project/create', {
+      name: remoteWorkspaceTitle(trimmedPath),
+      roots: [{ path: trimmedPath }],
+      idempotencyKey: uuidV7(),
+    }, signal))
+    const project = record(result.project)
+    if (typeof project.id !== 'string' || project.id.length === 0) {
+      throw new ClientModeError('INVALID_MESSAGE', 'The Host returned an invalid CodeX project.')
+    }
+    return this.openCodexWorkspace(targetDeviceId, codexProjectWorkspaceId(project.id), signal)
   }
 
   private consumeWorkspaceSelection(selection: RemoteWorkspaceSelection): Record<string, unknown> {
@@ -859,6 +885,13 @@ export class ClientModeRuntime {
         }
         return ok(await this.openCodexWorkspace(value.targetDeviceId, value.workspaceId, signal))
       }
+      if (endpoint === 'codex.workspace.create') {
+        const value = record(payload)
+        if (typeof value.targetDeviceId !== 'string' || typeof value.path !== 'string') {
+          throw new ClientModeError('INVALID_MESSAGE', 'A Host and CodeX project directory are required.')
+        }
+        return ok(await this.createCodexWorkspace(value.targetDeviceId, value.path, signal))
+      }
       if (endpoint === 'workspace.selection.consume') {
         const value = record(payload)
         if (typeof value.targetDeviceId !== 'string' || typeof value.workspaceId !== 'string') {
@@ -1085,6 +1118,11 @@ function workspaceRecordId(value: unknown): string {
     throw new ClientModeError('INVALID_MESSAGE', 'The remote Host returned an invalid Workspace.')
   }
   return value.workspaceId
+}
+
+function remoteWorkspaceTitle(path: string): string {
+  const normalized = path.replace(/[\\/]+$/u, '')
+  return normalized.split(/[\\/]+/u).filter(Boolean).at(-1) ?? path
 }
 
 function fail(error: unknown): RpcResult<unknown> {

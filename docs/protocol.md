@@ -1178,12 +1178,12 @@ Android Client 可在相同 capability 探测后直接消费该 `codex.app.*` ca
 - `codex.app.transfer.open|chunk|commit|read|close`。
 
 `codex.app.call` envelope 为 `{ "method": string, "params": unknown }`，但它不是通用 JSON-RPC
-代理。Host 编译期 allowlist 仅包含 `account/read`、`model/list`、`project/list`、`thread/list`、
+代理。Host 编译期 allowlist 仅包含 `account/read`、`model/list`、`project/list`、`project/create`、`thread/list`、
 `thread/read`、`dsh/sessionHistory`、`dsh/directoryList`、`thread/start`、`thread/resume`、`thread/fork`、
 `thread/name/set`、`thread/archive`、`thread/unarchive`、`thread/unsubscribe`、`turn/start`、
 `turn/steer` 与 `turn/interrupt`，且每个 params 都必须通过严格 schema。`thread/delete`、
 `thread/shellCommand`、`thread/inject_items`、`thread/rollback`、background terminal、
-`command/*`、`process/*`、`config/*`、登录写接口和实验 API 一律返回 `METHOD_NOT_ALLOWED`。
+`command/*`、`process/*`、`config/*`、登录写接口和未显式列出的实验 API 一律返回 `METHOD_NOT_ALLOWED`。
 
 CodeX App Server 的 `project/list` 是虚拟 Workspace 的首选来源。只要它返回至少一个带绝对根目录的
 有效项目，Client Plugin 与 Android Client 就只投影这些项目，`thread/list` 里不能归属到任一 project id
@@ -1191,6 +1191,13 @@ CodeX App Server 的 `project/list` 是虚拟 Workspace 的首选来源。只要
 目录，或该方法不可用时，Host 才可把 App Server 自己通过 `thread/list` 返回的绝对 `cwd` 作为精确
 Workspace authority；Client Plugin、Remote Web 与 Android Client 可为这些 `cwd` 生成只读后备
 Workspace。不得从多个 `cwd` 推测或提升到共同父目录。没有绝对 `cwd` 的 Thread 在后备模式下不可见。
+
+`project/create` 只允许 `{ name, roots: [{ path }], idempotencyKey }`：`name` 为 1..256 字符，
+`idempotencyKey` 为 16..256 字符，且 `roots` 必须恰好包含一个 1..4096 字符的绝对目录。Host 必须在
+调用 App Server 前对该路径执行 `resolve`、`realpath` 和目录类型校验，并把 canonical path 作为新增
+project root。返回值只保留 project 的 `id`、`name`、绝对 `roots`、`position`、`createdAt` 与
+`updatedAt`，不得转发 metadata。该操作会显式扩展后续的 Workspace authority，但不会创建目录、
+写入 DSH Workspace 存储或开放任意 App Server method。
 
 其它带 `threadId` 的调用必须先用只读 `thread/read(includeTurns:false)` 重新验证该 Thread 仍属于当前
 Workspace authority；如果该只读验证因 App Server 当前状态临时失败，Host 最多只能用同一 authority

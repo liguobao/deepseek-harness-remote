@@ -60,6 +60,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 - [x] Android 按动态 capability 直接接入 `codex.app.*`，将 `project/list`/Thread/分页 History/live frame 合并到现有 Workspace/Session/Chat
 - [x] Android 接入 CodeX 模型与 reasoning、固定权限预设、系统图片选择器 Prompt、interrupt 和单次命令/文件审批
 - [x] 在 Remote 工作区选择器中增加 CodeX 虚拟工作区入口，不增加本地入口或独立页面
+- [x] Desktop 与 Android 增加 CodeX Workspace 创建入口，通过固定 `project/create` 白名单新增经 Host 校验的真实目录
 - [x] 增加 rc.2 ApiProxy / v0.1.2 Typert 内存虚拟载体，将 CodeX History/live 映射为原生 Session 事件
 - [x] 将 reasoning/plan delta、command/file/MCP progress、Thread status、model reroute 与 Web Search/Subagent/Image/Compaction/Review Mode Item 投影到原生 chunk、状态、projection 和工具卡片
 - [x] 将新建空 Thread 稳定挂载到当前 CodeX Workspace，并增加 Host 端消息边界 History 分页与 Client 端 Session 元数据搜索
@@ -72,6 +73,7 @@ Codex 属于同一个 Remote Plugin，但在 Plugin 内保持独立业务领域�
 - [x] 用两台真实 DSH Desktop 跑通加密跨机 resume/turn/event/approval/interrupt 与大 History 传输
 - [x] 验证 App Server crash、Host transport 重连和多 Desktop Web Client 同时观察同一 Thread
 - [x] 用 Android 真机跑通 CodeX Workspace→Thread→Prompt/steer/approval/interrupt、大 History、图片分块与断线重连
+- [ ] 用真实 Desktop 与 Android 验证远端 `project/create`、新增后自动选择和空 CodeX 目录首个项目流程
 
 ## P0：协议与安全
 
