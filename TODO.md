@@ -148,7 +148,7 @@ interrupt 与单次审批，不恢复旧 Android RPC。剩余工作：
 - [x] 真机验证 Android Photo Picker 多选、超限提示与大图片 transfer
 - [x] 重连后 mux/Gateway stream 重开与 history baseline 重建的真机验证
 - [x] WebRTC P2P/TURN 路径真机验证（react-native-webrtc 与 Host werift 互操作）
-- [ ] 同步协议 conformance fixtures 到 Android 侧校验
+- [x] 同步协议 conformance fixtures 到 Android 侧校验
 
 `apps/android` 与 Mock Host 曾作为旧 Remote RPC 原型冻结；现在 Android 直接实现/消费官方
 ApiProxy / Typert Remote contract，不得在 Plugin Host 恢复 `sessions.*`、`session.send`、
