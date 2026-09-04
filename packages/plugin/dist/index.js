@@ -18596,6 +18596,7 @@ function isPrivate(ip) {
 var REMOTE_COMMAND_LIST_MIN_VERSION = [0, 3, 16];
 var REMOTE_FILE_VIEWER_MIN_VERSION = [0, 3, 17];
 var DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 12e3;
+var DIRECT_LAN_PROGRESS_DISPLAY_MS = 1400;
 var ClientModeRuntime = class {
   constructor(config, identities, server, apiProxy, typertGateway, logger, host, rtcFactoryProvider = loadNodeRtcFactory) {
     this.config = config;
@@ -19149,11 +19150,15 @@ var ClientModeRuntime = class {
       let transport;
       for (const attempt of attempts) {
         webRtcFallback = false;
-        this.updateConnectionProgress(progressRunId, "probing", activeTransportsForAttempt(attempt));
-        transport = createTransport(attempt);
-        client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 6e4);
-        await client.connect();
-        signal?.throwIfAborted();
+        const stopProgressTimer = this.beginAttemptProgress(progressRunId, attempt);
+        try {
+          transport = createTransport(attempt);
+          client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 6e4);
+          await client.connect();
+          signal?.throwIfAborted();
+        } finally {
+          stopProgressTimer();
+        }
         if (attempt === "relay" || !webRtcFallback) break;
         await client.close();
         client = void 0;
@@ -19227,6 +19232,19 @@ var ClientModeRuntime = class {
     this.clearConnectionProgress(next.progressRunId);
     await previous?.client.close().catch(() => void 0);
     return next;
+  }
+  beginAttemptProgress(runId, attempt) {
+    if (attempt !== "direct") {
+      this.updateConnectionProgress(runId, "probing", [attempt]);
+      return () => void 0;
+    }
+    this.updateConnectionProgress(runId, "probing", ["lan"]);
+    const timer = setTimeout(() => {
+      if (this.connectionProgress?.runId === runId && this.connectionProgress.phase === "probing") {
+        this.updateConnectionProgress(runId, "probing", ["p2p"]);
+      }
+    }, DIRECT_LAN_PROGRESS_DISPLAY_MS);
+    return () => clearTimeout(timer);
   }
   updateConnectionProgress(runId, phase, activeTransports) {
     if (this.connectionProgress?.runId !== runId) return;
@@ -19607,10 +19625,6 @@ function preferredTransportsForAttempt(attempt) {
   if (attempt === "direct") return ["lan", "p2p", "relay"];
   if (attempt === "turn") return ["turn", "relay"];
   return ["relay"];
-}
-function activeTransportsForAttempt(attempt) {
-  if (attempt === "direct") return ["lan", "p2p"];
-  return [attempt];
 }
 function transportPreferenceForMode(mode) {
   if (mode === "LAN") return "lan";

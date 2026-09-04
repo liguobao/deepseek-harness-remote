@@ -64,6 +64,7 @@ interface CodexLoopbackStream {
 const REMOTE_COMMAND_LIST_MIN_VERSION = [0, 3, 16] as const
 const REMOTE_FILE_VIEWER_MIN_VERSION = [0, 3, 17] as const
 const DIRECT_WEBRTC_NEGOTIATE_TIMEOUT_MS = 12_000
+const DIRECT_LAN_PROGRESS_DISPLAY_MS = 1_400
 
 type TransportAttempt = 'direct' | 'turn' | 'relay'
 
@@ -785,11 +786,15 @@ export class ClientModeRuntime {
       let transport: AdaptiveTransport | undefined
       for (const attempt of attempts) {
         webRtcFallback = false
-        this.updateConnectionProgress(progressRunId, 'probing', activeTransportsForAttempt(attempt))
-        transport = createTransport(attempt)
-        client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 60_000)
-        await client.connect()
-        signal?.throwIfAborted()
+        const stopProgressTimer = this.beginAttemptProgress(progressRunId, attempt)
+        try {
+          transport = createTransport(attempt)
+          client = new RemoteClientCore(new ClientSecureTransport(transport, identity, target), 60_000)
+          await client.connect()
+          signal?.throwIfAborted()
+        } finally {
+          stopProgressTimer()
+        }
         if (attempt === 'relay' || !webRtcFallback) break
         await client.close()
         client = undefined
@@ -864,6 +869,23 @@ export class ClientModeRuntime {
     this.clearConnectionProgress(next.progressRunId)
     await previous?.client.close().catch(() => undefined)
     return next
+  }
+
+  private beginAttemptProgress(runId: number, attempt: TransportAttempt): () => void {
+    if (attempt !== 'direct') {
+      this.updateConnectionProgress(runId, 'probing', [attempt])
+      return () => undefined
+    }
+    this.updateConnectionProgress(runId, 'probing', ['lan'])
+    // LAN and public P2P candidates are gathered inside one ICE attempt. The
+    // linear Remote UI still needs a single active route, so advance the
+    // visible cue if direct negotiation takes longer than a local probe.
+    const timer = setTimeout(() => {
+      if (this.connectionProgress?.runId === runId && this.connectionProgress.phase === 'probing') {
+        this.updateConnectionProgress(runId, 'probing', ['p2p'])
+      }
+    }, DIRECT_LAN_PROGRESS_DISPLAY_MS)
+    return () => clearTimeout(timer)
   }
 
   private updateConnectionProgress(
@@ -1294,11 +1316,6 @@ function preferredTransportsForAttempt(attempt: TransportAttempt): Array<'lan' |
   if (attempt === 'direct') return ['lan', 'p2p', 'relay']
   if (attempt === 'turn') return ['turn', 'relay']
   return ['relay']
-}
-
-function activeTransportsForAttempt(attempt: TransportAttempt): Array<'lan' | 'p2p' | 'turn' | 'relay'> {
-  if (attempt === 'direct') return ['lan', 'p2p']
-  return [attempt]
 }
 
 function transportPreferenceForMode(
