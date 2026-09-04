@@ -377,7 +377,9 @@ export function ChatScreen({ onBack }: { onBack: () => void }) {
                 <Send size={19} color={colors.white} />
               </Pressable>}
         </View>
-        <Text style={styles.composerHint}>{zhCN.chat.policyHint}</Text>
+        <Text style={styles.composerHint}>
+          {session.backend === 'codex' ? zhCN.chat.codexPolicyHint : zhCN.chat.policyHint}
+        </Text>
       </View>
 
       <ModelPicker
