@@ -1,14 +1,8 @@
+import { deviceTokenPairSchema, type DeviceTokenPair as TokenPair } from '@dsh-remote/protocol'
 import type { RtcIceServer } from '@dsh-remote/webrtc'
 import type { Credentials, DeviceIdentity, RemoteHost } from './types.js'
 
 const CLIENT_VERSION = '0.3.17'
-
-interface TokenPair {
-  accessToken: string
-  accessTokenExpiresAt: number
-  refreshToken: string
-  refreshTokenExpiresAt: number
-}
 
 export interface QrLoginSession { qrId: string; scanUrl: string; expiresIn: number }
 export type QrLoginPoll = { status: 'pending' | 'expired' } | { status: 'complete'; token: string; account: string }
@@ -139,9 +133,9 @@ function normalizeUrl(value: string): string {
 }
 
 function tokenPair(input: unknown): TokenPair {
-  const body = record(input, 'device credentials')
-  if (typeof body.accessToken !== 'string' || typeof body.refreshToken !== 'string' || typeof body.accessTokenExpiresAt !== 'number' || typeof body.refreshTokenExpiresAt !== 'number') throw new Error('Server returned invalid device credentials.')
-  return body as unknown as TokenPair
+  const parsed = deviceTokenPairSchema.safeParse(input)
+  if (!parsed.success) throw new Error('Server returned invalid device credentials.')
+  return parsed.data
 }
 function parseIceServer(input: unknown): RtcIceServer[] {
   if (!isRecord(input)) return []

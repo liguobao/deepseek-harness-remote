@@ -1,13 +1,11 @@
+import {
+  browserAuthorizationExchangeResponseSchema,
+  deviceTokenPairSchema,
+  type DeviceTokenPair as TokenPair,
+} from '@dsh-remote/protocol'
 import type { Credentials, DeviceIdentity, RemoteHost } from './types.js'
 
 const CLIENT_VERSION = '0.3.29'
-
-interface TokenPair {
-  accessToken: string
-  accessTokenExpiresAt: number
-  refreshToken: string
-  refreshTokenExpiresAt: number
-}
 
 export class ServerApi {
   readonly baseUrl: string
@@ -32,8 +30,9 @@ export class ServerApi {
         },
       }),
     })
-    const body = record(value, 'browser authorization')
-    if (typeof body.account !== 'string' || body.account.length === 0) throw new Error('Server returned an invalid browser authorization.')
+    const parsed = browserAuthorizationExchangeResponseSchema.safeParse(value)
+    if (!parsed.success) throw new Error('Server returned an invalid browser authorization.')
+    const body = parsed.data
     return { serverUrl: this.baseUrl, deviceId: identity.deviceId, account: body.account, ...tokenPair(body) }
   }
 
@@ -108,9 +107,9 @@ function normalizeUrl(value: string): string {
 }
 
 function tokenPair(input: unknown): TokenPair {
-  const body = record(input, 'device credentials')
-  if (typeof body.accessToken !== 'string' || typeof body.refreshToken !== 'string' || typeof body.accessTokenExpiresAt !== 'number' || typeof body.refreshTokenExpiresAt !== 'number') throw new Error('Server returned invalid device credentials.')
-  return body as unknown as TokenPair
+  const parsed = deviceTokenPairSchema.safeParse(input)
+  if (!parsed.success) throw new Error('Server returned invalid device credentials.')
+  return parsed.data
 }
 function record(value: unknown, label: string): Record<string, unknown> { if (!isRecord(value)) throw new Error(`Server returned an invalid ${label}.`); return value }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }

@@ -194,6 +194,9 @@ importers:
       '@dsh-remote/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@dsh-remote/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       lucide:
         specifier: ^0.469.0
         version: 0.469.0

@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@dsh-remote/crypto": "workspace:*",
+    "@dsh-remote/protocol": "workspace:*",
     "lucide": "^0.469.0"
   },
   "devDependencies": {

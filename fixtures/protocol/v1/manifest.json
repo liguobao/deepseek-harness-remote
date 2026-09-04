@@ -14,6 +14,10 @@
     {
       "name": "capability-negotiation",
       "path": "negotiation/capabilities.json"
+    },
+    {
+      "name": "account-authorization",
+      "path": "account/authorization.json"
     }
   ]
 }

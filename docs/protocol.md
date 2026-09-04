@@ -91,7 +91,9 @@ REST、Control frame 和解密后的 Remote message 使用 UTF-8 JSON。发送�
 
 ### 4.2 标识符
 
-- `deviceId`, `membershipId`, `connectionId`, `message.id`：UUIDv7 或 ULID 字符串。
+- `deviceId`：UUID 或 ULID 字符串。新实现应该生成 UUIDv7 或 ULID。
+- 接收端必须接受已有 Client 生成的 UUIDv4 `deviceId`。
+- `membershipId`, `connectionId`, `message.id`：UUIDv7 或 ULID 字符串。
 - `sessionId`：Harness 原生 SessionId，不由 Server 改写。
 - `requestId`：引用发起 RPC 的 Remote message `id`。
 - 内层 `rpcId`：Harness rc.2 ApiProxy 原生 request/response correlation id，Plugin 不改写；alpha 的关联由官方 Gateway carrier 负责。
@@ -167,11 +169,18 @@ REST/Control JSON 中的 key、nonce、handshake 和 ciphertext 使用无 paddin
 规则：
 
 - `role` 仅为 `host` 或 `client`。
+- `deviceId` 必须是 ULID 或 UUID。新设备应该使用 UUIDv7 或 ULID。
+- `name` 必须包含可见文本。UTF-8 编码后不得超过 128 字节。
+- `platform` 必须匹配 `[a-z0-9][a-z0-9._-]*`。长度不得超过 64 字节。
 - `identityKey` 是 Noise static X25519 public key。
+- `identityKey` 必须是 32 字节公钥的规范无 padding Base64URL。编码长度必须是 43 个字符。
+- `clientVersion` 和 `harnessVersion` 的 UTF-8 编码长度必须是 1 到 64 字节。
 - Host 可在注册时携带 `harnessVersion`，Server 必须接受；Host 也会从 Harness
   `host.describe` 读取运行中版本并在首次 `hello` 中刷新上报。
+- Client descriptor 禁止携带 `harnessVersion`。
 - `name` 是不可信显示字符串，限制长度并转义。
 - Server 禁止接受同一 deviceId 替换为不同 identityKey。
+- Descriptor 和注册 envelope 禁止包含未定义字段。
 
 ## 8. 设备注册与 Token
 
@@ -215,6 +224,9 @@ WebSocket 不得跨域混用。注册成功后，Server 为同一账号下的 Ho
 }
 ```
 
+Access token 和 refresh token 的 UTF-8 编码长度必须是 16 到 8192 字节。
+两个到期时间必须是正安全整数。
+
 注册是账号授权的 bootstrap。Client 注册完成后可列出并连接同账号的 Host；不同
 账号之间不建立 membership，也不能读取设备详情或 presence。
 
@@ -246,6 +258,8 @@ POST /api/v1/devices/register-with-code
 成功响应与 §8.1 相同。主机匹配码 10 分钟过期、单次消费、只允许 `role=host`，
 Server 使用独立用途的 keyed hash 落库。
 
+匹配码请求必须使用大写 `XXXX-XXXX` 格式。每个 `X` 只能是 ASCII 字母或数字。
+
 ### 8.1.2 自有设备角色切换
 
 同一 Plugin 安装已持有有效 Host 或 Client device credential 时，可以用该设备 access
@@ -273,6 +287,7 @@ deviceId 或相同 role，并为新角色签发独立 token pair、同步同账�
 ```
 
 Server 必须轮换 refresh token。旧 token 重用触发 token family revoke。Client 必须原子替换本地 token；不能在日志或 URL 中传 token。
+成功响应必须使用 §8.1 的 token pair schema。请求和响应禁止包含未定义字段。
 
 ### 8.3 Remote Web 授权换取 Browser Launcher 凭证
 
@@ -302,6 +317,7 @@ Content-Type: application/json
 
 响应为 §8.1 的 device token pair，并额外返回非空 `account`。约束：
 
+- `account` 的 UTF-8 编码长度必须是 1 到 254 字节。
 - exchange 只接受有效的 `typ=web` Bearer，并且只能注册 `role=client, platform=browser`；设备
   descriptor、账号归属、membership 和 token 签发规则与 §8.1 相同。
 - 扩展不得把 web token 写入 `chrome.storage`、日志、URL 或长期内存；exchange 完成后只保存

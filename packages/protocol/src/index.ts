@@ -16,6 +16,10 @@ export const CODEX_APP_TRANSFER_CHUNK_BYTES = 512 * 1024
  */
 export const MAX_HARNESS_API_TRANSFER_BYTES = 288 * 1024 * 1024
 export const MAX_CODEX_APP_TRANSFER_BYTES = 288 * 1024 * 1024
+export const MAX_DEVICE_NAME_LENGTH = 128
+export const MAX_DEVICE_PLATFORM_LENGTH = 64
+export const MAX_DEVICE_VERSION_LENGTH = 64
+export const MAX_AUTH_TOKEN_LENGTH = 8 * 1024
 
 const SECURE_FRAGMENT_MAGIC = new Uint8Array([0x44, 0x53, 0x48, 0x46]) // DSHF
 const SECURE_FRAGMENT_VERSION = 1
@@ -102,6 +106,59 @@ export type MessageType = typeof messageTypes[number]
 export type ControlFrameType = typeof controlFrameTypes[number]
 export type RpcMethod = typeof rpcMethods[number]
 export type RemoteEventName = typeof remoteEvents[number]
+
+export interface HostDeviceDescriptor {
+  deviceId: string
+  name: string
+  role: 'host'
+  platform: string
+  identityKey: string
+  clientVersion: string
+  harnessVersion?: string
+}
+
+export interface ClientDeviceDescriptor {
+  deviceId: string
+  name: string
+  role: 'client'
+  platform: string
+  identityKey: string
+  clientVersion: string
+}
+
+export type AccountDeviceDescriptor = HostDeviceDescriptor | ClientDeviceDescriptor
+
+export interface DeviceRegistrationRequest {
+  v: typeof PROTOCOL_VERSION
+  device: AccountDeviceDescriptor
+}
+
+export interface HostRegistrationCodeRequest {
+  v: typeof PROTOCOL_VERSION
+  code: string
+  device: HostDeviceDescriptor
+}
+
+export interface DeviceRefreshRequest {
+  deviceId: string
+  refreshToken: string
+}
+
+export interface DeviceTokenPair {
+  accessToken: string
+  accessTokenExpiresAt: number
+  refreshToken: string
+  refreshTokenExpiresAt: number
+}
+
+export interface BrowserAuthorizationExchangeRequest {
+  v: typeof PROTOCOL_VERSION
+  device: ClientDeviceDescriptor & { platform: 'browser' }
+}
+
+export interface BrowserAuthorizationExchangeResponse extends DeviceTokenPair {
+  account: string
+}
 
 export interface ControlFrame<TPayload = unknown> {
   v: typeof PROTOCOL_VERSION
@@ -506,6 +563,89 @@ const messageTypeSchema = z.enum(messageTypes)
 const controlFrameTypeSchema = z.enum(controlFrameTypes)
 const uniqueStrings = (values: string[]): boolean => new Set(values).size === values.length
 const uniqueNumbers = (values: number[]): boolean => new Set(values).size === values.length
+const utf8Length = (value: string): number => new TextEncoder().encode(value).byteLength
+const boundedUtf8Schema = (minimum: number, maximum: number): z.ZodType<string> => z.string()
+  .refine(value => utf8Length(value) >= minimum && utf8Length(value) <= maximum)
+
+const deviceIdSchema = z.string().refine(value => (
+  /^[0-9A-HJKMNP-TV-Z]{26}$/iu.test(value)
+  || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)
+), 'Device ID must be a ULID or UUID.')
+const deviceNameSchema = boundedUtf8Schema(1, MAX_DEVICE_NAME_LENGTH)
+  .refine(value => value.trim().length > 0, 'Device name must contain visible text.')
+const devicePlatformSchema = z.string().min(1).max(MAX_DEVICE_PLATFORM_LENGTH)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/u)
+const identityKeySchema = z.string().regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u)
+const deviceVersionSchema = boundedUtf8Schema(1, MAX_DEVICE_VERSION_LENGTH)
+const authTokenSchema = boundedUtf8Schema(16, MAX_AUTH_TOKEN_LENGTH)
+const expiresAtSchema = z.number().int().positive().safe()
+
+export const hostDeviceDescriptorSchema: z.ZodType<HostDeviceDescriptor> = z.object({
+  deviceId: deviceIdSchema,
+  name: deviceNameSchema,
+  role: z.literal('host'),
+  platform: devicePlatformSchema,
+  identityKey: identityKeySchema,
+  clientVersion: deviceVersionSchema,
+  harnessVersion: deviceVersionSchema.optional(),
+}).strict()
+
+export const clientDeviceDescriptorSchema: z.ZodType<ClientDeviceDescriptor> = z.object({
+  deviceId: deviceIdSchema,
+  name: deviceNameSchema,
+  role: z.literal('client'),
+  platform: devicePlatformSchema,
+  identityKey: identityKeySchema,
+  clientVersion: deviceVersionSchema,
+}).strict()
+
+export const accountDeviceDescriptorSchema: z.ZodType<AccountDeviceDescriptor> = z.union([
+  hostDeviceDescriptorSchema,
+  clientDeviceDescriptorSchema,
+])
+
+export const deviceRegistrationRequestSchema: z.ZodType<DeviceRegistrationRequest> = z.object({
+  v: z.literal(PROTOCOL_VERSION),
+  device: accountDeviceDescriptorSchema,
+}).strict()
+
+export const hostRegistrationCodeRequestSchema: z.ZodType<HostRegistrationCodeRequest> = z.object({
+  v: z.literal(PROTOCOL_VERSION),
+  code: z.string().regex(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/u),
+  device: hostDeviceDescriptorSchema,
+}).strict()
+
+export const deviceRefreshRequestSchema: z.ZodType<DeviceRefreshRequest> = z.object({
+  deviceId: deviceIdSchema,
+  refreshToken: authTokenSchema,
+}).strict()
+
+export const deviceTokenPairSchema: z.ZodType<DeviceTokenPair> = z.object({
+  accessToken: authTokenSchema,
+  accessTokenExpiresAt: expiresAtSchema,
+  refreshToken: authTokenSchema,
+  refreshTokenExpiresAt: expiresAtSchema,
+}).strict()
+
+export const browserAuthorizationExchangeRequestSchema: z.ZodType<BrowserAuthorizationExchangeRequest> = z.object({
+  v: z.literal(PROTOCOL_VERSION),
+  device: z.object({
+    deviceId: deviceIdSchema,
+    name: deviceNameSchema,
+    role: z.literal('client'),
+    platform: z.literal('browser'),
+    identityKey: identityKeySchema,
+    clientVersion: deviceVersionSchema,
+  }).strict(),
+}).strict()
+
+export const browserAuthorizationExchangeResponseSchema: z.ZodType<BrowserAuthorizationExchangeResponse> = z.object({
+  accessToken: authTokenSchema,
+  accessTokenExpiresAt: expiresAtSchema,
+  refreshToken: authTokenSchema,
+  refreshTokenExpiresAt: expiresAtSchema,
+  account: boundedUtf8Schema(1, 254).refine(value => value.trim().length > 0),
+}).strict()
 
 export const remoteMessageSchema = z.object({
   v: z.literal(PROTOCOL_VERSION),

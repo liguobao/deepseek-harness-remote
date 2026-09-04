@@ -1,17 +1,11 @@
 import { platform } from 'node:os'
 import { fromBase64Url, toBase64Url } from '@dsh-remote/crypto'
+import { deviceTokenPairSchema, type DeviceTokenPair as TokenPair } from '@dsh-remote/protocol'
 import type { RtcIceServer } from '@dsh-remote/webrtc'
 import type { HostIdentity } from './identity-store.js'
 import type { ServerCredentialStore, ServerCredentials } from './server-credentials.js'
 import { normalizeServerUrl } from './config.js'
 import { PLUGIN_VERSION } from './version.js'
-
-interface TokenPair {
-  accessToken: string
-  accessTokenExpiresAt: number
-  refreshToken: string
-  refreshTokenExpiresAt: number
-}
 
 interface ErrorEnvelope {
   error?: { code?: unknown; message?: unknown; retryable?: unknown }
@@ -423,14 +417,12 @@ export class ServerApiError extends Error {
   ) { super(message) }
 }
 
-function validateTokens(value: TokenPair): TokenPair {
-  if (typeof value.accessToken !== 'string' || value.accessToken.length < 16
-    || typeof value.refreshToken !== 'string' || value.refreshToken.length < 16
-    || !Number.isSafeInteger(value.accessTokenExpiresAt)
-    || !Number.isSafeInteger(value.refreshTokenExpiresAt)) {
+function validateTokens(value: unknown): TokenPair {
+  const parsed = deviceTokenPairSchema.safeParse(value)
+  if (!parsed.success) {
     throw new ServerApiError('INVALID_MESSAGE', 'The Server returned invalid device credentials.', false)
   }
-  return value
+  return parsed.data
 }
 
 function validateWebLogin(value: unknown): WebLoginResponse {

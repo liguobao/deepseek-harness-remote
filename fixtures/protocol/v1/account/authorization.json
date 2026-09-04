@@ -1,0 +1,335 @@
+{
+  "name": "account-authorization",
+  "cases": [
+    {
+      "name": "accept-client-device-registration",
+      "operation": "parseDeviceRegistrationRequest",
+      "input": {
+        "v": 1,
+        "device": {
+          "deviceId": "0198f7c0-1234-7abc-8def-0123456789ab",
+          "name": "Android phone",
+          "role": "client",
+          "platform": "android",
+          "identityKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "clientVersion": "0.4.9"
+        }
+      },
+      "expect": {
+        "accepted": true
+      }
+    },
+    {
+      "name": "accept-host-device-registration-with-harness-version",
+      "operation": "parseDeviceRegistrationRequest",
+      "input": {
+        "v": 1,
+        "device": {
+          "deviceId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "name": "Linux workstation",
+          "role": "host",
+          "platform": "linux",
+          "identityKey": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBE",
+          "clientVersion": "0.4.9",
+          "harnessVersion": "0.1.2-rc.1"
+        }
+      },
+      "expect": {
+        "accepted": true
+      }
+    },
+    {
+      "name": "reject-device-registration-with-unsupported-version",
+      "operation": "parseDeviceRegistrationRequest",
+      "input": {
+        "v": 2,
+        "device": {
+          "deviceId": "0198f7c0-1234-7abc-8def-0123456789ab",
+          "name": "Android phone",
+          "role": "client",
+          "platform": "android",
+          "identityKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "clientVersion": "0.4.9"
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "accept-existing-device-registration-with-uuidv4",
+      "operation": "parseDeviceRegistrationRequest",
+      "input": {
+        "v": 1,
+        "device": {
+          "deviceId": "550e8400-e29b-41d4-a716-446655440000",
+          "name": "Android phone",
+          "role": "client",
+          "platform": "android",
+          "identityKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "clientVersion": "0.4.9"
+        }
+      },
+      "expect": {
+        "accepted": true
+      }
+    },
+    {
+      "name": "reject-device-registration-with-malformed-device-id",
+      "operation": "parseDeviceRegistrationRequest",
+      "input": {
+        "v": 1,
+        "device": {
+          "deviceId": "device-1",
+          "name": "Android phone",
+          "role": "client",
+          "platform": "android",
+          "identityKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "clientVersion": "0.4.9"
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-device-registration-with-padded-identity-key",
+      "operation": "parseDeviceRegistrationRequest",
+      "input": {
+        "v": 1,
+        "device": {
+          "deviceId": "0198f7c0-1234-7abc-8def-0123456789ab",
+          "name": "Android phone",
+          "role": "client",
+          "platform": "android",
+          "identityKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+          "clientVersion": "0.4.9"
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-client-device-with-harness-version",
+      "operation": "parseDeviceRegistrationRequest",
+      "input": {
+        "v": 1,
+        "device": {
+          "deviceId": "0198f7c0-1234-7abc-8def-0123456789ab",
+          "name": "Android phone",
+          "role": "client",
+          "platform": "android",
+          "identityKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "clientVersion": "0.4.9",
+          "harnessVersion": "0.1.2-rc.1"
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-device-registration-with-extra-field",
+      "operation": "parseDeviceRegistrationRequest",
+      "input": {
+        "v": 1,
+        "device": {
+          "deviceId": "0198f7c0-1234-7abc-8def-0123456789ab",
+          "name": "Android phone",
+          "role": "client",
+          "platform": "android",
+          "identityKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "clientVersion": "0.4.9"
+        },
+        "account": "fixture@example.com"
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "accept-host-registration-code-request",
+      "operation": "parseHostRegistrationCodeRequest",
+      "input": {
+        "v": 1,
+        "code": "ABCD-EFGH",
+        "device": {
+          "deviceId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "name": "Linux workstation",
+          "role": "host",
+          "platform": "linux",
+          "identityKey": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBE",
+          "clientVersion": "0.4.9"
+        }
+      },
+      "expect": {
+        "accepted": true
+      }
+    },
+    {
+      "name": "reject-client-registration-with-host-code",
+      "operation": "parseHostRegistrationCodeRequest",
+      "input": {
+        "v": 1,
+        "code": "ABCD-EFGH",
+        "device": {
+          "deviceId": "0198f7c0-1234-7abc-8def-0123456789ab",
+          "name": "Android phone",
+          "role": "client",
+          "platform": "android",
+          "identityKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "clientVersion": "0.4.9"
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-malformed-host-registration-code",
+      "operation": "parseHostRegistrationCodeRequest",
+      "input": {
+        "v": 1,
+        "code": "abcd-efgh",
+        "device": {
+          "deviceId": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "name": "Linux workstation",
+          "role": "host",
+          "platform": "linux",
+          "identityKey": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBE",
+          "clientVersion": "0.4.9"
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "accept-device-refresh-request",
+      "operation": "parseDeviceRefreshRequest",
+      "input": {
+        "deviceId": "0198f7c0-1234-7abc-8def-0123456789ab",
+        "refreshToken": "fixture-refresh-token"
+      },
+      "expect": {
+        "accepted": true
+      }
+    },
+    {
+      "name": "reject-short-device-refresh-token",
+      "operation": "parseDeviceRefreshRequest",
+      "input": {
+        "deviceId": "0198f7c0-1234-7abc-8def-0123456789ab",
+        "refreshToken": "short"
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "accept-device-token-pair",
+      "operation": "parseDeviceTokenPair",
+      "input": {
+        "accessToken": "fixture-access-token",
+        "accessTokenExpiresAt": 1786000000000,
+        "refreshToken": "fixture-refresh-token",
+        "refreshTokenExpiresAt": 1789000000000
+      },
+      "expect": {
+        "accepted": true
+      }
+    },
+    {
+      "name": "reject-device-token-pair-with-fractional-expiry",
+      "operation": "parseDeviceTokenPair",
+      "input": {
+        "accessToken": "fixture-access-token",
+        "accessTokenExpiresAt": 1786000000000.5,
+        "refreshToken": "fixture-refresh-token",
+        "refreshTokenExpiresAt": 1789000000000
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "reject-device-token-pair-with-extra-field",
+      "operation": "parseDeviceTokenPair",
+      "input": {
+        "accessToken": "fixture-access-token",
+        "accessTokenExpiresAt": 1786000000000,
+        "refreshToken": "fixture-refresh-token",
+        "refreshTokenExpiresAt": 1789000000000,
+        "account": "fixture@example.com"
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "accept-browser-authorization-exchange-request",
+      "operation": "parseBrowserAuthorizationExchangeRequest",
+      "input": {
+        "v": 1,
+        "device": {
+          "deviceId": "0198f7c0-1234-7abc-8def-0123456789ab",
+          "name": "Browser on Linux",
+          "role": "client",
+          "platform": "browser",
+          "identityKey": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCI",
+          "clientVersion": "0.4.9"
+        }
+      },
+      "expect": {
+        "accepted": true
+      }
+    },
+    {
+      "name": "reject-browser-exchange-with-wrong-platform",
+      "operation": "parseBrowserAuthorizationExchangeRequest",
+      "input": {
+        "v": 1,
+        "device": {
+          "deviceId": "0198f7c0-1234-7abc-8def-0123456789ab",
+          "name": "Browser on Linux",
+          "role": "client",
+          "platform": "web",
+          "identityKey": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCI",
+          "clientVersion": "0.4.9"
+        }
+      },
+      "expect": {
+        "accepted": false
+      }
+    },
+    {
+      "name": "accept-browser-authorization-exchange-response",
+      "operation": "parseBrowserAuthorizationExchangeResponse",
+      "input": {
+        "accessToken": "fixture-access-token",
+        "accessTokenExpiresAt": 1786000000000,
+        "refreshToken": "fixture-refresh-token",
+        "refreshTokenExpiresAt": 1789000000000,
+        "account": "fixture@example.com"
+      },
+      "expect": {
+        "accepted": true
+      }
+    },
+    {
+      "name": "reject-browser-exchange-response-with-empty-account",
+      "operation": "parseBrowserAuthorizationExchangeResponse",
+      "input": {
+        "accessToken": "fixture-access-token",
+        "accessTokenExpiresAt": 1786000000000,
+        "refreshToken": "fixture-refresh-token",
+        "refreshTokenExpiresAt": 1789000000000,
+        "account": ""
+      },
+      "expect": {
+        "accepted": false
+      }
+    }
+  ]
+}
