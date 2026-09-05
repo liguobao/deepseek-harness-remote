@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.10
+
+- Fixes Web and Desktop Codex approval controls to show Host-confirmed policy,
+  require Host confirmation for changes, and preserve the current Thread policy
+  when sending prompts or forking.
+- Remembers the selected DSH or CodeX workspace tab per Host on Android and
+  removes the redundant permission hint below the chat composer.
+- Shows one active Desktop transport probe at a time, progressing from the LAN
+  cue to P2P during direct negotiation and retaining the actual selected route.
+- Aligns Account Authorization schemas and credential validation across the
+  Plugin, Android, Browser, and VS Code clients, with shared protocol fixtures
+  also consumed by Android tests.
+- Advances the Plugin and Android app to `0.4.10` (`versionCode 27`).
+
 ## 0.4.9
 
 - Refines the Desktop Remote workspace chooser with selected Host and version

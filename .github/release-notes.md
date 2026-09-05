@@ -1,59 +1,59 @@
 ## English
 
-`v0.4.9` improves remote workspace discovery and connection feedback across Desktop and Android. It contains the changes since `v0.4.8` ([full comparison](https://github.com/liguobao/ds-harness-remote/compare/v0.4.8...v0.4.9)).
+`v0.4.10` fixes Codex approval policy handling, remembers Android workspace tabs, and strengthens shared account authorization validation. It contains the changes since `v0.4.9` ([full comparison](https://github.com/liguobao/ds-harness-remote/compare/v0.4.9...v0.4.10)).
 
 ### What changed
 
-- Refines the Desktop Remote workspace chooser: the header shows the selected Host, platform, Harness version, and Plugin version, with a direct action to choose another Host.
-- Shows three DSH and three CodeX workspaces by default, provides centered expand actions without nested scrollbars, uses DeepSeek and GPT workspace icons, and supports opening a workspace by double-clicking its row.
-- Drives Desktop connection feedback from the Host runtime's real transport phases and selected route, and removes the extra simulated progress step when opening a workspace.
-- Adds separate DSH and CodeX workspace tabs plus name/path search on Android, and opens the first conversation immediately after a workspace is created.
-- Keeps the underlying Remote protocol, Host transport, and security boundaries unchanged.
-- Synchronizes the Plugin and Android app at version `0.4.9` with Android `versionCode 26`.
+- Web and Desktop Codex approval controls now show the Host-confirmed policy for each Thread, or indicate that Host settings are inherited when the policy is unknown. Explicit changes require Host confirmation and update connected observers; sending prompts and forking preserve the current Thread policy.
+- Android remembers the selected DSH or CodeX workspace tab for each Host and removes the redundant permission hint below the chat composer.
+- Desktop connection progress highlights one transport probe at a time. During direct negotiation, the visible cue advances from LAN to P2P while the completed connection still reports its actual route.
+- Adds shared Account Authorization schemas for device registration, Host registration codes, token refresh, and Browser authorization exchange. Plugin, Android, Browser, and VS Code credential parsing now uses the shared validation.
+- Expands Protocol v1 conformance fixtures and runs the shared suites in Android tests.
+- Synchronizes the Plugin and Android app at version `0.4.10` with Android `versionCode 27`.
 
 ### Validation
 
-The release pipeline runs workspace type checks and tests, verifies the committed DSH bundles, performs production builds, publishes the npm and GitHub Packages artifacts, and builds the Android APK.
+CI checks workspace types and tests, verifies the committed Host bundle and GitHub plugin package, and performs production builds. The release workflow runs checks, tests, and builds before publishing npm and GitHub Packages artifacts and attaching the Android APK.
 
 ### Install and downloads
 
-Install through DSH's plugin manager rather than adding the npm package directly:
+Install through DSH's plugin manager:
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.9
-dsh plugin --profile dsh-tui add ds-harness-remote@0.4.9
+dsh plugin --profile web add ds-harness-remote@0.4.10
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.10
 ```
 
-- [npm package](https://www.npmjs.com/package/ds-harness-remote/v/0.4.9)
-- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.9/dsh-remote-android-v0.4.9.apk)
+- [npm package](https://www.npmjs.com/package/ds-harness-remote/v/0.4.10)
+- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.10/dsh-remote-android-v0.4.10.apk)
 - Release assets also include the npm tarball and `SHA256SUMS.txt`.
 
 ## 中文
 
-`v0.4.9` 改进 Desktop 与 Android 的远程工作区发现和连接反馈。本版本包含自 `v0.4.8` 以来的改动（[完整对比](https://github.com/liguobao/ds-harness-remote/compare/v0.4.8...v0.4.9)）。
+`v0.4.10` 修复 CodeX 审批策略处理，记住 Android 工作区分页，并加强共享账号授权校验。本版本包含自 `v0.4.9` 以来的改动（[完整对比](https://github.com/liguobao/ds-harness-remote/compare/v0.4.9...v0.4.10)）。
 
 ### 主要变更
 
-- 优化 Desktop Remote 工作区选择器：顶部显示所选 Host、平台、Harness 版本和 Plugin 版本，并可直接选择其他 Host。
-- DSH 与 CodeX 工作区默认各显示三项，通过整行居中的展开入口加载更多，不再使用嵌套滚动条；工作区行使用 DeepSeek 与 GPT 图标，并支持双击直接打开。
-- Desktop 连接进度改为跟随 Host runtime 的真实 transport 阶段与最终路径，打开工作区时不再额外显示模拟进度步骤。
-- Android 新增 DSH 与 CodeX 工作区分页、名称/路径搜索，并在创建工作区后直接打开首个会话。
-- Remote 协议、Host transport 与安全边界均未改变。
-- Plugin 与 Android App 版本统一更新为 `0.4.9`，Android `versionCode` 更新为 `26`。
+- Web 与 Desktop 的 CodeX 审批控件按 Thread 显示 Host 已确认的策略，未知时显示沿用 Host 设置。显式切换须由 Host 确认并同步其他连接；发送 Prompt 和 fork 保留当前 Thread 的策略。
+- Android 按 Host 记住上次选择的 DSH 或 CodeX 工作区分页，并移除聊天输入框下方重复的权限提示。
+- Desktop 连接进度每次只高亮一个探测路径。直连协商期间，界面提示从 LAN 推进到 P2P，连接完成后仍显示实际使用的路径。
+- 新增设备注册、主机匹配码、Token 刷新和 Browser 授权交换的共享 Account Authorization schema；Plugin、Android、Browser 和 VS Code 的凭证解析统一使用共享校验。
+- 扩展 Protocol v1 conformance fixtures，并在 Android 测试中运行共享用例。
+- Plugin 与 Android App 版本统一更新为 `0.4.10`，Android `versionCode` 更新为 `27`。
 
 ### 验证
 
-Release pipeline 会执行 workspace 类型检查与测试、校验已提交的 DSH bundle、完成生产构建、发布 npm 与 GitHub Packages 产物，并构建 Android APK。
+CI 执行 workspace 类型检查与测试、校验已提交的 Host bundle 和 GitHub Plugin 包，并完成生产构建。Release workflow 在检查、测试和构建通过后发布 npm 与 GitHub Packages 产物，并附加 Android APK。
 
 ### 安装与下载
 
-请通过 DSH Plugin 管理器安装，不要直接将 npm 包加入项目：
+请通过 DSH Plugin 管理器安装：
 
 ```sh
-dsh plugin --profile web add ds-harness-remote@0.4.9
-dsh plugin --profile dsh-tui add ds-harness-remote@0.4.9
+dsh plugin --profile web add ds-harness-remote@0.4.10
+dsh plugin --profile dsh-tui add ds-harness-remote@0.4.10
 ```
 
-- [npm 包](https://www.npmjs.com/package/ds-harness-remote/v/0.4.9)
-- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.9/dsh-remote-android-v0.4.9.apk)
+- [npm 包](https://www.npmjs.com/package/ds-harness-remote/v/0.4.10)
+- [Android APK](https://github.com/liguobao/ds-harness-remote/releases/download/v0.4.10/dsh-remote-android-v0.4.10.apk)
 - Release 附件还包括 npm tarball 与 `SHA256SUMS.txt`。
