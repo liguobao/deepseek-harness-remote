@@ -158,6 +158,9 @@ Harness 或 Android 界面里使用 Codex，不需要学习另一个 Codex 页�
 Codex Remote 是面向自有设备的便捷入口。它支持文本 Prompt、可用客户端上的图片 Prompt、模型与
 权限控制、停止和审批。它仍以实验功能发布；长期运行恢复和兼容性工作会继续按 TODO 跟进。
 
+Web 和 Desktop 的审批控件显示所选 Codex 会话经 Host 确认的模式；尚未获知时标明沿用 Host
+设置。切换须等 Host 确认成功，发送消息沿用会话当前策略。
+
 Codex 默认开启，也可以在 DeepSeek Remote 设置卡片关闭。高级配置和实现细节见
 [Codex Remote 技术说明](docs/codex-remote.md)。
 

@@ -3,7 +3,7 @@ import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { deriveCodexCwdWorkspaces } from '@dsh-remote/client-core'
-import type { CodexAppFrameData, CodexAppStreamClosedData } from '@dsh-remote/protocol'
+import type { CodexAppFrameData, CodexAppStreamClosedData, CodexPermissionPreset } from '@dsh-remote/protocol'
 import type { ResolvedCodexConfig } from '../config.js'
 import type { PeerConnectionContext } from '../connection-controller.js'
 import type { SafeLogger } from '../logging.js'
@@ -21,6 +21,7 @@ import {
   type AllowedCodexAppMethod,
 } from './method-policy.js'
 import { CodexPeerBridge, type PublishCodexFrame } from './peer-bridge.js'
+import { codexPermissionPresetFromResponse } from './permissions.js'
 import { paginateCodexNativeHistory, projectCodexNativeHistory } from './virtual-harness.js'
 
 const APPROVAL_TTL_MS = 5 * 60_000
@@ -79,6 +80,7 @@ export class CodexRemoteDomain {
   private readonly peerDeviceIds = new Map<string, string>()
   private readonly turnOwners = new Map<string, ActiveTurnOwner>()
   private readonly approvals = new Map<string, PendingApproval>()
+  private readonly permissionPresets = new Map<string, CodexPermissionPreset>()
   private approvalExpiryTimer?: ReturnType<typeof setTimeout>
   private restartTimer?: ReturnType<typeof setTimeout>
   private restartAttempt = 0
@@ -176,6 +178,7 @@ export class CodexRemoteDomain {
       if (extractThread(result)?.id === undefined) {
         throw new RpcError('CODEX_INVALID_RESPONSE', 'Codex App Server returned an invalid thread.')
       }
+      this.rememberPermission(extractThread(result)!.id as string, result)
       return result
     }
 
@@ -194,13 +197,25 @@ export class CodexRemoteDomain {
       const activeTurnId = typeof page.activeTurnId === 'string'
         ? page.activeTurnId
         : this.turnOwners.get(threadId!)?.turnId
-      return activeTurnId === undefined ? page : { ...page, activeTurnId }
+      return {
+        ...page,
+        ...(activeTurnId === undefined ? {} : { activeTurnId }),
+        permissionPreset: this.permissionPresets.get(threadId!) ?? null,
+      }
     }
     if (call.method === 'dsh/directoryList') {
       return this.listCodexDirectory(call.params.path as string)
     }
 
     const allowedThread = threadId === undefined ? undefined : await this.readKnownThread(threadId)
+
+    if (call.method === 'thread/resume' && call.params.permissionPreset !== undefined) {
+      const owner = this.turnOwners.get(threadId!)
+      if (owner !== undefined && owner.connectionId !== connectionId) {
+        throw new RpcError('CODEX_THREAD_BUSY', 'Another Remote client is writing to this CodeX thread.')
+      }
+      return this.changeThreadPermission(threadId!, call.params, allowedThread!)
+    }
 
     if (call.method === 'thread/read') {
       // assertThreadAllowed already produced a bounded summary, but make the
@@ -267,8 +282,18 @@ export class CodexRemoteDomain {
       if (call.method === 'thread/resume' || call.method === 'thread/fork' || call.method === 'thread/unarchive') {
         await this.assertResultThreadAllowed(result)
       }
+      if (call.method === 'thread/resume' || call.method === 'thread/fork') {
+        const resultId = extractThread(result)?.id
+        if (typeof resultId === 'string') {
+          this.rememberPermission(resultId, result)
+          if (call.params.permissionPreset !== undefined) await this.publishPermission(resultId, result)
+        }
+      }
       if (call.method === 'turn/start' && threadId !== undefined) {
         this.rememberTurnId(threadId, connectionId, extractTurnId(result))
+        if (call.params.permissionPreset !== undefined) {
+          await this.publishPermission(threadId, codexTurnPermissionParams(permission, allowedThread?.cwd))
+        }
       }
       return result
     } catch (error) {
@@ -320,6 +345,7 @@ export class CodexRemoteDomain {
     this.peers.clear()
     this.peerDeviceIds.clear()
     this.turnOwners.clear()
+    this.permissionPresets.clear()
     if (this.approvalExpiryTimer !== undefined) clearTimeout(this.approvalExpiryTimer)
     this.approvalExpiryTimer = undefined
     this.approvals.clear()
@@ -385,6 +411,7 @@ export class CodexRemoteDomain {
     this.state = 'restarting'
     this.unavailableCode = code
     this.turnOwners.clear()
+    this.permissionPresets.clear()
     this.approvals.clear()
     if (this.approvalExpiryTimer !== undefined) clearTimeout(this.approvalExpiryTimer)
     this.approvalExpiryTimer = undefined
@@ -444,6 +471,10 @@ export class CodexRemoteDomain {
       return
     }
     const threadId = extractThreadId(message.params)
+    if (message.method === 'thread/settings/updated' && threadId !== undefined) {
+      this.rememberPermission(threadId, message.params)
+    }
+    if (message.method === 'thread/closed' && threadId !== undefined) this.permissionPresets.delete(threadId)
     if (message.method === 'turn/completed' && threadId !== undefined) this.turnOwners.delete(threadId)
     if (message.method === 'turn/started' && threadId !== undefined) {
       const owner = this.turnOwners.get(threadId)
@@ -458,6 +489,51 @@ export class CodexRemoteDomain {
       method: message.method,
       params: message.params,
     })))
+  }
+
+  private rememberPermission(threadId: string, value: unknown): void {
+    const preset = codexPermissionPresetFromResponse(value)
+    if (preset === undefined) this.permissionPresets.delete(threadId)
+    else this.permissionPresets.set(threadId, preset)
+  }
+
+  private async changeThreadPermission(
+    threadId: string,
+    params: Record<string, unknown>,
+    allowed: { thread: Record<string, unknown>; cwd?: string },
+  ): Promise<unknown> {
+    const permission = codexPermission(params)
+    const settings: Record<string, unknown> = {
+      ...codexTurnPermissionParams(permission, allowed.cwd),
+      ...(params.model === undefined ? {} : { model: params.model }),
+    }
+    let result: unknown
+    try {
+      // Loaded threads can reject resume or ignore its configuration overrides.
+      await this.callUpstream('thread/settings/update', { threadId, ...settings })
+      result = { thread: allowed.thread, ...settings, sandbox: settings.sandboxPolicy }
+    } catch {
+      // Unloaded threads and older App Servers still use the resume contract.
+      result = await this.callUpstream('thread/resume', {
+        ...permission.params,
+        ...(allowed.cwd === undefined ? {} : { cwd: allowed.cwd }),
+        ...codexThreadPermissionParams(permission),
+        excludeTurns: true,
+      })
+      await this.assertResultThreadAllowed(result)
+      if (codexPermissionPresetFromResponse(result) !== params.permissionPreset) {
+        await this.callUpstream('thread/settings/update', { threadId, ...settings })
+        result = { ...(isRecord(result) ? result : {}), ...settings, sandbox: settings.sandboxPolicy }
+      }
+    }
+    await this.publishPermission(threadId, result)
+    return result
+  }
+
+  private async publishPermission(threadId: string, value: unknown): Promise<void> {
+    const source = isRecord(value) ? value : {}
+    const threadSettings = { approvalPolicy: source.approvalPolicy, sandboxPolicy: source.sandboxPolicy ?? source.sandbox }
+    await this.handleInbound({ kind: 'notification', method: 'thread/settings/updated', params: { threadId, threadSettings } })
   }
 
   private async handleServerRequest(message: Extract<CodexAppServerInbound, { kind: 'request' }>): Promise<void> {
@@ -1096,8 +1172,6 @@ function extractThreadId(params: unknown): string | undefined {
 function optionalInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined
 }
-
-type CodexPermissionPreset = 'workspace-write' | 'danger-full-access'
 
 interface CodexPermissionMapping {
   params: Record<string, unknown>

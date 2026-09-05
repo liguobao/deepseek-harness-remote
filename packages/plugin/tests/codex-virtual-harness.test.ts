@@ -38,7 +38,7 @@ describe('CodexVirtualHarness', () => {
               },
               permissions: {
                 options: [{ value: 'workspace-write' }, { value: 'danger-full-access' }],
-                currentValue: 'workspace-write',
+                currentValue: 'Host settings (not reported)',
               },
               imageLimits: {
                 maxImageBytes: 20 * 1024 * 1024,
@@ -97,8 +97,9 @@ describe('CodexVirtualHarness', () => {
     } } }, signal)
     expect(prompted.ok).toBe(true)
     expect(client.request).toHaveBeenCalledWith('turn/start', expect.objectContaining({
-      permissionPreset: 'danger-full-access',
+      threadId: 'thr_1',
     }), expect.any(AbortSignal))
+    expect(client.request.mock.calls.find(([method]) => method === 'turn/start')?.[1]).not.toHaveProperty('permissionPreset')
     await iterator.return?.()
     await target.close()
   })
@@ -146,6 +147,38 @@ describe('CodexVirtualHarness', () => {
       { workspaceId: 'codex-workspace:project:repo-project', sessionIds: ['codex:thr_1'] },
     ] } })
     await emptyTarget.close()
+  })
+
+  it('hydrates read-only permission snapshots in both carriers and clears unsupported live policies', async () => {
+    for (const carrier of ['api', 'typert']) {
+      const client = fakeCodex()
+      const request = client.request.getMockImplementation()!
+      client.request.mockImplementation(async (method: string, params: unknown, signal?: AbortSignal) => {
+        const response = await request(method, params, signal)
+        return method === 'dsh/sessionHistory' ? { ...response, permissionPreset: 'danger-full-access' } : response
+      })
+      const target = new CodexVirtualHarness(client, { deviceId: 'host-1', name: 'Host' })
+      const signal = new AbortController().signal
+      let stream: AsyncIterator<unknown> | undefined
+      if (carrier === 'api') {
+        expect(await target.dispatch('session/history', { args: { request: { sessionId: 'codex:thr_1' } } }, signal))
+          .toMatchObject({ value: { projections: { values: { permissions: { currentValue: 'danger-full-access' } } } } })
+      } else {
+        stream = (await target.open('session/follow', { args: { request: { address: { kind: 'session', sessionId: 'codex:thr_1' } } } }, signal))[Symbol.asyncIterator]()
+        expect(await stream.next()).toMatchObject({ value: { projections: { values: { permissions: { currentValue: 'danger-full-access' } } } } })
+      }
+      expect(client.request.mock.calls.some(([method]) => method === 'thread/resume')).toBe(false)
+      client.emit('thr_1', { method: 'thread/settings/updated', params: { threadSettings: {
+        approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly' },
+      } } })
+      expect(await target.dispatch('session/list', { args: {} }, signal)).toMatchObject({ value: {
+        items: [expect.objectContaining({ projections: expect.objectContaining({ values: expect.objectContaining({
+          permissions: expect.objectContaining({ currentValue: 'Host settings (not reported)' }),
+        }) }) })],
+      } })
+      await stream?.return?.()
+      await target.close()
+    }
   })
 
   it('exposes selected CodeX workspace directory browsing to the native UI', async () => {
@@ -803,8 +836,12 @@ describe('CodexVirtualHarness', () => {
     }, expect.any(AbortSignal))
     expect(client.request).toHaveBeenCalledWith('turn/start', expect.objectContaining({
       threadId: 'thr_full',
-      permissionPreset: 'danger-full-access',
     }), expect.any(AbortSignal))
+    expect(client.request.mock.calls.find(([method]) => method === 'turn/start')?.[1]).not.toHaveProperty('permissionPreset')
+    expect(await target.dispatch('session/list', { args: {} }, new AbortController().signal))
+      .toMatchObject({ value: { items: expect.arrayContaining([expect.objectContaining({
+        sessionId: 'codex:thr_full', projections: { asOfSeq: 0, values: expect.objectContaining({ permissions: expect.objectContaining({ currentValue: 'danger-full-access' }) }) },
+      })]) } })
     await target.close()
   })
 
@@ -1016,7 +1053,6 @@ describe('CodexVirtualHarness', () => {
       input: [{ type: 'text', text: 'Start here' }],
       model: 'gpt-5.6-sol',
       effort: 'low',
-      permissionPreset: 'workspace-write',
     }, expect.any(AbortSignal))
     await target.close()
   })
@@ -1314,7 +1350,7 @@ function fakeCodex(extraThreads: Array<Record<string, unknown>> = [], options: F
     }
     if (method === 'thread/resume') {
       const resumed = threads.find(item => item.id === params?.threadId) ?? thread
-      return params?.threadId === 'thr_full'
+      return params?.threadId === 'thr_full' || params?.permissionPreset === 'danger-full-access'
         ? { thread: resumed, approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } }
         : { thread: resumed }
     }

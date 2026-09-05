@@ -259,9 +259,9 @@ describe('CodexRemoteDomain', () => {
       },
     })
 
-    expect(app.calls.find(call => call.method === 'thread/resume')?.params).toMatchObject({
+    expect(app.calls.find(call => call.method === 'thread/settings/update')?.params).toMatchObject({
       approvalPolicy: 'never',
-      sandbox: 'danger-full-access',
+      sandboxPolicy: { type: 'dangerFullAccess' },
     })
     expect(app.calls.find(call => call.method === 'turn/start')?.params).toMatchObject({
       approvalPolicy: 'never',
@@ -295,6 +295,74 @@ describe('CodexRemoteDomain', () => {
     expect(resume.sandbox).toBeUndefined()
     expect(turn.approvalPolicy).toBeUndefined()
     expect(turn.sandboxPolicy).toBeUndefined()
+    await domain.close()
+  })
+
+  it('confirms loaded-thread permission changes and exposes them in read-only history', async () => {
+    const { root } = await directories()
+    const app = new FakeAppServer(root)
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
+    await domain.start()
+    const history = () => domain.call('observer', { method: 'dsh/sessionHistory', params: { threadId: 'allowed-thread' } })
+    await expect(history()).resolves.toMatchObject({ permissionPreset: null })
+    expect(app.calls.some(call => call.method === 'thread/resume')).toBe(false)
+
+    await expect(domain.call('writer', {
+      method: 'thread/resume', params: { threadId: 'allowed-thread', permissionPreset: 'danger-full-access' },
+    })).resolves.toMatchObject({ approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } })
+    expect(app.calls.find(call => call.method === 'thread/settings/update')?.params).toEqual({
+      threadId: 'allowed-thread', approvalPolicy: 'never', sandboxPolicy: { type: 'dangerFullAccess' },
+    })
+    await expect(history()).resolves.toMatchObject({ permissionPreset: 'danger-full-access' })
+    app.emit({ kind: 'notification', method: 'thread/settings/updated', params: {
+      threadId: 'allowed-thread', threadSettings: { approvalPolicy: 'never', sandboxPolicy: { type: 'readOnly' } },
+    } })
+    await expect(history()).resolves.toMatchObject({ permissionPreset: null })
+    await expect(domain.call('observer', {
+      method: 'dsh/sessionHistory', params: { threadId: 'unprojected-thread' },
+    })).rejects.toMatchObject({ code: 'CODEX_THREAD_NOT_ALLOWED' })
+    await domain.close()
+  })
+
+  it('does not confirm a rejected setting or let an observer change an active writer policy', async () => {
+    const { root } = await directories()
+    const app = new FakeAppServer(root)
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
+    await domain.start()
+    app.rejectSettings = true
+    const change = () => domain.call('observer', {
+      method: 'thread/resume', params: { threadId: 'allowed-thread', permissionPreset: 'danger-full-access' },
+    })
+    await expect(change()).rejects.toMatchObject({ code: 'CODEX_UPSTREAM_ERROR' })
+    await expect(domain.call('observer', {
+      method: 'dsh/sessionHistory', params: { threadId: 'allowed-thread' },
+    })).resolves.toMatchObject({ permissionPreset: null })
+    await domain.call('writer', {
+      method: 'turn/start', params: { threadId: 'allowed-thread', input: [{ type: 'text', text: 'Run' }] },
+    })
+    const resumes = app.calls.filter(call => call.method === 'thread/resume').length
+    await expect(change()).rejects.toMatchObject({ code: 'CODEX_THREAD_BUSY' })
+    expect(app.calls.filter(call => call.method === 'thread/resume')).toHaveLength(resumes)
+    await domain.close()
+  })
+
+  it('supports older App Servers only when resume confirms the requested policy', async () => {
+    const { root } = await directories()
+    const app = new FakeAppServer(root)
+    app.rejectSettings = true
+    const upstream = app.call.bind(app)
+    vi.spyOn(app, 'call').mockImplementation(async (method, params) => {
+      const result = await upstream(method, params)
+      return method === 'thread/resume'
+        ? { ...(isRecord(result) ? result : {}), approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } }
+        : result
+    })
+    const domain = new CodexRemoteDomain({ enabled: true, binary: 'codex' }, logger(), () => app)
+    await domain.start()
+    await expect(domain.call('writer', {
+      method: 'thread/resume', params: { threadId: 'allowed-thread', permissionPreset: 'danger-full-access' },
+    })).resolves.toMatchObject({ approvalPolicy: 'never', sandbox: { type: 'dangerFullAccess' } })
+    expect(app.calls.filter(call => call.method === 'thread/settings/update')).toHaveLength(1)
     await domain.close()
   })
 
@@ -394,10 +462,11 @@ describe('CodexRemoteDomain', () => {
     await domain.close()
   })
 
-  it('does not hide App Server rejection for an explicit permission resume', async () => {
+  it('does not hide rejection when both permission update paths fail', async () => {
     const { root, outside } = await directories()
     const app = new FakeAppServer(root, outside)
     app.rejectResume = true
+    app.rejectSettings = true
     const domain = new CodexRemoteDomain({ enabled: true, binary: '/custom/codex' }, logger(), () => app)
     await domain.start()
 
@@ -593,6 +662,7 @@ class FakeAppServer implements CodexAppServerLike {
   rejectResume = false
   rejectTurnPagination = false
   rejectTurnStartBusy = false
+  rejectSettings = false
   projectListMode: 'normal' | 'empty' | 'unsupported' = 'normal'
 
   constructor(private readonly root: string, private readonly outside = root) {}
@@ -703,6 +773,9 @@ class FakeAppServer implements CodexAppServerLike {
     }
     if (method === 'thread/resume' || method === 'thread/fork' || method === 'thread/unarchive') {
       return { thread: { id: 'allowed-thread', cwd: this.root } }
+    }
+    if (method === 'thread/settings/update' && this.rejectSettings) {
+      throw new CodexAppServerError('CODEX_UPSTREAM_ERROR', 'Codex App Server rejected the setting.')
     }
     if (method === 'turn/start') {
       if (this.rejectTurnStartBusy) {

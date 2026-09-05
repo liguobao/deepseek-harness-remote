@@ -56,6 +56,11 @@ Project create、Thread create、rename、archive、restore、prompt、interrupt
 的固定白名单方法。Remote 不能通过反射、任意 method name、process/config 入口或通用文件系统协议
 扩权。
 
+Web 与 Desktop Remote 的审批模式按 Thread 显示 Host 已确认的设置。尚未获知时显示沿用 Host
+设置，不把 `workspace-write` 误报为已有会话的当前值。显式切换需 Host 成功确认，并同步观察者；
+普通发送和 fork 不重放缓存的 preset，新 Thread 使用 `workspace-write`。纯查看只读取 Host 的
+内存快照，不恢复会话；Host 重启后，尚未再次获知的模式回到未知状态。
+
 Codex 支持文本 Prompt，以及 Desktop 剪贴板粘贴或 Android 系统图片选择器提供的 PNG、JPEG、WebP、
 GIF 图片 Prompt。图片走受限的加密分块传输；通用文件附件、外部 URL、Host path 直接引用和目录写入
 不开放。

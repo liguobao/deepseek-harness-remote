@@ -10,6 +10,8 @@ import type {
   TypertGatewayRequest,
   TypertRpcResult,
 } from '../typert-gateway-contract.js'
+import { codexPermissionPresetFromResponse } from './permissions.js'
+import type { CodexPermissionPreset, CodexPermissionSnapshot } from '@dsh-remote/protocol'
 
 const CODEX_SESSION_PREFIX = 'codex:'
 const CODEX_WORKSPACE_PREFIX = 'codex-workspace:'
@@ -28,8 +30,6 @@ const MAX_CODEX_IMAGE_BASE64 = 288 * 1024 * 1024
 const CODEX_IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 const CODEX_IMAGE_ATTACHMENT_PREFIX = 'codex-image:'
 const DATA_IMAGE_URL = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/u
-
-type CodexPermissionPreset = 'workspace-write' | 'danger-full-access'
 
 type JsonRecord = Record<string, unknown>
 
@@ -136,7 +136,7 @@ export interface CodexNativeHistory {
   activeTurnId?: string
 }
 
-export interface CodexNativeHistoryPage {
+export interface CodexNativeHistoryPage extends CodexPermissionSnapshot {
   header: CodexNativeHistory['header']
   cursor: number
   nextTurn: number
@@ -431,12 +431,13 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     return this.selectedModels.get(sessionId) ?? directory?.default ?? modelSelection()
   }
 
-  private permissionSelection(sessionId: string): CodexPermissionPreset {
-    return this.selectedPermissions.get(sessionId) ?? CODEX_DEFAULT_PERMISSION
+  private permissionSelection(sessionId: string): CodexPermissionPreset | undefined {
+    return this.selectedPermissions.get(sessionId)
   }
 
-  private setPermissionSelection(sessionId: string, preset: CodexPermissionPreset): void {
-    this.selectedPermissions.set(sessionId, preset)
+  private setPermissionSelection(sessionId: string, preset: CodexPermissionPreset | undefined): void {
+    if (preset === undefined) this.selectedPermissions.delete(sessionId)
+    else this.selectedPermissions.set(sessionId, preset)
     this.publishProjection(sessionId, 'permissions', codexPermissionsProjection(preset), this.nextProjectionSeq())
   }
 
@@ -463,17 +464,22 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
       result: { kind: 'error', text: 'CodeX Remote permission commands do not accept attachments.' },
     }
     const requested = (match[1] ?? '').trim()
-    if (requested === '') return {
-      commandId,
-      result: { kind: 'success', text: `current preset ${this.permissionSelection(sessionId)}` },
+    if (requested === '') {
+      await this.readHistoryPage(threadId, { maxMessages: 1 }, signal)
+      return {
+        commandId,
+        result: { kind: 'success', text: `current preset ${this.permissionSelection(sessionId) ?? 'Host settings (not reported)'}` },
+      }
     }
     if (!isCodexPermissionPreset(requested)) return {
       commandId,
       result: { kind: 'error', text: `unknown preset "${requested}" (available: workspace-write, danger-full-access)` },
     }
     const result = await this.client.request('thread/resume', { threadId, permissionPreset: requested }, signal)
-    const effective = codexPermissionPresetFromResponse(result) ?? requested
+    const effective = codexPermissionPresetFromResponse(result)
+    if (effective === undefined) throw new Error('The Host did not confirm the CodeX permission preset.')
     this.setPermissionSelection(sessionId, effective)
+    if (effective !== requested) throw new Error('The Host did not apply the requested CodeX permission preset.')
     return { commandId, result: { kind: 'success', text: `preset ${effective}` } }
   }
 
@@ -699,7 +705,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     }
     if (frame.method === 'thread/settings/updated') {
       const preset = codexPermissionPresetFromResponse(params)
-      if (preset !== undefined) this.setPermissionSelection(follow.sessionId, preset)
+      this.setPermissionSelection(follow.sessionId, preset)
       return
     }
     if (frame.method === 'turn/started') {
@@ -1235,16 +1241,14 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
 
   private async forkSession(request: JsonRecord, signal: AbortSignal): Promise<unknown> {
     const sessionId = requiredString(request.sessionId, 'sessionId')
-    let permissionPreset = this.selectedPermissions.get(sessionId)
     const result = record(await this.client.request('thread/fork', {
       threadId: nativeThreadId(sessionId),
-      ...(permissionPreset === undefined ? {} : { permissionPreset }),
     }, signal))
-    permissionPreset = codexPermissionPresetFromResponse(result) ?? permissionPreset ?? CODEX_DEFAULT_PERMISSION
+    const permissionPreset = codexPermissionPresetFromResponse(result)
     const projected = projectCodexThread(record(result.thread))
     if (projected === undefined) return failure('internal', 'CodeX returned an invalid forked Thread.')
     this.selectedModels.set(projected.id, this.modelSelection(sessionId, await this.models(signal)))
-    this.selectedPermissions.set(projected.id, permissionPreset)
+    this.setPermissionSelection(projected.id, permissionPreset)
     await this.refreshAndPublishWorkspaces()
     const seq = this.nextProjectionSeq()
     this.publishProjection(projected.id, 'title', displayTitle(projected), seq)
@@ -1258,7 +1262,6 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     if (input === undefined) return failure('attachment-error', 'CodeX virtual Sessions accept text and pasted PNG, JPEG, WebP, or GIF images only.')
     const threadId = nativeThreadId(sessionId)
     const selection = this.modelSelection(sessionId, await this.models(signal))
-    let permissionPreset = this.selectedPermissions.get(sessionId)
     const isFreshBlankThread = this.blankThreads.has(threadId) || this.pendingThreads.has(threadId)
     await this.ensureRcFollow(sessionId)
     if (!isFreshBlankThread) {
@@ -1267,8 +1270,7 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         model: selection.model,
       }, signal)
       const serverPreset = codexPermissionPresetFromResponse(resumeResult)
-      if (permissionPreset === undefined && serverPreset !== undefined) {
-        permissionPreset = serverPreset
+      if (serverPreset !== undefined) {
         this.setPermissionSelection(sessionId, serverPreset)
       }
     }
@@ -1283,7 +1285,6 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
         threadId,
         input,
         ...codexModelParams(selection),
-        ...(permissionPreset === undefined ? {} : { permissionPreset }),
       }, signal)
     }
     this.blankThreads.delete(threadId)
@@ -1385,6 +1386,10 @@ export class CodexVirtualHarness implements RemoteTypertGatewayTarget {
     }
     if (!isCodexNativeHistoryPage(value, `codex:${threadId}`)) {
       throw new Error('CodeX Remote returned an invalid paginated History.')
+    }
+    if (Object.hasOwn(value, 'permissionPreset')) {
+      const preset = value.permissionPreset
+      this.setPermissionSelection(`codex:${threadId}`, preset === 'workspace-write' || preset === 'danger-full-access' ? preset : undefined)
     }
     this.cacheHistoryImages(value)
     return value
@@ -2525,7 +2530,7 @@ function modelSelectionProjection(selection: CodexModelSelection): { lastUsed: C
   return { lastUsed: selection, next: selection }
 }
 
-function codexPermissionsProjection(currentValue: CodexPermissionPreset): unknown {
+function codexPermissionsProjection(preset: CodexPermissionPreset | undefined): unknown {
   return {
     options: [
       {
@@ -2539,7 +2544,7 @@ function codexPermissionsProjection(currentValue: CodexPermissionPreset): unknow
         description: 'Full Host file access without approval prompts for subsequent turns in this virtual Session.',
       },
     ],
-    currentValue,
+    currentValue: preset ?? 'Host settings (not reported)',
   }
 }
 
@@ -2556,27 +2561,6 @@ function codexImageLimitsProjection(): unknown {
 
 function isCodexPermissionPreset(value: string): value is CodexPermissionPreset {
   return value === 'workspace-write' || value === 'danger-full-access'
-}
-
-function codexPermissionPresetFromResponse(value: unknown): CodexPermissionPreset | undefined {
-  const root = record(value)
-  return codexPermissionPresetFromPolicyRecord(root)
-    ?? codexPermissionPresetFromPolicyRecord(record(root.threadSettings))
-}
-
-function codexPermissionPresetFromPolicyRecord(value: JsonRecord): CodexPermissionPreset | undefined {
-  const sandbox = value.sandbox ?? value.sandboxPolicy
-  if (value.approvalPolicy === 'never' && isDangerFullAccessSandbox(sandbox)) return 'danger-full-access'
-  if (value.approvalPolicy === 'on-request' && isWorkspaceWriteSandbox(sandbox)) return 'workspace-write'
-  return undefined
-}
-
-function isDangerFullAccessSandbox(value: unknown): boolean {
-  return value === 'danger-full-access' || record(value).type === 'dangerFullAccess'
-}
-
-function isWorkspaceWriteSandbox(value: unknown): boolean {
-  return value === 'workspace-write' || record(value).type === 'workspaceWrite'
 }
 
 function modelCatalog(directory: CodexModelDirectory): unknown {

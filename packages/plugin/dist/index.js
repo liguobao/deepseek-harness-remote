@@ -14395,6 +14395,25 @@ function hasErrorCode(error, code) {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
+// src/codex/permissions.ts
+function codexPermissionPresetFromResponse(value) {
+  const root = record(value);
+  for (const settings of [root, record(root.threadSettings)]) {
+    const sandbox = settings.sandbox ?? settings.sandboxPolicy;
+    const type = record(sandbox).type;
+    if (settings.approvalPolicy === "never" && (sandbox === "danger-full-access" || type === "dangerFullAccess")) {
+      return "danger-full-access";
+    }
+    if (settings.approvalPolicy === "on-request" && (sandbox === "workspace-write" || type === "workspaceWrite")) {
+      return "workspace-write";
+    }
+  }
+  return void 0;
+}
+function record(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
 // src/codex/virtual-harness.ts
 var CODEX_SESSION_PREFIX = "codex:";
 var CODEX_WORKSPACE_PREFIX = "codex-workspace:";
@@ -14643,10 +14662,11 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     return this.selectedModels.get(sessionId) ?? directory?.default ?? modelSelection();
   }
   permissionSelection(sessionId) {
-    return this.selectedPermissions.get(sessionId) ?? CODEX_DEFAULT_PERMISSION;
+    return this.selectedPermissions.get(sessionId);
   }
   setPermissionSelection(sessionId, preset) {
-    this.selectedPermissions.set(sessionId, preset);
+    if (preset === void 0) this.selectedPermissions.delete(sessionId);
+    else this.selectedPermissions.set(sessionId, preset);
     this.publishProjection(sessionId, "permissions", codexPermissionsProjection(preset), this.nextProjectionSeq());
   }
   commandList(args) {
@@ -14670,17 +14690,22 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       result: { kind: "error", text: "CodeX Remote permission commands do not accept attachments." }
     };
     const requested = (match[1] ?? "").trim();
-    if (requested === "") return {
-      commandId,
-      result: { kind: "success", text: `current preset ${this.permissionSelection(sessionId)}` }
-    };
+    if (requested === "") {
+      await this.readHistoryPage(threadId, { maxMessages: 1 }, signal);
+      return {
+        commandId,
+        result: { kind: "success", text: `current preset ${this.permissionSelection(sessionId) ?? "Host settings (not reported)"}` }
+      };
+    }
     if (!isCodexPermissionPreset(requested)) return {
       commandId,
       result: { kind: "error", text: `unknown preset "${requested}" (available: workspace-write, danger-full-access)` }
     };
     const result = await this.client.request("thread/resume", { threadId, permissionPreset: requested }, signal);
-    const effective = codexPermissionPresetFromResponse(result) ?? requested;
+    const effective = codexPermissionPresetFromResponse(result);
+    if (effective === void 0) throw new Error("The Host did not confirm the CodeX permission preset.");
     this.setPermissionSelection(sessionId, effective);
+    if (effective !== requested) throw new Error("The Host did not apply the requested CodeX permission preset.");
     return { commandId, result: { kind: "success", text: `preset ${effective}` } };
   }
   sessionTitle(sessionId) {
@@ -14812,7 +14837,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     return queue.iterate(() => this.eventStreams.delete(clientId));
   }
   async sessionFollow(request, signal) {
-    const sessionId = sessionIdFromAddress(record(request.address));
+    const sessionId = sessionIdFromAddress(record2(request.address));
     const threadId = nativeThreadId(sessionId);
     const history = await this.readHistoryPage(threadId, {
       maxMessages: optionalPositiveInteger(request.maxMessages)
@@ -14875,7 +14900,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     });
   }
   acceptCodexFrame(follow, frame) {
-    const params = record(frame.params);
+    const params = record2(frame.params);
     if (frame.method === "thread/name/updated") {
       const name2 = string(params.threadName);
       if (name2 === void 0) return;
@@ -14887,11 +14912,11 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     }
     if (frame.method === "thread/settings/updated") {
       const preset = codexPermissionPresetFromResponse(params);
-      if (preset !== void 0) this.setPermissionSelection(follow.sessionId, preset);
+      this.setPermissionSelection(follow.sessionId, preset);
       return;
     }
     if (frame.method === "turn/started") {
-      const turn = record(params.turn);
+      const turn = record2(params.turn);
       this.resetLiveTurn(follow);
       follow.turn += 1;
       follow.activeTurnId = string(turn.id);
@@ -14900,11 +14925,11 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       this.pushEvent(follow, "turn/start", { turn: follow.turn });
       this.pushEvent(follow, "step/start", { turn: follow.turn, step: 1 });
       this.emitRemoteEvent("api-session/status", [follow.sessionId, true]);
-      for (const item of array(turn.items)) this.acceptCompletedItem(follow, record(item), false);
+      for (const item of array(turn.items)) this.acceptCompletedItem(follow, record2(item), false);
       return;
     }
     if (frame.method === "item/started" || frame.method === "item/completed") {
-      const item = record(params.item);
+      const item = record2(params.item);
       const itemId = string(item.id);
       if (frame.method === "item/started" && itemId !== void 0) {
         follow.startedItems.add(itemId);
@@ -14941,7 +14966,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     }
     if (frame.method === "turn/plan/updated") {
       const todos = array(params.plan).flatMap((value) => {
-        const item = record(value);
+        const item = record2(value);
         const content = string(item.step);
         if (content === void 0) return [];
         const status2 = item.status === "inProgress" ? "in_progress" : item.status === "completed" ? "completed" : "pending";
@@ -14975,7 +15000,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       return;
     }
     if (frame.method === "thread/status/changed") {
-      const status2 = record(params.status);
+      const status2 = record2(params.status);
       const running = status2.type === "active";
       this.emitRemoteEvent("api-session/status", [follow.sessionId, running]);
       if (status2.type === "systemError") {
@@ -15002,8 +15027,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       return;
     }
     if (frame.method === "turn/completed") {
-      const turn = record(params.turn);
-      for (const item of array(turn.items)) this.acceptCompletedItem(follow, record(item), true);
+      const turn = record2(params.turn);
+      for (const item of array(turn.items)) this.acceptCompletedItem(follow, record2(item), true);
       if (follow.stepOpen) {
         this.closeAllStreamBlocks(follow);
         if (follow.streamActive) this.finishStream(follow);
@@ -15098,7 +15123,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   }
   cacheImageBlocks(sessionId, value) {
     for (const block of collectImageBlocks(value)) {
-      const attachment = record(block.attachment);
+      const attachment = record2(block.attachment);
       const attachmentId = string(attachment.attachmentId);
       const data = string(block.data);
       if (attachmentId === void 0 || data === void 0 || !attachmentId.startsWith(CODEX_IMAGE_ATTACHMENT_PREFIX)) continue;
@@ -15239,7 +15264,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   }
   async answerRemoteEvent(args, signal) {
     const eventId = string(args.eventId);
-    const outcome = record(args.outcome);
+    const outcome = record2(args.outcome);
     if (eventId === void 0) throw new Error("The CodeX approval result is missing its event id.");
     const pending = this.pendingApprovals.get(eventId);
     if (pending === void 0) return void 0;
@@ -15290,7 +15315,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     if (!containsPath(workspace.path, path)) {
       return failure("workspace-not-found", "The selected directory is outside the current CodeX virtual Workspace.");
     }
-    const listing = record(await this.client.request("dsh/directoryList", { path }, signal));
+    const listing = record2(await this.client.request("dsh/directoryList", { path }, signal));
     if (!isCodexDirectoryListing(listing)) {
       return failure("internal", "CodeX Remote returned an invalid directory listing.");
     }
@@ -15324,13 +15349,13 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     const directory = await this.models(signal);
     const selection = directory.default;
     const requestedPreset = CODEX_DEFAULT_PERMISSION;
-    const result = record(await this.client.request("thread/start", {
+    const result = record2(await this.client.request("thread/start", {
       cwd,
       model: selection.model,
       permissionPreset: requestedPreset
     }, signal));
     const permissionPreset2 = codexPermissionPresetFromResponse(result) ?? requestedPreset;
-    const thread = { ...record(result.thread), cwd, turns: array(record(result.thread).turns) };
+    const thread = { ...record2(result.thread), cwd, turns: array(record2(result.thread).turns) };
     const projected = projectCodexThread(thread);
     if (projected === void 0) return failure("internal", "CodeX returned an invalid Thread.");
     this.pendingThreads.set(projected.nativeId, thread);
@@ -15350,16 +15375,14 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   }
   async forkSession(request, signal) {
     const sessionId = requiredString(request.sessionId, "sessionId");
-    let permissionPreset2 = this.selectedPermissions.get(sessionId);
-    const result = record(await this.client.request("thread/fork", {
-      threadId: nativeThreadId(sessionId),
-      ...permissionPreset2 === void 0 ? {} : { permissionPreset: permissionPreset2 }
+    const result = record2(await this.client.request("thread/fork", {
+      threadId: nativeThreadId(sessionId)
     }, signal));
-    permissionPreset2 = codexPermissionPresetFromResponse(result) ?? permissionPreset2 ?? CODEX_DEFAULT_PERMISSION;
-    const projected = projectCodexThread(record(result.thread));
+    const permissionPreset2 = codexPermissionPresetFromResponse(result);
+    const projected = projectCodexThread(record2(result.thread));
     if (projected === void 0) return failure("internal", "CodeX returned an invalid forked Thread.");
     this.selectedModels.set(projected.id, this.modelSelection(sessionId, await this.models(signal)));
-    this.selectedPermissions.set(projected.id, permissionPreset2);
+    this.setPermissionSelection(projected.id, permissionPreset2);
     await this.refreshAndPublishWorkspaces();
     const seq = this.nextProjectionSeq();
     this.publishProjection(projected.id, "title", displayTitle(projected), seq);
@@ -15372,7 +15395,6 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     if (input2 === void 0) return failure("attachment-error", "CodeX virtual Sessions accept text and pasted PNG, JPEG, WebP, or GIF images only.");
     const threadId = nativeThreadId(sessionId);
     const selection = this.modelSelection(sessionId, await this.models(signal));
-    let permissionPreset2 = this.selectedPermissions.get(sessionId);
     const isFreshBlankThread = this.blankThreads.has(threadId) || this.pendingThreads.has(threadId);
     await this.ensureRcFollow(sessionId);
     if (!isFreshBlankThread) {
@@ -15381,8 +15403,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
         model: selection.model
       }, signal);
       const serverPreset = codexPermissionPresetFromResponse(resumeResult);
-      if (permissionPreset2 === void 0 && serverPreset !== void 0) {
-        permissionPreset2 = serverPreset;
+      if (serverPreset !== void 0) {
         this.setPermissionSelection(sessionId, serverPreset);
       }
     }
@@ -15396,8 +15417,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       await this.client.request(mode, {
         threadId,
         input: input2,
-        ...codexModelParams(selection),
-        ...permissionPreset2 === void 0 ? {} : { permissionPreset: permissionPreset2 }
+        ...codexModelParams(selection)
       }, signal);
     }
     this.blankThreads.delete(threadId);
@@ -15418,8 +15438,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
   }
   async hydrateImageAttachments(sessionId, signal) {
     const threadId = nativeThreadId(sessionId);
-    const result = record(await this.client.request("thread/read", { threadId, includeTurns: true }, signal));
-    const thread = record(result.thread);
+    const result = record2(await this.client.request("thread/read", { threadId, includeTurns: true }, signal));
+    const thread = record2(result.thread);
     if (string(thread.id) !== threadId) throw new Error("CodeX returned an invalid Thread history.");
     this.cacheHistoryImages(projectCodexNativeHistory(thread, sessionId));
   }
@@ -15441,7 +15461,7 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     return success({ title, seq });
   }
   async sessionPage(request, signal) {
-    const sessionId = sessionIdFromAddress(record(request.address));
+    const sessionId = sessionIdFromAddress(record2(request.address));
     const page = await this.readHistoryPage(nativeThreadId(sessionId), {
       beforeSeq: optionalNonNegativeInteger(request.beforeSeq),
       throughSeq: optionalInteger(request.throughSeq),
@@ -15454,15 +15474,15 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     return void 0;
   }
   async fetchThread(threadId, signal) {
-    const result = record(await this.client.request("thread/read", { threadId, includeTurns: false }, signal));
-    const thread = record(result.thread);
+    const result = record2(await this.client.request("thread/read", { threadId, includeTurns: false }, signal));
+    const thread = record2(result.thread);
     if (string(thread.id) !== threadId) throw new Error("CodeX returned an invalid Thread history.");
     return thread;
   }
   async readHistoryPage(threadId, page, signal) {
     let value;
     try {
-      value = record(await this.client.request("dsh/sessionHistory", {
+      value = record2(await this.client.request("dsh/sessionHistory", {
         threadId,
         ...page.beforeSeq === void 0 ? {} : { beforeSeq: page.beforeSeq },
         ...page.throughSeq === void 0 ? {} : { throughSeq: page.throughSeq },
@@ -15470,8 +15490,8 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
       }, signal));
     } catch (error) {
       if (!isLegacySessionHistoryUnsupported(error)) throw error;
-      const result = record(await this.client.request("thread/read", { threadId, includeTurns: true }, signal));
-      const thread = record(result.thread);
+      const result = record2(await this.client.request("thread/read", { threadId, includeTurns: true }, signal));
+      const thread = record2(result.thread);
       if (string(thread.id) !== threadId) throw new Error("CodeX returned an invalid Thread history.");
       value = paginateCodexNativeHistory(
         projectCodexNativeHistory(thread, `codex:${threadId}`),
@@ -15484,6 +15504,10 @@ var CodexVirtualHarness = class _CodexVirtualHarness {
     }
     if (!isCodexNativeHistoryPage(value, `codex:${threadId}`)) {
       throw new Error("CodeX Remote returned an invalid paginated History.");
+    }
+    if (Object.hasOwn(value, "permissionPreset")) {
+      const preset = value.permissionPreset;
+      this.setPermissionSelection(`codex:${threadId}`, preset === "workspace-write" || preset === "danger-full-access" ? preset : void 0);
     }
     this.cacheHistoryImages(value);
     return value;
@@ -15692,7 +15716,7 @@ async function loadCatalog(client, signal, pendingThreads) {
   const threads = [];
   let cursor2;
   for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
-    const result = record(await client.request("thread/list", {
+    const result = record2(await client.request("thread/list", {
       limit: CODEX_PAGE_LIMIT,
       sortKey: "updated_at",
       sortDirection: "desc",
@@ -15700,7 +15724,7 @@ async function loadCatalog(client, signal, pendingThreads) {
       ...cursor2 === void 0 ? {} : { cursor: cursor2 }
     }, signal));
     for (const value of array(result.data)) {
-      const thread = record(value);
+      const thread = record2(value);
       if (string(thread.id) !== void 0) threads.push(thread);
     }
     cursor2 = typeof result.nextCursor === "string" && result.nextCursor.length > 0 ? result.nextCursor : void 0;
@@ -15752,7 +15776,7 @@ async function loadCodexProjects(client, signal) {
   let cursor2;
   try {
     for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
-      const result = record(await client.request("project/list", {
+      const result = record2(await client.request("project/list", {
         limit: CODEX_PAGE_LIMIT,
         ...cursor2 === void 0 ? {} : { cursor: cursor2 }
       }, signal));
@@ -15774,18 +15798,18 @@ async function loadModelDirectory(client, signal) {
   let defaultModelId;
   let cursor2;
   for (let page = 0; page < MAX_CODEX_PAGES; page += 1) {
-    const result = record(await client.request("model/list", {
+    const result = record2(await client.request("model/list", {
       limit: CODEX_PAGE_LIMIT,
       includeHidden: false,
       ...cursor2 === void 0 ? {} : { cursor: cursor2 }
     }, signal));
     for (const value of array(result.data)) {
-      const source = record(value);
+      const source = record2(value);
       if (source.hidden === true) continue;
       const id2 = string(source.model) ?? string(source.id);
       if (id2 === void 0 || models.has(id2)) continue;
       const efforts = array(source.supportedReasoningEfforts).map((value2) => {
-        const effort = record(value2);
+        const effort = record2(value2);
         const effortId = string(effort.reasoningEffort);
         if (effortId === void 0) return void 0;
         const description2 = string(effort.description);
@@ -15849,8 +15873,8 @@ function projectCodexNativeHistory(thread, sessionId) {
     return eventSeq;
   };
   for (const rawTurn of array(thread.turns)) {
-    const turn = record(rawTurn);
-    const turnItems = array(turn.items).map(record);
+    const turn = record2(rawTurn);
+    const turnItems = array(turn.items).map(record2);
     const toolImages = turnItems.flatMap(toolOutputImageBlocks);
     let imageOwner = -1;
     for (let index = 0; index < turnItems.length; index += 1) {
@@ -15999,15 +16023,15 @@ function messageContent(item, attachmentSeed, fallbackType, fallbackText, supple
 }
 function toolOutputImageBlocks(item) {
   const candidates = [
-    record(item.result).content,
-    record(item.output).content,
+    record2(item.result).content,
+    record2(item.output).content,
     item.contentItems,
     Array.isArray(item.output) ? item.output : void 0
   ];
   for (const candidate of candidates) {
     if (!Array.isArray(candidate)) continue;
     const images = candidate.flatMap((value) => {
-      const block = record(value);
+      const block = record2(value);
       return isImageContent2(block) && parseImageBlock(block) !== void 0 ? [block] : [];
     });
     if (images.length > 0) return images;
@@ -16024,7 +16048,7 @@ function contentBlocks(value, attachmentSeed) {
       blocks.push({ type: "text", text: raw });
       continue;
     }
-    const block = record(raw);
+    const block = record2(raw);
     const image = imageContentBlock(block, attachmentSeed, imageIndex);
     if (image !== void 0) {
       imageIndex += 1;
@@ -16063,7 +16087,7 @@ function isImageContent2(block) {
   return block.type === "image" || block.type === "input_image";
 }
 function parseImageBlock(block) {
-  const url = string(block.url) ?? string(block.image_url) ?? string(record(block.image_url).url);
+  const url = string(block.url) ?? string(block.image_url) ?? string(record2(block.image_url).url);
   const parsed = url === void 0 ? void 0 : parseDataImageUrl2(url);
   if (parsed !== void 0) return parsed;
   const data = string(block.data);
@@ -16220,10 +16244,10 @@ function toolResultEvent(item, turn, step, id2, resultText) {
   };
 }
 function toolResultContentReplacement(event) {
-  const data = record(event.data);
-  const message = record(data.message);
+  const data = record2(event.data);
+  const message = record2(data.message);
   const content = array(message.content);
-  const result = record(content[0]);
+  const result = record2(content[0]);
   if (result.isError === void 0) return event;
   const { isError: _isError, ...stableResult } = result;
   return {
@@ -16263,9 +16287,9 @@ function toolResultText(item, type, text) {
   if (type === "exitedReviewMode") return `Exited review mode${string(item.review) ? `: ${string(item.review)}` : "."}`;
   if (type === "sleep") return `Waited ${integer(item.durationMs) ?? 0} ms.`;
   if (type === "subAgentActivity") {
-    return [string(record(item.kind).type) ?? string(item.kind) ?? "Subagent activity", string(item.agentPath)].filter((value) => value !== void 0).join(": ");
+    return [string(record2(item.kind).type) ?? string(item.kind) ?? "Subagent activity", string(item.agentPath)].filter((value) => value !== void 0).join(": ");
   }
-  return text ?? itemText2(record(item.result)) ?? itemText2(record(item.output)) ?? string(item.status) ?? type;
+  return text ?? itemText2(record2(item.result)) ?? itemText2(record2(item.output)) ?? string(item.status) ?? type;
 }
 function isSurfaceEvent(type) {
   return type === "user/message" || type === "assistant/message" || type === "tool/result";
@@ -16337,10 +16361,10 @@ function toolResultView(item, type, resultText) {
   };
 }
 function toolDisplayName(item, type) {
-  return string(item.name) ?? string(item.tool) ?? string(record(item.tool).name) ?? (type === "mcpToolCall" ? "CodeX MCP tool" : humanizeItemType(type));
+  return string(item.name) ?? string(item.tool) ?? string(record2(item.tool).name) ?? (type === "mcpToolCall" ? "CodeX MCP tool" : humanizeItemType(type));
 }
 function fileLocations(item) {
-  return array(item.changes).map((value) => string(record(value).path)).filter((path) => path !== void 0 && path.length > 0).map((path) => ({ path }));
+  return array(item.changes).map((value) => string(record2(value).path)).filter((path) => path !== void 0 && path.length > 0).map((path) => ({ path }));
 }
 function nativeWorkspace(view) {
   const { sessionCount: _sessionCount, ...workspace } = view;
@@ -16362,10 +16386,10 @@ function projectWorkspace(project) {
   };
 }
 function projectCodexProject(value, fallbackPosition) {
-  const source = record(value);
+  const source = record2(value);
   const id2 = string(source.id);
   if (id2 === void 0) return void 0;
-  const roots = array(source.roots).map((root) => string(record(root).path)).filter((path) => path !== void 0 && path.length > 0).map((path) => ({ path }));
+  const roots = array(source.roots).map((root) => string(record2(root).path)).filter((path) => path !== void 0 && path.length > 0).map((path) => ({ path }));
   if (roots.length === 0) return void 0;
   return {
     id: id2,
@@ -16436,7 +16460,7 @@ function isCanonicalBase642(value) {
 function modelSelectionProjection(selection) {
   return { lastUsed: selection, next: selection };
 }
-function codexPermissionsProjection(currentValue) {
+function codexPermissionsProjection(preset) {
   return {
     options: [
       {
@@ -16450,7 +16474,7 @@ function codexPermissionsProjection(currentValue) {
         description: "Full Host file access without approval prompts for subsequent turns in this virtual Session."
       }
     ],
-    currentValue
+    currentValue: preset ?? "Host settings (not reported)"
   };
 }
 function codexImageLimitsProjection() {
@@ -16465,22 +16489,6 @@ function codexImageLimitsProjection() {
 }
 function isCodexPermissionPreset(value) {
   return value === "workspace-write" || value === "danger-full-access";
-}
-function codexPermissionPresetFromResponse(value) {
-  const root = record(value);
-  return codexPermissionPresetFromPolicyRecord(root) ?? codexPermissionPresetFromPolicyRecord(record(root.threadSettings));
-}
-function codexPermissionPresetFromPolicyRecord(value) {
-  const sandbox = value.sandbox ?? value.sandboxPolicy;
-  if (value.approvalPolicy === "never" && isDangerFullAccessSandbox(sandbox)) return "danger-full-access";
-  if (value.approvalPolicy === "on-request" && isWorkspaceWriteSandbox(sandbox)) return "workspace-write";
-  return void 0;
-}
-function isDangerFullAccessSandbox(value) {
-  return value === "danger-full-access" || record(value).type === "dangerFullAccess";
-}
-function isWorkspaceWriteSandbox(value) {
-  return value === "workspace-write" || record(value).type === "workspaceWrite";
 }
 function modelCatalog(directory) {
   return {
@@ -16520,7 +16528,7 @@ function itemText2(value) {
   if (content !== void 0) {
     const text = content.map((part) => {
       if (typeof part === "string") return part;
-      const block = record(part);
+      const block = record2(part);
       return string(block.text) ?? string(block.content) ?? "";
     }).filter(Boolean).join("\n");
     if (text !== "") return text;
@@ -16534,8 +16542,8 @@ function toolArguments(item) {
   if (item.type === "commandExecution") return { command: commandText(item.command) ?? item.command ?? "" };
   if (item.type === "fileChange") return {
     changes: array(item.changes).map((value) => {
-      const change = record(value);
-      const kind = typeof change.kind === "string" ? change.kind : string(record(change.kind).type);
+      const change = record2(value);
+      const kind = typeof change.kind === "string" ? change.kind : string(record2(change.kind).type);
       return {
         ...typeof change.path === "string" ? { path: change.path } : {},
         ...kind === void 0 ? {} : { kind }
@@ -16556,7 +16564,7 @@ function toolArguments(item) {
   if (item.type === "subAgentActivity") return {
     agentThreadId: string(item.agentThreadId) ?? "",
     agentPath: string(item.agentPath) ?? "",
-    kind: string(record(item.kind).type) ?? string(item.kind) ?? "activity"
+    kind: string(record2(item.kind).type) ?? string(item.kind) ?? "activity"
   };
   if (item.type === "sleep") return { durationMs: integer(item.durationMs) ?? 0 };
   if (item.type === "enteredReviewMode" || item.type === "exitedReviewMode") return {
@@ -16567,19 +16575,19 @@ function toolArguments(item) {
 }
 function fileChangeSummary(item) {
   const changes = array(item.changes).map((value) => {
-    const change = record(value);
+    const change = record2(value);
     const path = string(change.path);
-    const kind = typeof change.kind === "string" ? change.kind : string(record(change.kind).type);
+    const kind = typeof change.kind === "string" ? change.kind : string(record2(change.kind).type);
     return [kind, path].filter((part) => part !== void 0 && part.length > 0).join(" ");
   }).filter(Boolean);
   return changes.length === 0 ? "File changes completed." : changes.join("\n");
 }
 function sanitizedFileChanges(value) {
   return array(value).flatMap((raw) => {
-    const change = record(raw);
+    const change = record2(raw);
     const path = string(change.path);
     if (path === void 0) return [];
-    const kind = typeof change.kind === "string" ? change.kind : string(record(change.kind).type);
+    const kind = typeof change.kind === "string" ? change.kind : string(record2(change.kind).type);
     return [{ path, ...kind === void 0 ? {} : { kind } }];
   });
 }
@@ -16609,7 +16617,7 @@ function humanizeItemType(type) {
 function commandText(value) {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value.filter((item) => typeof item === "string").join(" ");
-  const source = record(value);
+  const source = record2(value);
   return string(source.command) ?? string(source.text);
 }
 function sessionIdFromAddress(address) {
@@ -16625,7 +16633,7 @@ function nativeThreadId(sessionId) {
 function activeTurnId(value) {
   if (!Array.isArray(value)) return void 0;
   for (let index = value.length - 1; index >= 0; index -= 1) {
-    const turn = record(value[index]);
+    const turn = record2(value[index]);
     if (isActiveCodexTurn(turn) && typeof turn.id === "string" && turn.id.length > 0) return turn.id;
   }
   return void 0;
@@ -16634,10 +16642,10 @@ function isActiveCodexTurn(turn) {
   return turn.status === "inProgress" || turn.status === "running";
 }
 function carrierArgs(payload) {
-  return record(record(payload).args);
+  return record2(record2(payload).args);
 }
 function requestArg(args) {
-  return record(args.request ?? args._request ?? args);
+  return record2(args.request ?? args._request ?? args);
 }
 function rcEndpoint(endpoint) {
   if (endpoint === "workspace.list") return "workspace/list";
@@ -16653,20 +16661,20 @@ function ok(value) {
   return value === void 0 ? { ok: true } : { ok: true, value };
 }
 function business(value) {
-  const result = record(value);
+  const result = record2(value);
   if (result.ok === true) return ok(result.value);
   if (result.ok === false) {
-    const error = record(result.error);
-    return fail(string(error.code) ?? "internal", string(error.message) ?? "CodeX virtual Harness rejected the request.", record(error.details));
+    const error = record2(result.error);
+    return fail(string(error.code) ?? "internal", string(error.message) ?? "CodeX virtual Harness rejected the request.", record2(error.details));
   }
   return ok(value);
 }
 function isCodexDirectoryListing(value) {
-  const listing = record(value);
+  const listing = record2(value);
   return typeof listing.path === "string" && typeof listing.home === "string" && Array.isArray(listing.crumbs) && listing.crumbs.every(isCodexDirectoryEntry) && Array.isArray(listing.entries) && listing.entries.every(isCodexDirectoryEntry) && typeof listing.truncated === "boolean";
 }
 function isCodexDirectoryEntry(value) {
-  const entry = record(value);
+  const entry = record2(value);
   return typeof entry.name === "string" && typeof entry.path === "string" && typeof entry.hidden === "boolean";
 }
 function fail(code, message, details = {}) {
@@ -16686,7 +16694,7 @@ function errorCode(error) {
 function errorDetails(error) {
   return "details" in error && isRecord3(error.details) ? error.details : {};
 }
-function record(value) {
+function record2(value) {
   return isRecord3(value) ? value : {};
 }
 function isRecord3(value) {
@@ -16721,8 +16729,8 @@ function optionalPositiveInteger(value) {
   return parsed;
 }
 function isCodexNativeHistoryPage(value, sessionId) {
-  const page = record(value);
-  const header = record(page.header);
+  const page = record2(value);
+  const header = record2(page.header);
   return header.id === sessionId && integer(page.cursor) !== void 0 && integer(page.nextTurn) !== void 0 && Array.isArray(page.records) && typeof page.hasMore === "boolean" && (page.activeTurnId === void 0 || typeof page.activeTurnId === "string");
 }
 function truncateCodePoints(value, maximum) {
@@ -18804,12 +18812,12 @@ var ClientModeRuntime = class {
       throw new ClientModeError("FEATURE_NOT_SUPPORTED", "The selected Host does not provide CodeX workspaces.");
     }
     this.assertRemoteCompatible(remote);
-    const result = record2(await new CodexRemoteClient(remote.client).request("project/create", {
+    const result = record3(await new CodexRemoteClient(remote.client).request("project/create", {
       name: remoteWorkspaceTitle(trimmedPath),
       roots: [{ path: trimmedPath }],
       idempotencyKey: uuidV7()
     }, signal));
-    const project = record2(result.project);
+    const project = record3(result.project);
     if (typeof project.id !== "string" || project.id.length === 0) {
       throw new ClientModeError("INVALID_MESSAGE", "The Host returned an invalid CodeX project.");
     }
@@ -18859,7 +18867,7 @@ var ClientModeRuntime = class {
   }
   async openCodexStream(payload, signal) {
     const remote = this.activeCodexRemote();
-    const value = record2(payload);
+    const value = record3(payload);
     if (typeof value.streamId !== "string" || value.streamId.length === 0 || value.streamId.length > 128 || typeof value.threadId !== "string" || value.threadId.length === 0) {
       throw new ClientModeError("INVALID_MESSAGE", "A Codex stream and thread are required.");
     }
@@ -18944,7 +18952,7 @@ var ClientModeRuntime = class {
     };
   }
   async nextCodexFrames(payload, signal) {
-    const value = record2(payload);
+    const value = record3(payload);
     if (typeof value.streamId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Codex stream is required.");
     const stream = this.codexStreams.get(value.streamId);
     if (stream === void 0) throw new ClientModeError("STREAM_NOT_FOUND", "The Codex stream is not open.");
@@ -18958,7 +18966,7 @@ var ClientModeRuntime = class {
     };
   }
   async closeCodexStream(payload) {
-    const value = record2(payload);
+    const value = record3(payload);
     if (typeof value.streamId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Codex stream is required.");
     const stream = this.codexStreams.get(value.streamId);
     if (stream === void 0) return { closed: false, streamId: value.streamId };
@@ -19165,14 +19173,14 @@ var ClientModeRuntime = class {
       if (endpoint === "status") return ok2(await this.detailedStatus());
       if (endpoint === "devices") return ok2(await this.devices());
       if (endpoint === "client.account.login") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.email !== "string" || typeof value.password !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
         }
         return ok2(await this.authorizeClientWithAccount(value.email, value.password));
       }
       if (endpoint === "client.account.qr.start") {
-        const value = record2(payload);
+        const value = record3(payload);
         const provider = value.provider ?? "zhihu";
         if (provider !== "zhihu" && provider !== "github") {
           throw new ClientModeError("INVALID_MESSAGE", "A supported OAuth provider is required.");
@@ -19180,14 +19188,14 @@ var ClientModeRuntime = class {
         return ok2(await this.startClientOAuthQrLogin(provider));
       }
       if (endpoint === "client.account.qr.poll") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.qrId !== "string" || value.qrId.length < 20) {
           throw new ClientModeError("INVALID_MESSAGE", "A QR login session is required.");
         }
         return ok2(await this.pollClientOAuthQrLogin(value.qrId));
       }
       if (endpoint === "directory.list") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
         return ok2(await this.listRemoteDirectory(
           value.targetDeviceId,
@@ -19196,38 +19204,38 @@ var ClientModeRuntime = class {
         ));
       }
       if (endpoint === "workspaces.list") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
         return ok2(await this.listRemoteWorkspaces(value.targetDeviceId, signal));
       }
       if (endpoint === "codex.workspaces.list") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.targetDeviceId !== "string") throw new ClientModeError("INVALID_MESSAGE", "A Host is required.");
         return ok2(await this.listCodexWorkspaces(value.targetDeviceId, signal));
       }
       if (endpoint === "workspace.open") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.targetDeviceId !== "string" || typeof value.path !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "A Host and working directory are required.");
         }
         return ok2(await this.openRemoteWorkspace(value.targetDeviceId, value.path, signal));
       }
       if (endpoint === "codex.workspace.open") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.targetDeviceId !== "string" || typeof value.workspaceId !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "A Host and CodeX Workspace are required.");
         }
         return ok2(await this.openCodexWorkspace(value.targetDeviceId, value.workspaceId, signal));
       }
       if (endpoint === "codex.workspace.create") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.targetDeviceId !== "string" || typeof value.path !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "A Host and CodeX project directory are required.");
         }
         return ok2(await this.createCodexWorkspace(value.targetDeviceId, value.path, signal));
       }
       if (endpoint === "workspace.selection.consume") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.targetDeviceId !== "string" || typeof value.workspaceId !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "A Host and Workspace are required.");
         }
@@ -19243,7 +19251,7 @@ var ClientModeRuntime = class {
         return ok2(await this.callRemoteFileViewer(method, payload, signal));
       }
       if (endpoint === "codex.call") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.method !== "string" || !("params" in value)) {
           throw new ClientModeError("INVALID_MESSAGE", "A Codex method and params are required.");
         }
@@ -19267,7 +19275,7 @@ var ClientModeRuntime = class {
         return ok2({ supported: local || remoteSupported, local, remote: remoteSupported });
       }
       if (endpoint === "codex.respond") {
-        const value = record2(payload);
+        const value = record3(payload);
         const remote = this.activeCodexRemote();
         if (remote !== void 0) return ok2(await remote.client.rpc("codex.app.respond", value, signal));
         const host = this.requireLocalCodex();
@@ -19278,14 +19286,14 @@ var ClientModeRuntime = class {
       if (endpoint === "codex.stream.close") return ok2(await this.closeCodexStream(payload));
       if (endpoint === "host.account.login") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.email !== "string" || typeof value.password !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
         }
         return ok2(await this.host.authorizeHostWithAccount(value.email, value.password));
       }
       if (endpoint === "host.authorization.set") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.enabled !== "boolean") {
           throw new ClientModeError("INVALID_MESSAGE", "Host authorization state is required.");
         }
@@ -19293,14 +19301,14 @@ var ClientModeRuntime = class {
       }
       if (endpoint === "host.registration-code.submit") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        const value = record2(payload);
+        const value = record3(payload);
         if (typeof value.code !== "string" || value.code.trim() === "") {
           throw new ClientModeError("INVALID_MESSAGE", "A Host registration code is required.");
         }
         return ok2(await this.host.authorizeHostWithCode(value.code));
       }
       if (endpoint === "mode.set") {
-        const value = record2(payload);
+        const value = record3(payload);
         if (value.mode !== "local" && value.mode !== "remote") throw new ClientModeError("INVALID_MESSAGE", "Mode must be local or remote.");
         return ok2(await this.setMode(value.mode, typeof value.targetDeviceId === "string" ? value.targetDeviceId : void 0, signal));
       }
@@ -19364,7 +19372,7 @@ function webrtcDiagnosticsLogFields(diagnostics) {
     ...diagnostics.selectedPath === void 0 ? {} : { rtcSelectedPath: diagnostics.selectedPath }
   };
 }
-function record2(value) {
+function record3(value) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
   }
@@ -19593,24 +19601,24 @@ var IdentityStore = class {
     }
     if (!hasDevice) {
       const keys = generateKeyPair();
-      const record5 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
-      await atomicJsonWrite(devicePath, record5, 384);
+      const record6 = { schemaVersion: 1, deviceId: uuidV7(), name: deviceName, publicKey: keys.publicKey };
+      await atomicJsonWrite(devicePath, record6, 384);
       await atomicTextWrite(keyPath, `${keys.privateKey}
 `, 384);
     }
     await assertPrivateMode(keyPath);
     try {
-      let record5 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
+      let record6 = identitySchema.parse(JSON.parse(await readFile(devicePath, "utf8")));
       const privateKey = (await readFile(keyPath, "utf8")).trim();
       const regenerated = generateKeyPair(fromBase64Url2(privateKey));
-      if (regenerated.publicKey !== record5.publicKey) {
+      if (regenerated.publicKey !== record6.publicKey) {
         throw new IdentityInvalidError("device public and private keys do not match");
       }
-      if (record5.name !== deviceName) {
-        record5 = { ...record5, name: deviceName };
-        await atomicJsonWrite(devicePath, record5, 384);
+      if (record6.name !== deviceName) {
+        record6 = { ...record6, name: deviceName };
+        await atomicJsonWrite(devicePath, record6, 384);
       }
-      this.identity = { ...record5, privateKey, fingerprint: fingerprint(record5.publicKey) };
+      this.identity = { ...record6, privateKey, fingerprint: fingerprint(record6.publicKey) };
       await this.loadPeers();
       return this.identity;
     } catch (error) {
@@ -19752,10 +19760,10 @@ var ServerCredentialStore = class {
     return parsed.serverUrl === serverUrl && parsed.deviceId === deviceId ? parsed : void 0;
   }
   async save(credentials) {
-    const record5 = credentialSchema.parse({ schemaVersion: 1, ...credentials });
-    await atomicWrite(this.path, `${JSON.stringify(record5, null, 2)}
+    const record6 = credentialSchema.parse({ schemaVersion: 1, ...credentials });
+    await atomicWrite(this.path, `${JSON.stringify(record6, null, 2)}
 `);
-    return record5;
+    return record6;
   }
   async clear() {
     await rm2(this.path, { force: true });
@@ -19822,7 +19830,7 @@ var PluginControlRuntime = class {
       if (endpoint === "devices") return ok3([]);
       if (endpoint === "host.account.login") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        const value = record3(payload);
+        const value = record4(payload);
         if (typeof value.email !== "string" || typeof value.password !== "string") {
           throw new ClientModeError("INVALID_MESSAGE", "Email and password are required.");
         }
@@ -19830,13 +19838,13 @@ var PluginControlRuntime = class {
       }
       if (endpoint === "host.registration-code.submit") {
         if (this.host === void 0) throw new ClientModeError("METHOD_NOT_ALLOWED", "This plugin is not running as a Host.");
-        const value = record3(payload);
+        const value = record4(payload);
         if (typeof value.code !== "string" || value.code.trim() === "") {
           throw new ClientModeError("INVALID_MESSAGE", "A Host registration code is required.");
         }
         return ok3(await this.host.authorizeHostWithCode(value.code));
       }
-      if (endpoint === "mode.set" && record3(payload).mode === "local") return ok3(this.hostOnlyStatus());
+      if (endpoint === "mode.set" && record4(payload).mode === "local") return ok3(this.hostOnlyStatus());
       throw new ClientModeError("METHOD_NOT_ALLOWED", "Remote Client mode is disabled by the plugin role.");
     } catch (error) {
       return fail3(error);
@@ -19846,7 +19854,7 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const value = record3(payload);
+    const value = record4(payload);
     if (value.role !== "host" && value.role !== "client") {
       throw new ClientModeError("INVALID_MESSAGE", "Role must be Host or Client.");
     }
@@ -19881,7 +19889,7 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const value = record3(payload);
+    const value = record4(payload);
     if (typeof value.serverUrl !== "string") {
       throw new ClientModeError("INVALID_MESSAGE", "Server URL is required.");
     }
@@ -19894,7 +19902,7 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const role = record3(payload).role;
+    const role = record4(payload).role;
     if (role !== "host" && role !== "client") {
       throw new ClientModeError("INVALID_MESSAGE", "Role must be Host or Client.");
     }
@@ -19910,7 +19918,7 @@ var PluginControlRuntime = class {
     if (this.settings === void 0) {
       throw new ClientModeError("SETTINGS_UNAVAILABLE", "DSH user settings are unavailable in this profile.");
     }
-    const enabled = record3(payload).enabled;
+    const enabled = record4(payload).enabled;
     if (typeof enabled !== "boolean") {
       throw new ClientModeError("INVALID_MESSAGE", "Codex Remote enabled must be a boolean.");
     }
@@ -20019,7 +20027,7 @@ function editableConfig(config) {
 function isRecord6(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function record3(value) {
+function record4(value) {
   if (!isRecord6(value)) throw new ClientModeError("INVALID_MESSAGE", "The control request payload is invalid.");
   return value;
 }
@@ -22626,11 +22634,11 @@ function needsDirectoryFallback(result) {
   return code.includes("capability") || code === "directory-picker/unavailable" || code === "directory-picker-unavailable" || message.includes("browse capability") || message.includes("browser capability") || message.includes("brower capability") || message.includes("directory-picker-unavailable");
 }
 function requestArgs(payload) {
-  const root = record4(payload);
+  const root = record5(payload);
   const args = isRecord7(root.args) ? root.args : root;
-  return record4(args.request ?? args._request ?? args);
+  return record5(args.request ?? args._request ?? args);
 }
-function record4(value) {
+function record5(value) {
   return isRecord7(value) ? value : {};
 }
 function isRecord7(value) {
@@ -23289,6 +23297,7 @@ var CodexRemoteDomain = class {
   peerDeviceIds = /* @__PURE__ */ new Map();
   turnOwners = /* @__PURE__ */ new Map();
   approvals = /* @__PURE__ */ new Map();
+  permissionPresets = /* @__PURE__ */ new Map();
   approvalExpiryTimer;
   restartTimer;
   restartAttempt = 0;
@@ -23367,6 +23376,7 @@ var CodexRemoteDomain = class {
       if (extractThread(result)?.id === void 0) {
         throw new RpcError("CODEX_INVALID_RESPONSE", "Codex App Server returned an invalid thread.");
       }
+      this.rememberPermission(extractThread(result).id, result);
       return result;
     }
     const threadId = threadIdFromParams(call.params);
@@ -23381,12 +23391,23 @@ var CodexRemoteDomain = class {
         }
       );
       const activeTurnId2 = typeof page.activeTurnId === "string" ? page.activeTurnId : this.turnOwners.get(threadId)?.turnId;
-      return activeTurnId2 === void 0 ? page : { ...page, activeTurnId: activeTurnId2 };
+      return {
+        ...page,
+        ...activeTurnId2 === void 0 ? {} : { activeTurnId: activeTurnId2 },
+        permissionPreset: this.permissionPresets.get(threadId) ?? null
+      };
     }
     if (call.method === "dsh/directoryList") {
       return this.listCodexDirectory(call.params.path);
     }
     const allowedThread = threadId === void 0 ? void 0 : await this.readKnownThread(threadId);
+    if (call.method === "thread/resume" && call.params.permissionPreset !== void 0) {
+      const owner = this.turnOwners.get(threadId);
+      if (owner !== void 0 && owner.connectionId !== connectionId) {
+        throw new RpcError("CODEX_THREAD_BUSY", "Another Remote client is writing to this CodeX thread.");
+      }
+      return this.changeThreadPermission(threadId, call.params, allowedThread);
+    }
     if (call.method === "thread/read") {
       return this.callUpstream(call.method, call.params);
     }
@@ -23436,8 +23457,18 @@ var CodexRemoteDomain = class {
       if (call.method === "thread/resume" || call.method === "thread/fork" || call.method === "thread/unarchive") {
         await this.assertResultThreadAllowed(result);
       }
+      if (call.method === "thread/resume" || call.method === "thread/fork") {
+        const resultId = extractThread(result)?.id;
+        if (typeof resultId === "string") {
+          this.rememberPermission(resultId, result);
+          if (call.params.permissionPreset !== void 0) await this.publishPermission(resultId, result);
+        }
+      }
       if (call.method === "turn/start" && threadId !== void 0) {
         this.rememberTurnId(threadId, connectionId, extractTurnId(result));
+        if (call.params.permissionPreset !== void 0) {
+          await this.publishPermission(threadId, codexTurnPermissionParams(permission, allowedThread?.cwd));
+        }
       }
       return result;
     } catch (error) {
@@ -23486,6 +23517,7 @@ var CodexRemoteDomain = class {
     this.peers.clear();
     this.peerDeviceIds.clear();
     this.turnOwners.clear();
+    this.permissionPresets.clear();
     if (this.approvalExpiryTimer !== void 0) clearTimeout(this.approvalExpiryTimer);
     this.approvalExpiryTimer = void 0;
     this.approvals.clear();
@@ -23548,6 +23580,7 @@ var CodexRemoteDomain = class {
     this.state = "restarting";
     this.unavailableCode = code;
     this.turnOwners.clear();
+    this.permissionPresets.clear();
     this.approvals.clear();
     if (this.approvalExpiryTimer !== void 0) clearTimeout(this.approvalExpiryTimer);
     this.approvalExpiryTimer = void 0;
@@ -23603,6 +23636,10 @@ var CodexRemoteDomain = class {
       return;
     }
     const threadId = extractThreadId(message.params);
+    if (message.method === "thread/settings/updated" && threadId !== void 0) {
+      this.rememberPermission(threadId, message.params);
+    }
+    if (message.method === "thread/closed" && threadId !== void 0) this.permissionPresets.delete(threadId);
     if (message.method === "turn/completed" && threadId !== void 0) this.turnOwners.delete(threadId);
     if (message.method === "turn/started" && threadId !== void 0) {
       const owner = this.turnOwners.get(threadId);
@@ -23617,6 +23654,42 @@ var CodexRemoteDomain = class {
       method: message.method,
       params: message.params
     })));
+  }
+  rememberPermission(threadId, value) {
+    const preset = codexPermissionPresetFromResponse(value);
+    if (preset === void 0) this.permissionPresets.delete(threadId);
+    else this.permissionPresets.set(threadId, preset);
+  }
+  async changeThreadPermission(threadId, params, allowed) {
+    const permission = codexPermission(params);
+    const settings = {
+      ...codexTurnPermissionParams(permission, allowed.cwd),
+      ...params.model === void 0 ? {} : { model: params.model }
+    };
+    let result;
+    try {
+      await this.callUpstream("thread/settings/update", { threadId, ...settings });
+      result = { thread: allowed.thread, ...settings, sandbox: settings.sandboxPolicy };
+    } catch {
+      result = await this.callUpstream("thread/resume", {
+        ...permission.params,
+        ...allowed.cwd === void 0 ? {} : { cwd: allowed.cwd },
+        ...codexThreadPermissionParams(permission),
+        excludeTurns: true
+      });
+      await this.assertResultThreadAllowed(result);
+      if (codexPermissionPresetFromResponse(result) !== params.permissionPreset) {
+        await this.callUpstream("thread/settings/update", { threadId, ...settings });
+        result = { ...isRecord10(result) ? result : {}, ...settings, sandbox: settings.sandboxPolicy };
+      }
+    }
+    await this.publishPermission(threadId, result);
+    return result;
+  }
+  async publishPermission(threadId, value) {
+    const source = isRecord10(value) ? value : {};
+    const threadSettings = { approvalPolicy: source.approvalPolicy, sandboxPolicy: source.sandboxPolicy ?? source.sandbox };
+    await this.handleInbound({ kind: "notification", method: "thread/settings/updated", params: { threadId, threadSettings } });
   }
   async handleServerRequest(message) {
     const appServer = this.requireAppServer();
@@ -24078,7 +24151,7 @@ function filterThreadListByWorkspaceAuthority(result, authority) {
   }
   return {
     ...result,
-    data: result.data.map((record5) => isRecord10(record5) ? record5 : void 0).filter((thread) => thread !== void 0 && isThreadAllowedByWorkspaceAuthority(thread, authority))
+    data: result.data.map((record6) => isRecord10(record6) ? record6 : void 0).filter((thread) => thread !== void 0 && isThreadAllowedByWorkspaceAuthority(thread, authority))
   };
 }
 function sanitizeProject(value) {

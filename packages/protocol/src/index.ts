@@ -442,6 +442,13 @@ export interface HarnessTransportDescription {
   capabilities: string[]
 }
 
+export type CodexPermissionPreset = 'workspace-write' | 'danger-full-access'
+
+/** Optional dsh/sessionHistory metadata; null means the Host has no confirmed preset. */
+export interface CodexPermissionSnapshot {
+  permissionPreset?: CodexPermissionPreset | null
+}
+
 /** Fixed allowlisted Codex App Server call carried inside Remote. */
 export interface CodexAppCallParams {
   method: string

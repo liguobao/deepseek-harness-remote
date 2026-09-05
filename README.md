@@ -170,6 +170,10 @@ Codex Remote is meant as a convenience layer for your own devices. It supports t
 prompts where available, model and permission controls, interrupt, and approvals. It is still
 published as experimental while long-running recovery and compatibility work continue.
 
+Web and Desktop approval controls show the Host-confirmed mode for the selected Codex session.
+If it has not been reported, they indicate that Host settings are inherited. Changing the mode
+requires Host confirmation; sending a prompt preserves the session's current policy.
+
 Codex is enabled by default and can be turned off in the DeepSeek Remote settings card. Advanced
 configuration and implementation notes live in [Codex Remote technical notes](docs/codex-remote.md).
 

@@ -1224,6 +1224,20 @@ CodeX App Server 可把 `turn/start` 的部分配置覆盖作为同一 Thread �
 不携带该设置，所以 Android Client 仍可以把用户显式选择的 CodeX preset 作为本地 UI 偏好，按 Host
 设备与 Thread 维度保存，并在之后需要显式覆盖时继续提交同一个 preset。
 
+Web 与 Desktop Remote 的审批控件按 Thread 回显 Host 已确认的 preset，不能把客户端默认值或
+同工作区其它 Thread 的选择当成当前策略。`dsh/sessionHistory` 可附带
+`permissionPreset: "workspace-write" | "danger-full-access" | null`：Host 只从成功的 App Server
+响应、明确完成的设置更新和 `thread/settings/updated` 记录内存快照；不支持的策略组合、未知设置
+以及 Host App Server 重启后返回 `null`，旧 Host 可省略该字段。纯查看不得调用 `thread/resume`。
+Client 未获知策略时显示沿用 Host 设置，发送与 fork 默认省略 preset，避免缓存覆盖其它客户端的修改。
+新 Thread 仍显式采用 `workspace-write`，不继承相邻 Thread 的 Full access。
+
+显式 `thread/resume(permissionPreset)` 由 Host 优先调用官方 `thread/settings/update` 落实到
+已加载的 Thread；未加载或旧 App Server 可回退到 resume，但返回策略不匹配时必须再次设置成功，
+否则返回错误，不得假报切换成功。该内部调用只含固定映射后的审批、sandbox 和已允许的 model，
+不扩大 Remote method allowlist。另一连接持有 active writer 时拒绝权限切换；成功后同步同 Thread
+观察者，并在后续只读 History 中回显。
+
 CodeX 虚拟 Session 接受文本，以及 Desktop Composer 从剪贴板或 Android 系统图片选择器产生的
 PNG、JPEG、WebP、GIF 图片 Prompt。
 Client 只能把原生 `{ type: "image", mediaType, data }` 转为 CodeX 领域的同形受限 input，并在存在
