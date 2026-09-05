@@ -12,6 +12,22 @@
       "path": "control/hello.json"
     },
     {
+      "name": "control-connect",
+      "path": "control/connect.json"
+    },
+    {
+      "name": "control-relay",
+      "path": "control/relay.json"
+    },
+    {
+      "name": "protocol-errors",
+      "path": "control/errors.json"
+    },
+    {
+      "name": "control-limits",
+      "path": "control/limits.json"
+    },
+    {
       "name": "capability-negotiation",
       "path": "negotiation/capabilities.json"
     },

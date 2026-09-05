@@ -6,8 +6,11 @@ import {
   deviceRefreshRequestSchema,
   deviceRegistrationRequestSchema,
   deviceTokenPairSchema,
+  decodeControlFrame,
+  encodeControlFrame,
   hostRegistrationCodeRequestSchema,
   parseControlFrame,
+  rpcErrorPayloadSchema,
   selectCapabilities,
   selectProtocolVersion,
 } from '../src/index.js'
@@ -41,6 +44,15 @@ function executeFixture(testCase: ProtocolFixtureCase): unknown {
   if (testCase.operation === 'parseBrowserAuthorizationExchangeResponse') {
     return browserAuthorizationExchangeResponseSchema.parse(testCase.input)
   }
+  if (testCase.operation === 'parseRpcErrorPayload') return rpcErrorPayloadSchema.parse(testCase.input)
+  if (testCase.operation === 'encodeControlFrameWithLimits') {
+    const input = fixtureInput(testCase)
+    return encodeControlFrame(parseControlFrame(input.frame), controlFrameLimits(input))
+  }
+  if (testCase.operation === 'decodeControlFrameWithLimits') {
+    const input = fixtureInput(testCase)
+    return decodeControlFrame(requiredString(input.data, 'data'), controlFrameLimits(input))
+  }
   if (testCase.operation === 'selectProtocolVersion') {
     return selectProtocolVersion(numberList(input.offered, 'offered'), numberList(input.supported, 'supported'))
   }
@@ -49,6 +61,13 @@ function executeFixture(testCase: ProtocolFixtureCase): unknown {
   }
   const negotiated = 'negotiated' in input ? stringList(input.negotiated, 'negotiated') : undefined
   return acceptNegotiatedCapabilities(stringList(input.offered, 'offered'), negotiated)
+}
+
+function controlFrameLimits(input: Record<string, unknown>) {
+  const rawLimits = record(input.limits, 'limits')
+  const maxControlFrameBytes = optionalNumber(rawLimits.maxControlFrameBytes, 'maxControlFrameBytes')
+  const maxRelayFrameBytes = optionalNumber(rawLimits.maxRelayFrameBytes, 'maxRelayFrameBytes')
+  return { maxControlFrameBytes, maxRelayFrameBytes }
 }
 
 function fixtureInput(testCase: ProtocolFixtureCase): Record<string, unknown> {
@@ -70,4 +89,21 @@ function stringList(value: unknown, name: string): string[] {
     throw new Error(`Fixture ${name} must be a string array.`)
   }
   return value
+}
+
+function record(value: unknown, name: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`Fixture ${name} must be an object.`)
+  }
+  return value as Record<string, unknown>
+}
+
+function optionalNumber(value: unknown, name: string): number | undefined {
+  if (value === undefined || typeof value === 'number') return value
+  throw new Error(`Fixture ${name} must be a number.`)
+}
+
+function requiredString(value: unknown, name: string): string {
+  if (typeof value === 'string') return value
+  throw new Error(`Fixture ${name} must be a string.`)
 }

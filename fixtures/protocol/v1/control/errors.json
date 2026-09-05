@@ -1,0 +1,164 @@
+{
+  "name": "protocol-errors",
+  "cases": [
+    {
+      "name": "accept-control-error",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc2-0001-7abc-8123-123456789abc",
+        "type": "error",
+        "timestamp": 1786000000000,
+        "payload": {
+          "code": "CONNECTION_REPLACED",
+          "message": "The connection was replaced.",
+          "retryable": true,
+          "connectionId": "0198abc2-1001-7abc-8123-123456789abc"
+        }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "accept-control-error-with-required-fields",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc2-0002-7abc-8123-123456789abc",
+        "type": "error",
+        "timestamp": 1786000000000,
+        "payload": {
+          "code": "HOST_OFFLINE",
+          "message": "The Host is offline."
+        }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "reject-control-error-with-empty-code",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc2-0003-7abc-8123-123456789abc",
+        "type": "error",
+        "timestamp": 1786000000000,
+        "payload": {
+          "code": "",
+          "message": "The operation failed."
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-control-error-with-empty-message",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc2-0004-7abc-8123-123456789abc",
+        "type": "error",
+        "timestamp": 1786000000000,
+        "payload": {
+          "code": "HOST_OFFLINE",
+          "message": ""
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-control-error-with-invalid-retryable",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc2-0005-7abc-8123-123456789abc",
+        "type": "error",
+        "timestamp": 1786000000000,
+        "payload": {
+          "code": "HOST_OFFLINE",
+          "message": "The Host is offline.",
+          "retryable": "yes"
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-control-error-with-empty-connection-id",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc2-0006-7abc-8123-123456789abc",
+        "type": "error",
+        "timestamp": 1786000000000,
+        "payload": {
+          "code": "CONNECTION_FAILED",
+          "message": "The connection failed.",
+          "connectionId": ""
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "accept-rpc-error-payload",
+      "operation": "parseRpcErrorPayload",
+      "input": {
+        "requestId": "0198abc2-2001-7abc-8123-123456789abc",
+        "code": "RATE_LIMITED",
+        "message": "Try again later.",
+        "retryable": true,
+        "details": {
+          "retryAfterMs": 1000
+        }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "accept-rpc-error-payload-with-required-fields",
+      "operation": "parseRpcErrorPayload",
+      "input": {
+        "requestId": "0198abc2-2002-7abc-8123-123456789abc",
+        "code": "METHOD_NOT_ALLOWED",
+        "message": "The method is not allowed."
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "reject-rpc-error-with-empty-request-id",
+      "operation": "parseRpcErrorPayload",
+      "input": {
+        "requestId": "",
+        "code": "RPC_TIMEOUT",
+        "message": "The request timed out."
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-rpc-error-with-empty-code",
+      "operation": "parseRpcErrorPayload",
+      "input": {
+        "requestId": "0198abc2-2003-7abc-8123-123456789abc",
+        "code": "",
+        "message": "The request failed."
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-rpc-error-with-empty-message",
+      "operation": "parseRpcErrorPayload",
+      "input": {
+        "requestId": "0198abc2-2004-7abc-8123-123456789abc",
+        "code": "INTERNAL_ERROR",
+        "message": ""
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-rpc-error-with-invalid-retryable",
+      "operation": "parseRpcErrorPayload",
+      "input": {
+        "requestId": "0198abc2-2005-7abc-8123-123456789abc",
+        "code": "RPC_TIMEOUT",
+        "message": "The request timed out.",
+        "retryable": 1
+      },
+      "expect": { "accepted": false }
+    }
+  ]
+}
