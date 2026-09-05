@@ -1,0 +1,124 @@
+{
+  "name": "control-relay",
+  "cases": [
+    {
+      "name": "accept-relay-with-zero-counter",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc1-0001-7abc-8123-123456789abc",
+        "type": "relay",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc1-1001-7abc-8123-123456789abc",
+          "targetDeviceId": "0198abc1-2001-7abc-8123-123456789abc",
+          "counter": 0,
+          "ciphertext": "AQIDBA"
+        }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "accept-relay-with-maximum-safe-counter",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc1-0002-7abc-8123-123456789abc",
+        "type": "relay",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc1-1001-7abc-8123-123456789abc",
+          "targetDeviceId": "0198abc1-2001-7abc-8123-123456789abc",
+          "counter": 9007199254740991,
+          "ciphertext": "AQIDBA"
+        }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "reject-relay-with-negative-counter",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc1-0003-7abc-8123-123456789abc",
+        "type": "relay",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc1-1001-7abc-8123-123456789abc",
+          "targetDeviceId": "0198abc1-2001-7abc-8123-123456789abc",
+          "counter": -1,
+          "ciphertext": "AQIDBA"
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-relay-with-fractional-counter",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc1-0004-7abc-8123-123456789abc",
+        "type": "relay",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc1-1001-7abc-8123-123456789abc",
+          "targetDeviceId": "0198abc1-2001-7abc-8123-123456789abc",
+          "counter": 1.5,
+          "ciphertext": "AQIDBA"
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-relay-with-unsafe-counter",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc1-0005-7abc-8123-123456789abc",
+        "type": "relay",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc1-1001-7abc-8123-123456789abc",
+          "targetDeviceId": "0198abc1-2001-7abc-8123-123456789abc",
+          "counter": 9007199254740992,
+          "ciphertext": "AQIDBA"
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-relay-with-empty-target-device",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc1-0006-7abc-8123-123456789abc",
+        "type": "relay",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc1-1001-7abc-8123-123456789abc",
+          "targetDeviceId": "",
+          "counter": 1,
+          "ciphertext": "AQIDBA"
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-relay-with-empty-ciphertext",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc1-0007-7abc-8123-123456789abc",
+        "type": "relay",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc1-1001-7abc-8123-123456789abc",
+          "targetDeviceId": "0198abc1-2001-7abc-8123-123456789abc",
+          "counter": 1,
+          "ciphertext": ""
+        }
+      },
+      "expect": { "accepted": false }
+    }
+  ]
+}

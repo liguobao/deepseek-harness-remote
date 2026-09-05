@@ -1,0 +1,172 @@
+{
+  "name": "control-limits",
+  "cases": [
+    {
+      "name": "accept-control-frame-with-negotiated-limit",
+      "operation": "encodeControlFrameWithLimits",
+      "input": {
+        "frame": {
+          "v": 1,
+          "id": "0198abc3-0001-7abc-8123-123456789abc",
+          "type": "ping",
+          "timestamp": 1786000000000,
+          "payload": { "nonce": "fixture-nonce" }
+        },
+        "limits": { "maxControlFrameBytes": 512 }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "accept-decoded-control-frame-with-negotiated-limit",
+      "operation": "decodeControlFrameWithLimits",
+      "input": {
+        "data": "{\"v\":1,\"id\":\"0198abc3-0010-7abc-8123-123456789abc\",\"type\":\"ping\",\"timestamp\":1786000000000,\"payload\":{\"nonce\":\"fixture-nonce\"}}",
+        "limits": { "maxControlFrameBytes": 512 }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "reject-encoded-control-frame-above-negotiated-limit",
+      "operation": "encodeControlFrameWithLimits",
+      "input": {
+        "frame": {
+          "v": 1,
+          "id": "0198abc3-0002-7abc-8123-123456789abc",
+          "type": "ping",
+          "timestamp": 1786000000000,
+          "payload": {
+            "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          }
+        },
+        "limits": { "maxControlFrameBytes": 128 }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-decoded-control-frame-above-negotiated-limit",
+      "operation": "decodeControlFrameWithLimits",
+      "input": {
+        "data": "{\"v\":1,\"id\":\"0198abc3-0003-7abc-8123-123456789abc\",\"type\":\"ping\",\"timestamp\":1786000000000,\"payload\":{\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+        "limits": { "maxControlFrameBytes": 128 }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "accept-relay-above-control-limit",
+      "operation": "encodeControlFrameWithLimits",
+      "input": {
+        "frame": {
+          "v": 1,
+          "id": "0198abc3-0004-7abc-8123-123456789abc",
+          "type": "relay",
+          "timestamp": 1786000000000,
+          "payload": {
+            "connectionId": "0198abc3-1001-7abc-8123-123456789abc",
+            "targetDeviceId": "0198abc3-2001-7abc-8123-123456789abc",
+            "counter": 1,
+            "ciphertext": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          }
+        },
+        "limits": {
+          "maxControlFrameBytes": 128,
+          "maxRelayFrameBytes": 512
+        }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "accept-decoded-relay-above-control-limit",
+      "operation": "decodeControlFrameWithLimits",
+      "input": {
+        "data": "{\"v\":1,\"id\":\"0198abc3-0011-7abc-8123-123456789abc\",\"type\":\"relay\",\"timestamp\":1786000000000,\"payload\":{\"connectionId\":\"0198abc3-1001-7abc-8123-123456789abc\",\"targetDeviceId\":\"0198abc3-2001-7abc-8123-123456789abc\",\"counter\":1,\"ciphertext\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+        "limits": {
+          "maxControlFrameBytes": 128,
+          "maxRelayFrameBytes": 512
+        }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "reject-encoded-relay-above-negotiated-limit",
+      "operation": "encodeControlFrameWithLimits",
+      "input": {
+        "frame": {
+          "v": 1,
+          "id": "0198abc3-0005-7abc-8123-123456789abc",
+          "type": "relay",
+          "timestamp": 1786000000000,
+          "payload": {
+            "connectionId": "0198abc3-1001-7abc-8123-123456789abc",
+            "targetDeviceId": "0198abc3-2001-7abc-8123-123456789abc",
+            "counter": 1,
+            "ciphertext": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          }
+        },
+        "limits": { "maxRelayFrameBytes": 128 }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-decoded-relay-above-negotiated-limit",
+      "operation": "decodeControlFrameWithLimits",
+      "input": {
+        "data": "{\"v\":1,\"id\":\"0198abc3-0006-7abc-8123-123456789abc\",\"type\":\"relay\",\"timestamp\":1786000000000,\"payload\":{\"connectionId\":\"0198abc3-1001-7abc-8123-123456789abc\",\"targetDeviceId\":\"0198abc3-2001-7abc-8123-123456789abc\",\"counter\":1,\"ciphertext\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}",
+        "limits": { "maxRelayFrameBytes": 128 }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-zero-control-frame-limit",
+      "operation": "encodeControlFrameWithLimits",
+      "input": {
+        "frame": {
+          "v": 1,
+          "id": "0198abc3-0007-7abc-8123-123456789abc",
+          "type": "ping",
+          "timestamp": 1786000000000,
+          "payload": { "nonce": "fixture-nonce" }
+        },
+        "limits": { "maxControlFrameBytes": 0 }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-hello-ack-above-control-protocol-limit",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc3-0008-7abc-8123-123456789abc",
+        "type": "hello.ack",
+        "timestamp": 1786000000000,
+        "payload": {
+          "protocol": 1,
+          "serverVersion": "1.0.0",
+          "connectionSessionId": "0198abc3-3001-7abc-8123-123456789abc",
+          "heartbeatIntervalMs": 25000,
+          "maxControlFrameBytes": 65537,
+          "maxRelayFrameBytes": 1048576
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-hello-ack-above-relay-protocol-limit",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc3-0009-7abc-8123-123456789abc",
+        "type": "hello.ack",
+        "timestamp": 1786000000000,
+        "payload": {
+          "protocol": 1,
+          "serverVersion": "1.0.0",
+          "connectionSessionId": "0198abc3-3002-7abc-8123-123456789abc",
+          "heartbeatIntervalMs": 25000,
+          "maxControlFrameBytes": 65536,
+          "maxRelayFrameBytes": 1048577
+        }
+      },
+      "expect": { "accepted": false }
+    }
+  ]
+}

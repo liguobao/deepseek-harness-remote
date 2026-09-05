@@ -11,6 +11,9 @@ export type FixtureOperation =
   | 'parseDeviceTokenPair'
   | 'parseBrowserAuthorizationExchangeRequest'
   | 'parseBrowserAuthorizationExchangeResponse'
+  | 'parseRpcErrorPayload'
+  | 'encodeControlFrameWithLimits'
+  | 'decodeControlFrameWithLimits'
 
 export interface ProtocolFixtureCase {
   name: string
@@ -44,6 +47,9 @@ const operations = new Set<FixtureOperation>([
   'parseDeviceTokenPair',
   'parseBrowserAuthorizationExchangeRequest',
   'parseBrowserAuthorizationExchangeResponse',
+  'parseRpcErrorPayload',
+  'encodeControlFrameWithLimits',
+  'decodeControlFrameWithLimits',
 ])
 
 export async function loadProtocolFixtures(): Promise<ProtocolFixtureSuite[]> {

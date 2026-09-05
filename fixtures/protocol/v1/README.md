@@ -26,6 +26,9 @@ Fixture files must remain valid JSON. Do not use comments or language-specific n
 - `parseDeviceTokenPair` validates device access and refresh credentials.
 - `parseBrowserAuthorizationExchangeRequest` validates a Browser credential exchange request.
 - `parseBrowserAuthorizationExchangeResponse` validates Browser device credentials and account data.
+- `parseRpcErrorPayload` validates one Remote RPC error payload.
+- `encodeControlFrameWithLimits` validates and encodes a Control frame with negotiated limits.
+- `decodeControlFrameWithLimits` decodes a Control frame with negotiated limits.
 
 `selected: null` represents no common protocol version.
 

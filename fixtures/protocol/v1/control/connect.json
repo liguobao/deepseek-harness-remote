@@ -1,0 +1,161 @@
+{
+  "name": "control-connect",
+  "cases": [
+    {
+      "name": "accept-connect-request",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc0-0001-7abc-8123-123456789abc",
+        "type": "connect.request",
+        "timestamp": 1786000000000,
+        "payload": {
+          "hostDeviceId": "0198abc0-1001-7abc-8123-123456789abc",
+          "preferredTransports": ["lan", "p2p", "turn", "relay"]
+        }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "reject-connect-request-with-empty-host-id",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc0-0002-7abc-8123-123456789abc",
+        "type": "connect.request",
+        "timestamp": 1786000000000,
+        "payload": {
+          "hostDeviceId": "",
+          "preferredTransports": ["relay"]
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-connect-request-with-empty-transports",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc0-0003-7abc-8123-123456789abc",
+        "type": "connect.request",
+        "timestamp": 1786000000000,
+        "payload": {
+          "hostDeviceId": "0198abc0-1001-7abc-8123-123456789abc",
+          "preferredTransports": []
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-connect-request-with-unknown-transport",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc0-0004-7abc-8123-123456789abc",
+        "type": "connect.request",
+        "timestamp": 1786000000000,
+        "payload": {
+          "hostDeviceId": "0198abc0-1001-7abc-8123-123456789abc",
+          "preferredTransports": ["udp"]
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "accept-connect-incoming",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc0-0005-7abc-8123-123456789abc",
+        "type": "connect.incoming",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc0-2001-7abc-8123-123456789abc",
+          "clientDeviceId": "0198abc0-3001-7abc-8123-123456789abc",
+          "clientIdentityKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "authorization": "account",
+          "preferredTransports": ["p2p", "turn", "relay"]
+        }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "reject-connect-incoming-with-invalid-authorization",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc0-0006-7abc-8123-123456789abc",
+        "type": "connect.incoming",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc0-2001-7abc-8123-123456789abc",
+          "clientDeviceId": "0198abc0-3001-7abc-8123-123456789abc",
+          "clientIdentityKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "authorization": "device",
+          "preferredTransports": ["relay"]
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-connect-incoming-with-empty-identity-key",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc0-0007-7abc-8123-123456789abc",
+        "type": "connect.incoming",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc0-2001-7abc-8123-123456789abc",
+          "clientDeviceId": "0198abc0-3001-7abc-8123-123456789abc",
+          "clientIdentityKey": "",
+          "authorization": "account",
+          "preferredTransports": ["relay"]
+        }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "accept-connect-accepted",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc0-0008-7abc-8123-123456789abc",
+        "type": "connect.accepted",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc0-2001-7abc-8123-123456789abc"
+        }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "accept-connect-rejected-with-error",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc0-0009-7abc-8123-123456789abc",
+        "type": "connect.rejected",
+        "timestamp": 1786000000000,
+        "payload": {
+          "connectionId": "0198abc0-2001-7abc-8123-123456789abc",
+          "code": "HOST_OFFLINE",
+          "message": "The Host is offline."
+        }
+      },
+      "expect": { "accepted": true }
+    },
+    {
+      "name": "reject-connect-result-without-connection-id",
+      "operation": "parseControlFrame",
+      "input": {
+        "v": 1,
+        "id": "0198abc0-0010-7abc-8123-123456789abc",
+        "type": "connect.accepted",
+        "timestamp": 1786000000000,
+        "payload": {}
+      },
+      "expect": { "accepted": false }
+    }
+  ]
+}
