@@ -32,8 +32,7 @@ export class ServerApi {
     })
     const parsed = browserAuthorizationExchangeResponseSchema.safeParse(value)
     if (!parsed.success) throw new Error('Server returned an invalid browser authorization.')
-    const body = parsed.data
-    return { serverUrl: this.baseUrl, deviceId: identity.deviceId, account: body.account, ...tokenPair(body) }
+    return { serverUrl: this.baseUrl, deviceId: identity.deviceId, ...parsed.data }
   }
 
   async refresh(deviceId: string, refreshToken: string, account: string): Promise<Credentials> {
