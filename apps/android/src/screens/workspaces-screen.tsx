@@ -8,7 +8,7 @@ import { radius, spacing, type } from '../ui/theme'
 import { useTheme, type ThemeColors } from '../ui/theme-context'
 import { useThemedStyles } from '../ui/use-themed-styles'
 import { strings as zhCN } from '../locales/i18n'
-import { loadCollapsedWorkspaceIds, saveCollapsedWorkspaceIds } from '../services/storage'
+import { loadCollapsedWorkspaceIds, loadWorkspaceBackend, saveCollapsedWorkspaceIds, saveWorkspaceBackend } from '../services/storage'
 import { resolveSessionDisplayTitle } from './session-title'
 
 export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
@@ -45,11 +45,20 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
     setSearchQuery('')
     setCollapsedWorkspaceIds(new Set())
     if (deviceId === undefined) return () => { cancelled = true }
+    void loadWorkspaceBackend(deviceId).then(backend => {
+      if (!cancelled && backend !== undefined && (backend !== 'codex' || codexAvailable)) setActiveBackend(backend)
+    })
     void loadCollapsedWorkspaceIds(deviceId).then(workspaceIds => {
       if (!cancelled) setCollapsedWorkspaceIds(new Set(workspaceIds))
     })
     return () => { cancelled = true }
   }, [selectedDevice?.deviceId])
+
+  const selectBackend = (backend: 'harness' | 'codex') => {
+    setActiveBackend(backend)
+    const deviceId = selectedDevice?.deviceId
+    if (deviceId !== undefined) void saveWorkspaceBackend(deviceId, backend)
+  }
 
   useEffect(() => {
     if (!codexAvailable) setActiveBackend('harness')
@@ -143,7 +152,7 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
           <Pressable
             accessibilityRole="tab"
             accessibilityState={{ selected: activeBackend === 'harness' }}
-            onPress={() => setActiveBackend('harness')}
+            onPress={() => selectBackend('harness')}
             style={({ pressed }) => [
               styles.backendTab,
               activeBackend === 'harness' && styles.backendTabActive,
@@ -155,7 +164,7 @@ export function WorkspacesScreen({ onBack, onSession, onDeviceInfo }: {
           <Pressable
             accessibilityRole="tab"
             accessibilityState={{ selected: activeBackend === 'codex' }}
-            onPress={() => setActiveBackend('codex')}
+            onPress={() => selectBackend('codex')}
             style={({ pressed }) => [
               styles.backendTab,
               activeBackend === 'codex' && styles.backendTabActive,

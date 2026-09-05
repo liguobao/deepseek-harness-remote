@@ -631,9 +631,6 @@ function ModelPicker({ visible, models, onClose, onPick }: {
                         >
                           <View style={styles.modelOptionCopy}>
                             <Text style={styles.modelOptionName} numberOfLines={1}>{model.name}</Text>
-                            {model.description !== undefined && (
-                              <Text style={styles.modelOptionDescription} numberOfLines={2}>{model.description}</Text>
-                            )}
                           </View>
                           {current && <Check size={16} color={colors.primary} />}
                           {hasEfforts && <ChevronRight size={16} color={colors.muted} />}
@@ -648,8 +645,6 @@ function ModelPicker({ visible, models, onClose, onPick }: {
               </>
             ) : (
               <>
-                <Text style={styles.effortProviderName}>{effortTarget.group.name}</Text>
-                <Text style={styles.effortModelName}>{effortTarget.model.name}</Text>
                 {effortTarget.model.reasoning?.efforts.map(effort => {
                   const current = selectedEffort === effort.id
                   return (
@@ -1020,9 +1015,6 @@ function createStyles(colors: ThemeColors) {
   modelOptionCurrent: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   modelOptionCopy: { minWidth: 0, flex: 1 },
   modelOptionName: { ...type.small, color: colors.ink },
-  modelOptionDescription: { ...type.caption, color: colors.muted, marginTop: 2 },
-  effortProviderName: { ...type.caption, color: colors.muted, textTransform: 'uppercase', marginBottom: spacing.xs },
-  effortModelName: { ...type.heading, color: colors.ink, marginBottom: spacing.md },
   permissionOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surface, marginBottom: spacing.xs },
   permissionOptionCopy: { flex: 1 },
   permissionOptionName: { ...type.small, color: colors.ink },

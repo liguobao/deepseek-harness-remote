@@ -16,6 +16,7 @@ const KEYS = {
   languagePreference: 'dshremote.language-preference.v1',
   themePreference: 'dshremote.theme-preference.v1',
   collapsedWorkspaces: 'dshremote.collapsed-workspaces.v1',
+  workspaceBackends: 'dshremote.workspace-backends.v1',
   codexPermissionPresets: 'dshremote.codex-permission-presets.v1',
 } as const
 
@@ -128,6 +129,24 @@ export function saveCollapsedWorkspaceIds(deviceId: string, workspaceIds: readon
     await writeJson(KEYS.collapsedWorkspaces, { byDevice })
   })
   return collapsedWorkspacesWrite
+}
+
+export async function loadWorkspaceBackend(deviceId: string): Promise<'harness' | 'codex' | undefined> {
+  const stored = await readJson<{ byDevice?: Record<string, unknown> }>(KEYS.workspaceBackends)
+  const value = stored?.byDevice?.[deviceId]
+  return value === 'harness' || value === 'codex' ? value : undefined
+}
+
+let workspaceBackendsWrite = Promise.resolve()
+
+export function saveWorkspaceBackend(deviceId: string, backend: 'harness' | 'codex'): Promise<void> {
+  workspaceBackendsWrite = workspaceBackendsWrite.catch(() => undefined).then(async () => {
+    const stored = await readJson<{ byDevice?: Record<string, unknown> }>(KEYS.workspaceBackends)
+    await writeJson(KEYS.workspaceBackends, {
+      byDevice: { ...stored?.byDevice, [deviceId]: backend },
+    })
+  })
+  return workspaceBackendsWrite
 }
 
 export async function loadCodexPermissionPresets(hostDeviceId: string): Promise<Record<string, CodexPermissionPreset>> {
