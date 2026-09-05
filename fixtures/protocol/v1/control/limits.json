@@ -52,6 +52,33 @@
       "expect": { "accepted": false }
     },
     {
+      "name": "reject-encoded-control-frame-above-utf8-byte-limit",
+      "operation": "encodeControlFrameWithLimits",
+      "input": {
+        "frame": {
+          "v": 1,
+          "id": "0198abc3-0012-7abc-8123-123456789abc",
+          "type": "error",
+          "timestamp": 1786000000000,
+          "payload": {
+            "code": "INVALID_FRAME",
+            "message": "界界界界界界界界界界界界界界界界界界界界"
+          }
+        },
+        "limits": { "maxControlFrameBytes": 180 }
+      },
+      "expect": { "accepted": false }
+    },
+    {
+      "name": "reject-decoded-control-frame-above-utf8-byte-limit",
+      "operation": "decodeControlFrameWithLimits",
+      "input": {
+        "data": "{\"v\":1,\"id\":\"0198abc3-0013-7abc-8123-123456789abc\",\"type\":\"error\",\"timestamp\":1786000000000,\"payload\":{\"code\":\"INVALID_FRAME\",\"message\":\"界界界界界界界界界界界界界界界界界界界界\"}}",
+        "limits": { "maxControlFrameBytes": 180 }
+      },
+      "expect": { "accepted": false }
+    },
+    {
       "name": "accept-relay-above-control-limit",
       "operation": "encodeControlFrameWithLimits",
       "input": {
