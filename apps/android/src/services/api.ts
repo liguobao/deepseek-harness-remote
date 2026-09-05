@@ -1,4 +1,5 @@
 import appConfig from '../../app.json'
+import { deviceTokenPairSchema, type DeviceTokenPair as TokenPair } from '@dsh-remote/protocol'
 import { RemoteApiError } from '../lib/errors'
 import { normalizeServerUrl } from '../lib/server-url'
 import type {
@@ -44,7 +45,6 @@ export interface RtcIceServer {
   credential?: string
 }
 
-type TokenPair = Omit<DeviceCredentials, 'serverUrl' | 'deviceId' | 'authorizationMethod' | 'account'>
 type FetchImplementation = typeof fetch
 
 export class RemoteServerApi {
@@ -235,19 +235,9 @@ export class RemoteServerApi {
 export const ANDROID_CLIENT_VERSION = appConfig.expo.version
 
 function parseTokenPair(input: unknown): TokenPair {
-  if (!isRecord(input)
-    || typeof input.accessToken !== 'string' || input.accessToken.length < 16
-    || typeof input.refreshToken !== 'string' || input.refreshToken.length < 16
-    || typeof input.accessTokenExpiresAt !== 'number' || !Number.isSafeInteger(input.accessTokenExpiresAt)
-    || typeof input.refreshTokenExpiresAt !== 'number' || !Number.isSafeInteger(input.refreshTokenExpiresAt)) {
-    invalidResponse('device credentials')
-  }
-  return {
-    accessToken: input.accessToken,
-    accessTokenExpiresAt: input.accessTokenExpiresAt,
-    refreshToken: input.refreshToken,
-    refreshTokenExpiresAt: input.refreshTokenExpiresAt,
-  }
+  const parsed = deviceTokenPairSchema.safeParse(input)
+  if (!parsed.success) invalidResponse('device credentials')
+  return parsed.data
 }
 
 function parseHostDevice(input: unknown): RemoteDevice[] {

@@ -4055,6 +4055,10 @@ var HARNESS_API_TRANSFER_CHUNK_BYTES = 512 * 1024;
 var CODEX_APP_TRANSFER_CHUNK_BYTES = 512 * 1024;
 var MAX_HARNESS_API_TRANSFER_BYTES = 288 * 1024 * 1024;
 var MAX_CODEX_APP_TRANSFER_BYTES = 288 * 1024 * 1024;
+var MAX_DEVICE_NAME_LENGTH = 128;
+var MAX_DEVICE_PLATFORM_LENGTH = 64;
+var MAX_DEVICE_VERSION_LENGTH = 64;
+var MAX_AUTH_TOKEN_LENGTH = 8 * 1024;
 var SECURE_FRAGMENT_MAGIC = new Uint8Array([68, 83, 72, 70]);
 var SECURE_FRAGMENT_VERSION = 1;
 var SECURE_FRAGMENT_HEADER_BYTES = 17;
@@ -4138,6 +4142,73 @@ var messageTypeSchema = external_exports.enum(messageTypes);
 var controlFrameTypeSchema = external_exports.enum(controlFrameTypes);
 var uniqueStrings = (values) => new Set(values).size === values.length;
 var uniqueNumbers = (values) => new Set(values).size === values.length;
+var utf8Length = (value) => new TextEncoder().encode(value).byteLength;
+var boundedUtf8Schema = (minimum, maximum) => external_exports.string().refine((value) => utf8Length(value) >= minimum && utf8Length(value) <= maximum);
+var deviceIdSchema = external_exports.string().refine((value) => /^[0-9A-HJKMNP-TV-Z]{26}$/iu.test(value) || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value), "Device ID must be a ULID or UUID.");
+var deviceNameSchema = boundedUtf8Schema(1, MAX_DEVICE_NAME_LENGTH).refine((value) => value.trim().length > 0, "Device name must contain visible text.");
+var devicePlatformSchema = external_exports.string().min(1).max(MAX_DEVICE_PLATFORM_LENGTH).regex(/^[a-z0-9][a-z0-9._-]*$/u);
+var identityKeySchema = external_exports.string().regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u);
+var deviceVersionSchema = boundedUtf8Schema(1, MAX_DEVICE_VERSION_LENGTH);
+var authTokenSchema = boundedUtf8Schema(16, MAX_AUTH_TOKEN_LENGTH);
+var expiresAtSchema = external_exports.number().int().positive().safe();
+var hostDeviceDescriptorSchema = external_exports.object({
+  deviceId: deviceIdSchema,
+  name: deviceNameSchema,
+  role: external_exports.literal("host"),
+  platform: devicePlatformSchema,
+  identityKey: identityKeySchema,
+  clientVersion: deviceVersionSchema,
+  harnessVersion: deviceVersionSchema.optional()
+}).strict();
+var clientDeviceDescriptorSchema = external_exports.object({
+  deviceId: deviceIdSchema,
+  name: deviceNameSchema,
+  role: external_exports.literal("client"),
+  platform: devicePlatformSchema,
+  identityKey: identityKeySchema,
+  clientVersion: deviceVersionSchema
+}).strict();
+var accountDeviceDescriptorSchema = external_exports.union([
+  hostDeviceDescriptorSchema,
+  clientDeviceDescriptorSchema
+]);
+var deviceRegistrationRequestSchema = external_exports.object({
+  v: external_exports.literal(PROTOCOL_VERSION),
+  device: accountDeviceDescriptorSchema
+}).strict();
+var hostRegistrationCodeRequestSchema = external_exports.object({
+  v: external_exports.literal(PROTOCOL_VERSION),
+  code: external_exports.string().regex(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/u),
+  device: hostDeviceDescriptorSchema
+}).strict();
+var deviceRefreshRequestSchema = external_exports.object({
+  deviceId: deviceIdSchema,
+  refreshToken: authTokenSchema
+}).strict();
+var deviceTokenPairSchema = external_exports.object({
+  accessToken: authTokenSchema,
+  accessTokenExpiresAt: expiresAtSchema,
+  refreshToken: authTokenSchema,
+  refreshTokenExpiresAt: expiresAtSchema
+}).strict();
+var browserAuthorizationExchangeRequestSchema = external_exports.object({
+  v: external_exports.literal(PROTOCOL_VERSION),
+  device: external_exports.object({
+    deviceId: deviceIdSchema,
+    name: deviceNameSchema,
+    role: external_exports.literal("client"),
+    platform: external_exports.literal("browser"),
+    identityKey: identityKeySchema,
+    clientVersion: deviceVersionSchema
+  }).strict()
+}).strict();
+var browserAuthorizationExchangeResponseSchema = external_exports.object({
+  accessToken: authTokenSchema,
+  accessTokenExpiresAt: expiresAtSchema,
+  refreshToken: authTokenSchema,
+  refreshTokenExpiresAt: expiresAtSchema,
+  account: boundedUtf8Schema(1, 254).refine((value) => value.trim().length > 0)
+}).strict();
 var remoteMessageSchema = external_exports.object({
   v: external_exports.literal(PROTOCOL_VERSION),
   id: external_exports.string().min(1),
@@ -17226,10 +17297,11 @@ var ServerApiError = class extends Error {
   }
 };
 function validateTokens(value) {
-  if (typeof value.accessToken !== "string" || value.accessToken.length < 16 || typeof value.refreshToken !== "string" || value.refreshToken.length < 16 || !Number.isSafeInteger(value.accessTokenExpiresAt) || !Number.isSafeInteger(value.refreshTokenExpiresAt)) {
+  const parsed = deviceTokenPairSchema.safeParse(value);
+  if (!parsed.success) {
     throw new ServerApiError("INVALID_MESSAGE", "The Server returned invalid device credentials.", false);
   }
-  return value;
+  return parsed.data;
 }
 function validateWebLogin(value) {
   const item = requireRecord(value, "account login");

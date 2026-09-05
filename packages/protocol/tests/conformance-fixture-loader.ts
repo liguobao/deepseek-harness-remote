@@ -5,6 +5,12 @@ export type FixtureOperation =
   | 'selectProtocolVersion'
   | 'selectCapabilities'
   | 'acceptNegotiatedCapabilities'
+  | 'parseDeviceRegistrationRequest'
+  | 'parseHostRegistrationCodeRequest'
+  | 'parseDeviceRefreshRequest'
+  | 'parseDeviceTokenPair'
+  | 'parseBrowserAuthorizationExchangeRequest'
+  | 'parseBrowserAuthorizationExchangeResponse'
 
 export interface ProtocolFixtureCase {
   name: string
@@ -32,6 +38,12 @@ const operations = new Set<FixtureOperation>([
   'selectProtocolVersion',
   'selectCapabilities',
   'acceptNegotiatedCapabilities',
+  'parseDeviceRegistrationRequest',
+  'parseHostRegistrationCodeRequest',
+  'parseDeviceRefreshRequest',
+  'parseDeviceTokenPair',
+  'parseBrowserAuthorizationExchangeRequest',
+  'parseBrowserAuthorizationExchangeResponse',
 ])
 
 export async function loadProtocolFixtures(): Promise<ProtocolFixtureSuite[]> {

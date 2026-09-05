@@ -194,6 +194,9 @@ importers:
       '@dsh-remote/crypto':
         specifier: workspace:*
         version: link:../../packages/crypto
+      '@dsh-remote/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       lucide:
         specifier: ^0.469.0
         version: 0.469.0
@@ -207,6 +210,9 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)(terser@5.50.0)
 
   apps/vscode:
     dependencies:

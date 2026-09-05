@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   acceptNegotiatedCapabilities,
+  browserAuthorizationExchangeRequestSchema,
+  browserAuthorizationExchangeResponseSchema,
+  deviceRefreshRequestSchema,
+  deviceRegistrationRequestSchema,
+  deviceTokenPairSchema,
+  hostRegistrationCodeRequestSchema,
   parseControlFrame,
   selectCapabilities,
   selectProtocolVersion,
@@ -25,6 +31,16 @@ describe.each(suites)('$name conformance fixtures', suite => {
 function executeFixture(testCase: ProtocolFixtureCase): unknown {
   const input = fixtureInput(testCase)
   if (testCase.operation === 'parseControlFrame') return parseControlFrame(testCase.input)
+  if (testCase.operation === 'parseDeviceRegistrationRequest') return deviceRegistrationRequestSchema.parse(testCase.input)
+  if (testCase.operation === 'parseHostRegistrationCodeRequest') return hostRegistrationCodeRequestSchema.parse(testCase.input)
+  if (testCase.operation === 'parseDeviceRefreshRequest') return deviceRefreshRequestSchema.parse(testCase.input)
+  if (testCase.operation === 'parseDeviceTokenPair') return deviceTokenPairSchema.parse(testCase.input)
+  if (testCase.operation === 'parseBrowserAuthorizationExchangeRequest') {
+    return browserAuthorizationExchangeRequestSchema.parse(testCase.input)
+  }
+  if (testCase.operation === 'parseBrowserAuthorizationExchangeResponse') {
+    return browserAuthorizationExchangeResponseSchema.parse(testCase.input)
+  }
   if (testCase.operation === 'selectProtocolVersion') {
     return selectProtocolVersion(numberList(input.offered, 'offered'), numberList(input.supported, 'supported'))
   }

@@ -20,6 +20,12 @@ Fixture files must remain valid JSON. Do not use comments or language-specific n
 - `selectProtocolVersion` selects the highest common protocol version.
 - `selectCapabilities` selects supported capabilities in supported-list order.
 - `acceptNegotiatedCapabilities` validates the Server capability selection.
+- `parseDeviceRegistrationRequest` validates an account or owned-role registration request.
+- `parseHostRegistrationCodeRequest` validates a Host registration-code request.
+- `parseDeviceRefreshRequest` validates a device token refresh request.
+- `parseDeviceTokenPair` validates device access and refresh credentials.
+- `parseBrowserAuthorizationExchangeRequest` validates a Browser credential exchange request.
+- `parseBrowserAuthorizationExchangeResponse` validates Browser device credentials and account data.
 
 `selected: null` represents no common protocol version.
 
